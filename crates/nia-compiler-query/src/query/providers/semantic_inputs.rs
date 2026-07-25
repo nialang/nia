@@ -3,29 +3,35 @@ use super::*;
 
 pub(super) struct LazyAssociatedValueResolver<'a> {
     type_store: &'a nia_ty::TypeStore,
-    visible_extensions: &'a dyn Fn() -> Arc<VisibleExtensionsValue>,
+    visible_extensions: &'a dyn Fn() -> QueryResult<Arc<VisibleExtensionsValue>>,
     cache: RefCell<Option<Arc<VisibleExtensionsValue>>>,
+    failure: RefCell<Option<QueryError>>,
 }
 
 impl<'a> LazyAssociatedValueResolver<'a> {
     pub(super) fn new(
         type_store: &'a nia_ty::TypeStore,
-        visible_extensions: &'a dyn Fn() -> Arc<VisibleExtensionsValue>,
+        visible_extensions: &'a dyn Fn() -> QueryResult<Arc<VisibleExtensionsValue>>,
     ) -> Self {
         Self {
             type_store,
             visible_extensions,
             cache: RefCell::new(None),
+            failure: RefCell::new(None),
         }
     }
 
-    fn visible_extensions(&self) -> Arc<VisibleExtensionsValue> {
+    fn visible_extensions(&self) -> Option<Arc<VisibleExtensionsValue>> {
         if let Some(visible_extensions) = self.cache.borrow().as_ref() {
-            return visible_extensions.clone();
+            return Some(visible_extensions.clone());
         }
-        let visible_extensions = (self.visible_extensions)();
+        let visible_extensions = capture_query_failure(&self.failure, (self.visible_extensions)())?;
         *self.cache.borrow_mut() = Some(visible_extensions.clone());
-        visible_extensions
+        Some(visible_extensions)
+    }
+
+    pub(super) fn take_failure(&self) -> Option<QueryError> {
+        self.failure.borrow_mut().take()
     }
 
     fn target_matches(
@@ -50,7 +56,7 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
         target: nia_value_resolve::AssociatedValueTarget,
         name: &SymbolId,
     ) -> Option<GlobalDefId> {
-        let visible_extensions = self.visible_extensions();
+        let visible_extensions = self.visible_extensions()?;
         let mut matches = Vec::new();
         for extension_target in visible_extensions.methods.targets() {
             if !Self::target_matches(self.type_store, extension_target.target_ty, target) {
@@ -74,64 +80,77 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
 pub(super) fn provide_value_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ValueResolution {
+) -> QueryResult<ValueResolution> {
     time_module_provider(db, "value_resolution", module_id, || {
-        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-        let defs = db.get(FullModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-        let graph = QueryModuleGraphLookup::new(db);
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, module_id);
-        let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
+        let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+        let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let query_failure = RefCell::new(None);
+        let program_defs = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+        };
+        let visible_extensions = || db.try_get(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
-        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+        let resolution = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(&graph),
+                graph: Some(graph.as_ref()),
             },
-            &public_surfaces,
-            &using_scope,
+            &public_surfaces.surfaces,
+            using_scope.as_ref(),
             nia_value_resolve::ValueResolveOptions::with_store(
                 Some(&associated_values),
                 Some(&symbols),
                 db.context().node_store(),
             ),
-        )
+        );
+        if let Some(error) = query_failure
+            .into_inner()
+            .or_else(|| associated_values.take_failure())
+        {
+            Err(error)
+        } else {
+            Ok(resolution)
+        }
     })
 }
 
 pub(super) fn provide_local_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> LocalResolution {
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    let values = db.get(ValueResolutionQuery(module_id));
+) -> QueryResult<LocalResolution> {
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let values = db.try_get(ValueResolutionQuery(module_id))?;
     let symbols = db.context().symbols();
     let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
-    nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
-        &active_item_tree,
-        &defs,
-        &values,
-        None,
-        &origins,
-        &symbols,
+    Ok(
+        nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
+            &active_item_tree,
+            &defs,
+            &values,
+            None,
+            &origins,
+            &symbols,
+        ),
     )
 }
 
 pub(super) fn provide_semantic_use_table(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_sema_ir::SemanticUseTable {
-    let values = db.get(ValueResolutionQuery(module_id));
-    let locals = db.get(LocalResolutionQuery(module_id));
-    let type_resolution = db.get(TypeResolutionQuery(module_id));
-    let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
+) -> QueryResult<nia_sema_ir::SemanticUseTable> {
+    let values = db.try_get(ValueResolutionQuery(module_id))?;
+    let locals = db.try_get(LocalResolutionQuery(module_id))?;
+    let type_resolution = db.try_get(TypeResolutionQuery(module_id))?;
+    let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
         &db.context().type_store,
         &active_item_tree,
@@ -140,15 +159,19 @@ pub(super) fn provide_semantic_use_table(
     let const_expr_value_resolution = if needed_const_exprs.is_empty() {
         None
     } else {
-        let defs = db.get(FullModuleDefsQuery(module_id));
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, module_id);
-        let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
+        let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let query_failure = RefCell::new(None);
+        let visible_extensions = || db.try_get(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-        let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
+        let program_defs = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+        };
         let symbols = db.context().symbols();
-        Some(
+        let resolution =
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
                 type_lowering.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
@@ -156,30 +179,38 @@ pub(super) fn provide_semantic_use_table(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&QueryModuleGraphLookup::new(db)),
+                    graph: Some(graph.as_ref()),
                 },
-                &public_surfaces,
-                &using_scope,
+                &public_surfaces.surfaces,
+                using_scope.as_ref(),
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
                     Some(&symbols),
                     db.context().node_store(),
                 ),
-            ),
-        )
+            );
+        if let Some(error) = query_failure
+            .into_inner()
+            .or_else(|| associated_values.take_failure())
+        {
+            return Err(error);
+        }
+        Some(resolution)
     };
-    semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
-        module_id,
-        node_store: db.context().node_store(),
-        type_store: &db.context().type_store,
-        active_item_tree: &active_item_tree,
-        values: &values,
-        const_expr_values: const_expr_value_resolution.as_ref(),
-        const_expr_value_ids: Some(&needed_const_exprs),
-        locals: &locals,
-        type_resolution: &type_resolution,
-        type_lowering: &type_lowering,
-    })
+    Ok(
+        semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
+            module_id,
+            node_store: db.context().node_store(),
+            type_store: &db.context().type_store,
+            active_item_tree: &active_item_tree,
+            values: &values,
+            const_expr_values: const_expr_value_resolution.as_ref(),
+            const_expr_value_ids: Some(&needed_const_exprs),
+            locals: &locals,
+            type_resolution: &type_resolution,
+            type_lowering: &type_lowering,
+        }),
+    )
 }
 
 pub(super) struct SemanticUseInputs<'a> {

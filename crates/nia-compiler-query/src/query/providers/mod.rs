@@ -337,10 +337,12 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
     pub(super) visible_trait_impls:
         fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleTraitImplsValue,
-    pub(super) value_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> ValueResolution,
-    pub(super) local_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> LocalResolution,
+    pub(super) value_resolution:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ValueResolution>,
+    pub(super) local_resolution:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<LocalResolution>,
     pub(super) semantic_use_table:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_sema_ir::SemanticUseTable>,
     pub(super) const_module: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
     pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstCheck,
     pub(super) const_array_lengths:
