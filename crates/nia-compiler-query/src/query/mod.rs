@@ -464,18 +464,32 @@ impl CompilerDatabase {
         let mut rounds = 0_u64;
         loop {
             rounds += 1;
-            if discover_executable_providers
-                && !skip_executable_discovery
-                && let crate::ProviderGraphUpdate::Changed {
+            if discover_executable_providers && !skip_executable_discovery {
+                let demands = self.executable_provider_demands();
+                emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
+                if let crate::ProviderGraphUpdate::Changed {
                     invalidates_resolved_body_facts,
                 } = self
                     .db
                     .context()
                     .loader_facts()
-                    .update_provider_demands(self.executable_provider_demands())
-            {
-                skip_executable_discovery = !invalidates_resolved_body_facts;
-                continue;
+                    .update_provider_demands(demands)
+                {
+                    nia_timing::emit_counter(
+                        format!(
+                            "compiler.executable_provider_demands.round_{rounds}.graph_changed"
+                        ),
+                        1,
+                    );
+                    nia_timing::emit_counter(
+                        format!(
+                            "compiler.executable_provider_demands.round_{rounds}.invalidates_body_facts"
+                        ),
+                        u64::from(invalidates_resolved_body_facts),
+                    );
+                    skip_executable_discovery = !invalidates_resolved_body_facts;
+                    continue;
+                }
             }
             let output = compile(self);
             match self
@@ -567,6 +581,30 @@ impl CompilerDatabase {
         }
         invalidation
     }
+}
+
+fn emit_provider_demand_batch(timings: TimingMode, round: u64, demands: &[crate::ProviderDemand]) {
+    if !timings.enabled() {
+        return;
+    }
+    let mut methods = 0_u64;
+    let mut trait_impls = 0_u64;
+    let mut module_semantics = 0_u64;
+    let mut module_bodies = 0_u64;
+    for demand in demands {
+        match demand.request {
+            crate::ProviderRequest::Method { .. } => methods += 1,
+            crate::ProviderRequest::TraitImpl { .. } => trait_impls += 1,
+            crate::ProviderRequest::ModuleSemantic { .. } => module_semantics += 1,
+            crate::ProviderRequest::ModuleBody { .. } => module_bodies += 1,
+        }
+    }
+    let prefix = format!("compiler.executable_provider_demands.round_{round}");
+    nia_timing::emit_counter(format!("{prefix}.total"), demands.len() as u64);
+    nia_timing::emit_counter(format!("{prefix}.methods"), methods);
+    nia_timing::emit_counter(format!("{prefix}.trait_impls"), trait_impls);
+    nia_timing::emit_counter(format!("{prefix}.module_semantics"), module_semantics);
+    nia_timing::emit_counter(format!("{prefix}.module_bodies"), module_bodies);
 }
 
 impl std::fmt::Debug for CompilerDatabase {
