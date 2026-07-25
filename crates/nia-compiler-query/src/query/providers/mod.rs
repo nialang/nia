@@ -303,16 +303,23 @@ pub(super) struct CompilerQueryProviders {
     )
         -> QueryResult<nia_provider_summary::ProviderSummary>,
     pub(super) extension_provider_discovery_index:
-        fn(&QueryDb<CompilerContext>) -> ExtensionProviderDiscoveryIndexValue,
-    pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
+        fn(&QueryDb<CompilerContext>) -> QueryResult<ExtensionProviderDiscoveryIndexValue>,
+    pub(super) extension_provider_module_ids:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<StableModuleSequence>,
     pub(super) extension_provider_module_eligibility:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> bool,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<bool>,
     pub(super) extension_signature_module_input:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ExtensionSignatureModuleInputValue>,
     pub(super) extension_trait_solving_module_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
-    pub(super) extension_trait_impls_for_trait:
-        fn(&QueryDb<CompilerContext>, nia_ty::TraitId) -> ExtensionTraitImplsForTraitValue,
+        fn(
+            &QueryDb<CompilerContext>,
+            ModuleId,
+        ) -> QueryResult<ExtensionTraitSolvingModuleFactsValue>,
+    pub(super) extension_trait_impls_for_trait: fn(
+        &QueryDb<CompilerContext>,
+        nia_ty::TraitId,
+    )
+        -> QueryResult<ExtensionTraitImplsForTraitValue>,
     pub(super) program_trait_method_index: fn(&QueryDb<CompilerContext>) -> ProgramTraitMethodIndex,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> QueryResult<ProgramAbiSignaturesValue>,

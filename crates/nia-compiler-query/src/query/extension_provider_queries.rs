@@ -81,7 +81,7 @@ impl QueryKey<CompilerContext> for ExtensionSignatureModuleInputQuery {
         format!("extension_signature_module_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_signature_module_input)(db, self.0)
     }
 }
@@ -100,7 +100,7 @@ impl QueryKey<CompilerContext> for ExtensionTraitSolvingModuleFactsQuery {
         format!("extension_trait_solving_module_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_trait_solving_module_facts)(db, self.0)
     }
 }
@@ -119,7 +119,7 @@ impl QueryKey<CompilerContext> for ExtensionTraitImplsForTraitQuery {
         format!("extension_trait_impls_for_trait({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_trait_impls_for_trait)(db, self.0)
     }
 }
@@ -134,7 +134,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderDiscoveryIndexQuery {
         "extension_provider_discovery_index"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_provider_discovery_index)(db)
     }
 }
@@ -151,7 +151,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
         "extension_provider_module_ids"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_provider_module_ids)(db)
     }
 
@@ -179,7 +179,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleEligibilityQuery {
         format!("extension_provider_module_eligibility({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_provider_module_eligibility)(db, self.0)
     }
 
