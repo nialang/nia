@@ -2419,31 +2419,24 @@ impl<C> QueryDb<C> {
         }
     }
 
-    pub fn get_many<K>(&self, keys: impl IntoIterator<Item = K>) -> Vec<Arc<K::Value>>
+    pub fn get_many<K>(&self, keys: impl IntoIterator<Item = K>) -> QueryResult<Vec<Arc<K::Value>>>
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::get::<K>)
+        self.get_many_with(keys, Self::try_get::<K>)
+            .into_iter()
+            .collect()
     }
 
-    pub fn get_many_owned<K>(&self, keys: impl IntoIterator<Item = K>) -> Vec<K::Value>
+    pub fn get_many_owned<K>(&self, keys: impl IntoIterator<Item = K>) -> QueryResult<Vec<K::Value>>
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::get_owned::<K>)
-    }
-
-    pub fn for_each_many_owned<K>(
-        &self,
-        keys: impl IntoIterator<Item = K>,
-        on_complete: impl FnMut(usize, K::Value),
-    ) where
-        C: Send + Sync + 'static,
-        K: QueryKey<C>,
-    {
-        self.for_each_many_with(keys, Self::get_owned::<K>, on_complete)
+        self.get_many_with(keys, Self::try_get_owned::<K>)
+            .into_iter()
+            .collect()
     }
 
     pub fn with_many_owned_completion<K, R>(
@@ -2456,23 +2449,6 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
     {
         self.with_many_completion_with(keys, Self::try_get_owned::<K>, consume)
-    }
-
-    fn for_each_many_with<K, O>(
-        &self,
-        keys: impl IntoIterator<Item = K>,
-        get: fn(&Self, K) -> O,
-        mut on_complete: impl FnMut(usize, O),
-    ) where
-        C: Send + Sync + 'static,
-        K: QueryKey<C>,
-        O: Send + 'static,
-    {
-        self.with_many_completion_with(keys, get, |stream| {
-            while let Some((position, value)) = stream.wait_next() {
-                on_complete(position, value);
-            }
-        });
     }
 
     fn with_many_completion_with<K, O, R>(
@@ -3521,7 +3497,7 @@ mod tests {
             Ok(db
                 .context()
                 .input_db
-                .get_many([Double(2), Double(5)])
+                .get_many([Double(2), Double(5)])?
                 .into_iter()
                 .map(|value| *value)
                 .sum())
@@ -3670,7 +3646,7 @@ mod tests {
         fn execute_result(&self, db: &QueryDb<BatchIsolationContext>) -> QueryResult<Self::Value> {
             Ok(match self {
                 Self::Parent => db
-                    .get_many([Self::Child, Self::ChildWait])
+                    .get_many([Self::Child, Self::ChildWait])?
                     .into_iter()
                     .map(|value| *value)
                     .sum(),
@@ -3934,7 +3910,7 @@ mod tests {
                 .parent_executions
                 .fetch_add(1, Ordering::SeqCst);
             Ok(db
-                .get_many([StableModulo(2), StableModulo(3)])
+                .get_many([StableModulo(2), StableModulo(3)])?
                 .into_iter()
                 .map(|value| *value)
                 .sum())
@@ -4101,34 +4077,10 @@ mod tests {
                     OwnedNonCloneValueQuery(2),
                     OwnedNonCloneValueQuery(5),
                     OwnedNonCloneValueQuery(3),
-                ])
+                ])?
                 .into_iter()
                 .map(|value| value.value)
                 .sum())
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    struct OwnedValueCompletionParent;
-
-    impl QueryKey<TestContext> for OwnedValueCompletionParent {
-        type Value = usize;
-
-        fn name() -> &'static str {
-            "owned_value_completion_parent"
-        }
-
-        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            let mut sum = 0;
-            db.for_each_many_owned(
-                [
-                    OwnedNonCloneValueQuery(2),
-                    OwnedNonCloneValueQuery(5),
-                    OwnedNonCloneValueQuery(3),
-                ],
-                |_position, value| sum += value.value,
-            );
-            Ok(sum)
         }
     }
 
@@ -4530,7 +4482,9 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let values = db.get_many([Double(1), Double(4), Double(3)]);
+        let values = db
+            .get_many([Double(1), Double(4), Double(3)])
+            .expect("batch should succeed");
 
         assert_eq!(
             values.iter().map(|value| **value).collect::<Vec<_>>(),
@@ -4545,7 +4499,9 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let values = db.get_many([NonCloneValueQuery, NonCloneValueQuery]);
+        let values = db
+            .get_many([NonCloneValueQuery, NonCloneValueQuery])
+            .expect("batch should succeed");
 
         assert_eq!(values.len(), 2);
         assert!(Arc::ptr_eq(&values[0], &values[1]));
@@ -4559,11 +4515,13 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let values = db.get_many_owned([
-            OwnedNonCloneValueQuery(4),
-            OwnedNonCloneValueQuery(1),
-            OwnedNonCloneValueQuery(3),
-        ]);
+        let values = db
+            .get_many_owned([
+                OwnedNonCloneValueQuery(4),
+                OwnedNonCloneValueQuery(1),
+                OwnedNonCloneValueQuery(3),
+            ])
+            .expect("owned batch should succeed");
 
         assert_eq!(
             values
@@ -4573,33 +4531,6 @@ mod tests {
             vec![4, 1, 3]
         );
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
-    }
-
-    #[test]
-    fn for_each_many_owned_moves_values_in_completion_order() {
-        let session = QuerySession::with_parallelism(3);
-        let db = QueryDb::new_with_timings_in_session(
-            CompletionOrderContext {
-                phase: AtomicUsize::new(0),
-            },
-            nia_timing::TimingMode::Off,
-            session,
-        );
-        let mut completed = Vec::new();
-
-        db.for_each_many_owned(
-            [
-                CompletionOrderProbe(2),
-                CompletionOrderProbe(1),
-                CompletionOrderProbe(0),
-            ],
-            |position, value| {
-                completed.push((position, value));
-                db.context().phase.store(value + 1, Ordering::SeqCst);
-            },
-        );
-
-        assert_eq!(completed, vec![(2, 0), (1, 1), (0, 2)]);
     }
 
     #[test]
@@ -4685,23 +4616,6 @@ mod tests {
     }
 
     #[test]
-    fn for_each_many_owned_records_dependencies_from_parent_query() {
-        let db = QueryDb::new(TestContext {
-            executions: AtomicUsize::new(0),
-        });
-
-        assert_eq!(*db.get(OwnedValueCompletionParent), 10);
-        let invalidation = db.invalidate(OwnedNonCloneValueQuery(5));
-
-        assert!(
-            invalidation
-                .invalidated
-                .iter()
-                .any(|frame| frame.name == "owned_value_completion_parent")
-        );
-    }
-
-    #[test]
     fn get_many_owned_uses_the_session_executor_budget() {
         let session = QuerySession::with_parallelism(2);
         let db = QueryDb::new_with_timings_in_session(
@@ -4714,12 +4628,14 @@ mod tests {
             session.clone(),
         );
 
-        let values = db.get_many_owned([
-            OwnedExecutorProbe(0),
-            OwnedExecutorProbe(1),
-            OwnedExecutorProbe(2),
-            OwnedExecutorProbe(3),
-        ]);
+        let values = db
+            .get_many_owned([
+                OwnedExecutorProbe(0),
+                OwnedExecutorProbe(1),
+                OwnedExecutorProbe(2),
+                OwnedExecutorProbe(3),
+            ])
+            .expect("owned batch should succeed");
 
         assert_eq!(values, vec![0, 1, 2, 3]);
         assert_eq!(db.context().active.load(Ordering::SeqCst), 0);
@@ -4928,12 +4844,14 @@ mod tests {
             session.clone(),
         );
 
-        let values = db.get_many([
-            ExecutorProbe(0),
-            ExecutorProbe(1),
-            ExecutorProbe(2),
-            ExecutorProbe(3),
-        ]);
+        let values = db
+            .get_many([
+                ExecutorProbe(0),
+                ExecutorProbe(1),
+                ExecutorProbe(2),
+                ExecutorProbe(3),
+            ])
+            .expect("batch should succeed");
 
         assert_eq!(
             values.iter().map(|value| **value).collect::<Vec<_>>(),
@@ -4971,13 +4889,17 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
         let second_sender = sender.clone();
         std::thread::spawn(move || {
-            let values = first_db.get_many([ExecutorProbe(0), ExecutorProbe(1)]);
+            let values = first_db
+                .get_many([ExecutorProbe(0), ExecutorProbe(1)])
+                .expect("first shared-budget batch should succeed");
             sender
                 .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
                 .expect("send first shared-budget batch");
         });
         std::thread::spawn(move || {
-            let values = second_db.get_many([ExecutorProbe(2), ExecutorProbe(3)]);
+            let values = second_db
+                .get_many([ExecutorProbe(2), ExecutorProbe(3)])
+                .expect("second shared-budget batch should succeed");
             second_sender
                 .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
                 .expect("send second shared-budget batch");
@@ -5028,7 +4950,9 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         std::thread::spawn(move || {
-            let values = parent_db.get_many([CrossSessionBatch]);
+            let values = parent_db
+                .get_many([CrossSessionBatch])
+                .expect("cross-session batch should succeed");
             sender
                 .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
                 .expect("send cross-session batch result");
@@ -5054,7 +4978,9 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         std::thread::spawn(move || {
-            let values = db.get_many([DoubleMany([1, 2]), DoubleMany([3, 4])]);
+            let values = db
+                .get_many([DoubleMany([1, 2]), DoubleMany([3, 4])])
+                .expect("nested batch should succeed");
             sender
                 .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
                 .expect("send nested batch result");
@@ -5095,19 +5021,23 @@ mod tests {
                     .expect("batch isolation state lock poisoned while waiting");
             }
             drop(started);
-            let values = second_db.get_many([
-                BatchIsolationQuery::DependsOnParent,
-                BatchIsolationQuery::OtherFiller,
-            ]);
+            let values = second_db
+                .get_many([
+                    BatchIsolationQuery::DependsOnParent,
+                    BatchIsolationQuery::OtherFiller,
+                ])
+                .expect("second isolated batch should succeed");
             second_sender
                 .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
                 .expect("send second isolated batch result");
         });
         std::thread::spawn(move || {
-            let values = db.get_many([
-                BatchIsolationQuery::Parent,
-                BatchIsolationQuery::OuterFiller,
-            ]);
+            let values = db
+                .get_many([
+                    BatchIsolationQuery::Parent,
+                    BatchIsolationQuery::OuterFiller,
+                ])
+                .expect("first isolated batch should succeed");
             first_sender
                 .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
                 .expect("send first isolated batch result");
@@ -5138,7 +5068,9 @@ mod tests {
             .expect_err("batch should propagate the query panic");
         assert!(panic.is::<&'static str>());
 
-        let values = db.get_many([PanicsOnce, PanicsOnce]);
+        let values = db
+            .get_many([PanicsOnce, PanicsOnce])
+            .expect("retry batch should succeed");
         assert_eq!(
             values.iter().map(|value| **value).collect::<Vec<_>>(),
             vec![99, 99]
@@ -5189,6 +5121,24 @@ mod tests {
         let err = db
             .try_get(InvalidInputQuery)
             .expect_err("invalid input should be a query error");
+        match err {
+            QueryError::InvalidInput { query, message } => {
+                assert_eq!(query.name, "invalid_input_query");
+                assert_eq!(message, "bad fixture");
+            }
+            QueryError::Cycle { .. } => panic!("expected invalid input error"),
+        }
+    }
+
+    #[test]
+    fn get_many_reports_query_failures_as_values() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let err = db
+            .get_many([InvalidInputQuery])
+            .expect_err("invalid batch input should be a query error");
         match err {
             QueryError::InvalidInput { query, message } => {
                 assert_eq!(query.name, "invalid_input_query");
@@ -5866,7 +5816,11 @@ mod tests {
         let worker_db = db.clone();
 
         std::thread::scope(|scope| {
-            let handle = scope.spawn(move || worker_db.get_many([SlowDouble(1), SlowDouble(2)]));
+            let handle = scope.spawn(move || {
+                worker_db
+                    .get_many([SlowDouble(1), SlowDouble(2)])
+                    .expect("worker batch should succeed")
+            });
 
             let (lock, ready) = &*control;
             let mut state = lock.lock().expect("race state lock poisoned");
@@ -5933,7 +5887,7 @@ mod tests {
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             Ok(db
-                .get_many(self.0.map(Double))
+                .get_many(self.0.map(Double))?
                 .into_iter()
                 .map(|value| *value)
                 .sum())
@@ -5956,7 +5910,7 @@ mod tests {
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             Ok(db
-                .get_many([Double(self.0)])
+                .get_many([Double(self.0)])?
                 .into_iter()
                 .map(|value| *value)
                 .sum())

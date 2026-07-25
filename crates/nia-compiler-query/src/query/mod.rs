@@ -5077,10 +5077,18 @@ extend Value : Ops {
         let full_active: Arc<ActiveModuleItemTree> =
             db.get(FullActiveModuleItemTreeQuery(module_id));
 
-        let module_input_batch = db.get_many([ModuleItemTreeInputQuery(module_id)]);
-        let active_input_batch = db.get_many([ActiveModuleItemTreeInputQuery(module_id)]);
-        let full_module_batch = db.get_many([FullModuleItemTreeQuery(module_id)]);
-        let full_active_batch = db.get_many([FullActiveModuleItemTreeQuery(module_id)]);
+        let module_input_batch = db
+            .get_many([ModuleItemTreeInputQuery(module_id)])
+            .expect("module input batch should succeed");
+        let active_input_batch = db
+            .get_many([ActiveModuleItemTreeInputQuery(module_id)])
+            .expect("active input batch should succeed");
+        let full_module_batch = db
+            .get_many([FullModuleItemTreeQuery(module_id)])
+            .expect("full module batch should succeed");
+        let full_active_batch = db
+            .get_many([FullActiveModuleItemTreeQuery(module_id)])
+            .expect("full active batch should succeed");
 
         assert!(Arc::ptr_eq(&module_input, &module_input_batch[0]));
         assert!(Arc::ptr_eq(&active_input, &active_input_batch[0]));
@@ -6923,16 +6931,33 @@ extend i32 : ParseFrom[Input] {
             db.get(ProgramTraitMethodIndexQuery);
         let abi_signatures: Arc<ProgramAbiSignaturesValue> = db.get(ProgramAbiSignaturesQuery);
 
-        let signature_batch =
-            db.get_many([ModuleProgramSignatureFactsQuery(module_id, signature_set)]);
-        let abi_batch = db.get_many([ModuleAbiSignatureFactsQuery(module_id)]);
-        let trait_solving_batch = db.get_many([ExtensionTraitSolvingModuleFactsQuery(module_id)]);
-        let provider_batch = db.get_many([ExtensionProviderModuleFactsQuery(module_id)]);
-        let nominal_batch = db.get_many([ExtensionProviderNominalModuleFactsQuery(module_id)]);
-        let visible_extensions_batch = db.get_many([VisibleExtensionsQuery(module_id)]);
-        let visible_trait_impls_batch = db.get_many([VisibleTraitImplsQuery(module_id)]);
-        let trait_method_index_batch = db.get_many([ProgramTraitMethodIndexQuery]);
-        let abi_signatures_batch = db.get_many([ProgramAbiSignaturesQuery]);
+        let signature_batch = db
+            .get_many([ModuleProgramSignatureFactsQuery(module_id, signature_set)])
+            .expect("signature batch should succeed");
+        let abi_batch = db
+            .get_many([ModuleAbiSignatureFactsQuery(module_id)])
+            .expect("ABI batch should succeed");
+        let trait_solving_batch = db
+            .get_many([ExtensionTraitSolvingModuleFactsQuery(module_id)])
+            .expect("trait-solving batch should succeed");
+        let provider_batch = db
+            .get_many([ExtensionProviderModuleFactsQuery(module_id)])
+            .expect("provider batch should succeed");
+        let nominal_batch = db
+            .get_many([ExtensionProviderNominalModuleFactsQuery(module_id)])
+            .expect("nominal provider batch should succeed");
+        let visible_extensions_batch = db
+            .get_many([VisibleExtensionsQuery(module_id)])
+            .expect("visible extension batch should succeed");
+        let visible_trait_impls_batch = db
+            .get_many([VisibleTraitImplsQuery(module_id)])
+            .expect("visible trait-impl batch should succeed");
+        let trait_method_index_batch = db
+            .get_many([ProgramTraitMethodIndexQuery])
+            .expect("trait-method index batch should succeed");
+        let abi_signatures_batch = db
+            .get_many([ProgramAbiSignaturesQuery])
+            .expect("program ABI batch should succeed");
 
         assert!(Arc::ptr_eq(&signature, &signature_batch[0]));
         assert!(Arc::ptr_eq(&abi, &abi_batch[0]));
@@ -6989,15 +7014,33 @@ extend i32 : ParseFrom[Input] {
         let trait_impls: Arc<ExtensionTraitImplsForTraitQueryValue> =
             db.get(ExtensionTraitImplsForTraitQuery(trait_id));
 
-        let validation_batch = db.get_many([ExtensionProviderValidationFactsQuery(module_id)]);
-        let discovery_batch = db.get_many([ExtensionProviderDiscoveryIndexQuery]);
-        let exposure_batch = db.get_many([TypeExposureIndexQuery]);
-        let methods_batch = db.get_many([ExtensionMethodIndexQuery]);
-        let named_batch = db.get_many([ExtensionMethodsNamedQuery(sym("get"))]);
-        let method_batch = db.get_many([ExtensionMethodByIdQuery(method_id)]);
-        let trait_index_batch = db.get_many([ExtensionTraitSignatureIndexQuery]);
-        let signature_input_batch = db.get_many([ExtensionSignatureModuleInputQuery(module_id)]);
-        let trait_impls_batch = db.get_many([ExtensionTraitImplsForTraitQuery(trait_id)]);
+        let validation_batch = db
+            .get_many([ExtensionProviderValidationFactsQuery(module_id)])
+            .expect("validation batch should succeed");
+        let discovery_batch = db
+            .get_many([ExtensionProviderDiscoveryIndexQuery])
+            .expect("discovery batch should succeed");
+        let exposure_batch = db
+            .get_many([TypeExposureIndexQuery])
+            .expect("exposure batch should succeed");
+        let methods_batch = db
+            .get_many([ExtensionMethodIndexQuery])
+            .expect("method index batch should succeed");
+        let named_batch = db
+            .get_many([ExtensionMethodsNamedQuery(sym("get"))])
+            .expect("named method batch should succeed");
+        let method_batch = db
+            .get_many([ExtensionMethodByIdQuery(method_id)])
+            .expect("method batch should succeed");
+        let trait_index_batch = db
+            .get_many([ExtensionTraitSignatureIndexQuery])
+            .expect("trait signature batch should succeed");
+        let signature_input_batch = db
+            .get_many([ExtensionSignatureModuleInputQuery(module_id)])
+            .expect("signature input batch should succeed");
+        let trait_impls_batch = db
+            .get_many([ExtensionTraitImplsForTraitQuery(trait_id)])
+            .expect("trait impl batch should succeed");
 
         assert!(Arc::ptr_eq(&validation, &validation_batch[0]));
         assert!(Arc::ptr_eq(&discovery, &discovery_batch[0]));
@@ -7020,9 +7063,15 @@ extend i32 : ParseFrom[Input] {
         let using_scopes: Arc<PublicUsingScopesQueryValue> = db.get(PublicUsingScopesQuery);
         let module_using_scope: Arc<ModuleUsingScope> = db.get(ModuleUsingScopeQuery(module_id));
 
-        let surfaces_batch = db.get_many([PublicSurfacesQuery]);
-        let using_scopes_batch = db.get_many([PublicUsingScopesQuery]);
-        let module_using_scope_batch = db.get_many([ModuleUsingScopeQuery(module_id)]);
+        let surfaces_batch = db
+            .get_many([PublicSurfacesQuery])
+            .expect("public surfaces batch should succeed");
+        let using_scopes_batch = db
+            .get_many([PublicUsingScopesQuery])
+            .expect("public using scopes batch should succeed");
+        let module_using_scope_batch = db
+            .get_many([ModuleUsingScopeQuery(module_id)])
+            .expect("module using scope batch should succeed");
 
         assert!(Arc::ptr_eq(&surfaces, &surfaces_batch[0]));
         assert!(Arc::ptr_eq(&using_scopes, &using_scopes_batch[0]));
