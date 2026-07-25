@@ -285,11 +285,38 @@ fn executable_check_in_session(
     mut session: ExecutableFactSession,
     mut non_function_signatures: Option<ProgramExecutableNonFunctionSignatures>,
 ) -> (QueryResult<ExecutableCheckOutput>, ExecutableFactSession) {
-    let provider_fact_worklist = db.get(ProviderFactWorklistQuery);
-    let body_activation_worklist = db.get(BodyActivationWorklistQuery);
-    let executable_fact_epoch = db.get(ExecutableFactEpochQuery);
-    let parse_ok = resolve_stable_module_sequence(db, &db.get(SemanticModuleIdsQuery));
-    let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
+    let initial_inputs = (|| {
+        let provider_fact_worklist = db.try_get(ProviderFactWorklistQuery)?;
+        let body_activation_worklist = db.try_get(BodyActivationWorklistQuery)?;
+        let executable_fact_epoch = db.try_get(ExecutableFactEpochQuery)?;
+        let semantic_module_ids = db.try_get(SemanticModuleIdsQuery)?;
+        let parse_ok = resolve_stable_module_sequence(db, &semantic_module_ids);
+        let (entry_module, runtime_root_modules) =
+            db.try_get(ExecutableRootModulesQuery)?.as_ref().clone();
+        let (root_functions, root_globals) =
+            executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok)?;
+        Ok((
+            provider_fact_worklist,
+            body_activation_worklist,
+            executable_fact_epoch,
+            parse_ok,
+            entry_module,
+            root_functions,
+            root_globals,
+        ))
+    })();
+    let (
+        provider_fact_worklist,
+        body_activation_worklist,
+        executable_fact_epoch,
+        parse_ok,
+        entry_module,
+        root_functions,
+        root_globals,
+    ) = match initial_inputs {
+        Ok(inputs) => inputs,
+        Err(error) => return (Err(error), session),
+    };
     session.enter_epoch(&executable_fact_epoch);
     session.apply_body_activation_worklist(&body_activation_worklist);
     session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
@@ -302,6 +329,7 @@ fn executable_check_in_session(
         applied_provider_changes,
         applied_body_activations,
     } = session;
+    let query_failure = RefCell::new(None);
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
             .reachability_function_signatures
@@ -311,23 +339,26 @@ fn executable_check_in_session(
         {
             return Some(signature);
         }
-        let signatures = db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Functions,
-        ));
-        let signature = signatures
-            .functions
-            .get(&def_id.def_id)
-            .cloned()
-            .map(|signature| ProgramFunctionSignature {
-                name: db
-                    .get(ModuleDefsQuery(def_id.module_id))
-                    .defs
-                    .get(def_id.def_id)
-                    .map(|def| def.name)
-                    .unwrap_or_default(),
-                signature,
-            })?;
+        let signatures = capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Functions,
+            )),
+        )?;
+        let signature = signatures.functions.get(&def_id.def_id).cloned()?;
+        let defs = capture_query_failure(
+            &query_failure,
+            db.try_get(ModuleDefsQuery(def_id.module_id)),
+        )?;
+        let signature = ProgramFunctionSignature {
+            name: defs
+                .defs
+                .get(def_id.def_id)
+                .map(|def| def.name)
+                .unwrap_or_default(),
+            signature,
+        };
         let signature = Arc::new(signature);
         caches
             .reachability_function_signatures
@@ -336,40 +367,52 @@ fn executable_check_in_session(
         Some(signature)
     };
     let struct_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
         .structs
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramStructSignature { signature })
     };
     let union_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
         .unions
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramUnionSignature { signature })
     };
     let trait_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            )),
+        )?
         .traits
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramTraitSignature { signature })
     };
     let trait_default_method = |def_id: GlobalDefId| {
-        let signatures = db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
+        let signatures = capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            )),
+        )?;
         signatures
             .traits
             .iter()
@@ -391,8 +434,6 @@ fn executable_check_in_session(
                     })
             })
     };
-    let (root_functions, root_globals) =
-        executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok);
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
     modules.retain(|module_id, _| parse_ok_set.contains(module_id));
     let mut fact_by_id = modules;
@@ -447,6 +488,9 @@ fn executable_check_in_session(
                 )
             },
         );
+        if let Some(error) = query_failure.borrow_mut().take() {
+            return_session_error!(error);
+        }
         let reachability_by_module = reachability_state.reachability().by_module();
         let value_edges_changed = match time_provider(
             db.context().timings(),
@@ -466,6 +510,9 @@ fn executable_check_in_session(
             Ok(changed) => changed,
             Err(error) => return_session_error!(error),
         };
+        if let Some(error) = query_failure.borrow_mut().take() {
+            return_session_error!(error);
+        }
         if value_edges_changed {
             continue;
         }
@@ -540,13 +587,18 @@ fn executable_check_in_session(
                 already_checked_functions,
                 already_checked_globals,
             };
-            let has_reachable_body_items = !module_functions.is_empty()
-                || module_globals.iter().any(|def_id| {
-                    db.get(ModuleDefsQuery(def_id.module_id))
-                        .defs
+            let mut has_reachable_body_items = !module_functions.is_empty();
+            if !has_reachable_body_items && !module_globals.is_empty() {
+                let defs = match db.try_get(ModuleDefsQuery(module_id)) {
+                    Ok(defs) => defs,
+                    Err(error) => return_session_error!(error),
+                };
+                has_reachable_body_items = module_globals.iter().any(|def_id| {
+                    defs.defs
                         .get(def_id.def_id)
                         .is_some_and(|def| def.kind == DefKind::Global)
                 });
+            }
             let reachable_body_modules = if has_reachable_body_items {
                 ReachableBodyModules::new(&round_reachable_body_modules).with_extra(module_id)
             } else {
@@ -656,7 +708,20 @@ fn executable_check_in_session(
                 .reachability_mut()
                 .insert_functions(checked_this_round.iter().copied());
             let new_globals_len = module_globals.len();
-            let module_path = db.get(ModulePathQuery(module_id));
+            let module_path = match db.try_get(ModulePathQuery(module_id)) {
+                Ok(path) => path,
+                Err(error) => return_session_error!(error),
+            };
+            let requested_function_names =
+                match executable_debug_function_names(db, module_id, &module_functions) {
+                    Ok(names) => names,
+                    Err(error) => return_session_error!(error),
+                };
+            let checked_function_names =
+                match executable_debug_function_names(db, module_id, &checked_this_round) {
+                    Ok(names) => names,
+                    Err(error) => return_session_error!(error),
+                };
             time_module_provider(
                 db,
                 "executable_checked_modules.fact_merge",
@@ -683,16 +748,8 @@ fn executable_check_in_session(
                 print_executable_round_debug(ExecutableRoundDebug {
                     module_id,
                     module_path: &module_path,
-                    requested_function_names: executable_debug_function_names(
-                        db,
-                        module_id,
-                        &module_functions,
-                    ),
-                    checked_function_names: executable_debug_function_names(
-                        db,
-                        module_id,
-                        &checked_this_round,
-                    ),
+                    requested_function_names,
+                    checked_function_names,
                     requested_functions: module_functions.len(),
                     new_functions: checked_this_round.len(),
                     new_globals: new_globals_len,
@@ -750,6 +807,9 @@ fn executable_check_in_session(
                     )
                 },
             );
+            if let Some(error) = query_failure.borrow_mut().take() {
+                return_session_error!(error);
+            }
         }
     }
     if matches!(product, ExecutableCheckProduct::ProviderDemands) {
@@ -758,7 +818,10 @@ fn executable_check_in_session(
             .values()
             .flat_map(|state| state.provider_demands.iter().cloned())
             .collect::<HashSet<_>>();
-        demands.extend(executable_module_body_demands(db, &reachability_by_module));
+        match executable_module_body_demands(db, &reachability_by_module) {
+            Ok(module_demands) => demands.extend(module_demands),
+            Err(error) => return_session_error!(error),
+        }
         let output = match extension_lookup.take_failure() {
             Some(error) => Err(error),
             None => Ok(ExecutableCheckOutput::ProviderDemands(
@@ -960,6 +1023,10 @@ fn executable_check_in_session(
             )
         },
     );
+    if let Some(error) = query_failure.borrow_mut().take() {
+        drop(executable_program_layouts);
+        return_session_error!(error);
+    }
     time_provider(
         db.context().timings(),
         "executable_checked_modules.final.store_aggregate_roots",
@@ -973,7 +1040,13 @@ fn executable_check_in_session(
             }
         },
     );
-    let module_body_demands = executable_module_body_demands(db, &reachability_by_module);
+    let module_body_demands = match executable_module_body_demands(db, &reachability_by_module) {
+        Ok(demands) => demands,
+        Err(error) => {
+            drop(executable_program_layouts);
+            return_session_error!(error)
+        }
+    };
     if let Some(module) = codegen_modules.first_mut() {
         Arc::make_mut(&mut module.provider_demands).extend(module_body_demands);
     }
@@ -1024,16 +1097,16 @@ fn executable_check_in_session(
 fn executable_module_body_demands(
     db: &QueryDb<CompilerContext>,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
-) -> Vec<crate::ProviderDemand> {
+) -> QueryResult<Vec<crate::ProviderDemand>> {
     executable_reachable_body_modules(db, reachability_by_module)
         .into_iter()
         .map(|module_id| {
-            let module_path = db.get(ModulePathQuery(module_id));
+            let module_path = db.try_get(ModulePathQuery(module_id))?;
             let module_path = module_path.as_ref().clone();
-            crate::ProviderDemand {
+            Ok(crate::ProviderDemand {
                 source_path: module_path.clone(),
                 request: crate::ProviderRequest::ModuleBody { module_path },
-            }
+            })
         })
         .collect()
 }
@@ -1043,10 +1116,10 @@ fn executable_root_defs(
     entry: ModuleId,
     runtime_root_modules: &[ModuleId],
     parse_ok: &[ModuleId],
-) -> (Vec<GlobalDefId>, Vec<GlobalDefId>) {
-    match *db.get(CompilerRuntimeQuery) {
+) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
+    match *db.try_get(CompilerRuntimeQuery)? {
         RuntimeModel::Bare => {
-            let defs = db.get(FullModuleDefsQuery(entry));
+            let defs = db.try_get(FullModuleDefsQuery(entry))?;
             let mut functions = Vec::new();
             let mut globals = Vec::new();
             for (def_id, def) in defs.defs.iter().filter(|(_, def)| def.parent.is_none()) {
@@ -1060,18 +1133,24 @@ fn executable_root_defs(
                     _ => {}
                 }
             }
-            (functions, globals)
+            Ok((functions, globals))
         }
         RuntimeModel::FreestandingExecutable => {
-            let mut functions = named_top_level_function(db, entry, known::MAIN)
+            let mut functions = named_top_level_function(db, entry, known::MAIN)?
                 .into_iter()
                 .collect::<Vec<_>>();
             let parse_ok = parse_ok.iter().copied().collect::<HashSet<_>>();
-            if let Some(start_module) = runtime_root_modules.iter().copied().find(|module_id| {
-                parse_ok.contains(module_id)
-                    && named_top_level_function(db, *module_id, known::START_ENTRY).is_some()
-            }) {
-                let defs = db.get(FullModuleDefsQuery(start_module));
+            let mut start_module = None;
+            for module_id in runtime_root_modules.iter().copied() {
+                if parse_ok.contains(&module_id)
+                    && named_top_level_function(db, module_id, known::START_ENTRY)?.is_some()
+                {
+                    start_module = Some(module_id);
+                    break;
+                }
+            }
+            if let Some(start_module) = start_module {
+                let defs = db.try_get(FullModuleDefsQuery(start_module))?;
                 functions.extend(defs.defs.iter().filter_map(|(def_id, def)| {
                     (def.kind == DefKind::Function && def.parent.is_none()).then_some(GlobalDefId {
                         module_id: start_module,
@@ -1079,7 +1158,7 @@ fn executable_root_defs(
                     })
                 }));
             }
-            (functions, Vec::new())
+            Ok((functions, Vec::new()))
         }
     }
 }
@@ -1088,23 +1167,23 @@ fn named_top_level_function(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     name: SymbolId,
-) -> Option<GlobalDefId> {
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    defs.defs.iter().find_map(|(def_id, def)| {
+) -> QueryResult<Option<GlobalDefId>> {
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    Ok(defs.defs.iter().find_map(|(def_id, def)| {
         (def.kind == DefKind::Function && def.parent.is_none() && def.name == name)
             .then_some(GlobalDefId { module_id, def_id })
-    })
+    }))
 }
 
 fn executable_debug_function_names(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     functions: &HashSet<GlobalDefId>,
-) -> Vec<String> {
+) -> QueryResult<Vec<String>> {
     if !debug_executable_reachability_enabled() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let defs = db.get(FullModuleDefsQuery(module_id));
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
     let symbols = db.context().symbols();
     let mut names = functions
         .iter()
@@ -1113,7 +1192,7 @@ fn executable_debug_function_names(
         .map(|def| nia_symbol::symbol_text_or_unresolved(&symbols, def.name))
         .collect::<Vec<_>>();
     names.sort();
-    names
+    Ok(names)
 }
 
 fn final_executable_checked_modules(
