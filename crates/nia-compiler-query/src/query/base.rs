@@ -43,7 +43,7 @@ impl QueryKey<CompilerContext> for ExecutableProviderDemandsQuery {
         "executable_provider_demands"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_executable_provider_demands(db)
     }
 }

@@ -56,7 +56,7 @@ impl QueryKey<CompilerContext> for ExecutableCheckedModuleFactsQuery {
         "executable_checked_module_facts"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_executable_checked_module_facts(db)
     }
 }

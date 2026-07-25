@@ -74,7 +74,7 @@ impl QueryKey<CompilerContext> for MonomorphizationQuery {
         "monomorphization"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.monomorphization)(db)
     }
 }
@@ -89,7 +89,7 @@ impl QueryKey<CompilerContext> for BackendLoweringInputsQuery {
         "backend_lowering_inputs"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_backend_lowering_inputs(db)
     }
 }
