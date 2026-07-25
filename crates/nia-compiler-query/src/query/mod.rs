@@ -4365,8 +4365,8 @@ fn main() i32 {
 
     #[test]
     fn compiler_query_providers_can_override_query_execution() {
-        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> StableModuleSequence {
-            StableModuleSequence::default()
+        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> QueryResult<StableModuleSequence> {
+            Ok(StableModuleSequence::default())
         }
 
         let providers = CompilerQueryProviders {
@@ -4413,6 +4413,10 @@ fn main() i32 {
                 .db
                 .try_get(ModuleItemTreeQuery(missing_module))
                 .expect_err("missing module item tree should propagate its input query error"),
+            database
+                .db
+                .try_get(ModuleDefsQuery(missing_module))
+                .expect_err("module definitions should propagate a missing item tree error"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(

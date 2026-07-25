@@ -477,7 +477,7 @@ impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
         "parse_ok_module_ids"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.parse_ok_module_ids)(db)
     }
 
@@ -501,7 +501,7 @@ impl QueryKey<CompilerContext> for SemanticModuleIdsQuery {
         "semantic_module_ids"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.semantic_module_ids)(db)
     }
 
@@ -911,7 +911,7 @@ impl QueryKey<CompilerContext> for ModuleDefsQuery {
         format!("module_defs({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.module_defs)(db, self.0)
     }
 }
@@ -927,7 +927,7 @@ impl QueryKey<CompilerContext> for FullModuleDefsQuery {
         format!("full_module_defs({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.full_module_defs)(db, self.0)
     }
 }

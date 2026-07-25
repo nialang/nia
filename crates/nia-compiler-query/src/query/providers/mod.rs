@@ -211,8 +211,10 @@ pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
     pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
     pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
-    pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
-    pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
+    pub(super) parse_ok_module_ids:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<StableModuleSequence>,
+    pub(super) semantic_module_ids:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<StableModuleSequence>,
     pub(super) module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleItemTree>,
     pub(super) active_module_item_tree:
@@ -221,8 +223,9 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleItemTree>,
     pub(super) full_active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ActiveModuleItemTree>,
-    pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
-    pub(super) full_module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
+    pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<DefCollection>,
+    pub(super) full_module_defs:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<DefCollection>,
     pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
     pub(super) module_public_surface:
         fn(&QueryDb<CompilerContext>, ModuleId) -> Option<Arc<ModulePublicSurface>>,

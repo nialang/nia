@@ -1,31 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> StableModuleSequence {
-    let loaded_modules = resolve_stable_module_sequence(db, &db.get(LoadedModulesQuery));
-    let module_ids = loaded_modules
-        .into_iter()
-        .filter(|module_id| {
-            let parse_errors = db.get(ModuleParseErrorsQuery(*module_id));
-            parse_errors.is_empty()
-        })
-        .collect::<Vec<_>>();
-    stable_module_sequence(db, module_ids)
+pub(super) fn provide_parse_ok_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<StableModuleSequence> {
+    let loaded_modules = db.try_get(LoadedModulesQuery)?;
+    let loaded_modules = resolve_stable_module_sequence(db, &loaded_modules);
+    let mut module_ids = Vec::with_capacity(loaded_modules.len());
+    for module_id in loaded_modules {
+        if db.try_get(ModuleParseErrorsQuery(module_id))?.is_empty() {
+            module_ids.push(module_id);
+        }
+    }
+    Ok(stable_module_sequence(db, module_ids))
 }
 
-pub(super) fn provide_semantic_module_ids(db: &QueryDb<CompilerContext>) -> StableModuleSequence {
-    let graph = db.get(ModuleGraphQuery);
+pub(super) fn provide_semantic_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<StableModuleSequence> {
+    let graph = db.try_get(ModuleGraphQuery)?;
     let entry = graph.entry();
-    let module_ids =
-        resolve_stable_module_sequence_from_current_inputs(db, &db.get(ParseOkModuleIdsQuery))
-            .into_iter()
-            .filter(|module_id| {
-                graph
-                    .get(*module_id)
-                    .is_some_and(|node| *module_id == entry || node.process_used_paths)
-            })
-            .collect::<Vec<_>>();
-    stable_module_sequence(db, module_ids)
+    let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
+    let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &parse_ok_modules)
+        .into_iter()
+        .filter(|module_id| {
+            graph
+                .get(*module_id)
+                .is_some_and(|node| *module_id == entry || node.process_used_paths)
+        })
+        .collect::<Vec<_>>();
+    Ok(stable_module_sequence(db, module_ids))
 }
 
 pub(super) fn provide_module_item_tree(
@@ -73,28 +77,32 @@ pub(super) fn provide_full_active_module_item_tree(
 pub(super) fn provide_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> DefCollection {
-    let item_tree = db.get(ActiveModuleItemTreeQuery(module_id));
+) -> QueryResult<DefCollection> {
+    let item_tree = db.try_get(ActiveModuleItemTreeQuery(module_id))?;
     let symbols = db.context().symbols();
-    nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
-        module_id,
-        &item_tree,
-        db.context().node_store(),
-        &symbols,
+    Ok(
+        nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+            module_id,
+            &item_tree,
+            db.context().node_store(),
+            &symbols,
+        ),
     )
 }
 
 pub(super) fn provide_full_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> DefCollection {
-    let item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
+) -> QueryResult<DefCollection> {
+    let item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
     let symbols = db.context().symbols();
-    nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
-        module_id,
-        &item_tree,
-        db.context().node_store(),
-        &symbols,
+    Ok(
+        nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+            module_id,
+            &item_tree,
+            db.context().node_store(),
+            &symbols,
+        ),
     )
 }
 
