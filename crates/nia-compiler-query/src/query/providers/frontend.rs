@@ -902,15 +902,20 @@ pub(super) fn provide_signature_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> QueryResult<TypeNormalization> {
+) -> QueryResult<SignatureTypeNormalization> {
     let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set))?;
     let item_signatures = db.get(SignatureItemSignaturesQuery(module_id, set))?;
-    Ok(normalize_types_in_session_store(
+    let mut normalization = normalize_types_in_session_store(
         db,
         module_id,
         &type_lowering.semantic,
         &item_signatures.semantic,
-    ))
+    );
+    let diagnostics = std::mem::take(&mut normalization.diagnostics);
+    Ok(SignatureTypeNormalization {
+        semantic: Arc::new(normalization),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_signature_const_type_normalization(

@@ -208,7 +208,7 @@ pub(super) struct SignatureTypeNormalizationQuery(
 );
 
 impl QueryKey<CompilerContext> for SignatureTypeNormalizationQuery {
-    type Value = TypeNormalization;
+    type Value = SignatureTypeNormalization;
 
     fn name() -> &'static str {
         "signature_type_normalization"

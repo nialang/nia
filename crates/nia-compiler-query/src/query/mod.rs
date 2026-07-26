@@ -4072,12 +4072,14 @@ fn main() i32 {
 
             assert!(
                 signature
+                    .semantic
                     .normalized
                     .values()
                     .chain(full.normalized.values())
                     .all(|ty| database.db.context().type_store.get(*ty).is_some())
             );
             let shared_alias_expansions = signature
+                .semantic
                 .normalized
                 .iter()
                 .filter(|(source, normalized)| {
@@ -6862,6 +6864,20 @@ extend i32 : ParseFrom[Input] {
                     .summary
                     .contains("bodyless non-extern functions require `@[builtin]`"))
         );
+    }
+
+    #[test]
+    fn signature_type_normalization_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "type A = B; type B = A;");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let normalization = db.expect_get(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ));
+        assert!(normalization.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &normalization.diagnostics).is_empty());
     }
 
     #[test]

@@ -141,10 +141,11 @@ pub(super) fn with_const_input_and_program_facts<T>(
         if use_signature_facts_for(module_id) {
             return capture_query_failure(
                 &query_failure,
-                db.get(SignatureTypeNormalizationQuery(
+                signature_type_normalization_semantic(
+                    db,
                     module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                )),
+                ),
             );
         }
         capture_query_failure(&query_failure, db.get(TypeNormalizationQuery(module_id)))

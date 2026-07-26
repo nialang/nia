@@ -160,10 +160,11 @@ pub(super) fn provide_extension_signature_module_input(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )?,
-        normalization: db.get(SignatureTypeNormalizationQuery(
+        normalization: signature_type_normalization_semantic(
+            db,
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
-        ))?,
+        )?,
     })
 }
 
@@ -394,7 +395,7 @@ pub(super) fn provide_extension_provider_module_facts(
             defs: &defs,
             lowering: &lowering.semantic,
             signatures: &signatures.semantic,
-            normalization: &normalization,
+            normalization: &normalization.semantic,
         };
         let module_defs = SharedProgramDefsResolver::new(db);
         let methods = collect_extension_method_index_for_module(&module, &module_defs);
@@ -608,7 +609,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 defs: &defs,
                 lowering: &lowering.semantic,
                 signatures: &signatures.semantic,
-                normalization: &normalization,
+                normalization: &normalization.semantic,
             };
             let module_defs = SharedProgramDefsResolver::new(db);
             let nominal_providers =
@@ -809,10 +810,11 @@ fn visible_modules_for_module(
     let extension_method_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureTypeNormalizationQuery(
+            signature_type_normalization_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
-            )),
+            ),
         )
     };
     let type_alias = |def_id| {
@@ -878,10 +880,11 @@ pub(super) fn provide_visible_extensions(
     let extension_method_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureTypeNormalizationQuery(
+            signature_type_normalization_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
-            )),
+            ),
         )
     };
     let type_alias = |def_id| {
@@ -954,10 +957,11 @@ pub(super) fn provide_visible_trait_impls(
     let extension_method_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureTypeNormalizationQuery(
+            signature_type_normalization_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
-            )),
+            ),
         )
     };
     let type_alias = |def_id| {
