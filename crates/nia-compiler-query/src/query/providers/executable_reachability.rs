@@ -290,7 +290,7 @@ fn executable_check_in_session(
         let body_activation_worklist = db.try_get(BodyActivationWorklistQuery)?;
         let executable_fact_epoch = db.try_get(ExecutableFactEpochQuery)?;
         let semantic_module_ids = db.try_get(SemanticModuleIdsQuery)?;
-        let parse_ok = resolve_stable_module_sequence(db, &semantic_module_ids);
+        let parse_ok = resolve_stable_module_sequence(db, &semantic_module_ids)?;
         let (entry_module, runtime_root_modules) =
             db.try_get(ExecutableRootModulesQuery)?.as_ref().clone();
         let (root_functions, root_globals) =
