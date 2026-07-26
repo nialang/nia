@@ -44,6 +44,12 @@ pub(super) struct ModuleTypeLowering {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleItemSignatures {
+    pub(super) semantic: Arc<ItemSignatures>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -129,6 +135,15 @@ pub(super) fn type_lowering_semantic(
     module_id: ModuleId,
 ) -> QueryResult<Arc<TypeLowering>> {
     Ok(Arc::clone(&db.get(TypeLoweringQuery(module_id))?.semantic))
+}
+
+pub(super) fn item_signatures_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<ItemSignatures>> {
+    Ok(Arc::clone(
+        &db.get(ItemSignaturesQuery(module_id))?.semantic,
+    ))
 }
 
 pub(super) fn synthetic_diagnostic_path() -> SourcePath {

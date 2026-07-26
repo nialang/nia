@@ -261,7 +261,7 @@ fn filtered_const_global_initializer_for_body_check(
         || type_lowering_semantic(db, global_id.module_id),
     )?;
     let type_resolution = type_resolution_semantic(db, global_id.module_id)?;
-    let signatures = db.get(ItemSignaturesQuery(global_id.module_id))?;
+    let signatures = item_signatures_semantic(db, global_id.module_id)?;
     let needed_const_exprs = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.needed_const_exprs",
@@ -585,7 +585,7 @@ fn const_inputs_for_body_check(
                 ),
             );
         }
-        capture_query_failure(&query_failure, db.get(ItemSignaturesQuery(module_id)))
+        capture_query_failure(&query_failure, item_signatures_semantic(db, module_id))
     };
     let value_signatures_for_module = |module_id| {
         capture_query_failure(
@@ -1174,7 +1174,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 ),
             );
         }
-        capture_query_failure(&query_failure, db.get(ItemSignaturesQuery(module_id)))
+        capture_query_failure(&query_failure, item_signatures_semantic(db, module_id))
     };
     let executable_program_const_array_lengths =
         RefCell::new(HashMap::<ModuleId, Arc<nia_const_check::ConstArrayLengths>>::new());
@@ -1651,7 +1651,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
         let type_lowering = type_lowering_semantic(db, module_id)?;
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
-        let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
+        let item_signatures = item_signatures_semantic(db, module_id)?;
         let program_struct = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
@@ -1951,7 +1951,7 @@ fn rooted_layouts_for_checked_module(
     if module.executable_type_only {
         return Ok(module.layouts.clone());
     }
-    let item_signatures = db.get(ItemSignaturesQuery(module.id))?;
+    let item_signatures = item_signatures_semantic(db, module.id)?;
     let roots = checked_module_layout_roots(&db.context().type_store, module);
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();

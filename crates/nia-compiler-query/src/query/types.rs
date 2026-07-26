@@ -92,7 +92,7 @@ impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
 pub(super) struct ItemSignaturesQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ItemSignaturesQuery {
-    type Value = ItemSignatures;
+    type Value = ModuleItemSignatures;
 
     fn name() -> &'static str {
         "item_signatures"

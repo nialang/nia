@@ -9,7 +9,7 @@ pub(super) fn provide_layouts(
         let defs = db.get(FullModuleDefsQuery(module_id))?;
         let type_lowering = type_lowering_semantic(db, module_id)?;
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
-        let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
+        let item_signatures = item_signatures_semantic(db, module_id)?;
         let array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
         let symbols = db.context().symbols();
         let query_failure = RefCell::new(None);

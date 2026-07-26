@@ -6909,6 +6909,23 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn item_signatures_separate_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() void;");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let signatures = db.expect_get(ItemSignaturesQuery(module_id));
+        assert!(signatures.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &signatures.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("bodyless non-extern functions require `@[builtin]`"))
+        );
+    }
+
+    #[test]
     fn signature_type_normalization_separates_semantic_value_from_diagnostics() {
         let fixture = LoadedProgramFixture::new("main.nia", "type A = B; type B = A;");
         let module_id = fixture.entry_id();

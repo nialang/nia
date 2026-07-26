@@ -317,7 +317,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) signature_const_type_lowering:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
     pub(super) item_signatures:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ItemSignatures>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleItemSignatures>,
     pub(super) signature_item_signatures: fn(
         &QueryDb<CompilerContext>,
         ModuleId,
