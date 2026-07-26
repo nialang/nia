@@ -297,7 +297,7 @@ pub(super) fn provide_signature_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> QueryResult<TypeResolution> {
+) -> QueryResult<SignatureTypeResolution> {
     time_module_provider(db, "signature_type_resolution", module_id, || {
         let program_sources = db.get(FrontendProgramSourcesQuery)?;
         let cache_input = program_sources
@@ -372,7 +372,10 @@ pub(super) fn provide_signature_type_resolution(
         if let Some(crate::signature_cache::SignatureTypeResolutionLookup::Hit(cached)) = &cached
             && !db.context().verify_frontend_cache
         {
-            return Ok(cached.as_ref().clone());
+            return Ok(SignatureTypeResolution {
+                semantic: Arc::new(cached.as_ref().clone()),
+                diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+            });
         }
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
         let defs = db.get(ModuleDefsQuery(module_id))?;
@@ -382,7 +385,7 @@ pub(super) fn provide_signature_type_resolution(
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
-        let fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
+        let mut fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -397,7 +400,8 @@ pub(super) fn provide_signature_type_resolution(
         if let Some(error) = query_failure.into_inner() {
             return Err(error);
         }
-        if fresh.diagnostics.is_empty()
+        let diagnostics = std::mem::take(&mut fresh.diagnostics);
+        if diagnostics.is_empty()
             && let Some(cache) = &db.context().signature_cache
             && let Some((program_sources, source, namespace, key)) = cache_input
         {
@@ -425,7 +429,10 @@ pub(super) fn provide_signature_type_resolution(
                 replace,
             );
         }
-        Ok(fresh)
+        Ok(SignatureTypeResolution {
+            semantic: Arc::new(fresh),
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        })
     })
 }
 
@@ -596,7 +603,7 @@ pub(super) fn provide_signature_type_lowering(
         nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
             module_id,
             &active_item_tree,
-            &type_resolution,
+            &type_resolution.semantic,
             nia_type_lower::TypeLoweringContext::from_program_defs(
                 db.context().type_store(),
                 nia_type_lower::ProgramDefsContext {

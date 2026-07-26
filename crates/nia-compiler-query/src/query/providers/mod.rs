@@ -302,7 +302,7 @@ pub(super) struct CompilerQueryProviders {
         &QueryDb<CompilerContext>,
         ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> QueryResult<TypeResolution>,
+    ) -> QueryResult<SignatureTypeResolution>,
     pub(super) signature_const_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,

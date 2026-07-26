@@ -142,7 +142,7 @@ pub(super) struct SignatureTypeResolutionQuery(
 );
 
 impl QueryKey<CompilerContext> for SignatureTypeResolutionQuery {
-    type Value = TypeResolution;
+    type Value = SignatureTypeResolution;
 
     fn name() -> &'static str {
         "signature_type_resolution"

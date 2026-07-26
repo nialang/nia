@@ -2,6 +2,12 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct SignatureTypeResolution {
+    pub(super) semantic: Arc<TypeResolution>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
