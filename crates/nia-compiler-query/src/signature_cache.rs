@@ -6,7 +6,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use nia_diagnostic::{Diagnostic, DiagnosticCategory, LabelStyle, Severity, SpanSource, codes};
+use nia_diagnostic::{
+    Diagnostic, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
+};
 use nia_ids::{
     BuiltinConstValue, BuiltinFunction, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId,
     ReceiverKind, TraitImplId, Visibility,
@@ -37,7 +39,7 @@ const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
 const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
 const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
-const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV001";
+const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
@@ -515,8 +517,7 @@ impl PersistentSignatureCache {
             remove_corrupt(&path);
             return Ok(ExtensionValidationDiagnosticsLookup::Corrupt);
         };
-        let Some(diagnostics) =
-            decode_extension_validation_diagnostics(payload, identity.source_len)
+        let Some(diagnostics) = decode_stable_diagnostic_bundle(payload, identity.source_len)
         else {
             remove_corrupt(&path);
             return Ok(ExtensionValidationDiagnosticsLookup::Corrupt);
@@ -534,7 +535,8 @@ impl PersistentSignatureCache {
         if !replace && path.is_file() {
             return Ok(());
         }
-        let payload = encode_extension_validation_diagnostics(diagnostics, identity.source_len)?;
+        let payload = encode_stable_diagnostic_bundle(diagnostics, identity.source_len)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let encoded = encode_extension_validation_diagnostics_entry(identity, &payload);
         let parent = path
             .parent()
@@ -3436,63 +3438,6 @@ fn read_syntax_kind(cursor: &mut Cursor<&[u8]>) -> Option<SyntaxKind> {
     })
 }
 
-fn encode_extension_validation_diagnostics(
-    diagnostics: &[Diagnostic],
-    source_len: usize,
-) -> io::Result<Vec<u8>> {
-    let mut encoded = Vec::new();
-    write_u64(&mut encoded, diagnostics.len() as u64);
-    for diagnostic in diagnostics {
-        let [label] = diagnostic.labels.as_slice() else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "extension validation diagnostic must have one label",
-            ));
-        };
-        if diagnostic.severity != Severity::Error
-            || diagnostic.category != DiagnosticCategory::User
-            || diagnostic.code.as_str() != codes::NAME_RESOLUTION.as_str()
-            || !diagnostic.code.is_registered()
-            || label.span_source != SpanSource::Source
-            || label.style != LabelStyle::Primary
-            || label.message.as_deref() != Some(diagnostic.summary.as_str())
-            || !diagnostic.notes.is_empty()
-            || !diagnostic.help.is_empty()
-            || !diagnostic.related.is_empty()
-            || !diagnostic.debug.is_empty()
-            || label.span.start > label.span.end
-            || label.span.end > source_len
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "unsupported extension validation diagnostic",
-            ));
-        }
-        write_span(&mut encoded, label.span);
-        write_string(&mut encoded, &diagnostic.summary);
-    }
-    Ok(encoded)
-}
-
-fn decode_extension_validation_diagnostics(
-    encoded: &[u8],
-    source_len: usize,
-) -> Option<Vec<Diagnostic>> {
-    let mut cursor = Cursor::new(encoded);
-    let len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
-    let mut diagnostics = Vec::with_capacity(len);
-    for _ in 0..len {
-        let span = read_span(&mut cursor, source_len)?;
-        let summary = read_string(&mut cursor, encoded.len())?;
-        diagnostics.push(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            span,
-            summary,
-        ));
-    }
-    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(diagnostics)
-}
-
 fn encode_executable_value_ref_edges(
     edges: &CachedExecutableValueRefEdges,
     module_paths: &HashMap<ModuleId, String>,
@@ -3709,6 +3654,7 @@ fn read_u8(cursor: &mut Cursor<&[u8]>) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_diagnostic::codes;
     use nia_ids::{ConstExprId, GlobalConstExprId, ModuleIdAllocator};
     use nia_source::{SourceId, SourceIdentity, SourceRevision};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -4510,14 +4456,36 @@ mod tests {
             ExtensionValidationDiagnosticsLookup::Hit(diagnostics.clone())
         );
 
-        let unsupported =
-            Diagnostic::user_error(codes::NAME_RESOLUTION, "unsupported secondary label shape")
-                .primary(nia_span::Span::new(1, 2), "primary")
-                .secondary(nia_span::Span::new(3, 4), "secondary")
-                .finish();
+        let complete = Diagnostic::user_error(codes::NAME_RESOLUTION, "complete diagnostic shape")
+            .primary(nia_span::Span::new(1, 2), "primary")
+            .secondary(nia_span::Span::new(3, 4), "secondary")
+            .note("note")
+            .help("help")
+            .related(nia_span::Span::new(5, 6), "related")
+            .debug("owner", 7)
+            .finish();
+        cache
+            .publish_extension_validation_diagnostics(
+                identity,
+                std::slice::from_ref(&complete),
+                true,
+            )
+            .expect("publish complete validation diagnostic");
+        assert_eq!(
+            cache
+                .load_extension_validation_diagnostics(identity)
+                .expect("load complete validation diagnostic"),
+            ExtensionValidationDiagnosticsLookup::Hit(vec![complete])
+        );
+
+        let invalid_span = Diagnostic::user_error_at(
+            codes::NAME_RESOLUTION,
+            nia_span::Span::new(127, 129),
+            "invalid span",
+        );
         assert!(
             cache
-                .publish_extension_validation_diagnostics(identity, &[unsupported], true)
+                .publish_extension_validation_diagnostics(identity, &[invalid_span], true)
                 .is_err()
         );
 
