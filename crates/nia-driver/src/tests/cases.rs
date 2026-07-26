@@ -30,8 +30,22 @@ fn check_cases_match_diagnostic_snapshots() {
 fn run_check_suite(driver: &crate::Driver, root: &Path, suite: CheckSuite) {
     let mut cases = fs::read_dir(root.join(suite.name))
         .unwrap_or_else(|error| panic!("read {} cases: {error}", suite.name))
-        .map(|entry| entry.expect("read case entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "nia"))
+        .filter_map(|entry| {
+            let path = entry.expect("read case entry").path();
+            if path.extension().is_some_and(|extension| extension == "nia") {
+                Some(path)
+            } else if path.is_dir() {
+                let entry = path.join("main.nia");
+                assert!(
+                    entry.is_file(),
+                    "{} case must contain main.nia",
+                    path.display()
+                );
+                Some(entry)
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>();
     cases.sort();
     assert!(!cases.is_empty(), "{} suite must contain cases", suite.name);

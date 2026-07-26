@@ -1618,6 +1618,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-4a 建立初始data-driven compiler check suite。`nia-driver`新增按`pass`/`fail`目录分类的只读`.nia` case runner，一个suite session permit和一个`Driver`批量执行全部case；每个case必须有同名`.snap`，快照稳定记录fixture相对path、code、summary、label、note、help、related与debug字段，避免checkout绝对路径进入断言。初始fixture覆盖clean、type mismatch和unresolved name，runner同时断言suite的error分类，diagnostic记录之间单空行且文件末尾只保留一个换行。它不写临时fixture，也不保留手写测试的compat入口；完整Driver 491项、严格Clippy、workspace all-target check、fmt及diff检查通过。此项只关闭I-4的最小可扩展基础，multi-module、incremental和LLVM/link workload仍须迁入case metadata与独立资源权重，Phase I不得因本项记为完成。
 
+进展（2026-07-26）：I-4b 扩展check suite为目录型multi-module case。suite根目录下的独立`.nia`仍是单文件case；子目录则必须以`main.nia`及同名snapshot为入口，其他`.nia`文件按正常loader路径作为真实依赖模块，不被错误地当成独立case。首个`pass/imported` fixture验证entry namespace导入和跨文件公开调用；仍由唯一suite permit/Driver执行，避免为multi-module case恢复每case资源入口。signature类query产品的diagnostic字段尚不能表面bundle化：其完整语义产品仍是大量typed provider输入，下一步须先分离semantic payload与诊断边，而不是新增转发compat wrapper。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
