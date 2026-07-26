@@ -11,7 +11,7 @@ pub(super) fn provide_const_module(
     let locals = db.get(LocalResolutionQuery(module_id))?;
     let semantic_uses = db.get(SemanticUseTableQuery(module_id))?;
     let type_lowering = type_lowering_semantic(db, module_id)?;
-    let signatures = db.get(ItemSignaturesQuery(module_id))?;
+    let signatures = item_signatures_semantic(db, module_id)?;
     let source_path = db.get(ModulePathQuery(module_id))?;
     let symbols = db.context().symbols();
     Ok(nia_const_check::lower_module_const(
@@ -196,7 +196,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
                 ),
             );
         }
-        capture_query_failure(&query_failure, db.get(ItemSignaturesQuery(module_id)))
+        capture_query_failure(&query_failure, item_signatures_semantic(db, module_id))
     };
     let value_signatures_for_module = |module_id| {
         capture_query_failure(
@@ -223,7 +223,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let locals = db.get(LocalResolutionQuery(module_id))?;
     let semantic_uses = db.get(SemanticUseTableQuery(module_id))?;
     let source_path = db.get(ModulePathQuery(module_id))?;
-    let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
+    let item_signatures = item_signatures_semantic(db, module_id)?;
     let type_lowering = type_lowering_semantic(db, module_id)?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     let target = db.get(CompilerTargetQuery)?;

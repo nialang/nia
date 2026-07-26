@@ -712,20 +712,24 @@ pub(super) fn provide_signature_const_type_lowering(
 pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<ItemSignatures> {
+) -> QueryResult<ModuleItemSignatures> {
     let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id))?;
     let defs = db.get(ModuleDefsQuery(module_id))?;
     let type_lowering = db.get(DeclarationTypeLoweringQuery(module_id))?;
     let symbols = db.context().symbols();
-    Ok(nia_item_signatures::collect_item_signatures(
-        nia_item_signatures::ItemSignatureInput {
+    let mut signatures =
+        nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
             source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
             defs: &defs,
             lowered: &type_lowering,
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
-        },
-    ))
+        });
+    let diagnostics = std::mem::take(&mut signatures.diagnostics);
+    Ok(ModuleItemSignatures {
+        semantic: Arc::new(signatures),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_signature_item_signatures(
@@ -893,7 +897,7 @@ pub(super) fn provide_type_normalization(
     module_id: ModuleId,
 ) -> QueryResult<ModuleTypeNormalization> {
     let type_lowering = type_lowering_semantic(db, module_id)?;
-    let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
+    let item_signatures = item_signatures_semantic(db, module_id)?;
     let mut normalization =
         normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures);
     let diagnostics = std::mem::take(&mut normalization.diagnostics);
@@ -908,7 +912,7 @@ pub(super) fn provide_layout_type_normalization(
     module_id: ModuleId,
 ) -> QueryResult<TypeNormalization> {
     let type_lowering = type_lowering_semantic(db, module_id)?;
-    let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
+    let item_signatures = item_signatures_semantic(db, module_id)?;
     Ok(normalize_types_in_session_store(
         db,
         module_id,
