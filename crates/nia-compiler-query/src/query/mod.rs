@@ -6807,7 +6807,10 @@ extend i32 : ParseFrom[Input] {
         assert_eq!(locals.node_uses.store_id(), node_store_id);
 
         let types = db.expect_get(TypeResolutionQuery(module_id));
-        assert_eq!(types.node_const_generic_names.store_id(), node_store_id);
+        assert_eq!(
+            types.semantic.node_const_generic_names.store_id(),
+            node_store_id
+        );
     }
 
     #[test]
@@ -6820,6 +6823,17 @@ extend i32 : ParseFrom[Input] {
             module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
+        assert!(resolution.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    }
+
+    #[test]
+    fn type_resolution_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main(value: Missing) {}");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let resolution = db.expect_get(TypeResolutionQuery(module_id));
         assert!(resolution.semantic.diagnostics.is_empty());
         assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
     }
@@ -6956,7 +6970,10 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(&checked.value_resolution, &values));
         assert!(Arc::ptr_eq(&checked.local_resolution, &locals));
         assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));
-        assert!(Arc::ptr_eq(&checked.type_resolution, &type_resolution));
+        assert!(Arc::ptr_eq(
+            &checked.type_resolution,
+            &type_resolution.semantic
+        ));
         assert!(Arc::ptr_eq(&checked.type_lowering, &type_lowering));
         assert!(Arc::ptr_eq(
             &checked.type_normalization,

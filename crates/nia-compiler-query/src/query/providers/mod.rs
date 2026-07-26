@@ -295,7 +295,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_exposure_index:
         fn(&QueryDb<CompilerContext>) -> QueryResult<TypeExposureIndexValue>,
     pub(super) type_resolution:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleTypeResolution>,
     pub(super) declaration_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
     pub(super) signature_type_resolution: fn(

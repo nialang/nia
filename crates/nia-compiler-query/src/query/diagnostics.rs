@@ -32,6 +32,12 @@ pub(super) struct ModuleTypeNormalization {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleTypeResolution {
+    pub(super) semantic: Arc<TypeResolution>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -100,6 +106,15 @@ pub(super) fn type_normalization_semantic(
 ) -> QueryResult<Arc<TypeNormalization>> {
     Ok(Arc::clone(
         &db.get(TypeNormalizationQuery(module_id))?.semantic,
+    ))
+}
+
+pub(super) fn type_resolution_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<TypeResolution>> {
+    Ok(Arc::clone(
+        &db.get(TypeResolutionQuery(module_id))?.semantic,
     ))
 }
 

@@ -233,7 +233,7 @@ pub(super) fn provide_type_exposure_index(
 pub(super) fn provide_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<TypeResolution> {
+) -> QueryResult<ModuleTypeResolution> {
     time_module_provider(db, "type_resolution", module_id, || {
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
         let defs = db.get(FullModuleDefsQuery(module_id))?;
@@ -245,7 +245,7 @@ pub(super) fn provide_type_resolution(
             capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
         };
         let symbols = db.context().symbols();
-        let resolution =
+        let mut resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
                 &active_item_tree,
                 &defs,
@@ -258,7 +258,16 @@ pub(super) fn provide_type_resolution(
                 &symbols,
                 db.context().node_store(),
             );
-        query_failure.into_inner().map_or(Ok(resolution), Err)
+        let diagnostics = std::mem::take(&mut resolution.diagnostics);
+        query_failure.into_inner().map_or_else(
+            || {
+                Ok(ModuleTypeResolution {
+                    semantic: Arc::new(resolution),
+                    diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+                })
+            },
+            Err,
+        )
     })
 }
 
@@ -472,7 +481,7 @@ pub(super) fn provide_type_lowering(
     module_id: ModuleId,
 ) -> QueryResult<TypeLowering> {
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let type_resolution = type_resolution_semantic(db, module_id)?;
     let query_failure = RefCell::new(None);
     let program_defs =
         |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
