@@ -56,7 +56,7 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
@@ -373,7 +373,7 @@ impl CompilerDatabase {
             return Ok(CheckedProgram {
                 graph: self.current_graph()?,
                 optimization: self.current_optimization(),
-                diagnostics: Vec::new(),
+                diagnostics: certificate.diagnostics.clone(),
                 checked_body_count: certificate.checked_body_count,
                 reachable_body_count: certificate.reachable_body_count,
             });
@@ -390,29 +390,25 @@ impl CompilerDatabase {
         if self.db.context().verify_frontend_cache
             && let Some((cached_context, crate::signature_cache::CheckCertificateLookup::Hit(_))) =
                 cached.as_ref()
-            && (!report.diagnostics.is_empty()
-                || context
-                    .as_ref()
-                    .is_none_or(|context| context.key() != cached_context.key()))
+            && context
+                .as_ref()
+                .is_none_or(|context| context.key() != cached_context.key())
         {
             cache.remove_check_certificate(cached_context.key());
         }
         let Some(context) = context else {
             return Ok(report);
         };
-        if report.diagnostics.is_empty() {
-            let certificate = crate::signature_cache::CachedCheckCertificate {
-                checked_body_count: report.checked_body_count(),
-                reachable_body_count: report.reachable_body_count(),
-            };
-            let _ = cache.publish_check_certificate(
-                context.identity(),
-                certificate,
-                self.db.context().verify_frontend_cache,
-            );
-        } else if self.db.context().verify_frontend_cache {
-            cache.remove_check_certificate(context.key());
-        }
+        let certificate = crate::signature_cache::CachedCheckCertificate {
+            checked_body_count: report.checked_body_count(),
+            reachable_body_count: report.reachable_body_count(),
+            diagnostics: report.diagnostics.clone(),
+        };
+        let _ = cache.publish_check_certificate(
+            context.identity(),
+            certificate,
+            self.db.context().verify_frontend_cache,
+        );
         Ok(report)
     }
 
@@ -442,6 +438,16 @@ impl CompilerDatabase {
             entry,
             input,
             scope,
+            source_lengths: program_sources
+                .by_module
+                .values()
+                .map(|source| {
+                    (
+                        source.module.source_identity().normalized_path().to_owned(),
+                        source.len,
+                    )
+                })
+                .collect(),
         }))
     }
 
@@ -809,6 +815,7 @@ struct CheckCertificateContext {
     entry: StableModuleKey,
     input: FrontendCheckInputFingerprint,
     scope: FrontendCheckScope,
+    source_lengths: BTreeMap<String, usize>,
 }
 
 impl CheckCertificateContext {
@@ -823,6 +830,7 @@ impl CheckCertificateContext {
             entry: &self.entry,
             input: self.input,
             scope: self.scope,
+            source_lengths: &self.source_lengths,
         }
     }
 }
@@ -5166,7 +5174,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn persistent_clean_check_certificate_skips_semantic_analysis_and_verifies_fresh() {
+    fn persistent_check_certificate_reuses_diagnostics_and_verifies_fresh() {
         static CACHE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let cache_id = CACHE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
@@ -5233,6 +5241,12 @@ extend Value : Ops {
         let (edited, edited_trace) = compile(invalid_source, false);
         assert!(!edited.diagnostics.is_empty());
         assert_eq!(query_executions(&edited_trace, "entry_checked_program"), 1);
+        let (warm_invalid, warm_invalid_trace) = compile(invalid_source, false);
+        assert_eq!(warm_invalid.diagnostics, edited.diagnostics);
+        assert_eq!(
+            query_executions(&warm_invalid_trace, "entry_checked_program"),
+            0
+        );
 
         let invalid_fixture = LoadedProgramFixture::new("main.nia", invalid_source);
         let invalid_module = invalid_fixture.entry_id();
@@ -5268,8 +5282,9 @@ extend Value : Ops {
                 crate::signature_cache::CachedCheckCertificate {
                     checked_body_count: 1,
                     reachable_body_count: 1,
+                    diagnostics: Vec::new(),
                 },
-                false,
+                true,
             )
             .expect("inject semantically wrong clean certificate");
         let (trusted_invalid, trusted_invalid_trace) = compile(invalid_source, false);
@@ -5279,16 +5294,16 @@ extend Value : Ops {
             0
         );
         let (verified_invalid, verified_invalid_trace) = compile(invalid_source, true);
-        assert!(!verified_invalid.diagnostics.is_empty());
+        assert_eq!(verified_invalid.diagnostics, edited.diagnostics);
         assert_eq!(
             query_executions(&verified_invalid_trace, "entry_checked_program"),
             1
         );
         let (retired_invalid, retired_invalid_trace) = compile(invalid_source, false);
-        assert!(!retired_invalid.diagnostics.is_empty());
+        assert_eq!(retired_invalid.diagnostics, verified_invalid.diagnostics);
         assert_eq!(
             query_executions(&retired_invalid_trace, "entry_checked_program"),
-            1
+            0
         );
         let (_, warm_after_verification) = compile(source, false);
         assert_eq!(

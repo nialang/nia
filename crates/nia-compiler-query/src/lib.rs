@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod frontend_fingerprint;
+mod program_diagnostic_bundle;
 mod query;
 mod signature_cache;
 
