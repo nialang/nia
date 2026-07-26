@@ -3923,6 +3923,7 @@ pub fn expensive_or_invalid() i32 {
             .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         assert!(
             first_lowering
+                .semantic
                 .explicit_type_roots()
                 .into_iter()
                 .all(|ty| type_store.get(ty).is_some())
@@ -3940,16 +3941,22 @@ pub fn expensive_or_invalid() i32 {
             type_store.get(first_i32),
             Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
         );
-        assert!(second_lowering.explicit_type_roots().into_iter().any(|ty| {
-            matches!(
-                type_store.get(ty),
-                Some(nia_ty::TyKind::Pointer { elem, .. })
-                    if matches!(
-                        type_store.get(*elem),
-                        Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+        assert!(
+            second_lowering
+                .semantic
+                .explicit_type_roots()
+                .into_iter()
+                .any(|ty| {
+                    matches!(
+                        type_store.get(ty),
+                        Some(nia_ty::TyKind::Pointer { elem, .. })
+                            if matches!(
+                                type_store.get(*elem),
+                                Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+                            )
                     )
-            )
-        }));
+                })
+        );
     }
 
     #[test]
@@ -3964,7 +3971,7 @@ pub fn expensive_or_invalid() i32 {
         let normalization = database.db.expect_get(TypeNormalizationQuery(module_id));
         let type_store = &database.db.context().type_store;
 
-        for ty_id in lowering.explicit_type_roots() {
+        for ty_id in lowering.semantic.explicit_type_roots() {
             assert!(type_store.get(ty_id).is_some());
         }
         for normalized in normalization.semantic.normalized.values() {
@@ -4001,7 +4008,7 @@ fn main() i32 { 0 }
         let _ = database.db.expect_get(ConstTypedFactsQuery(module_id));
         let _ = database.db.expect_get(ConstQuery(module_id));
 
-        for ty in lowering.explicit_type_roots() {
+        for ty in lowering.semantic.explicit_type_roots() {
             assert!(database.db.context().type_store.get(ty).is_some());
         }
         let range_ty = values
@@ -6862,6 +6869,26 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn type_lowering_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "struct Box[T] { value: T } fn main(value: Box) {}",
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let lowering = db.expect_get(TypeLoweringQuery(module_id));
+        assert!(lowering.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &lowering.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("generic argument count mismatch"))
+        );
+    }
+
+    #[test]
     fn signature_item_signatures_separate_semantic_value_from_diagnostics() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() void;");
         let module_id = fixture.entry_id();
@@ -6974,7 +7001,7 @@ extend i32 : ParseFrom[Input] {
             &checked.type_resolution,
             &type_resolution.semantic
         ));
-        assert!(Arc::ptr_eq(&checked.type_lowering, &type_lowering));
+        assert!(Arc::ptr_eq(&checked.type_lowering, &type_lowering.semantic));
         assert!(Arc::ptr_eq(
             &checked.type_normalization,
             &type_normalization.semantic

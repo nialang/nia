@@ -57,7 +57,7 @@ pub(super) struct TypeLoweringQuery(pub(super) ModuleId);
 pub(super) struct DeclarationTypeLoweringQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeLoweringQuery {
-    type Value = TypeLowering;
+    type Value = ModuleTypeLowering;
 
     fn name() -> &'static str {
         "type_lowering"

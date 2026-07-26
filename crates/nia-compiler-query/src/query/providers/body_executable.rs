@@ -258,7 +258,7 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.type_lowering",
         global_id.module_id,
-        || db.get(TypeLoweringQuery(global_id.module_id)),
+        || type_lowering_semantic(db, global_id.module_id),
     )?;
     let type_resolution = type_resolution_semantic(db, global_id.module_id)?;
     let signatures = db.get(ItemSignaturesQuery(global_id.module_id))?;
@@ -791,7 +791,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let program_defs =
         |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
     let type_resolution = type_resolution_semantic(db, module_id)?;
-    let lowered = db.get(TypeLoweringQuery(module_id))?;
+    let lowered = type_lowering_semantic(db, module_id)?;
     let executable_reachable_filter = matches!(
         filter,
         nia_body_check::BodyCheckFilter::ReachableItems { .. }
@@ -1649,7 +1649,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         let query_failure = RefCell::new(None);
         let defs = db.get(FullModuleDefsQuery(module_id))?;
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-        let type_lowering = db.get(TypeLoweringQuery(module_id))?;
+        let type_lowering = type_lowering_semantic(db, module_id)?;
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
         let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
         let program_struct = |def_id: GlobalDefId| {
@@ -2092,13 +2092,14 @@ fn checked_module_with_body_and_flow_check(
 ) -> QueryResult<CheckedModule> {
     let path = db.get(ModulePathQuery(module_id))?.as_ref().clone();
     let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let type_lowering = db.get(TypeLoweringQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path,
         defs: db.get(FullModuleDefsQuery(module_id))?,
         type_resolution: Arc::clone(&type_resolution.semantic),
-        type_lowering: db.get(TypeLoweringQuery(module_id))?,
+        type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: db.get(ValueResolutionQuery(module_id))?,
         local_resolution: db.get(LocalResolutionQuery(module_id))?,
         type_normalization: Arc::clone(&type_normalization.semantic),
@@ -2125,6 +2126,7 @@ fn checked_module_with_body_and_flow_check(
         frontend_diagnostics: vec![
             type_resolution.diagnostics.clone(),
             type_normalization.diagnostics.clone(),
+            type_lowering.diagnostics.clone(),
         ],
     })
 }
@@ -2142,13 +2144,14 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         const_eval,
     } = body_check;
     let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let type_lowering = db.get(TypeLoweringQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
         defs: db.get(FullModuleDefsQuery(module_id))?,
         type_resolution: Arc::clone(&type_resolution.semantic),
-        type_lowering: db.get(TypeLoweringQuery(module_id))?,
+        type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
         type_normalization: Arc::clone(&type_normalization.semantic),
@@ -2179,6 +2182,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         frontend_diagnostics: vec![
             type_resolution.diagnostics.clone(),
             type_normalization.diagnostics.clone(),
+            type_lowering.diagnostics.clone(),
         ],
     })
 }

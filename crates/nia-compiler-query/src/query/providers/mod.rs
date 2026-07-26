@@ -305,7 +305,8 @@ pub(super) struct CompilerQueryProviders {
     ) -> QueryResult<SignatureTypeResolution>,
     pub(super) signature_const_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
-    pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
+    pub(super) type_lowering:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleTypeLowering>,
     pub(super) declaration_type_lowering:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
     pub(super) signature_type_lowering: fn(

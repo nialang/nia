@@ -479,14 +479,14 @@ pub(super) fn provide_signature_const_type_resolution(
 pub(super) fn provide_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<TypeLowering> {
+) -> QueryResult<ModuleTypeLowering> {
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let type_resolution = type_resolution_semantic(db, module_id)?;
     let query_failure = RefCell::new(None);
     let program_defs =
         |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
-    let lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
+    let mut lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
@@ -498,7 +498,16 @@ pub(super) fn provide_type_lowering(
         )
         .with_symbols(&symbols),
     );
-    query_failure.into_inner().map_or(Ok(lowering), Err)
+    let diagnostics = std::mem::take(&mut lowering.diagnostics);
+    query_failure.into_inner().map_or_else(
+        || {
+            Ok(ModuleTypeLowering {
+                semantic: Arc::new(lowering),
+                diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+            })
+        },
+        Err,
+    )
 }
 
 pub(super) fn provide_declaration_type_lowering(
@@ -883,7 +892,7 @@ pub(super) fn provide_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ModuleTypeNormalization> {
-    let type_lowering = db.get(TypeLoweringQuery(module_id))?;
+    let type_lowering = type_lowering_semantic(db, module_id)?;
     let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     let mut normalization =
         normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures);
@@ -898,7 +907,7 @@ pub(super) fn provide_layout_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<TypeNormalization> {
-    let type_lowering = db.get(TypeLoweringQuery(module_id))?;
+    let type_lowering = type_lowering_semantic(db, module_id)?;
     let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     Ok(normalize_types_in_session_store(
         db,
