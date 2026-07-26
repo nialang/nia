@@ -5,7 +5,7 @@ use super::*;
 pub(super) struct ValueResolutionQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ValueResolutionQuery {
-    type Value = ValueResolution;
+    type Value = ModuleValueResolution;
 
     fn name() -> &'static str {
         "value_resolution"
@@ -20,7 +20,7 @@ impl QueryKey<CompilerContext> for ValueResolutionQuery {
 pub(super) struct LocalResolutionQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for LocalResolutionQuery {
-    type Value = LocalResolution;
+    type Value = ModuleLocalResolution;
 
     fn name() -> &'static str {
         "local_resolution"

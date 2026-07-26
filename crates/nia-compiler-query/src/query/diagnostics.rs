@@ -50,6 +50,18 @@ pub(super) struct ModuleItemSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleValueResolution {
+    pub(super) semantic: Arc<ValueResolution>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleLocalResolution {
+    pub(super) semantic: Arc<LocalResolution>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -143,6 +155,24 @@ pub(super) fn item_signatures_semantic(
 ) -> QueryResult<Arc<ItemSignatures>> {
     Ok(Arc::clone(
         &db.get(ItemSignaturesQuery(module_id))?.semantic,
+    ))
+}
+
+pub(super) fn value_resolution_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<ValueResolution>> {
+    Ok(Arc::clone(
+        &db.get(ValueResolutionQuery(module_id))?.semantic,
+    ))
+}
+
+pub(super) fn local_resolution_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<LocalResolution>> {
+    Ok(Arc::clone(
+        &db.get(LocalResolutionQuery(module_id))?.semantic,
     ))
 }
 

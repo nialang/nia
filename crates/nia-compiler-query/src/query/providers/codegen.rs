@@ -625,11 +625,17 @@ pub(super) fn checked_module_diagnostics(
         }
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.value_resolution.diagnostics,
+            resolve_diagnostic_bundle(
+                db.context(),
+                &db.get(ValueResolutionQuery(checked.id))?.diagnostics,
+            ),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.local_resolution.diagnostics,
+            resolve_diagnostic_bundle(
+                db.context(),
+                &db.get(LocalResolutionQuery(checked.id))?.diagnostics,
+            ),
         ));
         let item_signatures = db.get(ItemSignaturesQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(

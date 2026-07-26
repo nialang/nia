@@ -7,8 +7,8 @@ pub(super) fn provide_const_module(
 ) -> QueryResult<ConstModuleLowering> {
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let defs = db.get(FullModuleDefsQuery(module_id))?;
-    let values = db.get(ValueResolutionQuery(module_id))?;
-    let locals = db.get(LocalResolutionQuery(module_id))?;
+    let values = value_resolution_semantic(db, module_id)?;
+    let locals = local_resolution_semantic(db, module_id)?;
     let semantic_uses = db.get(SemanticUseTableQuery(module_id))?;
     let type_lowering = type_lowering_semantic(db, module_id)?;
     let signatures = item_signatures_semantic(db, module_id)?;
@@ -219,8 +219,8 @@ pub(super) fn with_const_input_and_program_facts<T>(
         )
         .map(|extensions| extensions.methods.clone())
     };
-    let values = db.get(ValueResolutionQuery(module_id))?;
-    let locals = db.get(LocalResolutionQuery(module_id))?;
+    let values = value_resolution_semantic(db, module_id)?;
+    let locals = local_resolution_semantic(db, module_id)?;
     let semantic_uses = db.get(SemanticUseTableQuery(module_id))?;
     let source_path = db.get(ModulePathQuery(module_id))?;
     let item_signatures = item_signatures_semantic(db, module_id)?;

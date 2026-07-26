@@ -158,8 +158,8 @@ pub(super) fn body_check_resolution_inputs_for_filter(
     match filter {
         nia_body_check::BodyCheckFilter::All => Ok(BodyCheckResolutionInputs {
             active_item_tree: context.active_item_tree,
-            values: db.get(ValueResolutionQuery(module_id))?,
-            locals: db.get(LocalResolutionQuery(module_id))?,
+            values: value_resolution_semantic(db, module_id)?,
+            locals: local_resolution_semantic(db, module_id)?,
             semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
         }),
         _ => {

@@ -6797,21 +6797,24 @@ extend i32 : ParseFrom[Input] {
         let node_store_id = db.context().node_store().id();
 
         let values = db.expect_get(ValueResolutionQuery(module_id));
-        assert_eq!(values.node_names.store_id(), node_store_id);
-        assert_eq!(values.node_qualified_values.store_id(), node_store_id);
+        assert_eq!(values.semantic.node_names.store_id(), node_store_id);
         assert_eq!(
-            values.node_builtin_associated_values.store_id(),
+            values.semantic.node_qualified_values.store_id(),
             node_store_id
         );
-        assert_eq!(values.node_variant_enums.store_id(), node_store_id);
         assert_eq!(
-            values.node_qualified_type_prefixes.store_id(),
+            values.semantic.node_builtin_associated_values.store_id(),
+            node_store_id
+        );
+        assert_eq!(values.semantic.node_variant_enums.store_id(), node_store_id);
+        assert_eq!(
+            values.semantic.node_qualified_type_prefixes.store_id(),
             node_store_id
         );
 
         let locals = db.expect_get(LocalResolutionQuery(module_id));
-        assert_eq!(locals.node_local_defs.store_id(), node_store_id);
-        assert_eq!(locals.node_uses.store_id(), node_store_id);
+        assert_eq!(locals.semantic.node_local_defs.store_id(), node_store_id);
+        assert_eq!(locals.semantic.node_uses.store_id(), node_store_id);
 
         let types = db.expect_get(TypeResolutionQuery(module_id));
         assert_eq!(
@@ -6926,6 +6929,38 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn value_resolution_separates_semantic_value_from_diagnostics() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module helper; fn main() i32 { helper::missing() }",
+        );
+        let module_id = fixture.entry_id();
+        fixture.add_child(
+            module_id,
+            "helper",
+            "helper.nia",
+            "pub fn value() i32 { 1 }",
+        );
+        let db = query_db(fixture.program());
+
+        let resolution = db.expect_get(ValueResolutionQuery(module_id));
+        assert!(resolution.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    }
+
+    #[test]
+    fn local_resolution_separates_semantic_value_from_diagnostics() {
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "fn main(value: i32, value: i32) i32 { value }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let resolution = db.expect_get(LocalResolutionQuery(module_id));
+        assert!(resolution.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    }
+
+    #[test]
     fn signature_type_normalization_separates_semantic_value_from_diagnostics() {
         let fixture = LoadedProgramFixture::new("main.nia", "type A = B; type B = A;");
         let module_id = fixture.entry_id();
@@ -7011,8 +7046,8 @@ extend i32 : ParseFrom[Input] {
         let flow_check = db.expect_get(FlowCheckQuery(module_id));
 
         assert!(Arc::ptr_eq(&checked, &checked_program.modules[0]));
-        assert!(Arc::ptr_eq(&checked.value_resolution, &values));
-        assert!(Arc::ptr_eq(&checked.local_resolution, &locals));
+        assert!(Arc::ptr_eq(&checked.value_resolution, &values.semantic));
+        assert!(Arc::ptr_eq(&checked.local_resolution, &locals.semantic));
         assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));
         assert!(Arc::ptr_eq(
             &checked.type_resolution,
