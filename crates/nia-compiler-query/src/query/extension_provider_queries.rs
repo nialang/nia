@@ -210,13 +210,13 @@ pub(super) struct ExtensionMethodByIdQueryValue {
 pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
-    pub(super) associated_value_diagnostics: Vec<Diagnostic>,
+    pub(super) associated_value_diagnostics: nia_diagnostic::DiagnosticBundle,
     pub(super) nominal_providers: Vec<nia_program_signatures::NominalExtensionProviderEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderValidationFactsQueryValue {
-    pub(super) diagnostics: Vec<Diagnostic>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -364,7 +364,7 @@ pub(super) fn provide_extension_provider_module_facts(
             return Ok(ExtensionProviderModuleFactsQueryValue {
                 methods: nia_defs::ExtensionMethods::default(),
                 associated_values: nia_defs::ExtensionAssociatedValues::default(),
-                associated_value_diagnostics: Vec::new(),
+                associated_value_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
                 nominal_providers: Vec::new(),
             });
         }
@@ -402,7 +402,10 @@ pub(super) fn provide_extension_provider_module_facts(
         Ok(ExtensionProviderModuleFactsQueryValue {
             methods,
             associated_values,
-            associated_value_diagnostics,
+            associated_value_diagnostics: db
+                .context()
+                .diagnostic_store
+                .bundle(associated_value_diagnostics),
             nominal_providers,
         })
     })
@@ -482,7 +485,7 @@ pub(super) fn provide_extension_provider_validation_facts(
             match cached {
                 Some(crate::signature_cache::ExtensionValidationDiagnosticsLookup::Hit(cached)) => {
                     return Ok(ExtensionProviderValidationFactsQueryValue {
-                        diagnostics: cached,
+                        diagnostics: db.context().diagnostic_store.bundle(cached),
                     });
                 }
                 cached => cached,
@@ -548,7 +551,9 @@ pub(super) fn provide_extension_provider_validation_facts(
                 1,
             );
         }
-        Ok(ExtensionProviderValidationFactsQueryValue { diagnostics })
+        Ok(ExtensionProviderValidationFactsQueryValue {
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        })
     })
 }
 
