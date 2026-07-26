@@ -1626,6 +1626,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2g 迁移`SignatureTypeLoweringQuery`为语义值加session diagnostic bundle。fresh lowering在缓存决策前移出diagnostics，cache hit只恢复无diagnostic semantic payload；type lowering、item signatures、normalization、extension signature facts、const input和layout消费者均只借用`Arc<TypeLowering>`语义字段，cacheability改由bundle是否为空判断。`CheckedModule`的frontend diagnostic edge升级为有序bundle列表，使signature resolution与lowering的payload以handle顺序进入唯一report aggregation，不合并复制也不丢失依赖诊断；普通module为零bundle。新增generic argument count mismatch回归锁定语义lowering无diagnostics、bundle完整保留错误；compiler-query 175项与严格Clippy通过。下一项是`SignatureItemSignatures`，同样必须先移出diagnostics再迁移其program signature/extension consumer，不能返回旧产品的转发包装。
 
+进展（2026-07-26）：I-2h 为`SignatureItemSignatures`迁移收束跨模块semantic-input边界。body executable、const evaluation和signature const的三组program closure不再直接读取`SignatureItemSignaturesQuery`，统一经唯一`signature_item_signatures_semantic` helper请求`Arc<ItemSignatures>`；full item-signature仍走自己的query，因而没有混合full/signature semantic universe。该helper是单向迁移边界，不暴露diagnostics或旧产品字段：下一切片把query value改为semantic-plus-bundle后只在此处取semantic，所有跨模块callback contract无需再引入compat wrapper。compiler-query 175项和严格Clippy通过；后续仍须迁移直接的program/extension/reachability consumers并让item signature diagnostics进入有序frontend bundle列表。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

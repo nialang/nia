@@ -188,10 +188,11 @@ pub(super) fn with_const_input_and_program_facts<T>(
         if use_signature_facts_for(module_id) {
             return capture_query_failure(
                 &query_failure,
-                db.get(SignatureItemSignaturesQuery(
+                signature_item_signatures_semantic(
+                    db,
                     module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                )),
+                ),
             );
         }
         capture_query_failure(&query_failure, db.get(ItemSignaturesQuery(module_id)))
@@ -199,10 +200,11 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let value_signatures_for_module = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureItemSignaturesQuery(
+            signature_item_signatures_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Values,
-            )),
+            ),
         )
     };
     let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id))?;
