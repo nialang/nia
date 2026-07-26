@@ -332,7 +332,7 @@ pub(super) struct CompilerQueryProviders {
         &QueryDb<CompilerContext>,
         ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> QueryResult<TypeNormalization>,
+    ) -> QueryResult<SignatureTypeNormalization>,
     pub(super) signature_const_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) signature_const_module:

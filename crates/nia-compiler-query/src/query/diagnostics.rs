@@ -20,6 +20,12 @@ pub(super) struct SignatureItemSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct SignatureTypeNormalization {
+    pub(super) semantic: Arc<TypeNormalization>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -67,6 +73,17 @@ pub(super) fn signature_item_signatures_semantic(
 ) -> QueryResult<Arc<ItemSignatures>> {
     Ok(Arc::clone(
         &db.get(SignatureItemSignaturesQuery(module_id, set))?
+            .semantic,
+    ))
+}
+
+pub(super) fn signature_type_normalization_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> QueryResult<Arc<TypeNormalization>> {
+    Ok(Arc::clone(
+        &db.get(SignatureTypeNormalizationQuery(module_id, set))?
             .semantic,
     ))
 }

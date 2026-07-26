@@ -1630,6 +1630,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2i 完成`SignatureItemSignaturesQuery`的语义/diagnostic分离。query value现在是`Arc<ItemSignatures>` semantic payload与session bundle；fresh path在缓存决策前移出diagnostics，cache hit只恢复语义payload和canonical empty bundle。program-signature、ABI/static/flow check、extension provider、body executable、const eval、signature const、reachability和normalization所有直接typed consumer均显式借用`.semantic`；跨模块closure使用I-2h唯一semantic helper，不保留Deref、getter或旧产品转发面。executable types-only checked module把resolution、lowering和item-signature三条bundle按原顺序放入frontend diagnostics，report aggregation逐条解包，避免复制且不漏签名错误。新增bodyless non-extern function回归锁定item-signature diagnostics只在bundle；compiler-query 176项与严格Clippy通过。Phase I调整为约57%；下一步迁移`SignatureTypeNormalization`，随后按相同规则处理非signature高扇出产品。
 
+进展（2026-07-26）：I-2j 完成`SignatureTypeNormalizationQuery`的语义/diagnostic分离。normalization query现在将`normalized` mapping作为`Arc` semantic payload发布，递归alias等diagnostics仅在session bundle；body executable、const evaluation、signature const与extension provider的跨模块normalization callback统一经唯一semantic helper返回`Arc<TypeNormalization>`，extension facts直接借用`.semantic`。types-only executable checked module将normalization bundle追加到既有resolution/lowering/item-signature有序frontend handles，最终report逐handle解析，不复制或合并payload。新增递归type alias回归锁定semantic normalization为空诊断而bundle非空；compiler-query 177项与严格Clippy通过。signature resolution/lowering/item-signature/normalization四个高复用前端产品现均完成同一session bundle迁移；下一域转向非signature `TypeResolution`及其checked-module报告边界。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

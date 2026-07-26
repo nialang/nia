@@ -527,10 +527,11 @@ fn const_inputs_for_body_check(
         if fact_mode.signature_facts_for(module_id) {
             return capture_query_failure(
                 &query_failure,
-                db.get(SignatureTypeNormalizationQuery(
+                signature_type_normalization_semantic(
+                    db,
                     module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                )),
+                ),
             );
         }
         capture_query_failure(&query_failure, db.get(TypeNormalizationQuery(module_id)))
@@ -826,10 +827,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let extension_method_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureTypeNormalizationQuery(
+            signature_type_normalization_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
-            )),
+            ),
         )
     };
     let mut filtered_const_inputs = None;
@@ -934,10 +936,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         if fact_mode.signature_facts_for(module_id) {
             return capture_query_failure(
                 &query_failure,
-                db.get(SignatureTypeNormalizationQuery(
+                signature_type_normalization_semantic(
+                    db,
                     module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                )),
+                ),
             );
         }
         capture_query_failure(&query_failure, db.get(TypeNormalizationQuery(module_id)))
@@ -2217,7 +2220,7 @@ pub(super) fn executable_signature_checked_module(
         local_resolution: Arc::new(nia_local_resolve::LocalResolution::with_store(
             db.context().node_store(),
         )),
-        type_normalization,
+        type_normalization: Arc::clone(&type_normalization.semantic),
         const_eval: Arc::new(ConstCheck {
             values: Arc::new(HashMap::new()),
             typed_values: Arc::new(HashMap::new()),
@@ -2252,6 +2255,7 @@ pub(super) fn executable_signature_checked_module(
             signature_type_resolution.diagnostics.clone(),
             type_lowering.diagnostics.clone(),
             item_signatures.diagnostics.clone(),
+            type_normalization.diagnostics.clone(),
         ],
     })
 }

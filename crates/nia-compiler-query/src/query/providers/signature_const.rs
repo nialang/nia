@@ -48,10 +48,11 @@ fn with_signature_const_input<T>(
     let program_type_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureTypeNormalizationQuery(
+            signature_type_normalization_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
-            )),
+            ),
         )
     };
     let local_trait_impls = if non_function_signatures_override.is_none() {
@@ -544,7 +545,7 @@ pub(super) fn signature_layouts_for_types(
                 defs: &defs,
                 signatures: &item_signatures.semantic,
                 root_types: &[],
-                normalized: &type_normalization.normalized,
+                normalized: &type_normalization.semantic.normalized,
                 array_lengths: &local_array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
