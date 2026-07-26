@@ -38,6 +38,12 @@ pub(super) struct ModuleTypeResolution {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleTypeLowering {
+    pub(super) semantic: Arc<TypeLowering>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -116,6 +122,13 @@ pub(super) fn type_resolution_semantic(
     Ok(Arc::clone(
         &db.get(TypeResolutionQuery(module_id))?.semantic,
     ))
+}
+
+pub(super) fn type_lowering_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<TypeLowering>> {
+    Ok(Arc::clone(&db.get(TypeLoweringQuery(module_id))?.semantic))
 }
 
 pub(super) fn synthetic_diagnostic_path() -> SourcePath {

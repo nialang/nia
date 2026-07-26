@@ -318,7 +318,7 @@ pub(in crate::query) fn full_body_check_resolution_inputs(
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let defs = db.get(FullModuleDefsQuery(module_id))?;
     let type_resolution = type_resolution_semantic(db, module_id)?;
-    let lowered = db.get(TypeLoweringQuery(module_id))?;
+    let lowered = type_lowering_semantic(db, module_id)?;
     body_check_resolution_inputs_for_filter(
         db,
         module_id,

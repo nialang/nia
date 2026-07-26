@@ -263,7 +263,7 @@ pub(super) fn executable_program_functions_for_modules(
     module_ids
         .into_iter()
         .map(|module_id| {
-            let lowered = db.get(TypeLoweringQuery(module_id))?;
+            let lowered = type_lowering_semantic(db, module_id)?;
             let signatures = body_local_item_signatures(db, module_id, &lowered)?;
             Ok(signatures
                 .functions
