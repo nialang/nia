@@ -181,7 +181,7 @@ impl LoaderDatabase {
 
     pub fn load_program(&self) -> QueryResult<LoadedProgram> {
         self.db
-            .try_get(LoadedProgramQuery)
+            .get(LoadedProgramQuery)
             .map(|program| program.as_ref().clone())
     }
 
@@ -248,15 +248,15 @@ impl LoaderDatabase {
         if all_known {
             return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
         }
-        let previous_revision = self.db.try_get(ProviderDemandsQuery)?.revision();
-        let previous_graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let previous_revision = self.db.get(ProviderDemandsQuery)?.revision();
+        let previous_graph = self.db.get(graph::ModuleGraphQuery)?;
         let added = self.db.context().provider_facts.insert_new(demands);
         if added.is_empty() {
             return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
         }
         self.db.invalidate(ProviderDemandsQuery);
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
-        let current_revision = self.db.try_get(ProviderDemandsQuery)?.revision();
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
+        let current_revision = self.db.get(ProviderDemandsQuery)?.revision();
         assert!(self.db.seal_and_retire_predecessor(
             &graph::ModuleGraphRevisionQuery(current_revision),
             &graph::ModuleGraphRevisionQuery(previous_revision),
@@ -299,7 +299,7 @@ impl LoaderDatabase {
         ) else {
             return Ok(());
         };
-        let provider_facts = self.db.try_get(ProviderDemandsQuery)?;
+        let provider_facts = self.db.get(ProviderDemandsQuery)?;
         let candidate = context
             .provider_demand_plan_candidate
             .lock()
@@ -314,7 +314,7 @@ impl LoaderDatabase {
         if candidate.is_some() {
             cache.remove_provider_demand_plan(key);
         }
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
         let source_paths = graph
             .modules()
             .map(|module| module.path.clone())
@@ -343,7 +343,7 @@ impl LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_source::SourceId>> {
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
         Ok(graph
             .get(module_id)
             .map(|module| self.sources.id_for_path(&module.path)))
@@ -356,7 +356,7 @@ impl LoaderFactProvider for LoaderDatabase {
     }
 
     fn provider_facts(&self) -> QueryResult<nia_compiler_query::ProviderFactSnapshot> {
-        Ok(self.db.try_get(ProviderDemandsQuery)?.as_snapshot())
+        Ok(self.db.get(ProviderDemandsQuery)?.as_snapshot())
     }
 
     fn update_provider_demands(
@@ -376,21 +376,21 @@ impl LoaderFactProvider for LoaderDatabase {
 
     fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
         self.db
-            .try_get(graph::ModuleGraphQuery)
+            .get(graph::ModuleGraphQuery)
             .map(|graph| graph.as_ref().clone())
     }
 
     fn loaded_module_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {
         Ok(self
             .db
-            .try_get(graph::ModuleGraphQuery)?
+            .get(graph::ModuleGraphQuery)?
             .modules()
             .map(|module| module.path.identity())
             .collect())
     }
 
     fn module_path(&self, module_id: nia_imports::ModuleId) -> QueryResult<Option<SourcePath>> {
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
         Ok(graph.get(module_id).map(|module| module.path.clone()))
     }
 
@@ -398,17 +398,15 @@ impl LoaderFactProvider for LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_source::SourceVersion>> {
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
         let Some(module) = graph.get(module_id) else {
             return Ok(None);
         };
         let source_id = self.sources.id_for_path(&module.path);
-        Ok(
-            match *self.db.try_get(queries::SourceStatusQuery(source_id))? {
-                queries::SourceStatus::Present(version) => Some(version),
-                queries::SourceStatus::Missing => None,
-            },
-        )
+        Ok(match *self.db.get(queries::SourceStatusQuery(source_id))? {
+            queries::SourceStatus::Present(version) => Some(version),
+            queries::SourceStatus::Missing => None,
+        })
     }
 
     fn module_source_fingerprint(
@@ -418,7 +416,7 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };
-        let source = self.db.try_get(queries::SourceTextQuery(source_id))?;
+        let source = self.db.get(queries::SourceTextQuery(source_id))?;
         let Some(file) = source.file.as_ref() else {
             return Ok(None);
         };
@@ -432,24 +430,24 @@ impl LoaderFactProvider for LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_provider_summary::ProviderSummary>> {
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
         let Some(module) = graph.get(module_id) else {
             return Ok(None);
         };
         let key = queries::provider_summary_query(&self.db, &module.path)?;
-        Ok(Some(self.db.try_get(key)?.as_ref().clone()))
+        Ok(Some(self.db.get(key)?.as_ref().clone()))
     }
 
     fn module_public_surface_facts(
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_defs::PublicSurfaceModuleFacts>> {
-        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
         let Some(module) = graph.get(module_id) else {
             return Ok(None);
         };
         let key = queries::public_surface_module_facts_query(&self.db, &module.path)?;
-        Ok(Some(self.db.try_get(key)?.as_ref().clone()))
+        Ok(Some(self.db.get(key)?.as_ref().clone()))
     }
 
     fn module_origins(
@@ -461,7 +459,7 @@ impl LoaderFactProvider for LoaderDatabase {
         };
         Ok(Some(
             self.db
-                .try_get(queries::ModuleOriginsFactQuery(source_id))?
+                .get(queries::ModuleOriginsFactQuery(source_id))?
                 .as_ref()
                 .clone(),
         ))
@@ -476,7 +474,7 @@ impl LoaderFactProvider for LoaderDatabase {
         };
         Ok(Some(
             self.db
-                .try_get(queries::ModuleParseErrorsFactQuery(source_id))?
+                .get(queries::ModuleParseErrorsFactQuery(source_id))?
                 .as_ref()
                 .clone(),
         ))
@@ -491,7 +489,7 @@ impl LoaderFactProvider for LoaderDatabase {
         };
         Ok(Some(
             self.db
-                .try_get(queries::ModuleItemTreeFactQuery(source_id))?
+                .get(queries::ModuleItemTreeFactQuery(source_id))?
                 .as_ref()
                 .clone(),
         ))
@@ -507,7 +505,7 @@ impl LoaderFactProvider for LoaderDatabase {
         };
         Ok(Some(
             self.db
-                .try_get(queries::ActiveModuleItemTreeFactQuery(source_id, kind))?
+                .get(queries::ActiveModuleItemTreeFactQuery(source_id, kind))?
                 .as_ref()
                 .clone(),
         ))
@@ -515,7 +513,7 @@ impl LoaderFactProvider for LoaderDatabase {
 
     fn load_diagnostics(&self) -> QueryResult<Vec<nia_compiler_query::ProgramDiagnostic>> {
         self.db
-            .try_get(queries::LoadDiagnosticsQuery)
+            .get(queries::LoadDiagnosticsQuery)
             .map(|diagnostics| diagnostics.as_ref().clone())
     }
 
@@ -641,7 +639,9 @@ fn load_program_trace(
         },
         loader_query_registry(),
     );
-    let _program = db.get(LoadedProgramQuery);
+    let _program = db
+        .get(LoadedProgramQuery)
+        .expect("test program load must succeed");
     db.query_trace()
 }
 

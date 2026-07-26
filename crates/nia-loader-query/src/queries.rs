@@ -35,17 +35,17 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let modules = graph
             .modules()
             .map(|node| {
                 let source_id = db.context().sources.id_for_path(&node.path);
-                db.try_get(LoadedModuleQuery(source_id))
+                db.get(LoadedModuleQuery(source_id))
                     .map(|module| module.as_ref().clone())
             })
             .collect::<QueryResult<Vec<_>>>()?;
-        let diagnostics = db.try_get(LoadDiagnosticsQuery)?;
-        let provider_fact_revision = db.try_get(ProviderDemandsQuery)?.revision();
+        let diagnostics = db.get(LoadDiagnosticsQuery)?;
+        let provider_fact_revision = db.get(ProviderDemandsQuery)?.revision();
         Ok(LoadedProgram {
             graph: graph.as_ref().clone(),
             provider_fact_revision,
@@ -76,7 +76,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let mut diagnostics = Vec::new();
         for (path, diagnostic) in graph.diagnostics() {
             diagnostics.push(ProgramDiagnostic {
@@ -85,8 +85,8 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             });
         }
         for node in graph.modules() {
-            let parsed = db.try_get(parsed_module_query(db, &node.path)?)?;
-            let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+            let parsed = db.get(parsed_module_query(db, &node.path)?)?;
+            let declarations = db.get(module_declarations_query(db, &node.path)?)?;
             diagnostics.extend(module_diagnostics(
                 &node.path,
                 &parsed
@@ -190,14 +190,14 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             .sources
             .path_for_id(self.0)
             .ok_or_else(|| db.invalid_input(self, format!("unknown source id {:?}", self.0)))?;
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let id = graph
             .module_id_for_source_identity(&path.identity())
             .ok_or_else(|| {
                 db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
             })?;
-        let parsed = db.try_get(parsed_module_query_for_id(db, self.0)?)?;
-        let provider_summary = db.try_get(provider_summary_query_for_id(db, self.0)?)?;
+        let parsed = db.get(parsed_module_query_for_id(db, self.0)?)?;
+        let provider_summary = db.get(provider_summary_query_for_id(db, self.0)?)?;
         Ok(LoadedModule {
             id,
             path: path.as_ref().clone(),
@@ -227,8 +227,8 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let source = db.try_get(SourceTextQuery(self.0.id))?;
-        let syntax = db.try_get(SyntaxModuleQuery(self.0))?;
+        let source = db.get(SourceTextQuery(self.0.id))?;
+        let syntax = db.get(SyntaxModuleQuery(self.0))?;
         let (raw_module, parse_errors, origins) =
             nia_parser::parse_module_syntax_with_node_store_and_symbols(
                 &syntax,
@@ -268,7 +268,7 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let source = db.try_get(SourceTextQuery(self.0.id))?;
+        let source = db.get(SourceTextQuery(self.0.id))?;
         Ok(source
             .file
             .as_ref()
@@ -307,7 +307,7 @@ impl QueryKey<LoaderContext> for ModuleItemTreeFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(parsed_module_query_for_id(db, self.0)?)?
+            .get(parsed_module_query_for_id(db, self.0)?)?
             .item_tree
             .clone())
     }
@@ -341,7 +341,7 @@ impl QueryKey<LoaderContext> for ActiveModuleItemTreeFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let tree = &db
-            .try_get(parsed_module_query_for_id(db, self.0)?)?
+            .get(parsed_module_query_for_id(db, self.0)?)?
             .active_item_tree;
         Ok(match self.1 {
             ActiveModuleItemTreeFactKind::Signature(set) => tree.signature_items(set),
@@ -373,7 +373,7 @@ impl QueryKey<LoaderContext> for ModuleOriginsFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(parsed_module_query_for_id(db, self.0)?)?
+            .get(parsed_module_query_for_id(db, self.0)?)?
             .origins
             .clone())
     }
@@ -401,7 +401,7 @@ impl QueryKey<LoaderContext> for ModuleParseErrorsFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(parsed_module_query_for_id(db, self.0)?)?
+            .get(parsed_module_query_for_id(db, self.0)?)?
             .parse_errors
             .clone())
     }
@@ -481,7 +481,7 @@ impl QueryKey<LoaderContext> for SourceStatusQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(SourceTextQuery(self.0))?
+            .get(SourceTextQuery(self.0))?
             .file
             .as_ref()
             .map_or(SourceStatus::Missing, |file| {
@@ -558,7 +558,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             return Ok(cached.clone());
         }
 
-        let parsed = db.try_get(ParsedModuleQuery(self.0))?;
+        let parsed = db.get(ParsedModuleQuery(self.0))?;
         let mut diagnostics = parsed
             .read_diagnostic
             .clone()
@@ -671,8 +671,8 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             return Ok(cached.clone());
         }
 
-        let graph = db.try_get(ModuleGraphQuery)?;
-        let source = db.try_get(SourceTextQuery(self.0.id))?;
+        let graph = db.get(ModuleGraphQuery)?;
+        let source = db.get(SourceTextQuery(self.0.id))?;
         let source_identity = source
             .file
             .as_ref()
@@ -687,7 +687,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
                     format!("source {:?} is outside the module graph", self.0),
                 )
             })?;
-        let item_tree = db.try_get(ActiveModuleItemTreeFactQuery(
+        let item_tree = db.get(ActiveModuleItemTreeFactQuery(
             self.0.id,
             ActiveModuleItemTreeFactKind::Full,
         ))?;
@@ -698,7 +698,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             &db.context().symbols,
         );
         let fresh = nia_defs::PublicSurfaceModuleFacts::from_defs(&defs);
-        let parsed = db.try_get(ParsedModuleQuery(self.0))?;
+        let parsed = db.get(ParsedModuleQuery(self.0))?;
         if let Some(input) = cache_input
             && parsed.read_diagnostic.is_none()
             && parsed.parse_errors.is_empty()
@@ -744,7 +744,7 @@ fn frontend_cache_input(
     db: &QueryDb<LoaderContext>,
     version: SourceVersion,
 ) -> QueryResult<Option<FrontendCacheInput>> {
-    let source = db.try_get(SourceTextQuery(version.id))?;
+    let source = db.get(SourceTextQuery(version.id))?;
     Ok(source
         .file
         .as_ref()
@@ -797,8 +797,8 @@ fn fresh_item_signature(
     input: Option<&FrontendCacheInput>,
     cached: Option<ItemSignatureFingerprint>,
 ) -> QueryResult<(Arc<ParsedModule>, ItemSignatureFingerprint)> {
-    let syntax = db.try_get(SyntaxModuleQuery(version))?;
-    let parsed = db.try_get(ParsedModuleQuery(version))?;
+    let syntax = db.get(SyntaxModuleQuery(version))?;
+    let parsed = db.get(ParsedModuleQuery(version))?;
     let item_signature = item_signature_fingerprint(&syntax, &parsed.item_tree);
     if let Some(input) = input
         && let Some(cache) = &db.context().frontend_cache
@@ -1109,7 +1109,7 @@ fn provider_summary_query_for_id(
 }
 
 fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> QueryResult<SourceVersion> {
-    Ok(match *db.try_get(SourceStatusQuery(source_id))? {
+    Ok(match *db.get(SourceStatusQuery(source_id))? {
         SourceStatus::Present(version) => version,
         SourceStatus::Missing => SourceVersion {
             id: source_id,

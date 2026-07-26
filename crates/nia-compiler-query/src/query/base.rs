@@ -106,7 +106,7 @@ impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         Ok(graph
             .stable_key(graph.entry())
             .cloned()
@@ -139,7 +139,7 @@ impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(ModuleGraphQuery)?
+            .get(ModuleGraphQuery)?
             .get(self.0)
             .map(|module| module.module_path.clone()))
     }
@@ -166,7 +166,7 @@ impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let Some(parent) = graph.get(self.0).and_then(|module| module.parent) else {
             return Ok(None);
         };
@@ -198,7 +198,7 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let Some(module) = graph.get(self.0) else {
             return Ok(None);
         };
@@ -239,7 +239,7 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         Ok(graph
             .package_root(&self.0)
             .and_then(|root| graph.stable_key(root).cloned()))
@@ -339,7 +339,7 @@ impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        Ok(db.try_get(ProviderFactWorklistQuery)?.revision())
+        Ok(db.get(ProviderFactWorklistQuery)?.revision())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -381,7 +381,7 @@ impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let modules = graph
             .modules()
             .filter(|module| module.process_used_paths)
@@ -418,10 +418,10 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let mut modules = Vec::new();
         for module in graph.modules() {
-            modules.push((module.id, *db.try_get(ModuleSourceVersionQuery(module.id))?));
+            modules.push((module.id, *db.get(ModuleSourceVersionQuery(module.id))?));
         }
         let runtime_root_modules = graph
             .modules()
@@ -432,8 +432,8 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
             entry_module: graph.entry(),
             runtime_root_modules,
             modules,
-            target: db.try_get(CompilerTargetQuery)?.as_ref().clone(),
-            runtime: *db.try_get(CompilerRuntimeQuery)?,
+            target: db.get(CompilerTargetQuery)?.as_ref().clone(),
+            runtime: *db.get(CompilerRuntimeQuery)?,
         })
     }
 
@@ -453,7 +453,7 @@ impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let runtime_root_modules = graph
             .modules()
             .filter(|module| graph.is_executable_root_module(module.id))
@@ -869,9 +869,9 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let _raw_item_tree = db.try_get(ModuleItemTreeQuery(self.0))?;
+        let _raw_item_tree = db.get(ModuleItemTreeQuery(self.0))?;
         Ok(db
-            .try_get(DeclarationModuleItemTreeInputQuery(self.0))?
+            .get(DeclarationModuleItemTreeInputQuery(self.0))?
             .as_ref()
             .clone())
     }
@@ -889,9 +889,9 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let _raw_item_tree = db.try_get(DeclarationModuleItemTreeQuery(self.0))?;
+        let _raw_item_tree = db.get(DeclarationModuleItemTreeQuery(self.0))?;
         Ok(db
-            .try_get(DeclarationActiveModuleItemTreeInputQuery(self.0))?
+            .get(DeclarationActiveModuleItemTreeInputQuery(self.0))?
             .as_ref()
             .clone())
     }
@@ -1045,14 +1045,14 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let surface = db.try_get(ModulePublicSurfaceQuery(self.0))?;
+        let surface = db.get(ModulePublicSurfaceQuery(self.0))?;
         let Some(surface) = surface.as_ref().as_ref() else {
             return Ok(None);
         };
         let Some(target) = surface.lookup_module(&self.1) else {
             return Ok(None);
         };
-        Ok(db.try_get(ModuleGraphQuery)?.stable_key(target).cloned())
+        Ok(db.get(ModuleGraphQuery)?.stable_key(target).cloned())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -1080,7 +1080,7 @@ impl QueryKey<CompilerContext> for PublicSurfaceValueQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let surface = db.try_get(ModulePublicSurfaceQuery(self.0))?;
+        let surface = db.get(ModulePublicSurfaceQuery(self.0))?;
         Ok(surface
             .as_ref()
             .as_ref()
@@ -1109,7 +1109,7 @@ impl QueryKey<CompilerContext> for PublicSurfaceTypeQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let surface = db.try_get(ModulePublicSurfaceQuery(self.0))?;
+        let surface = db.get(ModulePublicSurfaceQuery(self.0))?;
         Ok(surface
             .as_ref()
             .as_ref()
@@ -1184,11 +1184,11 @@ impl QueryKey<CompilerContext> for UsingScopeModuleQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        let scope = db.try_get(ModuleUsingScopeQuery(self.0))?;
+        let scope = db.get(ModuleUsingScopeQuery(self.0))?;
         let Some(target) = scope.lookup_module(&self.1) else {
             return Ok(None);
         };
-        Ok(db.try_get(ModuleGraphQuery)?.stable_key(target).cloned())
+        Ok(db.get(ModuleGraphQuery)?.stable_key(target).cloned())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -1217,7 +1217,7 @@ impl QueryKey<CompilerContext> for UsingScopeValueQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(ModuleUsingScopeQuery(self.0))?
+            .get(ModuleUsingScopeQuery(self.0))?
             .lookup_value(&self.1)
             .cloned())
     }
@@ -1245,7 +1245,7 @@ impl QueryKey<CompilerContext> for UsingScopeTypeQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(ModuleUsingScopeQuery(self.0))?
+            .get(ModuleUsingScopeQuery(self.0))?
             .lookup_type(&self.1)
             .cloned())
     }
@@ -1273,7 +1273,7 @@ impl QueryKey<CompilerContext> for UsingScopeUnresolvedQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(ModuleUsingScopeQuery(self.0))?
+            .get(ModuleUsingScopeQuery(self.0))?
             .has_unresolved_name(&self.1))
     }
 

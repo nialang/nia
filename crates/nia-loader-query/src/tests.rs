@@ -34,6 +34,21 @@ use std::{
     },
 };
 
+trait QueryDbTestExt<C> {
+    fn expect_get<K>(&self, key: K) -> Arc<K::Value>
+    where
+        K: nia_query::QueryKey<C>;
+}
+
+impl<C> QueryDbTestExt<C> for QueryDb<C> {
+    fn expect_get<K>(&self, key: K) -> Arc<K::Value>
+    where
+        K: nia_query::QueryKey<C>,
+    {
+        self.get(key).expect("test query must succeed")
+    }
+}
+
 fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
     super::load_program(entry_path).expect("test program load must succeed")
 }
@@ -415,7 +430,7 @@ impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> nia_query::QueryResult<Self::Value> {
         Ok(match self.1 {
             SemanticFieldParentKind::Declaration => {
-                db.get(ModuleItemTreeFactQuery(self.0)).items.len()
+                db.expect_get(ModuleItemTreeFactQuery(self.0)).items.len()
             }
             SemanticFieldParentKind::FunctionSignature => db
                 .get(ActiveModuleItemTreeFactQuery(
@@ -423,7 +438,7 @@ impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
                     nia_compiler_query::ActiveModuleItemTreeFactKind::Signature(
                         nia_item_tree::SignatureItemSet::Functions,
                     ),
-                ))
+                ))?
                 .items
                 .len(),
         })
@@ -475,11 +490,11 @@ fn source_status_tracks_missing_and_present_revisions() {
         sources.clone(),
     ));
 
-    let missing = db.get(SourceStatusQuery(source_id));
+    let missing = db.expect_get(SourceStatusQuery(source_id));
     assert_eq!(*missing, SourceStatus::Missing);
     let file = sources.set_source(main, "fn main() i32 { 0 }");
     db.invalidate(SourceTextQuery(source_id));
-    let present = db.get(SourceStatusQuery(source_id));
+    let present = db.expect_get(SourceStatusQuery(source_id));
 
     assert!(!Arc::ptr_eq(&missing, &present));
     assert_eq!(*present, SourceStatus::Present(file.version()));
@@ -493,9 +508,9 @@ fn source_products_propagate_unknown_source_query_failures() {
     let unknown = SourceId(u32::MAX);
 
     for error in [
-        db.try_get(SourceStatusQuery(unknown))
+        db.get(SourceStatusQuery(unknown))
             .expect_err("unknown source status must fail"),
-        db.try_get(LoadedModuleQuery(unknown))
+        db.get(LoadedModuleQuery(unknown))
             .expect_err("unknown loaded module must propagate its source failure"),
     ] {
         assert!(matches!(error, nia_query::QueryError::InvalidInput { .. }));
@@ -510,7 +525,9 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
     assert_no_error_diagnostics(&database.load_program().expect("initial program load"));
     let first_version = first_file.version();
-    let old_parsed = database.db.get(parsed_module_query(&database.db, &main));
+    let old_parsed = database
+        .db
+        .expect_get(parsed_module_query(&database.db, &main));
     let old_item_span = old_parsed.item_tree.items[0].span;
     let old_item_id = old_parsed
         .origins
@@ -522,11 +539,13 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
         .expect("first revision item locator");
     database
         .db
-        .get(module_declarations_query(&database.db, &main));
-    database.db.get(provider_summary_query(&database.db, &main));
+        .expect_get(module_declarations_query(&database.db, &main));
     database
         .db
-        .get(module_facade_facts_query(&database.db, &main));
+        .expect_get(provider_summary_query(&database.db, &main));
+    database
+        .db
+        .expect_get(module_facade_facts_query(&database.db, &main));
     let initial_query_count = database.query_trace().queries.len();
     let initial_node_count = database.db.context().node_store.len();
     assert_eq!(database.db.context().node_store.active_revision_count(), 1);
@@ -536,14 +555,18 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
         let file = database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
         latest_version = file.version();
         assert_no_error_diagnostics(&database.load_program().expect("updated program load"));
-        database.db.get(parsed_module_query(&database.db, &main));
         database
             .db
-            .get(module_declarations_query(&database.db, &main));
-        database.db.get(provider_summary_query(&database.db, &main));
+            .expect_get(parsed_module_query(&database.db, &main));
         database
             .db
-            .get(module_facade_facts_query(&database.db, &main));
+            .expect_get(module_declarations_query(&database.db, &main));
+        database
+            .db
+            .expect_get(provider_summary_query(&database.db, &main));
+        database
+            .db
+            .expect_get(module_facade_facts_query(&database.db, &main));
         assert_eq!(database.db.context().node_store.active_revision_count(), 1);
         assert_eq!(database.db.context().node_store.len(), initial_node_count);
     }
@@ -589,7 +612,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "fn main() i32 { 0 }");
     let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
-    let initial_graph = database.db.get(crate::graph::ModuleGraphQuery);
+    let initial_graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
     let initial_entry = initial_graph.entry();
 
     for revision in 1..=100 {
@@ -624,7 +647,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
         );
 
         database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
-        let graph = database.db.get(crate::graph::ModuleGraphQuery);
+        let graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
         assert_eq!(graph.get(graph.entry()).map(|node| &node.path), Some(&main));
         assert_eq!(
             database
@@ -957,13 +980,13 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
         SemanticFieldParent(first_source.id, SemanticFieldParentKind::Declaration);
     let signature_key =
         SemanticFieldParent(first_source.id, SemanticFieldParentKind::FunctionSignature);
-    let first_declaration = db.get(declaration_key);
-    let first_signature = db.get(signature_key);
+    let first_declaration = db.expect_get(declaration_key);
+    let first_signature = db.expect_get(signature_key);
 
     sources.set_source(path, "fn main() i32 { 2 }");
     db.invalidate(SourceTextQuery(first_source.id));
-    let latest_declaration = db.get(declaration_key);
-    let latest_signature = db.get(signature_key);
+    let latest_declaration = db.expect_get(declaration_key);
+    let latest_signature = db.expect_get(signature_key);
 
     assert!(!Arc::ptr_eq(&first_declaration, &latest_declaration));
     assert!(!Arc::ptr_eq(&first_signature, &latest_signature));
@@ -2184,8 +2207,8 @@ extend Widget {
         ModuleMap::default(),
         sources,
     ));
-    let first = db.get(provider_summary_query(&db, &provider));
-    let second = db.get(provider_summary_query(&db, &provider));
+    let first = db.expect_get(provider_summary_query(&db, &provider));
+    let second = db.expect_get(provider_summary_query(&db, &provider));
     assert!(first.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(first, second);
 
@@ -2215,7 +2238,7 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let first_identity = module_dependencies_cache_identity(&first_file, &main, &module_map);
 
     let first = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let first_dependencies = first.get(module_declarations_query(&first, &main));
+    let first_dependencies = first.expect_get(module_declarations_query(&first, &main));
     assert!(first_dependencies.diagnostics.is_empty());
     assert_eq!(first_dependencies.declarations.len(), 1);
     assert_eq!(first_dependencies.declarations[0].name, sym("child"));
@@ -2223,7 +2246,7 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let first_span = first_dependencies.declarations[0].span;
 
     let second = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let second_dependencies = second.get(module_declarations_query(&second, &main));
+    let second_dependencies = second.expect_get(module_declarations_query(&second, &main));
     assert_eq!(first_dependencies, second_dependencies);
     assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
 
@@ -2232,7 +2255,7 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
         .expect("corrupt module dependencies entry");
     let repaired =
         frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let repaired_dependencies = repaired.get(module_declarations_query(&repaired, &main));
+    let repaired_dependencies = repaired.expect_get(module_declarations_query(&repaired, &main));
     assert_eq!(first_dependencies, repaired_dependencies);
     assert_eq!(
         query_executions(&repaired.query_trace(), "parsed_module"),
@@ -2246,13 +2269,13 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let edited_identity = module_dependencies_cache_identity(&edited_file, &main, &module_map);
     assert_ne!(first_identity.key, edited_identity.key);
     let edited = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let edited_dependencies = edited.get(module_declarations_query(&edited, &main));
+    let edited_dependencies = edited.expect_get(module_declarations_query(&edited, &main));
     assert_eq!(edited_dependencies.declarations[0].name, sym("child"));
     assert_ne!(first_span, edited_dependencies.declarations[0].span);
     assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
-    let reused_dependencies = reused.get(module_declarations_query(&reused, &main));
+    let reused_dependencies = reused.expect_get(module_declarations_query(&reused, &main));
     assert_eq!(edited_dependencies, reused_dependencies);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -2276,7 +2299,7 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
         false,
     );
 
-    let first_graph = first.get(crate::graph::ModuleGraphQuery);
+    let first_graph = first.expect_get(crate::graph::ModuleGraphQuery);
     let first_paths = first_graph
         .modules()
         .map(|module| module.path.clone())
@@ -2298,7 +2321,7 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
     let second =
         frontend_cache_database(&main, &second_sources, ModuleMap::default(), cache, false);
 
-    let second_graph = second.get(crate::graph::ModuleGraphQuery);
+    let second_graph = second.expect_get(crate::graph::ModuleGraphQuery);
     let second_paths = second_graph
         .modules()
         .map(|module| module.path.clone())
@@ -2330,7 +2353,7 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     ));
 
     let mapped_db = frontend_cache_database(&main, &sources, mapped, cache.clone(), false);
-    let mapped_dependencies = mapped_db.get(module_declarations_query(&mapped_db, &main));
+    let mapped_dependencies = mapped_db.expect_get(module_declarations_query(&mapped_db, &main));
     assert!(matches!(
         mapped_dependencies.explicit_imports[0].path,
         crate::used_paths::UsedModulePath::Package { .. }
@@ -2338,7 +2361,8 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
 
     let unmapped_db =
         frontend_cache_database(&main, &sources, unmapped.clone(), cache.clone(), false);
-    let unmapped_dependencies = unmapped_db.get(module_declarations_query(&unmapped_db, &main));
+    let unmapped_dependencies =
+        unmapped_db.expect_get(module_declarations_query(&unmapped_db, &main));
     assert!(matches!(
         unmapped_dependencies.explicit_imports[0].path,
         crate::used_paths::UsedModulePath::Local { .. }
@@ -2350,7 +2374,7 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     );
 
     let reused = frontend_cache_database(&main, &sources, unmapped, cache, false);
-    let reused_dependencies = reused.get(module_declarations_query(&reused, &main));
+    let reused_dependencies = reused.expect_get(module_declarations_query(&reused, &main));
     assert_eq!(unmapped_dependencies, reused_dependencies);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -2390,7 +2414,7 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
 
     let verifying =
         frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), true);
-    let verified = verifying.get(module_declarations_query(&verifying, &main));
+    let verified = verifying.expect_get(module_declarations_query(&verifying, &main));
     assert_eq!(verified.declarations.len(), 1);
     assert_eq!(verified.declarations[0].name, sym("child"));
     assert_eq!(
@@ -2399,7 +2423,7 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
     );
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
-    let reused_dependencies = reused.get(module_declarations_query(&reused, &main));
+    let reused_dependencies = reused.expect_get(module_declarations_query(&reused, &main));
     assert_eq!(verified, reused_dependencies);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -2416,7 +2440,7 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
         root.join("cache"),
     ));
     let database = frontend_cache_database(&main, &sources, module_map, cache.clone(), false);
-    let dependencies = database.get(module_declarations_query(&database, &main));
+    let dependencies = database.expect_get(module_declarations_query(&database, &main));
 
     assert!(!dependencies.diagnostics.is_empty());
     assert!(!cache.module_dependencies_path(identity.key).is_file());
@@ -2426,7 +2450,7 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
         module_dependencies_cache_identity(&malformed_file, &main, &ModuleMap::new());
     let malformed =
         frontend_cache_database(&main, &sources, ModuleMap::new(), cache.clone(), false);
-    let malformed_dependencies = malformed.get(module_declarations_query(&malformed, &main));
+    let malformed_dependencies = malformed.expect_get(module_declarations_query(&malformed, &main));
     assert!(malformed_dependencies.declarations.is_empty());
     assert!(
         !cache
@@ -2458,7 +2482,7 @@ pub using self::Choice::{First as Selected, Second};
         cache.clone(),
         false,
     );
-    let first_facts = first.get(public_surface_module_facts_query(&first, &main));
+    let first_facts = first.expect_get(public_surface_module_facts_query(&first, &main));
     let first_widget_span = first_facts
         .defs
         .iter()
@@ -2479,7 +2503,7 @@ pub using self::Choice::{First as Selected, Second};
         cache.clone(),
         false,
     );
-    let second_facts = second.get(public_surface_module_facts_query(&second, &main));
+    let second_facts = second.expect_get(public_surface_module_facts_query(&second, &main));
     assert_eq!(first_facts, second_facts);
     assert_eq!(
         query_executions(&second.query_trace(), "loader_public_surface_module_facts"),
@@ -2506,7 +2530,7 @@ pub using self::Choice::{First as Selected, Second};
         cache.clone(),
         false,
     );
-    let repaired_facts = repaired.get(public_surface_module_facts_query(&repaired, &main));
+    let repaired_facts = repaired.expect_get(public_surface_module_facts_query(&repaired, &main));
     assert_eq!(first_facts, repaired_facts);
     assert_eq!(
         query_executions(&repaired.query_trace(), "parsed_module"),
@@ -2525,7 +2549,7 @@ pub using self::Choice::{First as Selected, Second};
         cache.clone(),
         false,
     );
-    let edited_facts = edited.get(public_surface_module_facts_query(&edited, &main));
+    let edited_facts = edited.expect_get(public_surface_module_facts_query(&edited, &main));
     let edited_widget_span = edited_facts
         .defs
         .iter()
@@ -2539,7 +2563,7 @@ pub using self::Choice::{First as Selected, Second};
     reused_sources.set_source(main.clone(), edited_source);
     let reused =
         frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
-    let reused_facts = reused.get(public_surface_module_facts_query(&reused, &main));
+    let reused_facts = reused.expect_get(public_surface_module_facts_query(&reused, &main));
     assert_eq!(edited_facts, reused_facts);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -2574,7 +2598,7 @@ fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
 
     let verifying =
         frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), true);
-    let verified = verifying.get(public_surface_module_facts_query(&verifying, &main));
+    let verified = verifying.expect_get(public_surface_module_facts_query(&verifying, &main));
     assert!(verified.defs.iter().any(|def| def.name == sym("Widget")));
     assert_eq!(
         query_executions(&verifying.query_trace(), "parsed_module"),
@@ -2585,7 +2609,7 @@ fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
     reused_sources.set_source(main.clone(), "pub struct Widget {}");
     let reused =
         frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
-    let reused_facts = reused.get(public_surface_module_facts_query(&reused, &main));
+    let reused_facts = reused.expect_get(public_surface_module_facts_query(&reused, &main));
     assert_eq!(verified, reused_facts);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -2605,7 +2629,7 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     ));
     let database =
         frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), false);
-    let facts = database.get(public_surface_module_facts_query(&database, &main));
+    let facts = database.expect_get(public_surface_module_facts_query(&database, &main));
     assert_eq!(
         facts
             .defs
@@ -2620,7 +2644,7 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     let malformed_identity = public_surface_facts_cache_identity(&malformed_file);
     let malformed =
         frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), false);
-    let _ = malformed.get(public_surface_module_facts_query(&malformed, &main));
+    let _ = malformed.expect_get(public_surface_module_facts_query(&malformed, &main));
     assert!(
         !cache
             .public_surface_facts_path(malformed_identity.key)
@@ -3024,19 +3048,19 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let identity = provider_cache_identity(&provider_file);
 
     let first = provider_summary_database(&main, &sources, cache.clone(), false);
-    let first_summary = first.get(provider_summary_query(&first, &provider));
+    let first_summary = first.expect_get(provider_summary_query(&first, &provider));
     assert!(first_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
 
     let second = provider_summary_database(&main, &sources, cache.clone(), false);
-    let second_summary = second.get(provider_summary_query(&second, &provider));
+    let second_summary = second.expect_get(provider_summary_query(&second, &provider));
     assert_eq!(first_summary, second_summary);
     assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
 
     let path = cache.provider_summary_path(identity.provider_key);
     fs::write(&path, b"corrupt frontend cache entry").expect("corrupt provider summary cache");
     let third = provider_summary_database(&main, &sources, cache.clone(), false);
-    let third_summary = third.get(provider_summary_query(&third, &provider));
+    let third_summary = third.expect_get(provider_summary_query(&third, &provider));
     assert_eq!(first_summary, third_summary);
     assert_eq!(query_executions(&third.query_trace(), "parsed_module"), 1);
     assert!(matches!(
@@ -3058,7 +3082,7 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let manifest_path = cache.dependency_manifest_path(identity.source_key);
     fs::write(&manifest_path, b"corrupt frontend manifest").expect("corrupt dependency manifest");
     let fourth = provider_summary_database(&main, &sources, cache.clone(), false);
-    let fourth_summary = fourth.get(provider_summary_query(&fourth, &provider));
+    let fourth_summary = fourth.expect_get(provider_summary_query(&fourth, &provider));
     assert_eq!(first_summary, fourth_summary);
     assert_eq!(query_executions(&fourth.query_trace(), "parsed_module"), 1);
     assert!(matches!(
@@ -3075,7 +3099,7 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     ));
 
     let fifth = provider_summary_database(&main, &sources, cache, false);
-    let fifth_summary = fifth.get(provider_summary_query(&fifth, &provider));
+    let fifth_summary = fifth.expect_get(provider_summary_query(&fifth, &provider));
     assert_eq!(first_summary, fifth_summary);
     assert_eq!(query_executions(&fifth.query_trace(), "parsed_module"), 0);
 }
@@ -3116,7 +3140,7 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
         .expect("publish wrong but structurally valid provider summary");
 
     let verifying = provider_summary_database(&main, &sources, cache.clone(), true);
-    let verified = verifying.get(provider_summary_query(&verifying, &provider));
+    let verified = verifying.expect_get(provider_summary_query(&verifying, &provider));
     assert!(verified.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(
         query_executions(&verifying.query_trace(), "parsed_module"),
@@ -3124,7 +3148,7 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
     );
 
     let reused = provider_summary_database(&main, &sources, cache, false);
-    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(verified, reused_summary);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3145,7 +3169,7 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     ));
 
     let first = provider_summary_database(&main, &sources, cache.clone(), false);
-    let first_summary = first.get(provider_summary_query(&first, &provider));
+    let first_summary = first.expect_get(provider_summary_query(&first, &provider));
     assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
     let first_identity = provider_cache_identity(&first_file);
 
@@ -3162,7 +3186,7 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     assert_eq!(first_identity.provider_key, edited_identity.provider_key);
 
     let edited = provider_summary_database(&main, &sources, cache.clone(), false);
-    let edited_summary = edited.get(provider_summary_query(&edited, &provider));
+    let edited_summary = edited.expect_get(provider_summary_query(&edited, &provider));
     assert_eq!(first_summary, edited_summary);
     assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
     assert!(matches!(
@@ -3179,7 +3203,7 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     ));
 
     let reused = provider_summary_database(&main, &sources, cache, false);
-    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(edited_summary, reused_summary);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3199,7 +3223,7 @@ fn signature_edits_publish_distinct_provider_summaries() {
         root.join("cache"),
     ));
     let first = provider_summary_database(&main, &sources, cache.clone(), false);
-    let first_summary = first.get(provider_summary_query(&first, &provider));
+    let first_summary = first.expect_get(provider_summary_query(&first, &provider));
     assert!(first_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     let first_identity = provider_cache_identity(&first_file);
 
@@ -3215,7 +3239,7 @@ fn signature_edits_publish_distinct_provider_summaries() {
     assert_ne!(first_identity.provider_key, edited_identity.provider_key);
 
     let edited = provider_summary_database(&main, &sources, cache.clone(), false);
-    let edited_summary = edited.get(provider_summary_query(&edited, &provider));
+    let edited_summary = edited.expect_get(provider_summary_query(&edited, &provider));
     assert!(!edited_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert!(edited_summary.defines_inherent_associated_item(&sym("Widget"), &sym("rank")));
     assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
@@ -3231,7 +3255,7 @@ fn signature_edits_publish_distinct_provider_summaries() {
     );
 
     let reused = provider_summary_database(&main, &sources, cache, false);
-    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(edited_summary, reused_summary);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3278,7 +3302,7 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
         .expect("publish provider summary for wrong dependency");
 
     let verifying = provider_summary_database(&main, &sources, cache.clone(), true);
-    let verified = verifying.get(provider_summary_query(&verifying, &provider));
+    let verified = verifying.expect_get(provider_summary_query(&verifying, &provider));
     assert!(verified.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(
         query_executions(&verifying.query_trace(), "parsed_module"),
@@ -3298,7 +3322,7 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
     ));
 
     let reused = provider_summary_database(&main, &sources, cache, false);
-    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(verified, reused_summary);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3319,12 +3343,12 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let first_identity = facade_cache_identity(&first_file, &main, &module_map);
 
     let first = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let first_facts = first.get(module_facade_facts_query(&first, &facade));
+    let first_facts = first.expect_get(module_facade_facts_query(&first, &facade));
     assert!(first_facts.public_type_exposes_name(&sym("Widget")));
     assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
 
     let second = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let second_facts = second.get(module_facade_facts_query(&second, &facade));
+    let second_facts = second.expect_get(module_facade_facts_query(&second, &facade));
     assert_eq!(first_facts, second_facts);
     assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
 
@@ -3332,7 +3356,7 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     fs::write(&path, b"corrupt facade facts").expect("corrupt facade facts entry");
     let repaired =
         frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let repaired_facts = repaired.get(module_facade_facts_query(&repaired, &facade));
+    let repaired_facts = repaired.expect_get(module_facade_facts_query(&repaired, &facade));
     assert_eq!(first_facts, repaired_facts);
     assert_eq!(
         query_executions(&repaired.query_trace(), "parsed_module"),
@@ -3351,12 +3375,12 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     );
     assert_eq!(first_identity.facade_key, edited_identity.facade_key);
     let edited = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
-    let edited_facts = edited.get(module_facade_facts_query(&edited, &facade));
+    let edited_facts = edited.expect_get(module_facade_facts_query(&edited, &facade));
     assert_eq!(first_facts, edited_facts);
     assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
-    let reused_facts = reused.get(module_facade_facts_query(&reused, &facade));
+    let reused_facts = reused.expect_get(module_facade_facts_query(&reused, &facade));
     assert_eq!(edited_facts, reused_facts);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3381,7 +3405,7 @@ fn facade_facts_cache_keys_include_effective_module_map() {
     assert_ne!(mapped_identity.facade_key, unmapped_identity.facade_key);
 
     let mapped_db = frontend_cache_database(&main, &sources, mapped, cache.clone(), false);
-    let mapped_facts = mapped_db.get(module_facade_facts_query(&mapped_db, &facade));
+    let mapped_facts = mapped_db.expect_get(module_facade_facts_query(&mapped_db, &facade));
     assert!(mapped_facts.public_type_exposes_name(&sym("Widget")));
     assert!(matches!(
         mapped_facts.reexport_source_paths(&sym("Widget")).next(),
@@ -3390,7 +3414,7 @@ fn facade_facts_cache_keys_include_effective_module_map() {
 
     let unmapped_db =
         frontend_cache_database(&main, &sources, unmapped.clone(), cache.clone(), false);
-    let unmapped_facts = unmapped_db.get(module_facade_facts_query(&unmapped_db, &facade));
+    let unmapped_facts = unmapped_db.expect_get(module_facade_facts_query(&unmapped_db, &facade));
     assert!(matches!(
         unmapped_facts.reexport_source_paths(&sym("Widget")).next(),
         Some(crate::used_paths::UsedModulePath::Local { .. })
@@ -3402,7 +3426,7 @@ fn facade_facts_cache_keys_include_effective_module_map() {
     );
 
     let reused = frontend_cache_database(&main, &sources, unmapped, cache, false);
-    let reused_facts = reused.get(module_facade_facts_query(&reused, &facade));
+    let reused_facts = reused.expect_get(module_facade_facts_query(&reused, &facade));
     assert_eq!(unmapped_facts, reused_facts);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3442,7 +3466,7 @@ fn facade_facts_verification_replaces_semantically_wrong_valid_entry() {
 
     let verifying =
         frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), true);
-    let verified = verifying.get(module_facade_facts_query(&verifying, &facade));
+    let verified = verifying.expect_get(module_facade_facts_query(&verifying, &facade));
     assert!(verified.public_type_exposes_name(&sym("Widget")));
     assert_eq!(
         query_executions(&verifying.query_trace(), "parsed_module"),
@@ -3450,7 +3474,7 @@ fn facade_facts_verification_replaces_semantically_wrong_valid_entry() {
     );
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
-    let reused_facts = reused.get(module_facade_facts_query(&reused, &facade));
+    let reused_facts = reused.expect_get(module_facade_facts_query(&reused, &facade));
     assert_eq!(verified, reused_facts);
     assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
 }
@@ -3655,7 +3679,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         sources.clone(),
     ));
 
-    let first = db.get(LoadedProgramQuery);
+    let first = db.expect_get(LoadedProgramQuery);
     assert_no_error_diagnostics(&first);
     let first_module = first
         .modules
@@ -3709,7 +3733,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         "{invalidated:?}"
     );
 
-    let second = db.get(LoadedProgramQuery);
+    let second = db.expect_get(LoadedProgramQuery);
     assert_no_error_diagnostics(&second);
     let second_module = second
         .modules
@@ -3751,7 +3775,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
         sources.clone(),
     ));
 
-    let first = db.get(LoadedProgramQuery);
+    let first = db.expect_get(LoadedProgramQuery);
     assert_no_error_diagnostics(&first);
     assert_module_loaded(&first, "main.nia");
     assert_module_not_loaded(&first, "defs.nia");
@@ -3761,7 +3785,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     sources.set_source(main, "module defs;");
     db.invalidate(SourceTextQuery(source_id));
 
-    let second = db.get(LoadedProgramQuery);
+    let second = db.expect_get(LoadedProgramQuery);
     assert_no_error_diagnostics(&second);
     assert_ne!(second.graph.entry(), first_entry);
     assert!(
@@ -3806,7 +3830,7 @@ fn loaded_module_query_reports_paths_outside_module_graph() {
     let missing_id = sources.id_for_path(&missing);
 
     let err = db
-        .try_get(LoadedModuleQuery(missing_id))
+        .get(LoadedModuleQuery(missing_id))
         .expect_err("missing module path should be an invalid query input");
 
     assert!(matches!(err, nia_query::QueryError::InvalidInput { .. }));

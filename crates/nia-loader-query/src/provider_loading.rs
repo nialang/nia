@@ -94,7 +94,7 @@ fn direct_provider_module_matches_request(
             target_type_name,
             associated_name,
         } => {
-            let summary = db.try_get(provider_summary_query(db, &node.path)?)?;
+            let summary = db.get(provider_summary_query(db, &node.path)?)?;
             Ok(summary.defines_public_extension_method_for_facade(
                 |_| true,
                 target_type_name.as_ref(),
@@ -117,7 +117,7 @@ pub(crate) fn add_public_reexport_source_module(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
+    let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
     for source_path in facts.reexport_source_paths(name) {
         let Some(start) = used_path_start(graph, module_id, source_path) else {
             continue;
@@ -143,7 +143,7 @@ fn add_public_reexport_trait_impl_provider_modules(
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
+    let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
     add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
         provider_candidate_has_trait_impl(db, path, trait_name, None)
     })
@@ -158,7 +158,7 @@ fn add_implicit_trait_impl_provider_modules(
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
+    let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
     add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
         provider_candidate_has_trait_impl(db, path, trait_name, None)
     })
@@ -174,7 +174,7 @@ fn add_public_reexport_trait_method_provider_modules(
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
+    let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
     add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
         provider_candidate_has_public_extension_method_for_facade(
             db,
@@ -243,7 +243,7 @@ fn add_reexport_provider_modules_matching_inner(
         let nested_paths = if direct_match {
             Vec::new()
         } else {
-            db.try_get(module_facade_facts_query(db, &candidate_path)?)?
+            db.get(module_facade_facts_query(db, &candidate_path)?)?
                 .provider_source_paths()
                 .to_vec()
         };
@@ -355,7 +355,7 @@ fn provider_candidate_has_trait_impl(
     trait_name: &SymbolId,
     associated_name: Option<&SymbolId>,
 ) -> TraversalResult<bool> {
-    let summary = db.try_get(provider_summary_query(db, &path)?)?;
+    let summary = db.get(provider_summary_query(db, &path)?)?;
     Ok(summary.defines_trait_impl(trait_name, associated_name))
 }
 
@@ -366,7 +366,7 @@ fn provider_candidate_has_public_extension_method_for_facade(
     target_type_name: Option<&SymbolId>,
     associated_name: &SymbolId,
 ) -> TraversalResult<bool> {
-    let summary = db.try_get(provider_summary_query(db, &path)?)?;
+    let summary = db.get(provider_summary_query(db, &path)?)?;
     Ok(summary.defines_public_extension_method_for_facade(
         |trait_name| facade_facts.public_type_exposes_name(trait_name),
         target_type_name,
@@ -383,6 +383,6 @@ pub(crate) fn module_defines_extensions(
         return Ok(false);
     };
     Ok(db
-        .try_get(provider_summary_query(db, &node.path)?)?
+        .get(provider_summary_query(db, &node.path)?)?
         .has_providers())
 }

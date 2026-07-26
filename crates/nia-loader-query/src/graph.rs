@@ -50,9 +50,9 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let provider_facts = db.try_get(ProviderDemandsQuery)?;
+        let provider_facts = db.get(ProviderDemandsQuery)?;
         Ok(db
-            .try_get(ModuleGraphRevisionQuery(provider_facts.revision()))?
+            .get(ModuleGraphRevisionQuery(provider_facts.revision()))?
             .as_ref()
             .clone())
     }
@@ -76,7 +76,7 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
         let graph = match event {
             ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),
             ProviderFactEvent::Added { previous, demands } => {
-                let seed = db.try_get(ModuleGraphRevisionQuery(previous))?;
+                let seed = db.get(ModuleGraphRevisionQuery(previous))?;
                 build_module_graph(db, Some(seed.as_ref().clone()), &demands)
             }
         }?;
@@ -118,7 +118,7 @@ fn build_module_graph(
                 .cloned()
                 .collect::<Vec<_>>();
             for node in existing_nodes {
-                let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+                let declarations = db.get(module_declarations_query(db, &node.path)?)?;
                 apply_provider_demands(
                     db,
                     &mut graph,
@@ -143,7 +143,7 @@ fn build_module_graph(
         let Some(node) = node else {
             break;
         };
-        let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+        let declarations = db.get(module_declarations_query(db, &node.path)?)?;
         for package in &declarations.package_roots {
             if graph.package_root(package).is_none()
                 && let Some(path) = db.context().module_map.get_name(package)
@@ -313,7 +313,7 @@ fn activate_package_facade(
     let Some(node) = graph.get(root).cloned() else {
         return Ok(());
     };
-    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
     for package in &declarations.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
@@ -353,7 +353,7 @@ pub(crate) fn mark_process_used_paths_and_process(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
     for package in &declarations.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
@@ -461,7 +461,7 @@ fn add_declared_module_children(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
     for declaration in declarations.declarations.iter().cloned() {
         add_declared_module_child(db, graph, module_id, declaration)?;
     }
@@ -488,7 +488,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
+    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
     let Some(declaration) = declarations
         .declarations
         .iter()

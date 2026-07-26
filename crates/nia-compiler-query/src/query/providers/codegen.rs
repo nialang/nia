@@ -5,7 +5,7 @@ pub(in crate::query) fn provide_backend_module_source_item_plan(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<BackendModuleSourceItemPlan> {
-    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
+    let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
     let module = facts
         .modules
         .iter()
@@ -55,12 +55,12 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<BackendModuleFunctionInstancePlan> {
-    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
+    let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
     assert!(
         facts.modules.iter().any(|module| module.id == module_id),
         "Nia ICE: missing executable facts for module {module_id:?}"
     );
-    let monomorphization = db.try_get(MonomorphizationQuery)?;
+    let monomorphization = db.get(MonomorphizationQuery)?;
     let mut instances = monomorphization
         .instances
         .iter()
@@ -115,7 +115,7 @@ pub(super) fn monomorphization_for_checked_modules(
     let trait_impl_index = &executable_signatures.trait_impl_index;
     let local_signatures = checked_modules
         .iter()
-        .map(|module| Ok((module.id, db.try_get(ItemSignaturesQuery(module.id))?)))
+        .map(|module| Ok((module.id, db.get(ItemSignaturesQuery(module.id))?)))
         .collect::<QueryResult<HashMap<_, _>>>()?;
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
     let semantic_instantiations = checked_modules
@@ -158,7 +158,7 @@ pub(super) fn monomorphization_for_checked_modules(
 pub(super) fn checked_modules_for_codegen(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<Arc<CheckedModule>>> {
-    Ok(db.try_get(ExecutableCheckedModulesQuery)?.as_ref().clone())
+    Ok(db.get(ExecutableCheckedModulesQuery)?.as_ref().clone())
 }
 
 pub(super) fn checked_modules_for_diagnostics(
@@ -173,7 +173,7 @@ pub(super) fn materialize_checked_modules(
 ) -> QueryResult<Vec<Arc<CheckedModule>>> {
     module_ids
         .into_iter()
-        .map(|module_id| db.try_get(CheckedModuleQuery(module_id)))
+        .map(|module_id| db.get(CheckedModuleQuery(module_id)))
         .collect()
 }
 
@@ -193,7 +193,7 @@ fn function_bodies_from_checked_modules(
             let lowered = def_ids
                 .iter()
                 .copied()
-                .map(|def_id| db.try_get(LoweredFunctionBodyQuery(def_id)))
+                .map(|def_id| db.get(LoweredFunctionBodyQuery(def_id)))
                 .collect::<QueryResult<Vec<_>>>()?;
             Ok(def_ids
                 .into_iter()
@@ -220,7 +220,7 @@ fn static_inits_from_checked_modules(
             let inits = def_ids
                 .iter()
                 .copied()
-                .map(|def_id| db.try_get(ExecutableStaticInitQuery(def_id)))
+                .map(|def_id| db.get(ExecutableStaticInitQuery(def_id)))
                 .collect::<QueryResult<Vec<_>>>()?;
             Ok(def_ids
                 .into_iter()
@@ -235,7 +235,7 @@ pub(in crate::query) fn provide_lowered_function_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
 ) -> QueryResult<LoweredFunctionBodyValue> {
-    let checked_body = db.try_get(ExecutableFunctionBodyQuery(def_id))?;
+    let checked_body = db.get(ExecutableFunctionBodyQuery(def_id))?;
     let Some(body) = checked_body.as_ref() else {
         return Ok(LoweredFunctionBodyValue::Diagnostic(
             nia_function_lower::FunctionLoweringDiagnostic {
@@ -269,8 +269,8 @@ pub(in crate::query) fn provide_backend_item_plan(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<nia_backend_lower::BackendItemPlan> {
     time_provider(db.context().timings(), "backend_item_plan", || {
-        let inputs = db.try_get(BackendLoweringInputsQuery)?;
-        let optimization = *db.try_get(CompilerOptimizationQuery)?;
+        let inputs = db.get(BackendLoweringInputsQuery)?;
+        let optimization = *db.get(CompilerOptimizationQuery)?;
         match inputs.as_ref() {
             Ok(inputs) => {
                 let module_inputs = inputs.module_inputs();
@@ -293,9 +293,9 @@ pub(in crate::query) fn provide_backend_finalization_task_context(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<BackendFinalizationTaskContext> {
     Ok(BackendFinalizationTaskContext::new(
-        db.try_get(BackendLoweringInputsQuery)?,
+        db.get(BackendLoweringInputsQuery)?,
         Arc::clone(&db.context().type_store),
-        *db.try_get(CompilerOptimizationQuery)?,
+        *db.get(CompilerOptimizationQuery)?,
         db.context().timings(),
     ))
 }
@@ -304,8 +304,8 @@ pub(in crate::query) fn provide_backend_module_finalization(
     db: &QueryDb<CompilerContext>,
     key: BackendModuleFinalizationQuery,
 ) -> QueryResult<nia_backend_lower::BackendModuleFinalization> {
-    let context = db.try_get(BackendFinalizationTaskContextQuery)?;
-    let module_plan = db.try_get_owned(BackendModuleItemPlanQuery(key.module_id))?;
+    let context = db.get(BackendFinalizationTaskContextQuery)?;
+    let module_plan = db.get_owned(BackendModuleItemPlanQuery(key.module_id))?;
     Ok(context.finalize_module(key.position, key.module_id, module_plan))
 }
 
@@ -333,7 +333,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
         >,
     ) -> R,
 ) -> QueryResult<R> {
-    let plan = db.try_get_owned(BackendItemPlanQuery)?;
+    let plan = db.get_owned(BackendItemPlanQuery)?;
     emit_backend_module_plan_allocation("before_publish");
     let has_diagnostics = !plan.diagnostics().is_empty();
     let (finalization, module_plans) = plan.into_module_plans();
@@ -353,7 +353,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
         let module_plans = module_ids
             .iter()
             .copied()
-            .map(|module_id| db.try_get_owned(BackendModuleItemPlanQuery(module_id)))
+            .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
             .collect::<QueryResult<Vec<_>>>()?;
         emit_backend_module_plan_allocation("after_consume");
         let lowering = nia_backend_lower::finalize_backend_module_item_plans_with_timings(
@@ -453,7 +453,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     checked_modules
                         .iter()
                         .map(|checked_module| {
-                            db.try_get(FullActiveModuleItemTreeQuery(checked_module.id))
+                            db.get(FullActiveModuleItemTreeQuery(checked_module.id))
                         })
                         .collect::<QueryResult<Vec<_>>>()
                 },
@@ -495,27 +495,27 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 || -> QueryResult<Vec<_>> {
                     checked_modules
                         .iter()
-                        .map(|checked_module| db.try_get(VisibleExtensionsQuery(checked_module.id)))
+                        .map(|checked_module| db.get(VisibleExtensionsQuery(checked_module.id)))
                         .collect::<QueryResult<Vec<_>>>()
                 },
             )?;
             let extension_methods =
                 time_provider(timings, "backend_lowering.inputs.extension_methods", || {
-                    db.try_get(ExtensionMethodIndexQuery)
+                    db.get(ExtensionMethodIndexQuery)
                 })?;
             let function_bodies = function_bodies_from_checked_modules(db, &checked_modules)?;
             let static_inits = static_inits_from_checked_modules(db, &checked_modules)?;
             let source_item_plans = checked_modules
                 .iter()
-                .map(|module| db.try_get(BackendModuleSourceItemPlanQuery(module.id)))
+                .map(|module| db.get(BackendModuleSourceItemPlanQuery(module.id)))
                 .collect::<QueryResult<Vec<_>>>()?;
             let function_instance_plans = checked_modules
                 .iter()
-                .map(|module| db.try_get(BackendModuleFunctionInstancePlanQuery(module.id)))
+                .map(|module| db.get(BackendModuleFunctionInstancePlanQuery(module.id)))
                 .collect::<QueryResult<Vec<_>>>()?;
             let program_defs = checked_modules
                 .iter()
-                .map(|module| db.try_get(FullModuleDefsQuery(module.id)))
+                .map(|module| db.get(FullModuleDefsQuery(module.id)))
                 .collect::<QueryResult<Vec<_>>>()?;
             Ok((
                 active_item_trees,
@@ -545,7 +545,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         db,
         checked_modules.iter().map(|module| module.id),
     )?;
-    let runtime = *db.try_get(CompilerRuntimeQuery)?;
+    let runtime = *db.get(CompilerRuntimeQuery)?;
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
@@ -576,13 +576,13 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
 pub(super) fn early_program_diagnostics(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<ProgramDiagnostic>> {
-    let mut diagnostics = db.try_get(ProgramLoadDiagnosticsQuery)?.as_ref().clone();
-    let loaded_modules = db.try_get(LoadedModulesQuery)?;
-    let _graph = db.try_get(ModuleGraphQuery)?;
+    let mut diagnostics = db.get(ProgramLoadDiagnosticsQuery)?.as_ref().clone();
+    let loaded_modules = db.get(LoadedModulesQuery)?;
+    let _graph = db.get(ModuleGraphQuery)?;
     let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules)?;
     for module_id in loaded_modules {
-        let parse_errors = db.try_get(ModuleParseErrorsQuery(module_id))?;
-        let path = db.try_get(ModulePathQuery(module_id))?;
+        let parse_errors = db.get(ModuleParseErrorsQuery(module_id))?;
+        let path = db.get(ModulePathQuery(module_id))?;
         for error in parse_errors.iter() {
             diagnostics.push(ProgramDiagnostic {
                 path: path.as_ref().clone(),
@@ -594,15 +594,15 @@ pub(super) fn early_program_diagnostics(
             });
         }
     }
-    let public_surfaces = db.try_get(PublicSurfacesQuery)?;
-    let public_using_scopes = db.try_get(PublicUsingScopesQuery)?;
+    let public_surfaces = db.get(PublicSurfacesQuery)?;
+    let public_using_scopes = db.get(PublicUsingScopesQuery)?;
     for (module_id, diagnostic) in public_surfaces
         .diagnostics
         .iter()
         .chain(public_using_scopes.diagnostics.iter())
     {
         diagnostics.push(ProgramDiagnostic {
-            path: db.try_get(ModulePathQuery(*module_id))?.as_ref().clone(),
+            path: db.get(ModulePathQuery(*module_id))?.as_ref().clone(),
             diagnostic: diagnostic.clone(),
         });
     }
@@ -632,7 +632,7 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             &checked.local_resolution.diagnostics,
         ));
-        let item_signatures = db.try_get(ItemSignaturesQuery(checked.id))?;
+        let item_signatures = db.get(ItemSignaturesQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &item_signatures.diagnostics,
@@ -662,12 +662,12 @@ pub(super) fn checked_module_diagnostics(
             &checked.flow_check.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
-        let extension_validation = db.try_get(ExtensionProviderValidationFactsQuery(checked.id))?;
+        let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &extension_validation.diagnostics,
         ));
-        let extension_provider = db.try_get(ExtensionProviderModuleFactsQuery(checked.id))?;
+        let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &extension_provider.associated_value_diagnostics,

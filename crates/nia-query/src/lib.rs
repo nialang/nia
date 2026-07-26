@@ -1984,22 +1984,6 @@ impl<C> QueryDb<C> {
             .unwrap_or_default()
     }
 
-    pub fn get<K>(&self, key: K) -> Arc<K::Value>
-    where
-        K: QueryKey<C>,
-    {
-        self.try_get(key)
-            .unwrap_or_else(|err| std::panic::panic_any(err))
-    }
-
-    pub fn get_owned<K>(&self, key: K) -> K::Value
-    where
-        K: QueryKey<C>,
-    {
-        self.try_get_owned(key)
-            .unwrap_or_else(|err| std::panic::panic_any(err))
-    }
-
     pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> QueryError
     where
         K: QueryKey<C>,
@@ -2010,14 +1994,14 @@ impl<C> QueryDb<C> {
         }
     }
 
-    pub fn try_get<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
+    pub fn get<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
     {
         self.try_get_cached(key)
     }
 
-    pub fn try_get_owned<K>(&self, key: K) -> QueryResult<K::Value>
+    pub fn get_owned<K>(&self, key: K) -> QueryResult<K::Value>
     where
         K: QueryKey<C>,
     {
@@ -2424,7 +2408,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::try_get::<K>)
+        self.get_many_with(keys, Self::get::<K>)
             .into_iter()
             .collect()
     }
@@ -2434,7 +2418,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::try_get_owned::<K>)
+        self.get_many_with(keys, Self::get_owned::<K>)
             .into_iter()
             .collect()
     }
@@ -2448,7 +2432,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.with_many_completion_with(keys, Self::try_get_owned::<K>, consume)
+        self.with_many_completion_with(keys, Self::get_owned::<K>, consume)
     }
 
     fn with_many_completion_with<K, O, R>(
@@ -3151,8 +3135,8 @@ where
         .downcast_ref::<K>()
         .expect("query ensure identity key type mismatch");
     match K::STORAGE {
-        QueryStoragePolicy::CacheOwnedArc => db.try_get(key.clone()).map(drop),
-        QueryStoragePolicy::SingleConsumerOwned => db.try_get_owned(key.clone()).map(drop),
+        QueryStoragePolicy::CacheOwnedArc => db.get(key.clone()).map(drop),
+        QueryStoragePolicy::SingleConsumerOwned => db.get_owned(key.clone()).map(drop),
     }
 }
 
@@ -3398,6 +3382,32 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
+    trait QueryDbTestExt<C> {
+        fn expect_get<K>(&self, key: K) -> Arc<K::Value>
+        where
+            K: QueryKey<C>;
+
+        fn expect_get_owned<K>(&self, key: K) -> K::Value
+        where
+            K: QueryKey<C>;
+    }
+
+    impl<C> QueryDbTestExt<C> for QueryDb<C> {
+        fn expect_get<K>(&self, key: K) -> Arc<K::Value>
+        where
+            K: QueryKey<C>,
+        {
+            self.get(key).expect("test query must succeed")
+        }
+
+        fn expect_get_owned<K>(&self, key: K) -> K::Value
+        where
+            K: QueryKey<C>,
+        {
+            self.get_owned(key).expect("test query must succeed")
+        }
+    }
+
     struct TestContext {
         executions: AtomicUsize,
     }
@@ -3469,7 +3479,7 @@ mod tests {
 
         fn execute_result(&self, db: &QueryDb<SessionParentContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
-            Ok(*db.context().input_db.get(SessionInput) * 2)
+            Ok(*db.context().input_db.get(SessionInput)? * 2)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3539,7 +3549,7 @@ mod tests {
             if self.0 == 0 {
                 return Ok(vec![0]);
             }
-            let mut value = db.get(Self(self.0 - 1)).as_ref().clone();
+            let mut value = db.get(Self(self.0 - 1))?.as_ref().clone();
             value.push(self.0);
             Ok(value)
         }
@@ -3687,7 +3697,7 @@ mod tests {
                     }
                     1
                 }
-                Self::DependsOnParent => *db.get(Self::Parent),
+                Self::DependsOnParent => *db.get(Self::Parent)?,
                 Self::OtherFiller => 4,
             })
         }
@@ -3727,7 +3737,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Ok(*db.get(StableInput) * 2)
+            Ok(*db.get(StableInput)? * 2)
         }
     }
 
@@ -3777,7 +3787,7 @@ mod tests {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            Ok(*db.get(RedGreenInput) % 2)
+            Ok(*db.get(RedGreenInput)? % 2)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3804,7 +3814,7 @@ mod tests {
             db.context()
                 .parent_executions
                 .fetch_add(1, Ordering::SeqCst);
-            Ok(*db.get(StableParity) + 10)
+            Ok(*db.get(StableParity)? + 10)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3831,7 +3841,7 @@ mod tests {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            Ok(*db.get(RedGreenInput) % 2)
+            Ok(*db.get(RedGreenInput)? % 2)
         }
 
         fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -3855,7 +3865,7 @@ mod tests {
             db.context()
                 .parent_executions
                 .fetch_add(1, Ordering::SeqCst);
-            Ok(*db.get(SemanticParity) + 10)
+            Ok(*db.get(SemanticParity)? + 10)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3882,7 +3892,7 @@ mod tests {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            Ok(*db.get(RedGreenInput) % self.0)
+            Ok(*db.get(RedGreenInput)? % self.0)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3987,7 +3997,7 @@ mod tests {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            Ok(*db.get(ValidationRaceInput) % 2)
+            Ok(*db.get(ValidationRaceInput)? % 2)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -4124,7 +4134,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Ok(db.get_owned(OwnedNonCloneValueQuery(self.0)).value * 2)
+            Ok(db.get_owned(OwnedNonCloneValueQuery(self.0))?.value * 2)
         }
     }
 
@@ -4139,7 +4149,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Ok(*db.try_get(Recursive)?)
+            Ok(*db.get(Recursive)?)
         }
     }
 
@@ -4149,8 +4159,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(Double(21)), 42);
-        assert_eq!(*db.get(Double(21)), 42);
+        assert_eq!(*db.expect_get(Double(21)), 42);
+        assert_eq!(*db.expect_get(Double(21)), 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
     }
 
@@ -4160,12 +4170,12 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let first = db.get(Double(21));
-        let second = db.get(Double(21));
+        let first = db.expect_get(Double(21));
+        let second = db.expect_get(Double(21));
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(*first, 42);
-        assert_eq!(*db.get(Double(21)), 42);
+        assert_eq!(*db.expect_get(Double(21)), 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
     }
 
@@ -4175,8 +4185,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let first = db.get(NonCloneValueQuery);
-        let second = db.get(NonCloneValueQuery);
+        let first = db.expect_get(NonCloneValueQuery);
+        let second = db.expect_get(NonCloneValueQuery);
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(first.value, 42);
@@ -4189,8 +4199,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(OwnedValueParent(21)), 42);
-        assert_eq!(*db.get(OwnedValueParent(21)), 42);
+        assert_eq!(*db.expect_get(OwnedValueParent(21)), 42);
+        assert_eq!(*db.expect_get(OwnedValueParent(21)), 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
         assert!(db.query_trace().dependencies.iter().any(|dependency| {
             dependency.from.name == "owned_value_parent"
@@ -4204,7 +4214,7 @@ mod tests {
                 .iter()
                 .any(|frame| frame.name == "owned_value_parent")
         );
-        assert_eq!(*db.get(OwnedValueParent(21)), 42);
+        assert_eq!(*db.expect_get(OwnedValueParent(21)), 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
@@ -4214,8 +4224,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(db.get_owned(OwnedNonCloneValueQuery(3)).value, 3);
-        assert_eq!(db.get_owned(OwnedNonCloneValueQuery(3)).value, 3);
+        assert_eq!(db.expect_get_owned(OwnedNonCloneValueQuery(3)).value, 3);
+        assert_eq!(db.expect_get_owned(OwnedNonCloneValueQuery(3)).value, 3);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
@@ -4225,7 +4235,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
         let predecessor = OwnedNonCloneValueQuery(3);
-        assert_eq!(db.get_owned(predecessor).value, 3);
+        assert_eq!(db.expect_get_owned(predecessor).value, 3);
         let drops = Arc::new(AtomicUsize::new(0));
 
         db.publish_owned(
@@ -4236,12 +4246,12 @@ mod tests {
             },
             &predecessor,
         );
-        let value = db.get_owned(PublishedOwnedValueQuery(3));
+        let value = db.expect_get_owned(PublishedOwnedValueQuery(3));
         assert_eq!(value.value, 9);
         assert_eq!(drops.load(Ordering::SeqCst), 0);
         drop(value);
         assert_eq!(drops.load(Ordering::SeqCst), 1);
-        assert!(db.try_get_owned(PublishedOwnedValueQuery(3)).is_err());
+        assert!(db.get_owned(PublishedOwnedValueQuery(3)).is_err());
         assert!(db.query_trace().dependencies.iter().any(|dependency| {
             dependency.from.name == "published_owned_value"
                 && dependency.to.name == "owned_non_clone_value"
@@ -4262,7 +4272,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
         let predecessor = OwnedNonCloneValueQuery(5);
-        assert_eq!(db.get_owned(predecessor).value, 5);
+        assert_eq!(db.expect_get_owned(predecessor).value, 5);
         let drops = Arc::new(AtomicUsize::new(0));
         db.publish_owned(
             PublishedOwnedValueQuery(5),
@@ -4275,7 +4285,7 @@ mod tests {
 
         db.invalidate(predecessor);
         assert_eq!(drops.load(Ordering::SeqCst), 1);
-        assert!(db.try_get_owned(PublishedOwnedValueQuery(5)).is_err());
+        assert!(db.get_owned(PublishedOwnedValueQuery(5)).is_err());
     }
 
     #[test]
@@ -4329,7 +4339,7 @@ mod tests {
             registry,
         );
 
-        assert_eq!(*db.get(Double(21)), 42);
+        assert_eq!(*db.expect_get(Double(21)), 42);
         let descriptors = db.registered_queries();
         assert_eq!(descriptors.len(), 1);
         assert_eq!(descriptors[0].name, "double");
@@ -4425,7 +4435,7 @@ mod tests {
         );
 
         assert!(parent_db.session().ptr_eq(&input_db.session()));
-        assert_eq!(*parent_db.get(SessionParent), 6);
+        assert_eq!(*parent_db.expect_get(SessionParent), 6);
         value.store(4, Ordering::SeqCst);
         let invalidation = input_db.invalidate(SessionInput);
 
@@ -4435,7 +4445,7 @@ mod tests {
                 .iter()
                 .any(|frame| frame.name == "session_parent")
         );
-        assert_eq!(*parent_db.get(SessionParent), 8);
+        assert_eq!(*parent_db.expect_get(SessionParent), 8);
         assert_eq!(executions.load(Ordering::SeqCst), 2);
         assert!(
             parent_db
@@ -4462,7 +4472,7 @@ mod tests {
         });
 
         assert!(!parent_db.session().ptr_eq(&input_db.session()));
-        assert_eq!(*parent_db.get(SessionParent), 6);
+        assert_eq!(*parent_db.expect_get(SessionParent), 6);
         value.store(4, Ordering::SeqCst);
         let invalidation = input_db.invalidate(SessionInput);
 
@@ -4472,7 +4482,7 @@ mod tests {
                 .iter()
                 .all(|frame| frame.name != "session_parent")
         );
-        assert_eq!(*parent_db.get(SessionParent), 6);
+        assert_eq!(*parent_db.expect_get(SessionParent), 6);
         assert_eq!(executions.load(Ordering::SeqCst), 1);
     }
 
@@ -4604,7 +4614,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(OwnedValueBatchParent), 10);
+        assert_eq!(*db.expect_get(OwnedValueBatchParent), 10);
         let invalidation = db.invalidate(OwnedNonCloneValueQuery(5));
 
         assert!(
@@ -5092,7 +5102,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let error = db.try_get(Recursive).expect_err("cycle should be reported");
+        let error = db.get(Recursive).expect_err("cycle should be reported");
         let cycle = match error {
             QueryError::Cycle { cycle } => cycle,
             QueryError::InvalidInput { .. } => panic!("expected query cycle"),
@@ -5102,14 +5112,13 @@ mod tests {
     }
 
     #[test]
-    fn get_panics_with_query_error() {
+    fn get_returns_query_error() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
 
-        let error =
-            std::panic::catch_unwind(|| db.get(Recursive)).expect_err("get should panic on cycles");
-        assert!(error.is::<QueryError>());
+        let error = db.get(Recursive).expect_err("cycle must fail");
+        assert!(matches!(error, QueryError::Cycle { .. }));
     }
 
     #[test]
@@ -5119,7 +5128,7 @@ mod tests {
         });
 
         let err = db
-            .try_get(InvalidInputQuery)
+            .get(InvalidInputQuery)
             .expect_err("invalid input should be a query error");
         match err {
             QueryError::InvalidInput { query, message } => {
@@ -5155,7 +5164,7 @@ mod tests {
         });
 
         let err = db
-            .try_get(InvalidAfterDependency)
+            .get(InvalidAfterDependency)
             .expect_err("parent query should fail after recording dependency");
         match err {
             QueryError::InvalidInput { query, message } => {
@@ -5186,10 +5195,11 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         std::thread::spawn(move || {
-            let error = std::panic::catch_unwind(|| worker_db.get(ParallelRecursive))
-                .expect_err("parallel recursive query should panic");
+            let error = worker_db
+                .get(ParallelRecursive)
+                .expect_err("parallel recursive query should fail");
             sender
-                .send(error.is::<QueryError>())
+                .send(matches!(error, QueryError::Cycle { .. }))
                 .expect("send query result");
         });
 
@@ -5205,11 +5215,11 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let first =
-            std::panic::catch_unwind(|| db.get(PanicsOnce)).expect_err("first query should panic");
+        let first = std::panic::catch_unwind(|| db.expect_get(PanicsOnce))
+            .expect_err("first query should panic");
         assert!(first.is::<&'static str>());
 
-        assert_eq!(*db.get(PanicsOnce), 99);
+        assert_eq!(*db.expect_get(PanicsOnce), 99);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
@@ -5219,7 +5229,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(DoubleTwice(7)), 28);
+        assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
         let trace = db.query_trace();
         assert_eq!(trace.dependencies.len(), 1);
         assert_eq!(trace.dependencies[0].from.name, "double_twice");
@@ -5232,8 +5242,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(Double(21)), 42);
-        assert_eq!(*db.get(Double(21)), 42);
+        assert_eq!(*db.expect_get(Double(21)), 42);
+        assert_eq!(*db.expect_get(Double(21)), 42);
         let trace = db.query_trace();
         let stats = trace
             .queries
@@ -5253,7 +5263,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(DoubleMany([2, 5])), 14);
+        assert_eq!(*db.expect_get(DoubleMany([2, 5])), 14);
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5270,7 +5280,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(SingleDoubleMany(2)), 4);
+        assert_eq!(*db.expect_get(SingleDoubleMany(2)), 4);
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5292,15 +5302,15 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(Double(9)), 18);
-        assert_eq!(*db.get(Double(9)), 18);
+        assert_eq!(*db.expect_get(Double(9)), 18);
+        assert_eq!(*db.expect_get(Double(9)), 18);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
 
         let invalidation = db.invalidate(Double(9));
         assert_eq!(invalidation.invalidated.len(), 1);
         assert_eq!(invalidation.invalidated[0].description, "double(9)");
 
-        assert_eq!(*db.get(Double(9)), 18);
+        assert_eq!(*db.expect_get(Double(9)), 18);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
@@ -5309,7 +5319,7 @@ mod tests {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
-        let old_parent = db.get(DoubleTwice(7));
+        let old_parent = db.expect_get(DoubleTwice(7));
         let old_node = db
             .cached_slot(&Double(7))
             .expect("cached child slot")
@@ -5330,7 +5340,7 @@ mod tests {
                 .is_none()
         );
 
-        let latest_parent = db.get(DoubleTwice(7));
+        let latest_parent = db.expect_get(DoubleTwice(7));
         let latest_node = db
             .cached_slot(&Double(7))
             .expect("replacement child slot")
@@ -5346,8 +5356,8 @@ mod tests {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
-        let current = db.get(OwnedRevision(1));
-        let predecessor = db.get(OwnedRevision(0));
+        let current = db.expect_get(OwnedRevision(1));
+        let predecessor = db.expect_get(OwnedRevision(0));
         let predecessor_node = db
             .cached_slot(&OwnedRevision(0))
             .expect("cached predecessor slot")
@@ -5360,7 +5370,7 @@ mod tests {
         let trace = db.query_trace();
         assert_eq!(trace.queries.len(), 1);
         assert!(trace.dependencies.is_empty());
-        assert!(Arc::ptr_eq(&current, &db.get(OwnedRevision(1))));
+        assert!(Arc::ptr_eq(&current, &db.expect_get(OwnedRevision(1))));
         assert_eq!(&*predecessor, &[0]);
         assert!(
             db.inner
@@ -5377,8 +5387,8 @@ mod tests {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
-        let double = db.get(Double(3));
-        let owned = db.get(OwnedRevision(0));
+        let double = db.expect_get(Double(3));
+        let owned = db.expect_get(OwnedRevision(0));
         let external_retirements = AtomicUsize::new(0);
 
         db.retirement_transaction(|retirement| {
@@ -5403,7 +5413,7 @@ mod tests {
             control: Arc::clone(&control),
         });
         let worker_db = db.clone();
-        let query = std::thread::spawn(move || worker_db.get(SlowDouble(1)));
+        let query = std::thread::spawn(move || worker_db.expect_get(SlowDouble(1)));
         let (lock, ready) = &*control;
         let mut state = lock.lock().expect("race state lock poisoned");
         while !state.started {
@@ -5476,13 +5486,13 @@ mod tests {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(7),
         });
-        let first = db.get(StableInputParent);
+        let first = db.expect_get(StableInputParent);
         assert_eq!(*first, 14);
 
         let invalidation = db.validate_input(StableInput, &7);
 
         assert!(invalidation.invalidated.is_empty());
-        let second = db.get(StableInputParent);
+        let second = db.expect_get(StableInputParent);
         assert!(Arc::ptr_eq(&first, &second));
     }
 
@@ -5491,7 +5501,7 @@ mod tests {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(7),
         });
-        assert_eq!(*db.get(StableInputParent), 14);
+        assert_eq!(*db.expect_get(StableInputParent), 14);
         db.context().executions.store(9, Ordering::SeqCst);
 
         let invalidation = db.validate_input(StableInput, &9);
@@ -5502,7 +5512,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(invalidated, ["stable_input", "stable_input_parent"]);
-        assert_eq!(*db.get(StableInputParent), 18);
+        assert_eq!(*db.expect_get(StableInputParent), 18);
     }
 
     #[test]
@@ -5512,7 +5522,7 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             parent_executions: AtomicUsize::new(0),
         });
-        let first = db.get(StableParityParent);
+        let first = db.expect_get(StableParityParent);
         assert_eq!(*first, 11);
         db.context().input.store(9, Ordering::SeqCst);
 
@@ -5525,7 +5535,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["red_green_input", "stable_parity", "stable_parity_parent"]
         );
-        let second = db.get(StableParityParent);
+        let second = db.expect_get(StableParityParent);
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
@@ -5550,11 +5560,11 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             parent_executions: AtomicUsize::new(0),
         });
-        let first = db.get(SemanticParityParent);
+        let first = db.expect_get(SemanticParityParent);
         db.context().input.store(9, Ordering::SeqCst);
         db.validate_input(RedGreenInput, &9);
 
-        let equal = db.get(SemanticParityParent);
+        let equal = db.expect_get(SemanticParityParent);
 
         assert!(Arc::ptr_eq(&first, &equal));
         assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
@@ -5562,7 +5572,7 @@ mod tests {
 
         db.context().input.store(10, Ordering::SeqCst);
         db.validate_input(RedGreenInput, &10);
-        let changed = db.get(SemanticParityParent);
+        let changed = db.expect_get(SemanticParityParent);
 
         assert!(!Arc::ptr_eq(&equal, &changed));
         assert_eq!(*changed, 10);
@@ -5577,7 +5587,7 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             parent_executions: AtomicUsize::new(0),
         });
-        let first = db.get(StableParityParent);
+        let first = db.expect_get(StableParityParent);
         db.context().input.store(9, Ordering::SeqCst);
 
         let invalidation = db.invalidate(RedGreenInput);
@@ -5589,7 +5599,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["red_green_input", "stable_parity", "stable_parity_parent"]
         );
-        let latest = db.get(StableParityParent);
+        let latest = db.expect_get(StableParityParent);
 
         assert!(Arc::ptr_eq(&first, &latest));
         assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
@@ -5611,11 +5621,11 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             parent_executions: AtomicUsize::new(0),
         });
-        assert_eq!(*db.get(StableParityParent), 11);
+        assert_eq!(*db.expect_get(StableParityParent), 11);
         db.context().input.store(8, Ordering::SeqCst);
 
         db.validate_input(RedGreenInput, &8);
-        assert_eq!(*db.get(StableParityParent), 10);
+        assert_eq!(*db.expect_get(StableParityParent), 10);
 
         assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
         assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 2);
@@ -5636,13 +5646,13 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             parent_executions: AtomicUsize::new(0),
         });
-        let first = db.get(StableParityParent);
+        let first = db.expect_get(StableParityParent);
         db.context().input.store(9, Ordering::SeqCst);
         db.validate_input(RedGreenInput, &9);
         db.context().input.store(11, Ordering::SeqCst);
         db.validate_input(RedGreenInput, &11);
 
-        let latest = db.get(StableParityParent);
+        let latest = db.expect_get(StableParityParent);
 
         assert!(Arc::ptr_eq(&first, &latest));
         assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
@@ -5656,12 +5666,12 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             parent_executions: AtomicUsize::new(0),
         });
-        let first = db.get(StableModuloBatchParent);
+        let first = db.expect_get(StableModuloBatchParent);
         assert_eq!(*first, 2);
         db.context().input.store(13, Ordering::SeqCst);
         db.validate_input(RedGreenInput, &13);
 
-        let latest = db.get(StableModuloBatchParent);
+        let latest = db.expect_get(StableModuloBatchParent);
 
         assert!(Arc::ptr_eq(&first, &latest));
         assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 4);
@@ -5689,13 +5699,13 @@ mod tests {
             derived_executions: AtomicUsize::new(0),
             control: Arc::clone(&control),
         });
-        let first = db.get(ValidationRaceDerived);
+        let first = db.expect_get(ValidationRaceDerived);
         db.context().input.store(9, Ordering::SeqCst);
         db.validate_input(ValidationRaceInput, &9);
         let worker_db = db.clone();
 
         let latest = std::thread::scope(|scope| {
-            let handle = scope.spawn(move || worker_db.get(ValidationRaceDerived));
+            let handle = scope.spawn(move || worker_db.expect_get(ValidationRaceDerived));
             let (lock, ready) = &*control;
             let mut state = lock.lock().expect("validation race lock poisoned");
             while !state.started {
@@ -5746,8 +5756,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(DoubleTwice(7)), 28);
-        assert_eq!(*db.get(DoubleTwice(7)), 28);
+        assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
+        assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
 
         let invalidation = db.invalidate(Double(7));
@@ -5758,7 +5768,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(invalidated, vec!["double(7)", "double_twice(7)"]);
 
-        assert_eq!(*db.get(DoubleTwice(7)), 28);
+        assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
@@ -5768,7 +5778,7 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(DoubleMany([2, 5])), 14);
+        assert_eq!(*db.expect_get(DoubleMany([2, 5])), 14);
         let invalidation = db.invalidate(Double(2));
         let invalidated = invalidation
             .invalidated
@@ -5777,7 +5787,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(invalidated, vec!["double(2)", "double_many([2, 5])"]);
 
-        assert_eq!(*db.get(DoubleMany([2, 5])), 14);
+        assert_eq!(*db.expect_get(DoubleMany([2, 5])), 14);
     }
 
     #[test]
@@ -5786,8 +5796,8 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        assert_eq!(*db.get(DebugCollisionParent(1)), 4);
-        assert_eq!(*db.get(DebugCollisionParent(2)), 8);
+        assert_eq!(*db.expect_get(DebugCollisionParent(1)), 4);
+        assert_eq!(*db.expect_get(DebugCollisionParent(2)), 8);
 
         let invalidation = db.invalidate(DebugCollisionLeaf(1));
         let invalidated_names = invalidation
@@ -5800,9 +5810,9 @@ mod tests {
             vec!["debug_collision_leaf", "debug_collision_parent"]
         );
 
-        assert_eq!(*db.get(DebugCollisionParent(2)), 8);
+        assert_eq!(*db.expect_get(DebugCollisionParent(2)), 8);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
-        assert_eq!(*db.get(DebugCollisionParent(1)), 4);
+        assert_eq!(*db.expect_get(DebugCollisionParent(1)), 4);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
     }
 
@@ -5848,7 +5858,7 @@ mod tests {
             );
         });
 
-        assert_eq!(*db.get(SlowDouble(1)), 2);
+        assert_eq!(*db.expect_get(SlowDouble(1)), 2);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
     }
 
@@ -5867,7 +5877,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Ok(*db.get(Double(self.0)) * 2)
+            Ok(*db.get(Double(self.0))? * 2)
         }
     }
 
@@ -5929,7 +5939,7 @@ mod tests {
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             Ok(db
-                .get_many_with([ParallelRecursiveChild], QueryDb::try_get)
+                .get_many_with([ParallelRecursiveChild], QueryDb::get)
                 .into_iter()
                 .collect::<QueryResult<Vec<_>>>()?
                 .into_iter()
@@ -5949,7 +5959,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Ok(*db.try_get(ParallelRecursive)?)
+            Ok(*db.get(ParallelRecursive)?)
         }
     }
 
@@ -5998,7 +6008,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            let _ = db.try_get(Double(3))?;
+            let _ = db.get(Double(3))?;
             Err(db.invalid_input(self, "failed after dependency"))
         }
     }
@@ -6020,7 +6030,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Ok(*db.get(DebugCollisionLeaf(self.0)) * 2)
+            Ok(*db.get(DebugCollisionLeaf(self.0))? * 2)
         }
     }
 

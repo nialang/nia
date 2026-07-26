@@ -82,16 +82,16 @@ pub(super) fn provide_value_resolution(
     module_id: ModuleId,
 ) -> QueryResult<ValueResolution> {
     time_module_provider(db, "value_resolution", module_id, || {
-        let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
-        let defs = db.try_get(FullModuleDefsQuery(module_id))?;
-        let graph = db.try_get(ModuleGraphQuery)?;
-        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
-        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        let graph = db.get(ModuleGraphQuery)?;
+        let public_surfaces = db.get(PublicSurfacesQuery)?;
+        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs = |module_id| {
-            capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+            capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
         };
-        let visible_extensions = || db.try_get(VisibleExtensionsQuery(module_id));
+        let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
@@ -125,9 +125,9 @@ pub(super) fn provide_local_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<LocalResolution> {
-    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
-    let values = db.try_get(ValueResolutionQuery(module_id))?;
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let values = db.get(ValueResolutionQuery(module_id))?;
     let symbols = db.context().symbols();
     let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
     Ok(
@@ -146,11 +146,11 @@ pub(super) fn provide_semantic_use_table(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<nia_sema_ir::SemanticUseTable> {
-    let values = db.try_get(ValueResolutionQuery(module_id))?;
-    let locals = db.try_get(LocalResolutionQuery(module_id))?;
-    let type_resolution = db.try_get(TypeResolutionQuery(module_id))?;
-    let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
-    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let values = db.get(ValueResolutionQuery(module_id))?;
+    let locals = db.get(LocalResolutionQuery(module_id))?;
+    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let type_lowering = db.get(TypeLoweringQuery(module_id))?;
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
         &db.context().type_store,
         &active_item_tree,
@@ -159,16 +159,16 @@ pub(super) fn provide_semantic_use_table(
     let const_expr_value_resolution = if needed_const_exprs.is_empty() {
         None
     } else {
-        let defs = db.try_get(FullModuleDefsQuery(module_id))?;
-        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
-        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
-        let graph = db.try_get(ModuleGraphQuery)?;
+        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        let public_surfaces = db.get(PublicSurfacesQuery)?;
+        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let graph = db.get(ModuleGraphQuery)?;
         let query_failure = RefCell::new(None);
-        let visible_extensions = || db.try_get(VisibleExtensionsQuery(module_id));
+        let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let program_defs = |module_id| {
-            capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+            capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
         };
         let symbols = db.context().symbols();
         let resolution =

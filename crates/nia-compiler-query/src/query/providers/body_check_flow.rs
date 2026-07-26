@@ -158,9 +158,9 @@ pub(super) fn body_check_resolution_inputs_for_filter(
     match filter {
         nia_body_check::BodyCheckFilter::All => Ok(BodyCheckResolutionInputs {
             active_item_tree: context.active_item_tree,
-            values: db.try_get(ValueResolutionQuery(module_id))?,
-            locals: db.try_get(LocalResolutionQuery(module_id))?,
-            semantic_uses: db.try_get(SemanticUseTableQuery(module_id))?,
+            values: db.get(ValueResolutionQuery(module_id))?,
+            locals: db.get(LocalResolutionQuery(module_id))?,
+            semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
         }),
         _ => {
             let filtered_active_item_tree = Arc::new(time_module_provider(
@@ -176,29 +176,29 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             ));
-            let graph = db.try_get(ModuleGraphQuery)?;
+            let graph = db.get(ModuleGraphQuery)?;
             let public_surfaces = time_module_provider(
                 db,
                 "executable_body_check.public_surfaces",
                 module_id,
-                || db.try_get(PublicSurfacesQuery),
+                || db.get(PublicSurfacesQuery),
             )?;
             let using_scope = time_module_provider(
                 db,
                 "executable_body_check.module_using_scope",
                 module_id,
-                || db.try_get(ModuleUsingScopeQuery(module_id)),
+                || db.get(ModuleUsingScopeQuery(module_id)),
             )?;
             let query_failure = RefCell::new(None);
             let program_defs = |module_id| {
-                capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+                capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
             };
             let visible_extensions = || {
                 time_module_provider(
                     db,
                     "executable_body_check.visible_extensions",
                     module_id,
-                    || db.try_get(VisibleExtensionsQuery(module_id)),
+                    || db.get(VisibleExtensionsQuery(module_id)),
                 )
             };
             let associated_values =
@@ -313,12 +313,12 @@ pub(in crate::query) fn full_body_check_resolution_inputs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<BodyCheckResolutionInputs> {
-    let source_version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
-    let origins = db.try_get(ModuleOriginsQuery(module_id))?;
-    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
-    let type_resolution = db.try_get(TypeResolutionQuery(module_id))?;
-    let lowered = db.try_get(TypeLoweringQuery(module_id))?;
+    let source_version = *db.get(ModuleSourceVersionQuery(module_id))?;
+    let origins = db.get(ModuleOriginsQuery(module_id))?;
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let lowered = db.get(TypeLoweringQuery(module_id))?;
     body_check_resolution_inputs_for_filter(
         db,
         module_id,
@@ -362,7 +362,7 @@ pub(super) fn body_local_item_signatures(
     module_id: ModuleId,
     lowered: &TypeLowering,
 ) -> QueryResult<ItemSignatures> {
-    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let defs = db.get(FullModuleDefsQuery(module_id))?;
     let functions = collect_body_signature_subset(
         db,
         module_id,
@@ -435,7 +435,7 @@ fn collect_body_signature_subset(
     defs: &DefCollection,
     lowered: &TypeLowering,
 ) -> QueryResult<ItemSignatures> {
-    let active_item_tree = db.try_get(SignatureItemTreeQuery(module_id, set))?;
+    let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     let symbols = db.context().symbols();
     Ok(nia_item_signatures::collect_item_signatures(
         nia_item_signatures::ItemSignatureInput {
