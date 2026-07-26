@@ -230,7 +230,14 @@ impl Driver {
 
     pub fn check_all_modules(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
-            let program = self.check_all_modules_inner(request);
+            let program = match self.check_all_modules_inner(request) {
+                Ok(program) => program,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             if has_error_diagnostics(&program.diagnostics) {
                 return DriverOutput::from_check_diagnostics(program);
             }
@@ -238,7 +245,10 @@ impl Driver {
         })
     }
 
-    fn check_all_modules_inner(&self, request: CheckRequest) -> CheckedProgram {
+    fn check_all_modules_inner(
+        &self,
+        request: CheckRequest,
+    ) -> nia_query::QueryResult<CheckedProgram> {
         self.compile_with(request, CompilerDatabase::check_program)
     }
 
@@ -248,11 +258,19 @@ impl Driver {
         request: CheckRequest,
     ) -> nia_compiler_query::CheckedProgramAnalysis {
         self.compile_with(request, CompilerDatabase::analyze_program)
+            .expect("test compiler analysis")
     }
 
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
-            let program = self.check_entry_inner(request);
+            let program = match self.check_entry_inner(request) {
+                Ok(program) => program,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             if has_error_diagnostics(&program.diagnostics) {
                 return DriverOutput::from_check_diagnostics(program);
             }
@@ -260,7 +278,7 @@ impl Driver {
         })
     }
 
-    fn check_entry_inner(&self, request: CheckRequest) -> CheckedProgram {
+    fn check_entry_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CheckedProgram> {
         self.compile_with(request, CompilerDatabase::entry_check_program)
     }
 
@@ -270,11 +288,19 @@ impl Driver {
         request: CheckRequest,
     ) -> nia_compiler_query::CheckedProgramAnalysis {
         self.compile_with(request, CompilerDatabase::analyze_entry_program)
+            .expect("test entry compiler analysis")
     }
 
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
         DriverOutput::catch_ice(|| {
-            let program = self.codegen_inner(request);
+            let program = match self.codegen_inner(request) {
+                Ok(program) => program,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             if has_error_diagnostics(&program.diagnostics) {
                 return DriverOutput::from_codegen_diagnostics(program);
             }
@@ -282,17 +308,21 @@ impl Driver {
         })
     }
 
-    fn codegen_inner(&self, request: CheckRequest) -> CodegenProgram {
+    fn codegen_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CodegenProgram> {
         self.compile_with(request, CompilerDatabase::codegen_program)
     }
 
-    fn compile_with<T>(&self, request: CheckRequest, compile: impl Fn(&CompilerDatabase) -> T) -> T
+    fn compile_with<T>(
+        &self,
+        request: CheckRequest,
+        compile: impl Fn(&CompilerDatabase) -> nia_query::QueryResult<T>,
+    ) -> nia_query::QueryResult<T>
     where
         T: ProviderDemandOutput,
     {
         let timings = request.timings;
-        let database = self.compiler_database(&request);
-        let output = compile(&database);
+        let database = self.compiler_database(&request)?;
+        let output = compile(&database)?;
         let loader_trace = self.loader_query_trace();
         emit_compilation_counters(
             timings,
@@ -301,10 +331,13 @@ impl Driver {
             &output,
             database.provider_demand_rounds(),
         );
-        output
+        Ok(output)
     }
 
-    fn compiler_database(&self, request: &CheckRequest) -> CompilerDatabase {
+    fn compiler_database(
+        &self,
+        request: &CheckRequest,
+    ) -> nia_query::QueryResult<CompilerDatabase> {
         let loader = self.loader_database(request);
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
@@ -317,7 +350,7 @@ impl Driver {
                     .with_timings(request.timings)
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
-            );
+            )?;
             compiler.database.clone()
         } else {
             let database = CompilerDatabase::new(
@@ -333,14 +366,28 @@ impl Driver {
             database
         };
         drop(compiler_guard);
-        database
+        Ok(database)
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
-            let database = self.compiler_database(&request.check);
-            let preparation = database.codegen_preparation();
+            let database = match self.compiler_database(&request.check) {
+                Ok(database) => database,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            let preparation = match database.codegen_preparation() {
+                Ok(preparation) => preparation,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             if has_error_diagnostics(&preparation.diagnostics) {
                 return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics(
                     preparation.diagnostics,
@@ -461,8 +508,22 @@ impl Driver {
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
-            let database = self.compiler_database(&request.check);
-            let preparation = database.codegen_preparation();
+            let database = match self.compiler_database(&request.check) {
+                Ok(database) => database,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            let preparation = match database.codegen_preparation() {
+                Ok(preparation) => preparation,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             if has_error_diagnostics(&preparation.diagnostics) {
                 return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics(
                     preparation.diagnostics,

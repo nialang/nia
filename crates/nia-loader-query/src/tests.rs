@@ -34,6 +34,23 @@ use std::{
     },
 };
 
+fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
+    super::load_program(entry_path).expect("test program load must succeed")
+}
+
+fn load_program_with_map(entry_path: impl Into<String>, module_map: ModuleMap) -> LoadedProgram {
+    super::load_program_with_map(entry_path, module_map).expect("test program load must succeed")
+}
+
+fn load_program_with_map_and_entry_runtime(
+    entry_path: impl Into<String>,
+    module_map: ModuleMap,
+    entry_runtime: EntryRuntime,
+) -> LoadedProgram {
+    super::load_program_with_map_and_entry_runtime(entry_path, module_map, entry_runtime)
+        .expect("test program load must succeed")
+}
+
 fn parsed_module_query(db: &QueryDb<LoaderContext>, path: &SourcePath) -> ParsedModuleQuery {
     fallible_parsed_module_query(db, path).expect("test source path must be registered")
 }
@@ -120,13 +137,16 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
             },
         },
     ]);
-    let _ = cold.load_program();
-    let _ = cold.update_provider_demands(demands.iter().cloned());
+    cold.load_program().expect("cold program load");
+    cold.update_provider_demands(demands.iter().cloned())
+        .expect("initial provider update");
     assert_eq!(
-        cold.update_provider_demands(demands.iter().cloned()),
+        cold.update_provider_demands(demands.iter().cloned())
+            .expect("stable provider update"),
         ProviderGraphUpdate::Stable
     );
-    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold);
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold)
+        .expect("settle provider demands");
     let plan_path = cold
         .db
         .context()
@@ -143,10 +163,12 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
 
     let warm = LoaderDatabase::new(request());
     assert_eq!(
-        nia_compiler_query::LoaderFactProvider::provider_facts(&warm).demands(),
+        nia_compiler_query::LoaderFactProvider::provider_facts(&warm)
+            .expect("warm provider facts")
+            .demands(),
         &demands
     );
-    let _ = warm.load_program();
+    warm.load_program().expect("warm program load");
     assert_eq!(
         warm.db.context().symbols.resolve(method).as_deref(),
         Some("cached_method")
@@ -164,6 +186,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
     let invalidated = LoaderDatabase::new(request());
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&invalidated)
+            .expect("invalidated provider facts")
             .demands()
             .is_empty()
     );
@@ -200,16 +223,20 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
             method_name: fake_method,
         },
     };
-    let _ = seeded.load_program();
+    seeded.load_program().expect("seed program load");
     assert_eq!(
-        seeded.update_provider_demands([fake.clone()]),
+        seeded
+            .update_provider_demands([fake.clone()])
+            .expect("seed provider update"),
         ProviderGraphUpdate::Stable
     );
-    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&seeded);
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&seeded)
+        .expect("settle provider demands");
 
     let verified_loader = LoaderDatabase::new(request(true));
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&verified_loader)
+            .expect("verified provider facts")
             .demands()
             .is_empty(),
         "verification must not inject the candidate plan"
@@ -219,10 +246,11 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
             .with_frontend_cache_dir(Some(cache_root.clone()))
             .with_frontend_cache_verification(true),
     );
-    let checked = compiler.check_program();
+    let checked = compiler.check_program().expect("verified compiler check");
     assert!(!has_error_diagnostics(&checked.diagnostics));
     assert!(
         !nia_compiler_query::LoaderFactProvider::provider_facts(&verified_loader)
+            .expect("verified provider facts")
             .demands()
             .contains(&fake)
     );
@@ -230,6 +258,7 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
     let warm = LoaderDatabase::new(request(false));
     assert!(
         !nia_compiler_query::LoaderFactProvider::provider_facts(&warm)
+            .expect("warm provider facts")
             .demands()
             .contains(&fake),
         "verification must replace the wrong artifact instead of retaining it"
@@ -260,12 +289,15 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
             method_name,
         },
     };
-    let _ = seeded.load_program();
+    seeded.load_program().expect("seed program load");
     assert_eq!(
-        seeded.update_provider_demands([demand]),
+        seeded
+            .update_provider_demands([demand])
+            .expect("seed provider update"),
         ProviderGraphUpdate::Stable
     );
-    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&seeded);
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&seeded)
+        .expect("settle provider demands");
     let context = seeded.db.context();
     let plan_path = context
         .frontend_cache
@@ -282,6 +314,7 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
     let loaded = LoaderDatabase::new(request());
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&loaded)
+            .expect("loaded provider facts")
             .demands()
             .is_empty()
     );
@@ -475,7 +508,7 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let main = SourcePath::new("main.nia");
     let first_file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
     let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
-    assert_no_error_diagnostics(&database.load_program());
+    assert_no_error_diagnostics(&database.load_program().expect("initial program load"));
     let first_version = first_file.version();
     let old_parsed = database.db.get(parsed_module_query(&database.db, &main));
     let old_item_span = old_parsed.item_tree.items[0].span;
@@ -502,7 +535,7 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     for revision in 1..=100 {
         let file = database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
         latest_version = file.version();
-        assert_no_error_diagnostics(&database.load_program());
+        assert_no_error_diagnostics(&database.load_program().expect("updated program load"));
         database.db.get(parsed_module_query(&database.db, &main));
         database
             .db
@@ -561,13 +594,15 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
 
     for revision in 1..=100 {
         assert_eq!(
-            database.update_provider_demands([ProviderDemand {
-                source_path: main.clone(),
-                request: nia_compiler_query::ProviderRequest::Method {
-                    target_type_name: None,
-                    method_name: sym(&format!("missing_{revision}")),
-                },
-            }]),
+            database
+                .update_provider_demands([ProviderDemand {
+                    source_path: main.clone(),
+                    request: nia_compiler_query::ProviderRequest::Method {
+                        target_type_name: None,
+                        method_name: sym(&format!("missing_{revision}")),
+                    },
+                }])
+                .expect("provider graph update"),
             ProviderGraphUpdate::Stable
         );
         assert_eq!(
@@ -620,7 +655,7 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
     assert!(compiler.query_session().ptr_eq(&loader.query_session()));
 
-    let checked = compiler.check_program();
+    let checked = compiler.check_program().expect("compiler check");
     let _ = compiler.provider_fact_revision();
 
     assert!(!has_error_diagnostics(&checked.diagnostics));
@@ -685,7 +720,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     let first_compiler = CompilerDatabase::new(
         CompileRequest::new(first_loader).with_frontend_cache_dir(Some(root.clone())),
     );
-    let first = first_compiler.analyze_program();
+    let first = first_compiler.analyze_program().expect("cold analysis");
     assert!(!has_error_diagnostics(&first.diagnostics));
     let first_trace = first_compiler.query_trace();
     assert!(first_trace.dependencies.iter().any(|dependency| {
@@ -714,7 +749,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     let second_compiler = CompilerDatabase::new(
         CompileRequest::new(second_loader).with_frontend_cache_dir(Some(root.clone())),
     );
-    let second = second_compiler.analyze_program();
+    let second = second_compiler.analyze_program().expect("warm analysis");
     assert!(!has_error_diagnostics(&second.diagnostics));
     let second_trace = second_compiler.query_trace();
     assert_eq!(
@@ -763,7 +798,9 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .with_frontend_cache_dir(Some(root))
             .with_frontend_cache_verification(true),
     );
-    let verified = verified_compiler.analyze_program();
+    let verified = verified_compiler
+        .analyze_program()
+        .expect("verified analysis");
     assert!(!has_error_diagnostics(&verified.diagnostics));
     assert!(
         verified_compiler
@@ -829,7 +866,7 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
                 .with_frontend_cache_dir(Some(root.clone()))
                 .with_frontend_cache_verification(verify),
         );
-        let checked = compiler.analyze_program();
+        let checked = compiler.analyze_program().expect("cached analysis");
         assert!(!has_error_diagnostics(&checked.diagnostics));
         compiler.query_trace()
     };
@@ -873,7 +910,7 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
 
-    let first = compiler.analyze_program();
+    let first = compiler.analyze_program().expect("initial analysis");
     assert!(!has_error_diagnostics(&first.diagnostics));
     let first_defs = Arc::clone(&first.modules[0].defs);
     assert!(
@@ -884,8 +921,10 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     );
 
     let latest_source = loader.set_source("main.nia", "fn main() i32 { 1 }");
-    compiler.update(CompileRequest::new(loader.clone()));
-    let latest = compiler.analyze_program();
+    compiler
+        .update(CompileRequest::new(loader.clone()))
+        .expect("compiler update");
+    let latest = compiler.analyze_program().expect("updated analysis");
 
     assert!(!has_error_diagnostics(&latest.diagnostics));
     let latest_defs = &latest.modules[0].defs;
@@ -1010,13 +1049,17 @@ fn source_existence_change_rebuilds_missing_module_graph() {
     write(&main, "module defs;");
     let database = LoaderDatabase::new(LoadRequest::new(main.to_string_lossy().into_owned()));
 
-    let missing = database.load_program();
+    let missing = database
+        .load_program()
+        .expect("missing-module program load");
     assert!(has_error_diagnostics(&missing.diagnostics));
     let missing_entry = missing.graph.entry();
     write(&defs, "pub fn value() i32 { 1 }");
 
     database.invalidate_source(defs.to_string_lossy().into_owned());
-    let present = database.load_program();
+    let present = database
+        .load_program()
+        .expect("present-module program load");
 
     assert_no_error_diagnostics(&present);
     assert_ne!(present.graph.entry(), missing_entry);
@@ -1746,26 +1789,30 @@ pub fn score(&self) i32 {
     let database = LoaderDatabase::new(
         LoadRequest::new(main_path.to_string_lossy().into_owned()).with_module_map(module_map),
     );
-    let initial = database.load_program();
+    let initial = database.load_program().expect("initial program load");
     let initial_module_ids = initial
         .graph
         .modules()
         .map(|node| (node.path.identity(), node.id))
         .collect::<HashMap<_, _>>();
-    let update = database.update_provider_demands([ProviderDemand {
-        source_path,
-        request: nia_compiler_query::ProviderRequest::Method {
-            target_type_name: Some(sym("Widget")),
-            method_name: sym("score"),
-        },
-    }]);
+    let update = database
+        .update_provider_demands([ProviderDemand {
+            source_path,
+            request: nia_compiler_query::ProviderRequest::Method {
+                target_type_name: Some(sym("Widget")),
+                method_name: sym("score"),
+            },
+        }])
+        .expect("provider graph update");
     let ProviderGraphUpdate::Changed { .. } = update else {
         panic!("provider demand should grow the module graph");
     };
-    let program = database.load_program();
+    let program = database.load_program().expect("provider program load");
     assert_eq!(
         program.provider_fact_revision,
-        nia_compiler_query::LoaderFactProvider::provider_facts(&database).revision()
+        nia_compiler_query::LoaderFactProvider::provider_facts(&database)
+            .expect("provider facts")
+            .revision()
     );
 
     assert_no_error_diagnostics(&program);
@@ -1794,7 +1841,7 @@ pub fn score(&self) i32 {
     let provider_entry = program.graph.entry();
 
     database.set_source(main_path.to_string_lossy().into_owned(), main_source);
-    let reset = database.load_program();
+    let reset = database.load_program().expect("reset program load");
 
     assert_ne!(reset.graph.entry(), provider_entry);
     assert_module_not_loaded(&reset, "pkg/facade/providers.nia");
@@ -1815,11 +1862,15 @@ fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
     };
 
     assert_eq!(
-        database.update_provider_demands([demand.clone()]),
+        database
+            .update_provider_demands([demand.clone()])
+            .expect("first provider update"),
         ProviderGraphUpdate::Stable
     );
     assert_eq!(
-        database.update_provider_demands([demand]),
+        database
+            .update_provider_demands([demand])
+            .expect("second provider update"),
         ProviderGraphUpdate::Stable
     );
     assert!(
@@ -3561,14 +3612,16 @@ extend types::Widget {
     let database = LoaderDatabase::new(
         LoadRequest::new(main.to_string_lossy().into_owned()).with_module_map(module_map),
     );
-    database.update_provider_demands([ProviderDemand {
-        source_path: entry_path,
-        request: nia_compiler_query::ProviderRequest::Method {
-            target_type_name: Some(sym("Widget")),
-            method_name: sym("score"),
-        },
-    }]);
-    let program = database.load_program();
+    database
+        .update_provider_demands([ProviderDemand {
+            source_path: entry_path,
+            request: nia_compiler_query::ProviderRequest::Method {
+                target_type_name: Some(sym("Widget")),
+                method_name: sym("score"),
+            },
+        }])
+        .expect("provider graph update");
+    let program = database.load_program().expect("provider program load");
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(
@@ -3726,7 +3779,7 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
     sources.set_source(main.clone(), "");
     sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
     let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
-    let first = database.load_program();
+    let first = database.load_program().expect("initial program load");
     let executions_before_update = query_executions(&database.query_trace(), "module_graph");
 
     database.set_source(main.as_str(), "module defs;");
@@ -3735,7 +3788,7 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
         query_executions(&database.query_trace(), "module_graph"),
         executions_before_update
     );
-    let second = database.load_program();
+    let second = database.load_program().expect("updated program load");
     assert_ne!(second.graph.entry(), first.graph.entry());
     assert_module_loaded(&second, "defs.nia");
     assert!(query_executions(&database.query_trace(), "module_graph") > executions_before_update);
@@ -3937,15 +3990,17 @@ fn load_program_with_provider_demand(
     let database = LoaderDatabase::new(
         LoadRequest::new(entry_path.to_string_lossy().into_owned()).with_module_map(module_map),
     );
-    let update = database.update_provider_demands([ProviderDemand {
-        source_path,
-        request: nia_compiler_query::ProviderRequest::Method {
-            target_type_name: target_type_name.map(sym),
-            method_name: sym(method_name),
-        },
-    }]);
+    let update = database
+        .update_provider_demands([ProviderDemand {
+            source_path,
+            request: nia_compiler_query::ProviderRequest::Method {
+                target_type_name: target_type_name.map(sym),
+                method_name: sym(method_name),
+            },
+        }])
+        .expect("provider graph update");
     let _ = update;
-    database.load_program()
+    database.load_program().expect("provider program load")
 }
 
 fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {

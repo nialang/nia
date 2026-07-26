@@ -89,7 +89,7 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        Ok(db.context().loader_facts().module_graph())
+        db.context().loader_facts().module_graph()
     }
 }
 
@@ -269,7 +269,7 @@ impl QueryKey<CompilerContext> for LoadedModulesQuery {
         Ok(StableModuleSequence::from_source_identities(
             db.context()
                 .loader_facts()
-                .loaded_module_source_identities(),
+                .loaded_module_source_identities()?,
         ))
     }
 
@@ -292,7 +292,7 @@ impl QueryKey<CompilerContext> for ProgramLoadDiagnosticsQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        Ok(db.context().loader_facts().load_diagnostics())
+        db.context().loader_facts().load_diagnostics()
     }
 }
 
@@ -360,7 +360,7 @@ impl QueryKey<CompilerContext> for ProviderFactWorklistQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        Ok(db.context().provider_fact_worklist())
+        db.context().provider_fact_worklist()
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
