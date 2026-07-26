@@ -621,10 +621,12 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             &checked.type_resolution.diagnostics,
         ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.frontend_diagnostics),
-        ));
+        for bundle in &checked.frontend_diagnostics {
+            diagnostics.extend(module_diagnostics(
+                &checked.path,
+                resolve_diagnostic_bundle(db.context(), bundle),
+            ));
+        }
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &checked.type_lowering.diagnostics,

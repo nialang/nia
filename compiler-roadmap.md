@@ -1624,6 +1624,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2f 开始拆分signature语义产品与session诊断所有权。`SignatureTypeResolutionQuery`不再直接发布带`Vec<Diagnostic>`的`TypeResolution`：fresh resolution先移出diagnostics并将语义值与8-byte session bundle组成唯一query product，cache hit只恢复无diagnostic的语义payload并使用canonical empty bundle；签名缓存仍只保存可持久化的语义值，拒绝诊断结果而不另建codec。type lowering直接借用该语义值，executable signature checked module持有同一`Arc`并把bundle带到唯一report aggregation；普通checked module明确使用canonical empty frontend bundle。新增回归锁定缺失signature type只出现在bundle、不会残留在semantic value，compiler-query 174项和严格Clippy通过。该切片只完成signature type-resolution边界，`TypeLowering`、`ItemSignatures`、`TypeNormalization`及非signature `TypeResolution`仍须按同一“语义payload先拆、diagnostic handle再接入report”规则迁移，禁止为旧`Vec`添加getter或forwarding wrapper。
 
+进展（2026-07-26）：I-2g 迁移`SignatureTypeLoweringQuery`为语义值加session diagnostic bundle。fresh lowering在缓存决策前移出diagnostics，cache hit只恢复无diagnostic semantic payload；type lowering、item signatures、normalization、extension signature facts、const input和layout消费者均只借用`Arc<TypeLowering>`语义字段，cacheability改由bundle是否为空判断。`CheckedModule`的frontend diagnostic edge升级为有序bundle列表，使signature resolution与lowering的payload以handle顺序进入唯一report aggregation，不合并复制也不丢失依赖诊断；普通module为零bundle。新增generic argument count mismatch回归锁定语义lowering无diagnostics、bundle完整保留错误；compiler-query 175项与严格Clippy通过。下一项是`SignatureItemSignatures`，同样必须先移出diagnostics再迁移其program signature/extension consumer，不能返回旧产品的转发包装。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

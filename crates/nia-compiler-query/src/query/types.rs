@@ -164,7 +164,7 @@ pub(super) struct SignatureTypeLoweringQuery(
 );
 
 impl QueryKey<CompilerContext> for SignatureTypeLoweringQuery {
-    type Value = TypeLowering;
+    type Value = SignatureTypeLowering;
 
     fn name() -> &'static str {
         "signature_type_lowering"

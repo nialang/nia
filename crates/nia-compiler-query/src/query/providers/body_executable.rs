@@ -2102,7 +2102,7 @@ fn checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(Arc::clone(&body_check.diagnostics)),
-        frontend_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        frontend_diagnostics: Vec::new(),
     })
 }
 
@@ -2151,7 +2151,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(body_check.diagnostics),
-        frontend_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        frontend_diagnostics: Vec::new(),
     })
 }
 
@@ -2193,7 +2193,7 @@ pub(super) fn executable_signature_checked_module(
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
         defs: db.get(ModuleDefsQuery(module_id))?,
         type_resolution: Arc::clone(&signature_type_resolution.semantic),
-        type_lowering,
+        type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: Arc::new(ValueResolution::with_store(db.context().node_store())),
         local_resolution: Arc::new(nia_local_resolve::LocalResolution::with_store(
             db.context().node_store(),
@@ -2229,7 +2229,10 @@ pub(super) fn executable_signature_checked_module(
         executable_reachable_unions: None,
         executable_type_only: true,
         body_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
-        frontend_diagnostics: signature_type_resolution.diagnostics.clone(),
+        frontend_diagnostics: vec![
+            signature_type_resolution.diagnostics.clone(),
+            type_lowering.diagnostics.clone(),
+        ],
     })
 }
 

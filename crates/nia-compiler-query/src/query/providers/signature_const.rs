@@ -526,6 +526,7 @@ pub(super) fn signature_layouts_for_types(
                 &program_struct,
                 &program_union,
                 type_lowering
+                    .semantic
                     .versioned_type_uses_from_active_item_tree(&active_item_tree)
                     .into_iter()
                     .map(|(_, ty)| ty),

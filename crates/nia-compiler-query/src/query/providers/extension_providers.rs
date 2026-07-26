@@ -138,10 +138,13 @@ pub(super) fn provide_extension_signature_module_input(
     Ok(ExtensionSignatureModuleInputQueryValue {
         module_id,
         defs: db.get(ModuleDefsQuery(module_id))?,
-        lowering: db.get(SignatureTypeLoweringQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ))?,
+        lowering: Arc::clone(
+            &db.get(SignatureTypeLoweringQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ))?
+            .semantic,
+        ),
         signatures: db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
@@ -386,7 +389,7 @@ pub(super) fn provide_extension_provider_module_facts(
             module_id,
             type_store: &db.context().type_store,
             defs: &defs,
-            lowering: &lowering,
+            lowering: &lowering.semantic,
             signatures: &signatures,
             normalization: &normalization,
         };
@@ -600,7 +603,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 module_id,
                 type_store: &db.context().type_store,
                 defs: &defs,
-                lowering: &lowering,
+                lowering: &lowering.semantic,
                 signatures: &signatures,
                 normalization: &normalization,
             };
