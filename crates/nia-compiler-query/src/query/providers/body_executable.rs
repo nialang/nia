@@ -2093,6 +2093,8 @@ fn checked_module_with_body_and_flow_check(
     let path = db.get(ModulePathQuery(module_id))?.as_ref().clone();
     let type_resolution = db.get(TypeResolutionQuery(module_id))?;
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
+    let value_resolution = db.get(ValueResolutionQuery(module_id))?;
+    let local_resolution = db.get(LocalResolutionQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
@@ -2100,8 +2102,8 @@ fn checked_module_with_body_and_flow_check(
         defs: db.get(FullModuleDefsQuery(module_id))?,
         type_resolution: Arc::clone(&type_resolution.semantic),
         type_lowering: Arc::clone(&type_lowering.semantic),
-        value_resolution: db.get(ValueResolutionQuery(module_id))?,
-        local_resolution: db.get(LocalResolutionQuery(module_id))?,
+        value_resolution: Arc::clone(&value_resolution.semantic),
+        local_resolution: Arc::clone(&local_resolution.semantic),
         type_normalization: Arc::clone(&type_normalization.semantic),
         const_eval: db.get(ConstQuery(module_id))?,
         static_check: db.get(StaticCheckQuery(module_id))?,

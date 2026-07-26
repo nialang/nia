@@ -80,7 +80,7 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
 pub(super) fn provide_value_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<ValueResolution> {
+) -> QueryResult<ModuleValueResolution> {
     time_module_provider(db, "value_resolution", module_id, || {
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
         let defs = db.get(FullModuleDefsQuery(module_id))?;
@@ -95,7 +95,7 @@ pub(super) fn provide_value_resolution(
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
-        let resolution = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+        let mut resolution = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -116,7 +116,11 @@ pub(super) fn provide_value_resolution(
         {
             Err(error)
         } else {
-            Ok(resolution)
+            let diagnostics = std::mem::take(&mut resolution.diagnostics);
+            Ok(ModuleValueResolution {
+                semantic: Arc::new(resolution),
+                diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+            })
         }
     })
 }
@@ -124,13 +128,13 @@ pub(super) fn provide_value_resolution(
 pub(super) fn provide_local_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<LocalResolution> {
+) -> QueryResult<ModuleLocalResolution> {
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let defs = db.get(FullModuleDefsQuery(module_id))?;
-    let values = db.get(ValueResolutionQuery(module_id))?;
+    let values = value_resolution_semantic(db, module_id)?;
     let symbols = db.context().symbols();
     let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
-    Ok(
+    let mut resolution =
         nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
             &active_item_tree,
             &defs,
@@ -138,16 +142,20 @@ pub(super) fn provide_local_resolution(
             None,
             &origins,
             &symbols,
-        ),
-    )
+        );
+    let diagnostics = std::mem::take(&mut resolution.diagnostics);
+    Ok(ModuleLocalResolution {
+        semantic: Arc::new(resolution),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_semantic_use_table(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<nia_sema_ir::SemanticUseTable> {
-    let values = db.get(ValueResolutionQuery(module_id))?;
-    let locals = db.get(LocalResolutionQuery(module_id))?;
+    let values = value_resolution_semantic(db, module_id)?;
+    let locals = local_resolution_semantic(db, module_id)?;
     let type_resolution = type_resolution_semantic(db, module_id)?;
     let type_lowering = type_lowering_semantic(db, module_id)?;
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;

@@ -418,9 +418,9 @@ pub(super) struct CompilerQueryProviders {
     pub(super) visible_trait_impls:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<VisibleTraitImplsValue>,
     pub(super) value_resolution:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ValueResolution>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleValueResolution>,
     pub(super) local_resolution:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<LocalResolution>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleLocalResolution>,
     pub(super) semantic_use_table:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_sema_ir::SemanticUseTable>,
     pub(super) const_module:
