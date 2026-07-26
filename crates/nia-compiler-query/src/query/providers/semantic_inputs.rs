@@ -148,7 +148,7 @@ pub(super) fn provide_semantic_use_table(
 ) -> QueryResult<nia_sema_ir::SemanticUseTable> {
     let values = db.get(ValueResolutionQuery(module_id))?;
     let locals = db.get(LocalResolutionQuery(module_id))?;
-    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let type_resolution = type_resolution_semantic(db, module_id)?;
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let needed_const_exprs = needed_const_exprs_for_active_item_tree(

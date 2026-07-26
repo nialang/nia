@@ -260,7 +260,7 @@ fn filtered_const_global_initializer_for_body_check(
         global_id.module_id,
         || db.get(TypeLoweringQuery(global_id.module_id)),
     )?;
-    let type_resolution = db.get(TypeResolutionQuery(global_id.module_id))?;
+    let type_resolution = type_resolution_semantic(db, global_id.module_id)?;
     let signatures = db.get(ItemSignaturesQuery(global_id.module_id))?;
     let needed_const_exprs = time_module_provider(
         db,
@@ -790,7 +790,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let defs = db.get(FullModuleDefsQuery(module_id))?;
     let program_defs =
         |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
-    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
+    let type_resolution = type_resolution_semantic(db, module_id)?;
     let lowered = db.get(TypeLoweringQuery(module_id))?;
     let executable_reachable_filter = matches!(
         filter,
@@ -2091,12 +2091,13 @@ fn checked_module_with_body_and_flow_check(
     layouts: Option<Arc<nia_layout::Layouts>>,
 ) -> QueryResult<CheckedModule> {
     let path = db.get(ModulePathQuery(module_id))?.as_ref().clone();
+    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path,
         defs: db.get(FullModuleDefsQuery(module_id))?,
-        type_resolution: db.get(TypeResolutionQuery(module_id))?,
+        type_resolution: Arc::clone(&type_resolution.semantic),
         type_lowering: db.get(TypeLoweringQuery(module_id))?,
         value_resolution: db.get(ValueResolutionQuery(module_id))?,
         local_resolution: db.get(LocalResolutionQuery(module_id))?,
@@ -2121,7 +2122,10 @@ fn checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(Arc::clone(&body_check.diagnostics)),
-        frontend_diagnostics: vec![type_normalization.diagnostics.clone()],
+        frontend_diagnostics: vec![
+            type_resolution.diagnostics.clone(),
+            type_normalization.diagnostics.clone(),
+        ],
     })
 }
 
@@ -2137,12 +2141,13 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         inputs: body_inputs,
         const_eval,
     } = body_check;
+    let type_resolution = db.get(TypeResolutionQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
         defs: db.get(FullModuleDefsQuery(module_id))?,
-        type_resolution: db.get(TypeResolutionQuery(module_id))?,
+        type_resolution: Arc::clone(&type_resolution.semantic),
         type_lowering: db.get(TypeLoweringQuery(module_id))?,
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
@@ -2171,7 +2176,10 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(body_check.diagnostics),
-        frontend_diagnostics: vec![type_normalization.diagnostics.clone()],
+        frontend_diagnostics: vec![
+            type_resolution.diagnostics.clone(),
+            type_normalization.diagnostics.clone(),
+        ],
     })
 }
 

@@ -23,7 +23,7 @@ pub(super) struct TypeResolutionQuery(pub(super) ModuleId);
 pub(super) struct DeclarationTypeResolutionQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeResolutionQuery {
-    type Value = TypeResolution;
+    type Value = ModuleTypeResolution;
 
     fn name() -> &'static str {
         "type_resolution"

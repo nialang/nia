@@ -617,10 +617,6 @@ pub(super) fn checked_module_diagnostics(
     let mut diagnostics = Vec::new();
     for checked in checked_modules {
         diagnostics.extend(module_diagnostics(&checked.path, &checked.defs.diagnostics));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
-            &checked.type_resolution.diagnostics,
-        ));
         for bundle in &checked.frontend_diagnostics {
             diagnostics.extend(module_diagnostics(
                 &checked.path,
