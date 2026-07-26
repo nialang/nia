@@ -1468,6 +1468,7 @@ pub(in crate::query) fn provide_executable_function_body(
         values: Arc::clone(&module.value_resolution),
         locals: Arc::clone(&module.local_resolution),
         semantic_uses: Arc::clone(&module.semantic_uses),
+        resolution_diagnostics: module.resolution_diagnostics.clone(),
     };
     let checked = body_check_with_filter_and_layouts_with_inputs(
         db,
@@ -1536,6 +1537,7 @@ pub(in crate::query) fn provide_executable_static_init(
         values: Arc::clone(&module.value_resolution),
         locals: Arc::clone(&module.local_resolution),
         semantic_uses: Arc::clone(&module.semantic_uses),
+        resolution_diagnostics: module.resolution_diagnostics.clone(),
     };
     let checked = body_check_with_filter_and_layouts_with_inputs(
         db,
@@ -2095,6 +2097,7 @@ fn checked_module_with_body_and_flow_check(
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
     let value_resolution = db.get(ValueResolutionQuery(module_id))?;
     let local_resolution = db.get(LocalResolutionQuery(module_id))?;
+    let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
@@ -2130,6 +2133,11 @@ fn checked_module_with_body_and_flow_check(
             type_normalization.diagnostics.clone(),
             type_lowering.diagnostics.clone(),
         ],
+        resolution_diagnostics: vec![
+            value_resolution.diagnostics.clone(),
+            local_resolution.diagnostics.clone(),
+        ],
+        item_diagnostics: item_signatures.diagnostics.clone(),
     })
 }
 
@@ -2147,6 +2155,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     } = body_check;
     let type_resolution = db.get(TypeResolutionQuery(module_id))?;
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
+    let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
@@ -2186,6 +2195,8 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             type_normalization.diagnostics.clone(),
             type_lowering.diagnostics.clone(),
         ],
+        resolution_diagnostics: body_inputs.resolution_diagnostics,
+        item_diagnostics: item_signatures.diagnostics.clone(),
     })
 }
 
@@ -2273,6 +2284,8 @@ pub(super) fn executable_signature_checked_module(
             item_signatures.diagnostics.clone(),
             type_normalization.diagnostics.clone(),
         ],
+        resolution_diagnostics: Vec::new(),
+        item_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
 }
 

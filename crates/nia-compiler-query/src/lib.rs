@@ -544,6 +544,8 @@ pub struct CheckedModule {
     pub executable_type_only: bool,
     pub(crate) body_diagnostics: nia_diagnostic::DiagnosticBundle,
     pub(crate) frontend_diagnostics: Vec<nia_diagnostic::DiagnosticBundle>,
+    pub(crate) resolution_diagnostics: Vec<nia_diagnostic::DiagnosticBundle>,
+    pub(crate) item_diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
 pub(crate) fn module_diagnostics(
