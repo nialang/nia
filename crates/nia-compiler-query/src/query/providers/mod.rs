@@ -325,7 +325,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) signature_const_item_signatures:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ItemSignatures>,
     pub(super) type_normalization:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleTypeNormalization>,
     pub(super) layout_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) signature_type_normalization: fn(

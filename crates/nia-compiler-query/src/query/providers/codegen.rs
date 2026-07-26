@@ -646,10 +646,6 @@ pub(super) fn checked_module_diagnostics(
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.type_normalization.diagnostics,
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             &checked.const_eval.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(

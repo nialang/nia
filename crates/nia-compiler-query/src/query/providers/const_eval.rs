@@ -148,7 +148,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
                 ),
             );
         }
-        capture_query_failure(&query_failure, db.get(TypeNormalizationQuery(module_id)))
+        capture_query_failure(&query_failure, type_normalization_semantic(db, module_id))
     };
     let local_trait_impls = non_function_signatures_override
         .is_none()
@@ -238,7 +238,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &item_signatures,
-        normalization: &type_normalization,
+        normalization: &type_normalization.semantic,
         target: &target,
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext {

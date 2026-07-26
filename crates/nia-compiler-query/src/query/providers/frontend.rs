@@ -873,15 +873,16 @@ pub(super) fn provide_signature_const_item_signatures(
 pub(super) fn provide_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<TypeNormalization> {
+) -> QueryResult<ModuleTypeNormalization> {
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
     let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
-    Ok(normalize_types_in_session_store(
-        db,
-        module_id,
-        &type_lowering,
-        &item_signatures,
-    ))
+    let mut normalization =
+        normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures);
+    let diagnostics = std::mem::take(&mut normalization.diagnostics);
+    Ok(ModuleTypeNormalization {
+        semantic: Arc::new(normalization),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_layout_type_normalization(
