@@ -54,6 +54,14 @@ pub(super) fn resolve_diagnostic_bundle<'bundle>(
         .unwrap_or_else(|| panic!("Nia ICE: diagnostic bundle has a foreign store owner"))
 }
 
+pub(super) fn signature_item_signatures_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> QueryResult<Arc<ItemSignatures>> {
+    db.get(SignatureItemSignaturesQuery(module_id, set))
+}
+
 pub(super) fn synthetic_diagnostic_path() -> SourcePath {
     SourcePath::new("<nia:diagnostic>")
 }

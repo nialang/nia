@@ -577,10 +577,11 @@ fn const_inputs_for_body_check(
         if fact_mode.signature_facts_for(module_id) {
             return capture_query_failure(
                 &query_failure,
-                db.get(SignatureItemSignaturesQuery(
+                signature_item_signatures_semantic(
+                    db,
                     module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                )),
+                ),
             );
         }
         capture_query_failure(&query_failure, db.get(ItemSignaturesQuery(module_id)))
@@ -588,10 +589,11 @@ fn const_inputs_for_body_check(
     let value_signatures_for_module = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.get(SignatureItemSignaturesQuery(
+            signature_item_signatures_semantic(
+                db,
                 module_id,
                 nia_item_tree::SignatureItemSet::Values,
-            )),
+            ),
         )
     };
     let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id))?;
@@ -1154,10 +1156,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         if fact_mode.signature_facts_for(module_id) {
             return capture_query_failure(
                 &query_failure,
-                db.get(SignatureItemSignaturesQuery(
+                signature_item_signatures_semantic(
+                    db,
                     module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                )),
+                ),
             );
         }
         capture_query_failure(&query_failure, db.get(ItemSignaturesQuery(module_id)))
