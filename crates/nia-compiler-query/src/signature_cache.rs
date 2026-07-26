@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -34,6 +34,10 @@ use crate::{
     FrontendProgramSourceFingerprint, FrontendSignatureItemSignaturesCacheKey,
     FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
 };
+use crate::{
+    ProgramDiagnostic, program_diagnostic_bundle::decode_stable_program_diagnostic_bundle,
+    program_diagnostic_bundle::encode_stable_program_diagnostic_bundle,
+};
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
@@ -41,7 +45,7 @@ const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
 const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
-const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC001";
+const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -117,6 +121,7 @@ pub(crate) struct CheckCertificateIdentity<'a> {
     pub(crate) entry: &'a StableModuleKey,
     pub(crate) input: FrontendCheckInputFingerprint,
     pub(crate) scope: FrontendCheckScope,
+    pub(crate) source_lengths: &'a BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,10 +136,11 @@ pub(crate) struct CachedExecutableValueRefEdges {
     pub(crate) globals: HashSet<GlobalDefId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CachedCheckCertificate {
     pub(crate) checked_body_count: usize,
     pub(crate) reachable_body_count: usize,
+    pub(crate) diagnostics: Vec<ProgramDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,7 +185,7 @@ pub(crate) enum ExecutableValueRefEdgesLookup {
     Corrupt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CheckCertificateLookup {
     Hit(CachedCheckCertificate),
     NotFound,
@@ -640,7 +646,15 @@ impl PersistentSignatureCache {
         if !replace && path.is_file() {
             return Ok(());
         }
-        let encoded = encode_check_certificate(identity, certificate);
+        let encoded = match encode_check_certificate(identity, &certificate) {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                if replace {
+                    remove_corrupt(&path);
+                }
+                return Err(error);
+            }
+        };
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
@@ -740,8 +754,8 @@ impl PersistentSignatureCache {
 
 fn encode_check_certificate(
     identity: CheckCertificateIdentity<'_>,
-    certificate: CachedCheckCertificate,
-) -> Vec<u8> {
+    certificate: &CachedCheckCertificate,
+) -> io::Result<Vec<u8>> {
     let mut encoded = Vec::new();
     encoded.extend_from_slice(CHECK_CERTIFICATE_MAGIC);
     write_parts(&mut encoded, identity.key.parts());
@@ -754,9 +768,20 @@ fn encode_check_certificate(
     encoded.push(identity.scope.tag());
     write_u64(&mut encoded, certificate.checked_body_count as u64);
     write_u64(&mut encoded, certificate.reachable_body_count as u64);
+    let diagnostics =
+        encode_stable_program_diagnostic_bundle(&certificate.diagnostics, identity.source_lengths)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    write_u64(&mut encoded, diagnostics.len() as u64);
+    encoded.extend_from_slice(&diagnostics);
+    if encoded.len().saturating_add(16) > MAX_ENTRY_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "check certificate exceeds its size limit",
+        ));
+    }
     let checksum = checksum(&encoded);
     write_parts(&mut encoded, checksum.parts());
-    encoded
+    Ok(encoded)
 }
 
 fn decode_check_certificate(
@@ -787,10 +812,19 @@ fn decode_check_certificate(
     }
     let checked_body_count = usize::try_from(read_u64(&mut cursor)?).ok()?;
     let reachable_body_count = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    let diagnostics_len = read_len(&mut cursor, encoded.len())?;
+    let diagnostics_start = usize::try_from(cursor.position()).ok()?;
+    let diagnostics_end = diagnostics_start.checked_add(diagnostics_len)?;
+    let diagnostics = decode_stable_program_diagnostic_bundle(
+        cursor.get_ref().get(diagnostics_start..diagnostics_end)?,
+        identity.source_lengths,
+    )?;
+    cursor.set_position(u64::try_from(diagnostics_end).ok()?);
     (usize::try_from(cursor.position()).ok()? == checksum_offset).then_some(
         CachedCheckCertificate {
             checked_body_count,
             reachable_body_count,
+            diagnostics,
         },
     )
 }
@@ -3656,7 +3690,7 @@ mod tests {
     use super::*;
     use nia_diagnostic::codes;
     use nia_ids::{ConstExprId, GlobalConstExprId, ModuleIdAllocator};
-    use nia_source::{SourceId, SourceIdentity, SourceRevision};
+    use nia_source::{SourceId, SourceIdentity, SourcePath, SourceRevision};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -3675,19 +3709,29 @@ mod tests {
             input,
             crate::FrontendCheckScope::Entry,
         );
+        let source_lengths = BTreeMap::from([("src/main.nia".to_owned(), 32)]);
         let identity = CheckCertificateIdentity {
             key,
             namespace,
             entry: &entry,
             input,
             scope: crate::FrontendCheckScope::Entry,
+            source_lengths: &source_lengths,
         };
         let certificate = CachedCheckCertificate {
             checked_body_count: 17,
             reachable_body_count: 13,
+            diagnostics: vec![ProgramDiagnostic {
+                path: SourcePath::new("src/main.nia"),
+                diagnostic: Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    nia_span::Span::new(2, 8),
+                    "bad type",
+                ),
+            }],
         };
         cache
-            .publish_check_certificate(identity, certificate, false)
+            .publish_check_certificate(identity, certificate.clone(), false)
             .expect("publish check certificate");
         assert_eq!(
             cache
