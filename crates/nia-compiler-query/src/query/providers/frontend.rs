@@ -5,7 +5,7 @@ pub(super) fn provide_parse_ok_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<StableModuleSequence> {
     let loaded_modules = db.try_get(LoadedModulesQuery)?;
-    let loaded_modules = resolve_stable_module_sequence(db, &loaded_modules);
+    let loaded_modules = resolve_stable_module_sequence(db, &loaded_modules)?;
     let mut module_ids = Vec::with_capacity(loaded_modules.len());
     for module_id in loaded_modules {
         if db.try_get(ModuleParseErrorsQuery(module_id))?.is_empty() {

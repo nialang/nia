@@ -366,7 +366,18 @@ impl CompilerDatabase {
     }
 
     fn check_report(&self, scope: FrontendCheckScope) -> CheckedProgram {
-        let cached = self.check_certificate_context(scope).and_then(|context| {
+        let certificate_context = match self.check_certificate_context(scope) {
+            Ok(context) => context,
+            Err(error) => {
+                return checked_program_from_query_error(
+                    self.current_graph(),
+                    self.current_optimization(),
+                    error,
+                )
+                .into_report();
+            }
+        };
+        let cached = certificate_context.and_then(|context| {
             let cache = self.db.context().signature_cache.as_ref()?;
             let lookup = cache.load_check_certificate(context.identity()).ok()?;
             Some((context, lookup))
@@ -397,7 +408,17 @@ impl CompilerDatabase {
         let Some(cache) = self.db.context().signature_cache.as_ref() else {
             return report;
         };
-        let context = self.check_certificate_context(scope);
+        let context = match self.check_certificate_context(scope) {
+            Ok(context) => context,
+            Err(error) => {
+                return checked_program_from_query_error(
+                    self.current_graph(),
+                    self.current_optimization(),
+                    error,
+                )
+                .into_report();
+            }
+        };
         if self.db.context().verify_frontend_cache
             && let Some((cached_context, crate::signature_cache::CheckCertificateLookup::Hit(_))) =
                 cached.as_ref()
@@ -430,18 +451,22 @@ impl CompilerDatabase {
     fn check_certificate_context(
         &self,
         scope: FrontendCheckScope,
-    ) -> Option<CheckCertificateContext> {
-        let program_sources = self.db.get(FrontendProgramSourcesQuery);
-        let program_sources = program_sources.as_ref().as_ref()?;
-        let graph = self.db.get(ModuleGraphQuery);
-        let entry = graph.stable_key(graph.entry())?.clone();
+    ) -> QueryResult<Option<CheckCertificateContext>> {
+        let program_sources = self.db.try_get(FrontendProgramSourcesQuery)?;
+        let Some(program_sources) = program_sources.as_ref().as_ref() else {
+            return Ok(None);
+        };
+        let graph = self.db.try_get(ModuleGraphQuery)?;
+        let Some(entry) = graph.stable_key(graph.entry()).cloned() else {
+            return Ok(None);
+        };
         let provider_facts = self.db.context().provider_fact_worklist();
         let input = check_certificate_input_fingerprint(
             program_sources.fingerprint,
             &graph,
             &provider_facts,
         );
-        Some(CheckCertificateContext {
+        Ok(Some(CheckCertificateContext {
             namespace: crate::FrontendCacheNamespace::new(
                 &self.db.context().loader_facts().target(),
                 self.db.context().loader_facts().runtime(),
@@ -449,7 +474,7 @@ impl CompilerDatabase {
             entry,
             input,
             scope,
-        })
+        }))
     }
 
     fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
@@ -459,8 +484,10 @@ impl CompilerDatabase {
             .unwrap_or_default()
     }
 
-    pub fn provider_fact_revision(&self) -> crate::ProviderFactRevision {
-        *self.db.get(ProviderFactRevisionQuery)
+    pub fn provider_fact_revision(&self) -> QueryResult<crate::ProviderFactRevision> {
+        self.db
+            .try_get(ProviderFactRevisionQuery)
+            .map(|revision| *revision)
     }
 
     pub fn codegen_program(&self) -> CodegenProgram {
@@ -950,9 +977,9 @@ fn resolve_stable_module_sequence_from_current_inputs(
 fn resolve_stable_module_sequence(
     db: &QueryDb<CompilerContext>,
     sequence: &StableModuleSequence,
-) -> Vec<ModuleId> {
-    let _graph = db.get(ModuleGraphQuery);
-    db.context().resolve_stable_module_sequence(sequence)
+) -> QueryResult<Vec<ModuleId>> {
+    let _graph = db.try_get(ModuleGraphQuery)?;
+    Ok(db.context().resolve_stable_module_sequence(sequence))
 }
 
 #[derive(Debug, Clone)]
@@ -2713,11 +2740,15 @@ pub fn expensive_or_invalid() i32 {
         let db = query_db(fixture.program());
 
         assert_eq!(
-            resolve_stable_module_sequence(&db, &db.get(ParseOkModuleIdsQuery)).as_slice(),
+            resolve_stable_module_sequence(&db, &db.get(ParseOkModuleIdsQuery))
+                .expect("parse-ok module sequence")
+                .as_slice(),
             &[entry_id, facade_id]
         );
         assert_eq!(
-            resolve_stable_module_sequence(&db, &db.get(SemanticModuleIdsQuery)).as_slice(),
+            resolve_stable_module_sequence(&db, &db.get(SemanticModuleIdsQuery))
+                .expect("semantic module sequence")
+                .as_slice(),
             &[entry_id]
         );
 
@@ -2752,7 +2783,8 @@ pub fn expensive_or_invalid() i32 {
         let latest = database.db.get(LoadedModulesQuery);
         assert!(!Arc::ptr_eq(&first, &latest));
         assert_eq!(
-            resolve_stable_module_sequence(&database.db, &latest),
+            resolve_stable_module_sequence(&database.db, &latest)
+                .expect("reordered module sequence"),
             vec![package_id, entry_id]
         );
     }
@@ -2796,7 +2828,8 @@ pub fn expensive_or_invalid() i32 {
         assert_eq!(first.as_ref(), latest.as_ref());
         assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
         assert_eq!(
-            resolve_stable_module_sequence(&database.db, &latest_loaded),
+            resolve_stable_module_sequence(&database.db, &latest_loaded)
+                .expect("remapped module sequence"),
             vec![new_entry]
         );
         assert_eq!(
@@ -2907,7 +2940,8 @@ pub fn expensive_or_invalid() i32 {
         let latest_loaded = database.db.get(LoadedModulesQuery);
         assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
         assert_eq!(
-            resolve_stable_module_sequence(&database.db, &latest_loaded),
+            resolve_stable_module_sequence(&database.db, &latest_loaded)
+                .expect("updated module sequence"),
             vec![new_module_id]
         );
 
@@ -3244,7 +3278,10 @@ pub fn expensive_or_invalid() i32 {
         program.provider_fact_revision = revision;
         let database = CompilerDatabase::new(CompileRequest::new(program));
 
-        assert_eq!(database.provider_fact_revision(), revision);
+        assert_eq!(
+            database.provider_fact_revision().expect("revision"),
+            revision
+        );
     }
 
     #[test]
@@ -3261,7 +3298,10 @@ pub fn expensive_or_invalid() i32 {
         let _ = database.executable_provider_demands();
         let modules = database.db.get(ExecutableCheckedModulesQuery);
         assert!(!modules.is_empty());
-        assert_eq!(database.provider_fact_revision(), revision);
+        assert_eq!(
+            database.provider_fact_revision().expect("revision"),
+            revision
+        );
         assert_eq!(
             database
                 .db
@@ -3418,7 +3458,10 @@ pub fn expensive_or_invalid() i32 {
         let database = CompilerDatabase::new(CompileRequest::new(program));
         let _ = database.executable_provider_demands();
         let first_set = database.db.get(ExecutableCheckedModulesQuery);
-        assert_eq!(database.provider_fact_revision(), revision);
+        assert_eq!(
+            database.provider_fact_revision().expect("revision"),
+            revision
+        );
 
         let invalidation = database.replace_provider_facts(crate::ProviderFactSnapshot::new(
             revision.next(),
@@ -3443,7 +3486,10 @@ pub fn expensive_or_invalid() i32 {
             !invalidated.contains(&"body_activation_worklist"),
             "{invalidated:?}"
         );
-        assert_eq!(database.provider_fact_revision(), revision.next());
+        assert_eq!(
+            database.provider_fact_revision().expect("updated revision"),
+            revision.next()
+        );
         let revision_query = database
             .query_trace()
             .queries
@@ -4319,7 +4365,7 @@ fn main() i32 {
         database.update(CompileRequest::new(fixture.program()));
         let loaded = database.db.get(LoadedModulesQuery);
         assert_eq!(
-            resolve_stable_module_sequence(&database.db, &loaded),
+            resolve_stable_module_sequence(&database.db, &loaded).expect("renamed module sequence"),
             vec![module_id]
         );
         assert_eq!(
@@ -4640,7 +4686,8 @@ extend Value : Ops {
             nia_item_tree::SignatureItemSet::Functions,
         ));
         assert_eq!(
-            resolve_stable_module_sequence(&database.db, &first),
+            resolve_stable_module_sequence(&database.db, &first)
+                .expect("program signature module sequence"),
             vec![entry_id]
         );
         let mut updated = fixture.program();
@@ -4752,6 +4799,7 @@ extend Value : Ops {
                     nia_item_tree::SignatureItemSet::Functions
                 ))
             )
+            .expect("function signature module sequence")
             .as_slice(),
             &[module2, module4, module5]
         );
@@ -4762,6 +4810,7 @@ extend Value : Ops {
                     nia_item_tree::SignatureItemSet::Values
                 ))
             )
+            .expect("value signature module sequence")
             .as_slice(),
             &[module3, module6]
         );
@@ -4772,6 +4821,7 @@ extend Value : Ops {
                     nia_item_tree::SignatureItemSet::Types
                 ))
             )
+            .expect("type signature module sequence")
             .as_slice(),
             &[module1, module5, module6]
         );
@@ -4782,6 +4832,7 @@ extend Value : Ops {
                     nia_item_tree::SignatureItemSet::Traits
                 ))
             )
+            .expect("trait signature module sequence")
             .as_slice(),
             &[module4, module5, module6]
         );
@@ -4792,6 +4843,7 @@ extend Value : Ops {
                     nia_item_tree::SignatureItemSet::ExtensionFunctions
                 ))
             )
+            .expect("extension signature module sequence")
             .as_slice(),
             &[module4, module5]
         );
@@ -4850,6 +4902,7 @@ extend Value : Ops {
 
         assert_eq!(
             resolve_stable_module_sequence(&db, &db.get(ExtensionProviderModuleIdsQuery))
+                .expect("extension provider module sequence")
                 .as_slice(),
             &[module5]
         );
@@ -5241,6 +5294,7 @@ extend Value : Ops {
         };
         let invalid_context = invalid_database
             .check_certificate_context(FrontendCheckScope::Entry)
+            .expect("certificate context query")
             .expect("invalid-source certificate context");
         invalid_database
             .db

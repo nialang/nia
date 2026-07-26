@@ -48,7 +48,7 @@ pub(super) fn provide_extension_provider_discovery_index(
 ) -> QueryResult<ExtensionProviderDiscoveryIndexValue> {
     let timings = db.context().timings();
     let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
-    let parse_ok_modules = resolve_stable_module_sequence(db, &parse_ok_modules);
+    let parse_ok_modules = resolve_stable_module_sequence(db, &parse_ok_modules)?;
     let mut trait_modules = Vec::new();
     for module_id in parse_ok_modules {
         if *db.try_get(ExtensionProviderModuleEligibilityQuery(module_id))? {
@@ -557,7 +557,7 @@ fn extension_provider_module_facts(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<Arc<ExtensionProviderModuleFactsValue>>> {
     let module_sequence = db.try_get(ExtensionProviderModuleIdsQuery)?;
-    let module_ids = resolve_stable_module_sequence(db, &module_sequence);
+    let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
     module_ids
         .into_iter()
         .map(|module_id| db.try_get(ExtensionProviderModuleFactsQuery(module_id)))

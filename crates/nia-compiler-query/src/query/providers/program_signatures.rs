@@ -96,7 +96,7 @@ pub(super) fn program_signature_facts(
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<Vec<Arc<ModuleProgramSignatureFactsValue>>> {
     let module_sequence = db.try_get(ProgramSignatureModuleIdsQuery(set))?;
-    let module_ids = resolve_stable_module_sequence(db, &module_sequence);
+    let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
     module_ids
         .into_iter()
         .map(|module_id| db.try_get(ModuleProgramSignatureFactsQuery(module_id, set)))
@@ -283,7 +283,7 @@ pub(super) fn provide_program_abi_signatures(
         let module_sequence = db.try_get(ProgramSignatureModuleIdsQuery(
             nia_item_tree::SignatureItemSet::Types,
         ))?;
-        let module_ids = resolve_stable_module_sequence(db, &module_sequence);
+        let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
         let facts = module_ids
             .into_iter()
             .map(|module_id| db.try_get(ModuleAbiSignatureFactsQuery(module_id)))
