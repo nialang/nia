@@ -106,7 +106,7 @@ fn codegen_program_request(
     let compiler = nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loader.clone()).with_optimization(optimization),
     );
-    compiler.codegen_program()
+    compiler.codegen_program().expect("test codegen program")
 }
 
 pub(super) fn emit_llvm_ir(

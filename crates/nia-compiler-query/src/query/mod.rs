@@ -321,32 +321,27 @@ impl CompilerDatabase {
         self.db.session()
     }
 
-    pub fn check_program(&self) -> CheckedProgram {
+    pub fn check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::AllModules)
     }
 
     #[doc(hidden)]
-    pub fn analyze_program(&self) -> CheckedProgramAnalysis {
+    pub fn analyze_program(&self) -> QueryResult<CheckedProgramAnalysis> {
         self.settle_provider_worklist(false, Self::check_program_once, checked_provider_demands)
     }
 
-    fn check_program_once(&self) -> CheckedProgramAnalysis {
-        match self.db.try_get(CheckedProgramQuery) {
-            Ok(checked) => Arc::unwrap_or_clone(checked),
-            Err(err) => checked_program_from_query_error(
-                self.current_graph(),
-                self.current_optimization(),
-                err,
-            ),
-        }
+    fn check_program_once(&self) -> QueryResult<CheckedProgramAnalysis> {
+        self.db
+            .try_get(CheckedProgramQuery)
+            .map(Arc::unwrap_or_clone)
     }
 
-    pub fn entry_check_program(&self) -> CheckedProgram {
+    pub fn entry_check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::Entry)
     }
 
     #[doc(hidden)]
-    pub fn analyze_entry_program(&self) -> CheckedProgramAnalysis {
+    pub fn analyze_entry_program(&self) -> QueryResult<CheckedProgramAnalysis> {
         self.settle_provider_worklist(
             true,
             Self::entry_check_program_once,
@@ -354,29 +349,14 @@ impl CompilerDatabase {
         )
     }
 
-    fn entry_check_program_once(&self) -> CheckedProgramAnalysis {
-        match self.db.try_get(EntryCheckedProgramQuery) {
-            Ok(checked) => Arc::unwrap_or_clone(checked),
-            Err(err) => checked_program_from_query_error(
-                self.current_graph(),
-                self.current_optimization(),
-                err,
-            ),
-        }
+    fn entry_check_program_once(&self) -> QueryResult<CheckedProgramAnalysis> {
+        self.db
+            .try_get(EntryCheckedProgramQuery)
+            .map(Arc::unwrap_or_clone)
     }
 
-    fn check_report(&self, scope: FrontendCheckScope) -> CheckedProgram {
-        let certificate_context = match self.check_certificate_context(scope) {
-            Ok(context) => context,
-            Err(error) => {
-                return checked_program_from_query_error(
-                    self.current_graph(),
-                    self.current_optimization(),
-                    error,
-                )
-                .into_report();
-            }
-        };
+    fn check_report(&self, scope: FrontendCheckScope) -> QueryResult<CheckedProgram> {
+        let certificate_context = self.check_certificate_context(scope)?;
         let cached = certificate_context.and_then(|context| {
             let cache = self.db.context().signature_cache.as_ref()?;
             let lookup = cache.load_check_certificate(context.identity()).ok()?;
@@ -387,38 +367,28 @@ impl CompilerDatabase {
                 cached.as_ref()
         {
             emit_check_certificate_reuse(self.db.context().timings(), true);
-            self.db.context().loader_facts().settle_provider_demands();
+            self.db.context().loader_facts().settle_provider_demands()?;
             self.db
                 .context()
                 .provider_demand_rounds
                 .store(0, std::sync::atomic::Ordering::Relaxed);
-            return CheckedProgram {
-                graph: self.current_graph(),
+            return Ok(CheckedProgram {
+                graph: self.current_graph()?,
                 optimization: self.current_optimization(),
                 diagnostics: Vec::new(),
                 checked_body_count: certificate.checked_body_count,
                 reachable_body_count: certificate.reachable_body_count,
-            };
+            });
         }
         emit_check_certificate_reuse(self.db.context().timings(), false);
         let report = match scope {
-            FrontendCheckScope::AllModules => self.analyze_program().into_report(),
-            FrontendCheckScope::Entry => self.analyze_entry_program().into_report(),
+            FrontendCheckScope::AllModules => self.analyze_program()?.into_report(),
+            FrontendCheckScope::Entry => self.analyze_entry_program()?.into_report(),
         };
         let Some(cache) = self.db.context().signature_cache.as_ref() else {
-            return report;
+            return Ok(report);
         };
-        let context = match self.check_certificate_context(scope) {
-            Ok(context) => context,
-            Err(error) => {
-                return checked_program_from_query_error(
-                    self.current_graph(),
-                    self.current_optimization(),
-                    error,
-                )
-                .into_report();
-            }
-        };
+        let context = self.check_certificate_context(scope)?;
         if self.db.context().verify_frontend_cache
             && let Some((cached_context, crate::signature_cache::CheckCertificateLookup::Hit(_))) =
                 cached.as_ref()
@@ -430,7 +400,7 @@ impl CompilerDatabase {
             cache.remove_check_certificate(cached_context.key());
         }
         let Some(context) = context else {
-            return report;
+            return Ok(report);
         };
         if report.diagnostics.is_empty() {
             let certificate = crate::signature_cache::CachedCheckCertificate {
@@ -445,7 +415,7 @@ impl CompilerDatabase {
         } else if self.db.context().verify_frontend_cache {
             cache.remove_check_certificate(context.key());
         }
-        report
+        Ok(report)
     }
 
     fn check_certificate_context(
@@ -460,7 +430,7 @@ impl CompilerDatabase {
         let Some(entry) = graph.stable_key(graph.entry()).cloned() else {
             return Ok(None);
         };
-        let provider_facts = self.db.context().provider_fact_worklist();
+        let provider_facts = self.db.context().provider_fact_worklist()?;
         let input = check_certificate_input_fingerprint(
             program_sources.fingerprint,
             &graph,
@@ -477,11 +447,10 @@ impl CompilerDatabase {
         }))
     }
 
-    fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
+    fn executable_provider_demands(&self) -> QueryResult<Vec<crate::ProviderDemand>> {
         self.db
             .try_get(ExecutableProviderDemandsQuery)
             .map(Arc::unwrap_or_clone)
-            .unwrap_or_default()
     }
 
     pub fn provider_fact_revision(&self) -> QueryResult<crate::ProviderFactRevision> {
@@ -490,11 +459,11 @@ impl CompilerDatabase {
             .map(|revision| *revision)
     }
 
-    pub fn codegen_program(&self) -> CodegenProgram {
+    pub fn codegen_program(&self) -> QueryResult<CodegenProgram> {
         self.settle_provider_worklist(true, Self::codegen_program_once, codegen_provider_demands)
     }
 
-    pub fn codegen_preparation(&self) -> CodegenPreparation {
+    pub fn codegen_preparation(&self) -> QueryResult<CodegenPreparation> {
         self.settle_provider_worklist(
             true,
             Self::codegen_preparation_once,
@@ -514,42 +483,30 @@ impl CompilerDatabase {
         providers::with_backend_finalization_schedule(&self.db, consume)
     }
 
-    fn codegen_preparation_once(&self) -> CodegenPreparation {
-        match self.db.try_get(CodegenPreparationQuery) {
-            Ok(preparation) => Arc::unwrap_or_clone(preparation),
-            Err(err) => codegen_preparation_from_query_error(
-                Arc::clone(&self.db.context().type_store),
-                self.current_graph(),
-                self.current_optimization(),
-                err,
-            ),
-        }
+    fn codegen_preparation_once(&self) -> QueryResult<CodegenPreparation> {
+        self.db
+            .try_get(CodegenPreparationQuery)
+            .map(Arc::unwrap_or_clone)
     }
 
-    fn codegen_program_once(&self) -> CodegenProgram {
-        match self.db.try_get(CodegenProgramQuery) {
-            Ok(codegen) => Arc::unwrap_or_clone(codegen),
-            Err(err) => codegen_program_from_query_error(
-                Arc::clone(&self.db.context().type_store),
-                self.current_graph(),
-                self.current_optimization(),
-                err,
-            ),
-        }
+    fn codegen_program_once(&self) -> QueryResult<CodegenProgram> {
+        self.db
+            .try_get(CodegenProgramQuery)
+            .map(Arc::unwrap_or_clone)
     }
 
     fn settle_provider_worklist<T>(
         &self,
         discover_executable_providers: bool,
-        compile: impl Fn(&Self) -> T,
+        compile: impl Fn(&Self) -> QueryResult<T>,
         provider_demands: impl Fn(&T) -> Vec<crate::ProviderDemand>,
-    ) -> T {
+    ) -> QueryResult<T> {
         let mut skip_executable_discovery = false;
         let mut rounds = 0_u64;
         loop {
             rounds += 1;
             if discover_executable_providers && !skip_executable_discovery {
-                let demands = self.executable_provider_demands();
+                let demands = self.executable_provider_demands()?;
                 emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
                 if let crate::ProviderGraphUpdate::Changed {
                     invalidates_resolved_body_facts,
@@ -557,7 +514,7 @@ impl CompilerDatabase {
                     .db
                     .context()
                     .loader_facts()
-                    .update_provider_demands(demands)
+                    .update_provider_demands(demands)?
                 {
                     nia_timing::emit_counter(
                         format!(
@@ -575,12 +532,12 @@ impl CompilerDatabase {
                     continue;
                 }
             }
-            let output = compile(self);
+            let output = compile(self)?;
             match self
                 .db
                 .context()
                 .loader_facts()
-                .update_provider_demands(provider_demands(&output))
+                .update_provider_demands(provider_demands(&output))?
             {
                 crate::ProviderGraphUpdate::Changed {
                     invalidates_resolved_body_facts,
@@ -589,12 +546,12 @@ impl CompilerDatabase {
                         discover_executable_providers && !invalidates_resolved_body_facts;
                 }
                 crate::ProviderGraphUpdate::Stable => {
-                    self.db.context().loader_facts().settle_provider_demands();
+                    self.db.context().loader_facts().settle_provider_demands()?;
                     self.db
                         .context()
                         .provider_demand_rounds
                         .store(rounds, std::sync::atomic::Ordering::Relaxed);
-                    return output;
+                    return Ok(output);
                 }
             }
         }
@@ -607,7 +564,7 @@ impl CompilerDatabase {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
+    pub fn update(&self, request: CompileRequest) -> QueryResult<CompilerInvalidation> {
         let loader_session = request.loader_facts.query_session().unwrap_or_else(|| {
             panic!("Nia ICE: compiler updates require a tracked loader fact provider")
         });
@@ -643,7 +600,7 @@ impl CompilerDatabase {
         self.db.query_trace()
     }
 
-    fn current_graph(&self) -> ModuleGraphSnapshot {
+    fn current_graph(&self) -> QueryResult<ModuleGraphSnapshot> {
         self.db.context().loader_facts.module_graph()
     }
 
@@ -654,9 +611,9 @@ impl CompilerDatabase {
             .optimization
     }
 
-    fn invalidate_inputs(&self, optimization_changed: bool) -> CompilerInvalidation {
+    fn invalidate_inputs(&self, optimization_changed: bool) -> QueryResult<CompilerInvalidation> {
         let mut invalidation = CompilerInvalidation::default();
-        let provider_worklist = self.db.context().provider_fact_worklist();
+        let provider_worklist = self.db.context().provider_fact_worklist()?;
         invalidation.extend(
             self.db
                 .validate_input(ProviderFactWorklistQuery, &provider_worklist),
@@ -664,7 +621,7 @@ impl CompilerDatabase {
         if optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
         }
-        invalidation
+        Ok(invalidation)
     }
 }
 
@@ -799,76 +756,6 @@ fn compiler_database_with_providers_in_session(
         session,
     );
     CompilerDatabase { db, inputs }
-}
-
-fn checked_program_from_query_error(
-    graph: ModuleGraphSnapshot,
-    optimization: OptimizationPolicy,
-    err: QueryError,
-) -> CheckedProgramAnalysis {
-    CheckedProgramAnalysis {
-        graph,
-        optimization,
-        modules: Vec::new(),
-        diagnostics: vec![ProgramDiagnostic {
-            path: SourcePath::new("<query>"),
-            diagnostic: query_error_diagnostic(err),
-        }],
-    }
-}
-
-fn codegen_program_from_query_error(
-    type_store: Arc<nia_ty::TypeStore>,
-    graph: ModuleGraphSnapshot,
-    optimization: OptimizationPolicy,
-    err: QueryError,
-) -> CodegenProgram {
-    let backend_program = nia_backend_ir::BackendProgram::new(Vec::new());
-    let codegen_partitions = backend_program.codegen_partition_plan();
-    CodegenProgram {
-        type_store,
-        graph,
-        optimization,
-        modules: Vec::new(),
-        monomorphization: Arc::new(nia_monomorphize::Monomorphization {
-            instances: Vec::new(),
-            diagnostics: Vec::new(),
-        }),
-        backend_lowering: Arc::new(nia_backend_lower::BackendLowering {
-            program: backend_program,
-            owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
-            codegen_partitions,
-            optimization,
-            optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
-            diagnostics: Vec::new(),
-        }),
-        diagnostics: vec![ProgramDiagnostic {
-            path: SourcePath::new("<query>"),
-            diagnostic: query_error_diagnostic(err),
-        }],
-    }
-}
-
-fn codegen_preparation_from_query_error(
-    type_store: Arc<nia_ty::TypeStore>,
-    graph: ModuleGraphSnapshot,
-    optimization: OptimizationPolicy,
-    err: QueryError,
-) -> CodegenPreparation {
-    CodegenPreparation {
-        type_store,
-        graph,
-        optimization,
-        modules: Vec::new(),
-        monomorphization: Arc::new(nia_monomorphize::Monomorphization {
-            instances: Vec::new(),
-            diagnostics: Vec::new(),
-        }),
-        diagnostics: vec![ProgramDiagnostic {
-            path: SourcePath::new("<query>"),
-            diagnostic: query_error_diagnostic(err),
-        }],
-    }
 }
 
 pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {
@@ -1346,7 +1233,7 @@ impl CompilerContext {
         &self,
         module_ids: impl IntoIterator<Item = ModuleId>,
     ) -> QueryResult<StableModuleSequence> {
-        let graph = self.loader_facts.module_graph();
+        let graph = self.loader_facts.module_graph()?;
         let mut identities = Vec::new();
         for module_id in module_ids {
             graph
@@ -1365,7 +1252,7 @@ impl CompilerContext {
         &self,
         sequence: &StableModuleSequence,
     ) -> QueryResult<Vec<ModuleId>> {
-        let graph = self.loader_facts.module_graph();
+        let graph = self.loader_facts.module_graph()?;
         let mut module_ids = Vec::with_capacity(sequence.keys.len());
         for key in &sequence.keys {
             let mut current = None;
@@ -1583,17 +1470,21 @@ impl CompilerContext {
             })
     }
 
-    fn module_id_for_stable_key(&self, stable_key: &StableModuleKey) -> Option<ModuleId> {
-        self.loader_facts
-            .module_graph()
-            .module_id_for_stable_key(stable_key)
+    fn module_id_for_stable_key(
+        &self,
+        stable_key: &StableModuleKey,
+    ) -> QueryResult<Option<ModuleId>> {
+        Ok(self
+            .loader_facts
+            .module_graph()?
+            .module_id_for_stable_key(stable_key))
     }
 
     fn symbols(&self) -> nia_symbol_table::SymbolTable {
         self.loader_facts().symbols()
     }
 
-    fn provider_fact_worklist(&self) -> crate::ProviderFactSnapshot {
+    fn provider_fact_worklist(&self) -> QueryResult<crate::ProviderFactSnapshot> {
         self.loader_facts().provider_facts()
     }
 
@@ -1867,15 +1758,15 @@ mod tests {
             Some(self.db.session())
         }
 
-        fn provider_facts(&self) -> crate::ProviderFactSnapshot {
-            self.db.get(TestProviderFactsQuery).as_ref().clone()
+        fn provider_facts(&self) -> QueryResult<crate::ProviderFactSnapshot> {
+            Ok(self.db.get(TestProviderFactsQuery).as_ref().clone())
         }
 
         fn update_provider_demands(
             &self,
             _demands: Vec<crate::ProviderDemand>,
-        ) -> crate::ProviderGraphUpdate {
-            crate::ProviderGraphUpdate::Stable
+        ) -> QueryResult<crate::ProviderGraphUpdate> {
+            Ok(crate::ProviderGraphUpdate::Stable)
         }
 
         fn node_store(&self) -> nia_node_id::NodeStore {
@@ -1886,21 +1777,21 @@ mod tests {
                 .unwrap_or_default()
         }
 
-        fn module_graph(&self) -> ModuleGraphSnapshot {
+        fn module_graph(&self) -> QueryResult<ModuleGraphSnapshot> {
             let fact = self.fact(TestLoaderFactKey::Graph);
             let TestLoaderFactValue::Graph(graph) = fact.as_ref() else {
                 unreachable!()
             };
-            graph.clone()
+            Ok(graph.clone())
         }
 
-        fn loaded_module_source_identities(&self) -> Vec<SourceIdentity> {
+        fn loaded_module_source_identities(&self) -> QueryResult<Vec<SourceIdentity>> {
             let fact = self.fact(TestLoaderFactKey::LoadedModuleSourceIdentities);
             let TestLoaderFactValue::LoadedModuleSourceIdentities(identities) = fact.as_ref()
             else {
                 unreachable!()
             };
-            identities.clone()
+            Ok(identities.clone())
         }
 
         fn module_path(&self, module_id: ModuleId) -> QueryResult<Option<SourcePath>> {
@@ -1973,12 +1864,12 @@ mod tests {
             Ok(tree.clone())
         }
 
-        fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+        fn load_diagnostics(&self) -> QueryResult<Vec<ProgramDiagnostic>> {
             let fact = self.fact(TestLoaderFactKey::LoadDiagnostics);
             let TestLoaderFactValue::LoadDiagnostics(diagnostics) = fact.as_ref() else {
                 unreachable!()
             };
-            diagnostics.clone()
+            Ok(diagnostics.clone())
         }
 
         fn symbols(&self) -> nia_symbol_table::SymbolTable {
@@ -2010,7 +1901,10 @@ mod tests {
 
     impl CompilerDatabase {
         fn new(request: CompileRequest) -> Self {
-            let provider_facts = request.loader_facts.provider_facts();
+            let provider_facts = request
+                .loader_facts
+                .provider_facts()
+                .expect("test provider facts");
             let program = materialize_loader_facts(request.loader_facts.as_ref());
             let loader = TestLoaderFacts::new(program, provider_facts);
             let request = request.with_loader_facts(loader.clone());
@@ -2021,10 +1915,34 @@ mod tests {
         fn update(&self, request: CompileRequest) -> CompilerInvalidation {
             let mut program = materialize_loader_facts(request.loader_facts.as_ref());
             program.provider_fact_revision =
-                crate::LoaderFactProvider::provider_facts(&self.loader).revision();
+                crate::LoaderFactProvider::provider_facts(&self.loader)
+                    .expect("test provider facts")
+                    .revision();
             self.loader.replace_program(program);
             let request = request.with_loader_facts(self.loader.clone());
-            self.compiler.update(request)
+            self.compiler.update(request).expect("test compiler update")
+        }
+
+        fn check_program(&self) -> CheckedProgram {
+            self.compiler.check_program().expect("test compiler check")
+        }
+
+        fn analyze_program(&self) -> CheckedProgramAnalysis {
+            self.compiler
+                .analyze_program()
+                .expect("test compiler analysis")
+        }
+
+        fn codegen_program(&self) -> CodegenProgram {
+            self.compiler
+                .codegen_program()
+                .expect("test codegen program")
+        }
+
+        fn codegen_preparation(&self) -> CodegenPreparation {
+            self.compiler
+                .codegen_preparation()
+                .expect("test codegen preparation")
         }
 
         fn replace_provider_facts(
@@ -2044,9 +1962,10 @@ mod tests {
     }
 
     fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProgram {
-        let graph = facts.module_graph();
+        let graph = facts.module_graph().expect("test module graph");
         let modules = facts
             .loaded_module_source_identities()
+            .expect("test loaded module identities")
             .into_iter()
             .map(|identity| {
                 let module_id = graph
@@ -2099,12 +2018,15 @@ mod tests {
             .collect();
         LoadedProgram {
             graph,
-            provider_fact_revision: facts.provider_facts().revision(),
+            provider_fact_revision: facts
+                .provider_facts()
+                .expect("test provider facts")
+                .revision(),
             symbols: facts.symbols(),
             target: facts.target(),
             runtime: facts.runtime(),
             modules,
-            diagnostics: facts.load_diagnostics(),
+            diagnostics: facts.load_diagnostics().expect("test load diagnostics"),
         }
     }
 
@@ -2367,14 +2289,14 @@ mod tests {
             None
         }
 
-        fn provider_facts(&self) -> crate::ProviderFactSnapshot {
+        fn provider_facts(&self) -> QueryResult<crate::ProviderFactSnapshot> {
             self.program.provider_facts()
         }
 
         fn update_provider_demands(
             &self,
             demands: Vec<crate::ProviderDemand>,
-        ) -> crate::ProviderGraphUpdate {
+        ) -> QueryResult<crate::ProviderGraphUpdate> {
             self.program.update_provider_demands(demands)
         }
 
@@ -2382,11 +2304,11 @@ mod tests {
             self.program.node_store()
         }
 
-        fn module_graph(&self) -> nia_imports::ModuleGraphSnapshot {
+        fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
             self.program.module_graph()
         }
 
-        fn loaded_module_source_identities(&self) -> Vec<SourceIdentity> {
+        fn loaded_module_source_identities(&self) -> QueryResult<Vec<SourceIdentity>> {
             self.program.loaded_module_source_identities()
         }
 
@@ -2432,7 +2354,7 @@ mod tests {
             self.program.active_module_item_tree(module_id, kind)
         }
 
-        fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+        fn load_diagnostics(&self) -> QueryResult<Vec<ProgramDiagnostic>> {
             self.program.load_diagnostics()
         }
 
@@ -2494,6 +2416,7 @@ mod tests {
         db.context()
             .loader_facts
             .module_graph()
+            .expect("test module graph")
             .modules()
             .find_map(|module| {
                 db.context()
@@ -3724,7 +3647,7 @@ pub fn expensive_or_invalid() i32 {
         let database = super::CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            database.update(CompileRequest::new(fixture.program()));
+            let _ = database.update(CompileRequest::new(fixture.program()));
         }));
 
         assert!(result.is_err());
@@ -3821,6 +3744,7 @@ pub fn expensive_or_invalid() i32 {
         let database = CompilerDatabase::new(CompileRequest::new(program));
         let provider_changes = database
             .executable_provider_demands()
+            .expect("test executable provider demands")
             .into_iter()
             .filter(|demand| matches!(demand.request, crate::ProviderRequest::Method { .. }))
             .collect::<Vec<_>>();
@@ -4401,13 +4325,14 @@ fn main() i32 {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let checked =
             compiler_database_with_providers(CompileRequest::new(fixture.program()), providers)
-                .codegen_program();
+                .codegen_program()
+                .expect("overridden codegen program");
 
         assert!(checked.modules.is_empty());
     }
 
     #[test]
-    fn missing_loaded_module_id_becomes_query_diagnostic() {
+    fn missing_loaded_module_id_propagates_query_failure() {
         fn unknown_module_id() -> ModuleId {
             let mut module_ids = nia_ids::ModuleIdAllocator::new();
             module_ids.allocate();
@@ -4422,7 +4347,6 @@ fn main() i32 {
             checked_module_ids: unknown_checked_module,
             ..CompilerQueryProviders::default()
         };
-        let policy = NiaOptimizationLevel::Oz.policy();
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let database = compiler_database_with_providers(
             CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
@@ -4553,15 +4477,13 @@ fn main() i32 {
             );
         }
 
-        let checked = database.analyze_program();
-
-        assert!(checked.modules.is_empty());
-        assert_eq!(checked.optimization, policy);
-        assert_eq!(checked.diagnostics.len(), 1);
+        let error = database
+            .analyze_program()
+            .expect_err("public analysis must propagate a missing module query failure");
+        assert!(matches!(error, QueryError::InvalidInput { .. }));
         assert!(
-            checked.diagnostics[0]
-                .diagnostic
-                .summary
+            error
+                .to_string()
                 .contains(&format!("missing loaded module {:?}", unknown_module_id()))
         );
     }
@@ -5242,7 +5164,9 @@ extend Value : Ops {
             );
             let inputs = Arc::clone(&db.context().inputs);
             let database = super::CompilerDatabase { db, inputs };
-            let report = database.entry_check_program();
+            let report = database
+                .entry_check_program()
+                .expect("test entry check report");
             (report, database.query_trace())
         };
 

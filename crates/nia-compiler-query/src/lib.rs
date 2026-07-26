@@ -193,12 +193,17 @@ pub enum ProviderGraphUpdate {
 
 pub trait LoaderFactProvider: Send + Sync {
     fn query_session(&self) -> Option<nia_query::QuerySession>;
-    fn provider_facts(&self) -> ProviderFactSnapshot;
-    fn update_provider_demands(&self, demands: Vec<ProviderDemand>) -> ProviderGraphUpdate;
-    fn settle_provider_demands(&self) {}
+    fn provider_facts(&self) -> nia_query::QueryResult<ProviderFactSnapshot>;
+    fn update_provider_demands(
+        &self,
+        demands: Vec<ProviderDemand>,
+    ) -> nia_query::QueryResult<ProviderGraphUpdate>;
+    fn settle_provider_demands(&self) -> nia_query::QueryResult<()> {
+        Ok(())
+    }
     fn node_store(&self) -> nia_node_id::NodeStore;
-    fn module_graph(&self) -> ModuleGraphSnapshot;
-    fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
+    fn module_graph(&self) -> nia_query::QueryResult<ModuleGraphSnapshot>;
+    fn loaded_module_source_identities(&self) -> nia_query::QueryResult<Vec<SourceIdentity>>;
     fn module_path(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<SourcePath>>;
     fn module_source_version(
         &self,
@@ -247,7 +252,7 @@ pub trait LoaderFactProvider: Send + Sync {
         module_id: ModuleId,
         kind: ActiveModuleItemTreeFactKind,
     ) -> nia_query::QueryResult<Option<ActiveModuleItemTree>>;
-    fn load_diagnostics(&self) -> Vec<ProgramDiagnostic>;
+    fn load_diagnostics(&self) -> nia_query::QueryResult<Vec<ProgramDiagnostic>>;
     fn symbols(&self) -> SymbolTable;
     fn target(&self) -> TargetConfig;
     fn runtime(&self) -> RuntimeModel;
@@ -269,12 +274,15 @@ impl LoaderFactProvider for LoadedProgram {
         None
     }
 
-    fn provider_facts(&self) -> ProviderFactSnapshot {
-        ProviderFactSnapshot::empty(self.provider_fact_revision)
+    fn provider_facts(&self) -> nia_query::QueryResult<ProviderFactSnapshot> {
+        Ok(ProviderFactSnapshot::empty(self.provider_fact_revision))
     }
 
-    fn update_provider_demands(&self, _demands: Vec<ProviderDemand>) -> ProviderGraphUpdate {
-        ProviderGraphUpdate::Stable
+    fn update_provider_demands(
+        &self,
+        _demands: Vec<ProviderDemand>,
+    ) -> nia_query::QueryResult<ProviderGraphUpdate> {
+        Ok(ProviderGraphUpdate::Stable)
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {
@@ -284,15 +292,16 @@ impl LoaderFactProvider for LoadedProgram {
             .unwrap_or_default()
     }
 
-    fn module_graph(&self) -> ModuleGraphSnapshot {
-        self.graph.clone()
+    fn module_graph(&self) -> nia_query::QueryResult<ModuleGraphSnapshot> {
+        Ok(self.graph.clone())
     }
 
-    fn loaded_module_source_identities(&self) -> Vec<SourceIdentity> {
-        self.modules
+    fn loaded_module_source_identities(&self) -> nia_query::QueryResult<Vec<SourceIdentity>> {
+        Ok(self
+            .modules
             .iter()
             .map(|module| module.source_identity.clone())
-            .collect()
+            .collect())
     }
 
     fn module_path(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<SourcePath>> {
@@ -385,8 +394,8 @@ impl LoaderFactProvider for LoadedProgram {
         }))
     }
 
-    fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
-        self.diagnostics.clone()
+    fn load_diagnostics(&self) -> nia_query::QueryResult<Vec<ProgramDiagnostic>> {
+        Ok(self.diagnostics.clone())
     }
 
     fn symbols(&self) -> SymbolTable {

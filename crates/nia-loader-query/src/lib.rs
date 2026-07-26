@@ -57,14 +57,14 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
     registry
 }
 
-pub fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
+pub fn load_program(entry_path: impl Into<String>) -> QueryResult<LoadedProgram> {
     load_program_with_map(entry_path, ModuleMap::default())
 }
 
 pub fn load_program_with_map(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
-) -> LoadedProgram {
+) -> QueryResult<LoadedProgram> {
     load_program_with_map_and_entry_runtime(entry_path, module_map, EntryRuntime::None)
 }
 
@@ -72,7 +72,7 @@ pub fn load_program_with_map_and_entry_runtime(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
     entry_runtime: EntryRuntime,
-) -> LoadedProgram {
+) -> QueryResult<LoadedProgram> {
     load_program_request(
         LoadRequest::new(entry_path)
             .with_module_map(module_map)
@@ -80,7 +80,7 @@ pub fn load_program_with_map_and_entry_runtime(
     )
 }
 
-pub fn load_program_request(request: LoadRequest) -> LoadedProgram {
+pub fn load_program_request(request: LoadRequest) -> QueryResult<LoadedProgram> {
     LoaderDatabase::new(request).load_program()
 }
 
@@ -179,8 +179,10 @@ impl LoaderDatabase {
         self.db.session()
     }
 
-    pub fn load_program(&self) -> LoadedProgram {
-        self.db.get(LoadedProgramQuery).as_ref().clone()
+    pub fn load_program(&self) -> QueryResult<LoadedProgram> {
+        self.db
+            .try_get(LoadedProgramQuery)
+            .map(|program| program.as_ref().clone())
     }
 
     pub fn sources(&self) -> &SourceDatabase {
@@ -240,33 +242,33 @@ impl LoaderDatabase {
     pub fn update_provider_demands(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> nia_compiler_query::ProviderGraphUpdate {
+    ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
         let demands = demands.into_iter().collect::<Vec<_>>();
         let all_known = self.db.context().provider_facts.contains_all(&demands);
         if all_known {
-            return nia_compiler_query::ProviderGraphUpdate::Stable;
+            return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
         }
-        let previous_revision = self.db.get(ProviderDemandsQuery).revision();
-        let previous_graph = self.db.get(graph::ModuleGraphQuery);
+        let previous_revision = self.db.try_get(ProviderDemandsQuery)?.revision();
+        let previous_graph = self.db.try_get(graph::ModuleGraphQuery)?;
         let added = self.db.context().provider_facts.insert_new(demands);
         if added.is_empty() {
-            return nia_compiler_query::ProviderGraphUpdate::Stable;
+            return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
         }
         self.db.invalidate(ProviderDemandsQuery);
-        let graph = self.db.get(graph::ModuleGraphQuery);
-        let current_revision = self.db.get(ProviderDemandsQuery).revision();
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let current_revision = self.db.try_get(ProviderDemandsQuery)?.revision();
         assert!(self.db.seal_and_retire_predecessor(
             &graph::ModuleGraphRevisionQuery(current_revision),
             &graph::ModuleGraphRevisionQuery(previous_revision),
         ));
         if graph == previous_graph {
-            nia_compiler_query::ProviderGraphUpdate::Stable
+            Ok(nia_compiler_query::ProviderGraphUpdate::Stable)
         } else {
-            nia_compiler_query::ProviderGraphUpdate::Changed {
+            Ok(nia_compiler_query::ProviderGraphUpdate::Changed {
                 invalidates_resolved_body_facts: added
                     .iter()
                     .any(|demand| demand.request.invalidates_resolved_body_facts()),
-            }
+            })
         }
     }
 
@@ -289,15 +291,15 @@ impl LoaderDatabase {
         }
     }
 
-    fn settle_provider_demand_plan(&self) {
+    fn settle_provider_demand_plan(&self) -> QueryResult<()> {
         let context = self.db.context();
         let (Some(cache), Some(key)) = (
             context.frontend_cache.as_ref(),
             context.provider_demand_plan_key,
         ) else {
-            return;
+            return Ok(());
         };
-        let provider_facts = self.db.get(ProviderDemandsQuery);
+        let provider_facts = self.db.try_get(ProviderDemandsQuery)?;
         let candidate = context
             .provider_demand_plan_candidate
             .lock()
@@ -307,12 +309,12 @@ impl LoaderDatabase {
             .as_ref()
             .is_some_and(|demands| demands == provider_facts.as_snapshot().demands())
         {
-            return;
+            return Ok(());
         }
         if candidate.is_some() {
             cache.remove_provider_demand_plan(key);
         }
-        let graph = self.db.get(graph::ModuleGraphQuery);
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
         let source_paths = graph
             .modules()
             .map(|module| module.path.clone())
@@ -334,6 +336,7 @@ impl LoaderDatabase {
             &context.sources,
             &context.symbols,
         );
+        Ok(())
     }
 
     fn source_id_for_module(
@@ -352,35 +355,38 @@ impl LoaderFactProvider for LoaderDatabase {
         Some(self.query_session())
     }
 
-    fn provider_facts(&self) -> nia_compiler_query::ProviderFactSnapshot {
-        self.db.get(ProviderDemandsQuery).as_snapshot()
+    fn provider_facts(&self) -> QueryResult<nia_compiler_query::ProviderFactSnapshot> {
+        Ok(self.db.try_get(ProviderDemandsQuery)?.as_snapshot())
     }
 
     fn update_provider_demands(
         &self,
         demands: Vec<ProviderDemand>,
-    ) -> nia_compiler_query::ProviderGraphUpdate {
+    ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
         LoaderDatabase::update_provider_demands(self, demands)
     }
 
-    fn settle_provider_demands(&self) {
-        self.settle_provider_demand_plan();
+    fn settle_provider_demands(&self) -> QueryResult<()> {
+        self.settle_provider_demand_plan()
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {
         self.db.context().node_store.clone()
     }
 
-    fn module_graph(&self) -> nia_imports::ModuleGraphSnapshot {
-        self.db.get(graph::ModuleGraphQuery).as_ref().clone()
+    fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
+        self.db
+            .try_get(graph::ModuleGraphQuery)
+            .map(|graph| graph.as_ref().clone())
     }
 
-    fn loaded_module_source_identities(&self) -> Vec<nia_source::SourceIdentity> {
-        self.db
-            .get(graph::ModuleGraphQuery)
+    fn loaded_module_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {
+        Ok(self
+            .db
+            .try_get(graph::ModuleGraphQuery)?
             .modules()
             .map(|module| module.path.identity())
-            .collect()
+            .collect())
     }
 
     fn module_path(&self, module_id: nia_imports::ModuleId) -> QueryResult<Option<SourcePath>> {
@@ -507,8 +513,10 @@ impl LoaderFactProvider for LoaderDatabase {
         ))
     }
 
-    fn load_diagnostics(&self) -> Vec<nia_compiler_query::ProgramDiagnostic> {
-        self.db.get(queries::LoadDiagnosticsQuery).as_ref().clone()
+    fn load_diagnostics(&self) -> QueryResult<Vec<nia_compiler_query::ProgramDiagnostic>> {
+        self.db
+            .try_get(queries::LoadDiagnosticsQuery)
+            .map(|diagnostics| diagnostics.as_ref().clone())
     }
 
     fn symbols(&self) -> SymbolTable {
@@ -604,6 +612,7 @@ fn load_program_from_sources(
             .with_module_map(module_map)
             .with_sources(sources),
     )
+    .expect("test program load must succeed")
 }
 
 #[cfg(test)]

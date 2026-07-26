@@ -98,10 +98,11 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
             &self.failure,
             self.db.try_get(PublicSurfaceModuleQuery(module_id, *name)),
         )?;
-        target
-            .as_ref()
-            .as_ref()
-            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
+        let stable_key = target.as_ref().as_ref()?;
+        capture_query_failure(
+            &self.failure,
+            self.db.context().module_id_for_stable_key(stable_key),
+        )?
     }
 
     fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
@@ -150,10 +151,11 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
             self.db
                 .try_get(UsingScopeModuleQuery(self.module_id, *name)),
         )?;
-        target
-            .as_ref()
-            .as_ref()
-            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
+        let stable_key = target.as_ref().as_ref()?;
+        capture_query_failure(
+            &self.failure,
+            self.db.context().module_id_for_stable_key(stable_key),
+        )?
     }
 
     fn using_value(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
@@ -195,7 +197,7 @@ impl<'a> QueryModuleGraphLookup<'a> {
         let stable_key = db.try_get(ModuleGraphEntryQuery)?;
         let entry_module = db
             .context()
-            .module_id_for_stable_key(&stable_key)
+            .module_id_for_stable_key(&stable_key)?
             .expect("compiler entry stable key must resolve in current module graph");
         Ok(Self {
             db,
@@ -219,9 +221,11 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
             &self.failure,
             self.db.try_get(ModulePackageRootQuery(*package)),
         )?;
-        root.as_ref()
-            .as_ref()
-            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
+        let stable_key = root.as_ref().as_ref()?;
+        capture_query_failure(
+            &self.failure,
+            self.db.context().module_id_for_stable_key(stable_key),
+        )?
     }
 
     fn module_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
@@ -238,10 +242,11 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
             &self.failure,
             self.db.try_get(ModuleGraphParentQuery(module_id)),
         )?;
-        parent
-            .as_ref()
-            .as_ref()
-            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
+        let stable_key = parent.as_ref().as_ref()?;
+        capture_query_failure(
+            &self.failure,
+            self.db.context().module_id_for_stable_key(stable_key),
+        )?
     }
 
     fn child_declaration(
@@ -253,15 +258,12 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
             &self.failure,
             self.db.try_get(ModuleGraphChildQuery(module_id, *name)),
         )?;
-        child
-            .as_ref()
-            .as_ref()
-            .and_then(|(stable_key, visibility)| {
-                self.db
-                    .context()
-                    .module_id_for_stable_key(stable_key)
-                    .map(|module_id| (module_id, *visibility))
-            })
+        let (stable_key, visibility) = child.as_ref().as_ref()?;
+        capture_query_failure(
+            &self.failure,
+            self.db.context().module_id_for_stable_key(stable_key),
+        )?
+        .map(|module_id| (module_id, *visibility))
     }
 }
 

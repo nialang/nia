@@ -1600,6 +1600,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-1ae 在删除runtime wrapper前完成loader/compiler leaf-fact contract审计与迁移。审计确认高层module graph若失败，旧`CheckedProgram/CodegenProgram`报告类型要求必填graph，直接删除wrapper只能制造空graph fallback；因此先把module path/version、source fingerprint、provider/public-surface facts、origins、parse errors及item-tree facts统一升级为`QueryResult<Option<_>>`。`LoaderDatabase`不再用`.ok()`把provider/public-surface key或value failure伪装成missing module，compiler projection逐层`?`后才区分合法`None`；body source-path callback复用既有首次failure槽。stable sequence的leaf path读取同步fallible，timing label删除非语义source-path查询，避免日志装饰成为failure sink。compiler 170项、loader 74项及两crate all-target/all-features严格Clippy通过。Phase I仍约96%；下一切片先把高层graph/provider update与公开report结果改为fallible contract，再物理删除`get/get_owned` wrapper，不引入空graph、旧签名或兼容层。
 
+进展（2026-07-26）：I-1af 贯通loader transaction、compiler公开产品与driver的高层failure contract。`load_program`、module graph/source identity/load diagnostic、provider fact/update/settle统一返回`QueryResult`；`CompilerDatabase::{check_program,analyze_program,entry_check_program,analyze_entry_program,codegen_program,codegen_preparation,update}`不再把query failure包装为空module/空graph产品，旧三个query-error产品构造器已物理删除。语义错误继续保留在产品diagnostics，只有query infrastructure failure沿外层`QueryResult`传播，并在`DriverOutput`唯一公开边界转成internal diagnostic；增量compiler update也不会再以`expect`读取provider facts。测试中的确定成功前置条件使用显式`expect`，不恢复production兼容API；missing-module回归改为直接断言公开analysis返回结构化`InvalidInput`。workspace all-target check、compiler 170项、loader 74项、Driver 490项及三crate all-target/all-features严格Clippy通过。Phase I现约97%；下一切片物理删除runtime单项`get/get_owned` panic wrapper，将`try_get/try_get_owned`收敛为唯一正式名称并迁移全部白盒调用者。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
