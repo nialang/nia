@@ -662,7 +662,10 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             &checked.flow_check.diagnostics,
         ));
-        diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            resolve_diagnostic_bundle(db.context(), &checked.body_diagnostics),
+        ));
         let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
         let extension_validation_diagnostics =
             resolve_diagnostic_bundle(db.context(), &extension_validation.diagnostics);

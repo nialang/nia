@@ -32,21 +32,42 @@ impl fmt::Debug for DiagnosticBundle {
         formatter
             .debug_struct("DiagnosticBundle")
             .field("id", &self.id())
-            .field("len", &self.0.diagnostics.len())
+            .field("len", &self.0.diagnostics.as_slice().len())
             .finish()
     }
 }
 
 impl PartialEq for DiagnosticBundle {
     fn eq(&self, other: &Self) -> bool {
-        self.0.diagnostics == other.0.diagnostics
+        self.0.diagnostics.as_slice() == other.0.diagnostics.as_slice()
+    }
+}
+
+impl DiagnosticBundle {
+    pub fn is_empty(&self) -> bool {
+        self.0.diagnostics.as_slice().is_empty()
     }
 }
 
 #[derive(Debug)]
 struct DiagnosticBundleData {
     id: DiagnosticBundleId,
-    diagnostics: Box<[Diagnostic]>,
+    diagnostics: DiagnosticStorage,
+}
+
+#[derive(Debug)]
+enum DiagnosticStorage {
+    Owned(Box<[Diagnostic]>),
+    Shared(Arc<Vec<Diagnostic>>),
+}
+
+impl DiagnosticStorage {
+    fn as_slice(&self) -> &[Diagnostic] {
+        match self {
+            Self::Owned(diagnostics) => diagnostics,
+            Self::Shared(diagnostics) => diagnostics,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -73,7 +94,7 @@ impl DiagnosticStore {
                     store: id,
                     index: 0,
                 },
-                diagnostics: Box::new([]),
+                diagnostics: DiagnosticStorage::Owned(Box::new([])),
             })),
         }
     }
@@ -93,7 +114,26 @@ impl DiagnosticStore {
                 store: self.id,
                 index,
             },
-            diagnostics: diagnostics.into_boxed_slice(),
+            diagnostics: DiagnosticStorage::Owned(diagnostics.into_boxed_slice()),
+        }))
+    }
+
+    pub fn bundle_shared(&self, diagnostics: Arc<Vec<Diagnostic>>) -> DiagnosticBundle {
+        if diagnostics.is_empty() {
+            return self.empty.clone();
+        }
+        let index = self
+            .next_bundle_index
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .unwrap_or_else(|_| panic!("Nia ICE: exhausted diagnostic bundle identities"));
+        DiagnosticBundle(Arc::new(DiagnosticBundleData {
+            id: DiagnosticBundleId {
+                store: self.id,
+                index,
+            },
+            diagnostics: DiagnosticStorage::Shared(diagnostics),
         }))
     }
 
@@ -101,7 +141,7 @@ impl DiagnosticStore {
         &self,
         bundle: &'bundle DiagnosticBundle,
     ) -> Option<&'bundle [Diagnostic]> {
-        (bundle.id().store == self.id).then_some(&bundle.0.diagnostics)
+        (bundle.id().store == self.id).then(|| bundle.0.diagnostics.as_slice())
     }
 }
 
@@ -159,5 +199,21 @@ mod tests {
         drop(bundle);
 
         assert!(payload.upgrade().is_none());
+    }
+
+    #[test]
+    fn shared_payload_keeps_its_existing_allocation() {
+        let store = DiagnosticStore::new();
+        let diagnostics = Arc::new(vec![Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            Span::new(0, 1),
+            "bad type",
+        )]);
+        let bundle = store.bundle_shared(Arc::clone(&diagnostics));
+
+        assert!(matches!(
+            &bundle.0.diagnostics,
+            DiagnosticStorage::Shared(shared) if Arc::ptr_eq(shared, &diagnostics)
+        ));
     }
 }
