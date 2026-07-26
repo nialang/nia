@@ -161,7 +161,10 @@ pub(super) fn provide_public_surfaces(
         let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
         Ok(PublicSurfacesQueryValue {
             surfaces: exports.surfaces,
-            diagnostics: exports.diagnostics,
+            diagnostics: store_module_diagnostics(
+                &db.context().diagnostic_store,
+                exports.diagnostics,
+            ),
         })
     })
 }
@@ -192,7 +195,10 @@ pub(super) fn provide_public_using_scopes(
         );
         Ok(PublicUsingScopesQueryValue {
             using_scopes: using_scopes.using_scopes,
-            diagnostics: using_scopes.diagnostics,
+            diagnostics: store_module_diagnostics(
+                &db.context().diagnostic_store,
+                using_scopes.diagnostics,
+            ),
         })
     })
 }

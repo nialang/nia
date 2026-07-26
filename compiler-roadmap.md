@@ -1612,6 +1612,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2c 建立session-owned diagnostic bundle handle并完成第一个端到端query域迁移。`nia-diagnostic::DiagnosticStore`为每个compiler session分配独立owner capability，发放8-byte `DiagnosticBundle`与8-byte `DiagnosticBundleId`；query product clone只复制handle，不复制payload，空diagnostics共享session内canonical bundle，跨store解析明确拒绝。非空payload由bundle handle自身唯一共享所有权而不是append-only arena持有，最后一个query/report handle释放即物理回收，因此长寿命增量session不会把旧revision diagnostic变成history store。extension provider validation与associated-value两类query value已把原`Vec<Diagnostic>`字段物理替换为bundle handle；persistent hit/fresh结果都在同一store入口注册，最终program diagnostic聚合必须通过current `CompilerContext` owner解析，foreign handle只作为ICE。store compactness、foreign owner、empty sharing和last-handle reclamation均有回归，既有non-clean persistent certificate继续只在stable边界序列化payload。下一切片沿同一owner迁移public-surface/type-signature等高扇出module diagnostic products；每个域必须同时删除旧payload字段和聚合读取路径，不能提供`Vec`兼容getter。
 
+进展（2026-07-26）：I-2d 迁移public-surface与public-using-scope两个高扇出compiler query product。`nia-public-surface`继续只产出纯算法瞬时`Vec<(ModuleId, Diagnostic)>`，不把session owner侵入独立算法crate；compiler publish边界将连续相同`ModuleId`诊断压入顺序保持的`ModuleDiagnosticBundle`，每个元素只携带module owner与8-byte bundle handle。正式early-program aggregation只能经current `CompilerContext` store解包并转换为`ProgramDiagnostic`，原query value的两条`Vec<(ModuleId, Diagnostic)>`字段和直接clone读取均已删除；不同module交错时不做全局重排，避免改变用户可见diagnostic次序。module bundle顺序/合并回归与既有public query handle reuse回归通过。signature resolution/lowering/item-signature当前直接以完整产品作为数十个typed provider输入，后续必须先拆分可消费的semantic payload与诊断handle，再迁移消费者，禁止新增只转发旧`Vec`的compat wrapper。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
