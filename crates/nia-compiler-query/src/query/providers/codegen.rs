@@ -596,15 +596,16 @@ pub(super) fn early_program_diagnostics(
     }
     let public_surfaces = db.get(PublicSurfacesQuery)?;
     let public_using_scopes = db.get(PublicUsingScopesQuery)?;
-    for (module_id, diagnostic) in public_surfaces
+    for bundle in public_surfaces
         .diagnostics
         .iter()
         .chain(public_using_scopes.diagnostics.iter())
     {
-        diagnostics.push(ProgramDiagnostic {
-            path: db.get(ModulePathQuery(*module_id))?.as_ref().clone(),
-            diagnostic: diagnostic.clone(),
-        });
+        let path = db.get(ModulePathQuery(bundle.module_id))?;
+        diagnostics.extend(module_diagnostics(
+            &path,
+            resolve_diagnostic_bundle(db.context(), &bundle.diagnostics),
+        ));
     }
     Ok(diagnostics)
 }
@@ -663,25 +664,17 @@ pub(super) fn checked_module_diagnostics(
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
         let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
-        let extension_validation_diagnostics = db
-            .context()
-            .diagnostic_store
-            .diagnostics(&extension_validation.diagnostics)
-            .unwrap_or_else(|| {
-                panic!("Nia ICE: extension validation diagnostics have a foreign store owner")
-            });
+        let extension_validation_diagnostics =
+            resolve_diagnostic_bundle(db.context(), &extension_validation.diagnostics);
         diagnostics.extend(module_diagnostics(
             &checked.path,
             extension_validation_diagnostics,
         ));
         let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id))?;
-        let associated_value_diagnostics = db
-            .context()
-            .diagnostic_store
-            .diagnostics(&extension_provider.associated_value_diagnostics)
-            .unwrap_or_else(|| {
-                panic!("Nia ICE: extension value diagnostics have a foreign store owner")
-            });
+        let associated_value_diagnostics = resolve_diagnostic_bundle(
+            db.context(),
+            &extension_provider.associated_value_diagnostics,
+        );
         diagnostics.extend(module_diagnostics(
             &checked.path,
             associated_value_diagnostics,

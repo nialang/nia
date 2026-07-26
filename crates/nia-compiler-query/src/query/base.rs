@@ -973,13 +973,13 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PublicUsingScopesQueryValue {
     pub(super) using_scopes: HashMap<ModuleId, ModuleUsingScope>,
-    pub(super) diagnostics: Vec<(ModuleId, Diagnostic)>,
+    pub(super) diagnostics: Vec<ModuleDiagnosticBundle>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PublicSurfacesQueryValue {
     pub(super) surfaces: PublicSurfaces,
-    pub(super) diagnostics: Vec<(ModuleId, Diagnostic)>,
+    pub(super) diagnostics: Vec<ModuleDiagnosticBundle>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
