@@ -1620,6 +1620,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-4b 扩展check suite为目录型multi-module case。suite根目录下的独立`.nia`仍是单文件case；子目录则必须以`main.nia`及同名snapshot为入口，其他`.nia`文件按正常loader路径作为真实依赖模块，不被错误地当成独立case。首个`pass/imported` fixture验证entry namespace导入和跨文件公开调用；仍由唯一suite permit/Driver执行，避免为multi-module case恢复每case资源入口。signature类query产品的diagnostic字段尚不能表面bundle化：其完整语义产品仍是大量typed provider输入，下一步须先分离semantic payload与诊断边，而不是新增转发compat wrapper。
 
+进展（2026-07-26）：I-4c 为目录型case补充跨模块失败快照。`fail/imported_error`由entry导入依赖模块，依赖模块的body type mismatch必须使整个fail suite归类为错误；snapshot锁定diagnostic的fixture相对`math.nia` path、code、summary和span，证明runner不会把entry路径错误归属给依赖模块，也不会漏报non-entry诊断。后续incremental与backend/link case仍需用显式case metadata描述运行模式和资源权重，不能以目录名或隐式环境变量猜测。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
