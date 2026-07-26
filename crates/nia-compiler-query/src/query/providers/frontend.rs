@@ -12,7 +12,7 @@ pub(super) fn provide_parse_ok_module_ids(
             module_ids.push(module_id);
         }
     }
-    Ok(stable_module_sequence(db, module_ids))
+    stable_module_sequence(db, module_ids)
 }
 
 pub(super) fn provide_semantic_module_ids(
@@ -21,7 +21,7 @@ pub(super) fn provide_semantic_module_ids(
     let graph = db.try_get(ModuleGraphQuery)?;
     let entry = graph.entry();
     let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
-    let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &parse_ok_modules)
+    let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &parse_ok_modules)?
         .into_iter()
         .filter(|module_id| {
             graph
@@ -29,7 +29,7 @@ pub(super) fn provide_semantic_module_ids(
                 .is_some_and(|node| *module_id == entry || node.process_used_paths)
         })
         .collect::<Vec<_>>();
-    Ok(stable_module_sequence(db, module_ids))
+    stable_module_sequence(db, module_ids)
 }
 
 pub(super) fn provide_module_item_tree(
@@ -111,7 +111,7 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<D
     let _graph = db.try_get(ModuleGraphQuery)?;
     let module_ids = db
         .context()
-        .resolve_stable_module_sequence(&parse_ok_modules);
+        .resolve_stable_module_sequence(&parse_ok_modules)?;
     module_ids
         .into_iter()
         .map(|module_id| db.try_get(ModuleDefsQuery(module_id)))
@@ -125,7 +125,7 @@ fn shared_public_surface_defs_by_module(
     let _graph = db.try_get(ModuleGraphQuery)?;
     let module_ids = db
         .context()
-        .resolve_stable_module_sequence(&parse_ok_modules);
+        .resolve_stable_module_sequence(&parse_ok_modules)?;
     module_ids
         .into_iter()
         .map(|module_id| {

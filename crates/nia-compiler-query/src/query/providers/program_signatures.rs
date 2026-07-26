@@ -6,14 +6,14 @@ pub(super) fn provide_program_signature_module_ids(
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<StableModuleSequence> {
     let semantic_modules = db.try_get(SemanticModuleIdsQuery)?;
-    let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &semantic_modules);
+    let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &semantic_modules)?;
     let mut eligible = Vec::new();
     for module_id in module_ids {
         if *db.try_get(ProgramSignatureModuleEligibilityQuery(module_id, set))? {
             eligible.push(module_id);
         }
     }
-    Ok(stable_module_sequence(db, eligible))
+    stable_module_sequence(db, eligible)
 }
 
 pub(super) fn provide_program_signature_module_eligibility(

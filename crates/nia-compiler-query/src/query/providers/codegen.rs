@@ -579,7 +579,7 @@ pub(super) fn early_program_diagnostics(
     let mut diagnostics = db.try_get(ProgramLoadDiagnosticsQuery)?.as_ref().clone();
     let loaded_modules = db.try_get(LoadedModulesQuery)?;
     let _graph = db.try_get(ModuleGraphQuery)?;
-    let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules);
+    let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules)?;
     for module_id in loaded_modules {
         let parse_errors = db.try_get(ModuleParseErrorsQuery(module_id))?;
         let path = db.try_get(ModulePathQuery(module_id))?;

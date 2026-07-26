@@ -113,14 +113,14 @@ pub(super) fn provide_extension_provider_module_ids(
 ) -> QueryResult<StableModuleSequence> {
     let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
     let parse_ok_modules =
-        resolve_stable_module_sequence_from_current_inputs(db, &parse_ok_modules);
+        resolve_stable_module_sequence_from_current_inputs(db, &parse_ok_modules)?;
     let mut module_ids = Vec::new();
     for module_id in parse_ok_modules {
         if *db.try_get(ExtensionProviderModuleEligibilityQuery(module_id))? {
             module_ids.push(module_id);
         }
     }
-    Ok(stable_module_sequence(db, module_ids))
+    stable_module_sequence(db, module_ids)
 }
 
 pub(super) fn provide_extension_provider_module_eligibility(

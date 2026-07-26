@@ -961,7 +961,7 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context()
             .loader_facts()
-            .module_public_surface_facts(self.0)
+            .module_public_surface_facts(self.0)?
             .ok_or_else(|| db.invalid_input(self, format!("missing loaded module {:?}", self.0)))
     }
 

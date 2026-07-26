@@ -199,18 +199,28 @@ pub trait LoaderFactProvider: Send + Sync {
     fn node_store(&self) -> nia_node_id::NodeStore;
     fn module_graph(&self) -> ModuleGraphSnapshot;
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
-    fn module_path(&self, module_id: ModuleId) -> Option<SourcePath>;
-    fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion>;
+    fn module_path(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<SourcePath>>;
+    fn module_source_version(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<SourceVersion>>;
     fn module_source_fingerprint(
         &self,
         module_id: ModuleId,
-    ) -> Option<(SourceContentFingerprint, usize)>;
-    fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary>;
+    ) -> nia_query::QueryResult<Option<(SourceContentFingerprint, usize)>>;
+    fn module_provider_summary(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<ProviderSummary>>;
     fn module_public_surface_facts(
         &self,
         module_id: ModuleId,
-    ) -> Option<nia_defs::PublicSurfaceModuleFacts> {
-        let tree = self.active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?;
+    ) -> nia_query::QueryResult<Option<nia_defs::PublicSurfaceModuleFacts>> {
+        let Some(tree) =
+            self.active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
+        else {
+            return Ok(None);
+        };
         let symbols = self.symbols();
         let defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
             module_id,
@@ -218,16 +228,25 @@ pub trait LoaderFactProvider: Send + Sync {
             &self.node_store(),
             &symbols,
         );
-        Some(nia_defs::PublicSurfaceModuleFacts::from_defs(&defs))
+        Ok(Some(nia_defs::PublicSurfaceModuleFacts::from_defs(&defs)))
     }
-    fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable>;
-    fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>>;
-    fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree>;
+    fn module_origins(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<NodeOriginTable>>;
+    fn module_parse_errors(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<Vec<ParseError>>>;
+    fn module_item_tree(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<ModuleItemTree>>;
     fn active_module_item_tree(
         &self,
         module_id: ModuleId,
         kind: ActiveModuleItemTreeFactKind,
-    ) -> Option<ActiveModuleItemTree>;
+    ) -> nia_query::QueryResult<Option<ActiveModuleItemTree>>;
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic>;
     fn symbols(&self) -> SymbolTable;
     fn target(&self) -> TargetConfig;
@@ -276,70 +295,94 @@ impl LoaderFactProvider for LoadedProgram {
             .collect()
     }
 
-    fn module_path(&self, module_id: ModuleId) -> Option<SourcePath> {
-        self.modules
+    fn module_path(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<SourcePath>> {
+        Ok(self
+            .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.path.clone())
+            .map(|module| module.path.clone()))
     }
 
-    fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion> {
-        self.modules
+    fn module_source_version(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<SourceVersion>> {
+        Ok(self
+            .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.source_version)
+            .map(|module| module.source_version))
     }
 
     fn module_source_fingerprint(
         &self,
         _module_id: ModuleId,
-    ) -> Option<(SourceContentFingerprint, usize)> {
-        None
+    ) -> nia_query::QueryResult<Option<(SourceContentFingerprint, usize)>> {
+        Ok(None)
     }
 
-    fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary> {
-        self.modules
+    fn module_provider_summary(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<ProviderSummary>> {
+        Ok(self
+            .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.provider_summary.clone())
+            .map(|module| module.provider_summary.clone()))
     }
 
-    fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable> {
-        self.modules
+    fn module_origins(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<NodeOriginTable>> {
+        Ok(self
+            .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.origins.clone())
+            .map(|module| module.origins.clone()))
     }
 
-    fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>> {
-        self.modules
+    fn module_parse_errors(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<Vec<ParseError>>> {
+        Ok(self
+            .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.parse_errors.clone())
+            .map(|module| module.parse_errors.clone()))
     }
 
-    fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree> {
-        self.modules
+    fn module_item_tree(
+        &self,
+        module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<ModuleItemTree>> {
+        Ok(self
+            .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.item_tree.clone())
+            .map(|module| module.item_tree.clone()))
     }
 
     fn active_module_item_tree(
         &self,
         module_id: ModuleId,
         kind: ActiveModuleItemTreeFactKind,
-    ) -> Option<ActiveModuleItemTree> {
-        let tree = &self
+    ) -> nia_query::QueryResult<Option<ActiveModuleItemTree>> {
+        let Some(tree) = self
             .modules
             .iter()
-            .find(|module| module.id == module_id)?
-            .active_item_tree;
-        Some(match kind {
+            .find(|module| module.id == module_id)
+            .map(|module| &module.active_item_tree)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(match kind {
             ActiveModuleItemTreeFactKind::Signature(set) => tree.signature_items(set),
             ActiveModuleItemTreeFactKind::ConstSignature => tree.const_signature_items(),
             ActiveModuleItemTreeFactKind::Full => tree.clone(),
-        })
+        }))
     }
 
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {

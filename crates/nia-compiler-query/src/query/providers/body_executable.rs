@@ -1321,7 +1321,13 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         )
         .map(|extensions| extensions.methods.clone())
     };
-    let program_module_source_path = |module_id| db.context().loader_facts().module_path(module_id);
+    let program_module_source_path = |module_id| {
+        capture_query_failure(
+            &query_failure,
+            db.context().loader_facts().module_path(module_id),
+        )
+        .flatten()
+    };
     let target = db.try_get(CompilerTargetQuery)?;
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
@@ -2759,10 +2765,7 @@ pub(super) fn provide_checked_module_ids(
     time_provider(db.context().timings(), "checked_module_ids", || {
         let module_ids = db.try_get(SemanticModuleIdsQuery)?;
         let _graph = db.try_get(ModuleGraphQuery)?;
-        Ok(resolve_stable_module_sequence_from_current_inputs(
-            db,
-            &module_ids,
-        ))
+        resolve_stable_module_sequence_from_current_inputs(db, &module_ids)
     })
 }
 
