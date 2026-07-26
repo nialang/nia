@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod associated_types;
 mod builtin_traits;
+mod cases;
 mod common;
 mod const_eval;
 mod const_generics;

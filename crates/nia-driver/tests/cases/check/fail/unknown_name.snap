@@ -1,0 +1,4 @@
+path: fail/unknown_name.nia
+code: E0301
+summary: name is unresolved
+label: 16..23 Primary Source name is unresolved
