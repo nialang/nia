@@ -78,11 +78,11 @@ pub(super) fn provide_abi_check(
             &defs,
             db.context().type_store(),
             nia_abi_check::ModuleAbiSignatures {
-                functions: &function_signatures.functions,
-                structs: &type_signatures.structs,
-                unions: &type_signatures.unions,
-                enums: &type_signatures.enums,
-                globals: &value_signatures.globals,
+                functions: &function_signatures.semantic.functions,
+                structs: &type_signatures.semantic.structs,
+                unions: &type_signatures.semantic.unions,
+                enums: &type_signatures.semantic.enums,
+                globals: &value_signatures.semantic.globals,
             },
             nia_abi_check::ProgramAbiSignatures {
                 structs: &program.structs,
@@ -122,7 +122,7 @@ pub(super) fn provide_static_check(
             semantic_uses: &semantic_uses,
             symbols: &symbols,
             signatures: nia_static_check::StaticCheckSignatures {
-                globals: &signatures.globals,
+                globals: &signatures.semantic.globals,
             },
             const_eval: &const_eval,
             program_defs: &program_defs,
@@ -149,7 +149,7 @@ pub(super) fn provide_flow_check(
         &active_item_tree,
         db.context().type_store(),
         nia_flow_check::FlowCheckSignatures {
-            functions: &signatures.functions,
+            functions: &signatures.semantic.functions,
         },
     ))
 }

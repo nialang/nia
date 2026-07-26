@@ -321,7 +321,7 @@ pub(super) struct CompilerQueryProviders {
         &QueryDb<CompilerContext>,
         ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> QueryResult<ItemSignatures>,
+    ) -> QueryResult<SignatureItemSignatures>,
     pub(super) signature_const_item_signatures:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ItemSignatures>,
     pub(super) type_normalization:

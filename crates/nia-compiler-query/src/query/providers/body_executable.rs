@@ -99,7 +99,7 @@ impl ExecutableValueRefEdges {
                     global_id.module_id,
                     nia_item_tree::SignatureItemSet::Functions,
                 ))?;
-                let Some(signature) = signatures.functions.get(&global_id.def_id) else {
+                let Some(signature) = signatures.semantic.functions.get(&global_id.def_id) else {
                     return Ok(false);
                 };
                 if signature.is_const || !signature.has_body {
@@ -571,7 +571,7 @@ fn const_inputs_for_body_check(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )
-            .is_some_and(|signatures| signatures.enums.contains_key(&def_id.def_id))
+            .is_some_and(|signatures| signatures.semantic.enums.contains_key(&def_id.def_id))
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -959,6 +959,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         }
         if def_id.module_id == module_id {
             return local_function_signatures
+                .semantic
                 .functions
                 .get(&def_id.def_id)
                 .cloned()
@@ -984,7 +985,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Functions,
             )),
         )?;
-        let signature = signatures.functions.get(&def_id.def_id).cloned()?;
+        let signature = signatures.semantic.functions.get(&def_id.def_id).cloned()?;
         let defs =
             capture_query_failure(&query_failure, db.get(ModuleDefsQuery(def_id.module_id)))?;
         let signature = ProgramFunctionSignature {
@@ -1012,6 +1013,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Values,
             )),
         )?
+        .semantic
         .globals
         .get(&def_id.def_id)
         .cloned()
@@ -1025,6 +1027,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Values,
             )),
         )?
+        .semantic
         .consts
         .get(&def_id.def_id)
         .cloned()
@@ -1038,6 +1041,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )?
+        .semantic
         .structs
         .get(&def_id.def_id)
         .cloned()
@@ -1051,6 +1055,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )?
+        .semantic
         .unions
         .get(&def_id.def_id)
         .cloned()
@@ -1064,6 +1069,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )?
+        .semantic
         .enums
         .get(&def_id.def_id)
         .cloned()
@@ -1077,6 +1083,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Traits,
             )),
         )?
+        .semantic
         .traits
         .get(&def_id.def_id)
         .cloned()
@@ -1090,6 +1097,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )?
+        .semantic
         .type_aliases
         .get(&def_id.def_id)
         .cloned()
@@ -1649,6 +1657,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )?
+            .semantic
             .structs
             .get(&def_id.def_id)
             .cloned()
@@ -1662,6 +1671,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )?
+            .semantic
             .unions
             .get(&def_id.def_id)
             .cloned()
@@ -1675,6 +1685,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )?
+            .semantic
             .enums
             .get(&def_id.def_id)
             .cloned()
@@ -1688,6 +1699,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )?
+            .semantic
             .type_aliases
             .get(&def_id.def_id)
             .cloned()
@@ -2172,6 +2184,10 @@ pub(super) fn executable_signature_checked_module(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ))?;
+    let item_signatures = db.get(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Types,
+    ))?;
     let type_normalization = db.get(SignatureTypeNormalizationQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
@@ -2235,6 +2251,7 @@ pub(super) fn executable_signature_checked_module(
         frontend_diagnostics: vec![
             signature_type_resolution.diagnostics.clone(),
             type_lowering.diagnostics.clone(),
+            item_signatures.diagnostics.clone(),
         ],
     })
 }
@@ -2878,7 +2895,7 @@ pub(super) fn executable_flow_check(
                 &active_item_tree,
                 db.context().type_store(),
                 nia_flow_check::FlowCheckSignatures {
-                    functions: &signatures.functions,
+                    functions: &signatures.semantic.functions,
                 },
                 nia_flow_check::FlowCheckFilter::ReachableFunctions {
                     module_id,

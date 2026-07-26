@@ -6845,6 +6845,26 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn signature_item_signatures_separate_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() void;");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let signatures = db.expect_get(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        assert!(signatures.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &signatures.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("bodyless non-extern functions require `@[builtin]`"))
+        );
+    }
+
+    #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let fixture = LoadedProgramFixture::new("main.nia", source);
@@ -8560,6 +8580,7 @@ extend Sink : Writer {
             nia_item_tree::SignatureItemSet::Traits,
         ));
         let impl_signature = signatures
+            .semantic
             .trait_impls
             .iter()
             .find(|impl_signature| !impl_signature.methods.is_empty())
@@ -8617,6 +8638,7 @@ pub enum Errno: i32 {
             nia_item_tree::SignatureItemSet::Traits,
         ));
         let impl_signature = signatures
+            .semantic
             .trait_impls
             .iter()
             .find(|impl_signature| !impl_signature.methods.is_empty())
@@ -8685,6 +8707,7 @@ pub enum Errno: i32 {
             nia_item_tree::SignatureItemSet::Traits,
         ));
         let impl_signature = signatures
+            .semantic
             .trait_impls
             .iter()
             .find(|impl_signature| !impl_signature.methods.is_empty())

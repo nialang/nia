@@ -145,18 +145,21 @@ pub(super) fn provide_extension_signature_module_input(
             ))?
             .semantic,
         ),
-        signatures: db.get(SignatureItemSignaturesQuery(
+        signatures: signature_item_signatures_semantic(
+            db,
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
-        ))?,
-        function_signatures: db.get(SignatureItemSignaturesQuery(
+        )?,
+        function_signatures: signature_item_signatures_semantic(
+            db,
             module_id,
             nia_item_tree::SignatureItemSet::ExtensionFunctions,
-        ))?,
-        type_signatures: db.get(SignatureItemSignaturesQuery(
+        )?,
+        type_signatures: signature_item_signatures_semantic(
+            db,
             module_id,
             nia_item_tree::SignatureItemSet::Types,
-        ))?,
+        )?,
         normalization: db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
@@ -390,7 +393,7 @@ pub(super) fn provide_extension_provider_module_facts(
             type_store: &db.context().type_store,
             defs: &defs,
             lowering: &lowering.semantic,
-            signatures: &signatures,
+            signatures: &signatures.semantic,
             normalization: &normalization,
         };
         let module_defs = SharedProgramDefsResolver::new(db);
@@ -604,7 +607,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 type_store: &db.context().type_store,
                 defs: &defs,
                 lowering: &lowering.semantic,
-                signatures: &signatures,
+                signatures: &signatures.semantic,
                 normalization: &normalization,
             };
             let module_defs = SharedProgramDefsResolver::new(db);

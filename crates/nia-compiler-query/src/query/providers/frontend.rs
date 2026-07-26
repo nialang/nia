@@ -714,7 +714,7 @@ pub(super) fn provide_signature_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> QueryResult<ItemSignatures> {
+) -> QueryResult<SignatureItemSignatures> {
     let program_sources = db.get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
@@ -787,12 +787,15 @@ pub(super) fn provide_signature_item_signatures(
     if let Some(crate::signature_cache::SignatureItemSignaturesLookup::Hit(cached)) = &cached
         && !db.context().verify_frontend_cache
     {
-        return Ok(cached.as_ref().clone());
+        return Ok(SignatureItemSignatures {
+            semantic: Arc::new(cached.as_ref().clone()),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        });
     }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     let defs = db.get(ModuleDefsQuery(module_id))?;
     let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set))?;
-    let fresh =
+    let mut fresh =
         nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
             source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
             defs: &defs,
@@ -800,7 +803,8 @@ pub(super) fn provide_signature_item_signatures(
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
         });
-    let cacheable = fresh.diagnostics.is_empty()
+    let diagnostics = std::mem::take(&mut fresh.diagnostics);
+    let cacheable = diagnostics.is_empty()
         && resolve_diagnostic_bundle(db.context(), &type_lowering.diagnostics).is_empty()
         && type_lowering.semantic.const_exprs.is_empty()
         && type_lowering.semantic.const_expr_summaries.is_empty();
@@ -841,7 +845,10 @@ pub(super) fn provide_signature_item_signatures(
             );
         }
     }
-    Ok(fresh)
+    Ok(SignatureItemSignatures {
+        semantic: Arc::new(fresh),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_signature_const_item_signatures(
@@ -902,7 +909,7 @@ pub(super) fn provide_signature_type_normalization(
         db,
         module_id,
         &type_lowering.semantic,
-        &item_signatures,
+        &item_signatures.semantic,
     ))
 }
 
