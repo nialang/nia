@@ -663,14 +663,28 @@ pub(super) fn checked_module_diagnostics(
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
         let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
+        let extension_validation_diagnostics = db
+            .context()
+            .diagnostic_store
+            .diagnostics(&extension_validation.diagnostics)
+            .unwrap_or_else(|| {
+                panic!("Nia ICE: extension validation diagnostics have a foreign store owner")
+            });
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &extension_validation.diagnostics,
+            extension_validation_diagnostics,
         ));
         let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id))?;
+        let associated_value_diagnostics = db
+            .context()
+            .diagnostic_store
+            .diagnostics(&extension_provider.associated_value_diagnostics)
+            .unwrap_or_else(|| {
+                panic!("Nia ICE: extension value diagnostics have a foreign store owner")
+            });
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &extension_provider.associated_value_diagnostics,
+            associated_value_diagnostics,
         ));
     }
     Ok(diagnostics)

@@ -2,12 +2,14 @@
 use nia_span::Span;
 
 mod stable_bundle;
+mod store;
 
 pub use stable_bundle::{
     StableDiagnosticBundleError, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
 };
 use std::cmp::Ordering;
 use std::fmt;
+pub use store::{DiagnosticBundle, DiagnosticBundleId, DiagnosticStore};
 
 pub mod codes {
     use super::{DiagnosticCategory, DiagnosticCode, Severity};
