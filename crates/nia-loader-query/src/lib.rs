@@ -15,7 +15,7 @@ use nia_compiler_query::{
     ProviderDemand, frontend_module_map_fingerprint,
 };
 use nia_imports::ModuleMap;
-use nia_query::{QueryDb, QueryRetirement, QuerySession};
+use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
@@ -339,10 +339,11 @@ impl LoaderDatabase {
     fn source_id_for_module(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<nia_source::SourceId> {
-        let graph = self.db.get(graph::ModuleGraphQuery);
-        let module = graph.get(module_id)?;
-        Some(self.sources.id_for_path(&module.path))
+    ) -> QueryResult<Option<nia_source::SourceId>> {
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        Ok(graph
+            .get(module_id)
+            .map(|module| self.sources.id_for_path(&module.path)))
     }
 }
 
@@ -382,108 +383,128 @@ impl LoaderFactProvider for LoaderDatabase {
             .collect()
     }
 
-    fn module_path(&self, module_id: nia_imports::ModuleId) -> Option<SourcePath> {
-        let graph = self.db.get(graph::ModuleGraphQuery);
-        graph.get(module_id).map(|module| module.path.clone())
+    fn module_path(&self, module_id: nia_imports::ModuleId) -> QueryResult<Option<SourcePath>> {
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        Ok(graph.get(module_id).map(|module| module.path.clone()))
     }
 
     fn module_source_version(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<nia_source::SourceVersion> {
-        let graph = self.db.get(graph::ModuleGraphQuery);
-        let module = graph.get(module_id)?;
+    ) -> QueryResult<Option<nia_source::SourceVersion>> {
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let Some(module) = graph.get(module_id) else {
+            return Ok(None);
+        };
         let source_id = self.sources.id_for_path(&module.path);
-        match *self.db.get(queries::SourceStatusQuery(source_id)) {
-            queries::SourceStatus::Present(version) => Some(version),
-            queries::SourceStatus::Missing => None,
-        }
+        Ok(
+            match *self.db.try_get(queries::SourceStatusQuery(source_id))? {
+                queries::SourceStatus::Present(version) => Some(version),
+                queries::SourceStatus::Missing => None,
+            },
+        )
     }
 
     fn module_source_fingerprint(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<(nia_compiler_query::SourceContentFingerprint, usize)> {
-        let source_id = self.source_id_for_module(module_id)?;
-        let source = self.db.get(queries::SourceTextQuery(source_id));
-        let file = source.file.as_ref()?;
-        Some((
+    ) -> QueryResult<Option<(nia_compiler_query::SourceContentFingerprint, usize)>> {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
+            return Ok(None);
+        };
+        let source = self.db.try_get(queries::SourceTextQuery(source_id))?;
+        let Some(file) = source.file.as_ref() else {
+            return Ok(None);
+        };
+        Ok(Some((
             nia_compiler_query::source_content_fingerprint(&file.text),
             file.text.len(),
-        ))
+        )))
     }
 
     fn module_provider_summary(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<nia_provider_summary::ProviderSummary> {
-        let graph = self.db.get(graph::ModuleGraphQuery);
-        let module = graph.get(module_id)?;
-        let key = queries::provider_summary_query(&self.db, &module.path).ok()?;
-        Some(self.db.try_get(key).ok()?.as_ref().clone())
+    ) -> QueryResult<Option<nia_provider_summary::ProviderSummary>> {
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let Some(module) = graph.get(module_id) else {
+            return Ok(None);
+        };
+        let key = queries::provider_summary_query(&self.db, &module.path)?;
+        Ok(Some(self.db.try_get(key)?.as_ref().clone()))
     }
 
     fn module_public_surface_facts(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<nia_defs::PublicSurfaceModuleFacts> {
-        let graph = self.db.get(graph::ModuleGraphQuery);
-        let module = graph.get(module_id)?;
-        let key = queries::public_surface_module_facts_query(&self.db, &module.path).ok()?;
-        Some(self.db.try_get(key).ok()?.as_ref().clone())
+    ) -> QueryResult<Option<nia_defs::PublicSurfaceModuleFacts>> {
+        let graph = self.db.try_get(graph::ModuleGraphQuery)?;
+        let Some(module) = graph.get(module_id) else {
+            return Ok(None);
+        };
+        let key = queries::public_surface_module_facts_query(&self.db, &module.path)?;
+        Ok(Some(self.db.try_get(key)?.as_ref().clone()))
     }
 
     fn module_origins(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<nia_node_id::NodeOriginTable> {
-        let source_id = self.source_id_for_module(module_id)?;
-        Some(
+    ) -> QueryResult<Option<nia_node_id::NodeOriginTable>> {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(
             self.db
-                .get(queries::ModuleOriginsFactQuery(source_id))
+                .try_get(queries::ModuleOriginsFactQuery(source_id))?
                 .as_ref()
                 .clone(),
-        )
+        ))
     }
 
     fn module_parse_errors(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<Vec<nia_parser::ParseError>> {
-        let source_id = self.source_id_for_module(module_id)?;
-        Some(
+    ) -> QueryResult<Option<Vec<nia_parser::ParseError>>> {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(
             self.db
-                .get(queries::ModuleParseErrorsFactQuery(source_id))
+                .try_get(queries::ModuleParseErrorsFactQuery(source_id))?
                 .as_ref()
                 .clone(),
-        )
+        ))
     }
 
     fn module_item_tree(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> Option<nia_item_tree::ModuleItemTree> {
-        let source_id = self.source_id_for_module(module_id)?;
-        Some(
+    ) -> QueryResult<Option<nia_item_tree::ModuleItemTree>> {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(
             self.db
-                .get(queries::ModuleItemTreeFactQuery(source_id))
+                .try_get(queries::ModuleItemTreeFactQuery(source_id))?
                 .as_ref()
                 .clone(),
-        )
+        ))
     }
 
     fn active_module_item_tree(
         &self,
         module_id: nia_imports::ModuleId,
         kind: nia_compiler_query::ActiveModuleItemTreeFactKind,
-    ) -> Option<nia_item_tree::ActiveModuleItemTree> {
-        let source_id = self.source_id_for_module(module_id)?;
-        Some(
+    ) -> QueryResult<Option<nia_item_tree::ActiveModuleItemTree>> {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(
             self.db
-                .get(queries::ActiveModuleItemTreeFactQuery(source_id, kind))
+                .try_get(queries::ActiveModuleItemTreeFactQuery(source_id, kind))?
                 .as_ref()
                 .clone(),
-        )
+        ))
     }
 
     fn load_diagnostics(&self) -> Vec<nia_compiler_query::ProgramDiagnostic> {

@@ -963,14 +963,14 @@ impl StableModuleSequence {
 fn stable_module_sequence(
     db: &QueryDb<CompilerContext>,
     module_ids: impl IntoIterator<Item = ModuleId>,
-) -> StableModuleSequence {
+) -> QueryResult<StableModuleSequence> {
     db.context().stable_module_sequence(module_ids)
 }
 
 fn resolve_stable_module_sequence_from_current_inputs(
     db: &QueryDb<CompilerContext>,
     sequence: &StableModuleSequence,
-) -> Vec<ModuleId> {
+) -> QueryResult<Vec<ModuleId>> {
     db.context().resolve_stable_module_sequence(sequence)
 }
 
@@ -979,7 +979,7 @@ fn resolve_stable_module_sequence(
     sequence: &StableModuleSequence,
 ) -> QueryResult<Vec<ModuleId>> {
     let _graph = db.try_get(ModuleGraphQuery)?;
-    Ok(db.context().resolve_stable_module_sequence(sequence))
+    db.context().resolve_stable_module_sequence(sequence)
 }
 
 #[derive(Debug, Clone)]
@@ -1298,7 +1298,7 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
     ) -> QueryResult<Option<FrontendProgramSources>> {
         let modules = db.try_get(LoadedModulesQuery)?;
-        let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &modules);
+        let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &modules)?;
         let mut by_module = HashMap::new();
         let mut module_by_path = HashMap::new();
         let mut path_by_module = HashMap::new();
@@ -1306,7 +1306,8 @@ impl CompilerContext {
         for module_id in module_ids {
             let path = db.try_get(ModulePathQuery(module_id))?;
             let version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
-            let Some((source, len)) = self.loader_facts.module_source_fingerprint(module_id) else {
+            let Some((source, len)) = self.loader_facts.module_source_fingerprint(module_id)?
+            else {
                 return Ok(None);
             };
             let module = StableModuleKey::from_source_identity(path.identity());
@@ -1344,41 +1345,48 @@ impl CompilerContext {
     fn stable_module_sequence(
         &self,
         module_ids: impl IntoIterator<Item = ModuleId>,
-    ) -> StableModuleSequence {
+    ) -> QueryResult<StableModuleSequence> {
         let graph = self.loader_facts.module_graph();
-        StableModuleSequence::from_source_identities(module_ids.into_iter().map(|module_id| {
+        let mut identities = Vec::new();
+        for module_id in module_ids {
             graph
                 .get(module_id)
                 .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} is not loaded"));
-            self.loader_facts
-                .module_path(module_id)
-                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} has no source path"))
-                .identity()
-        }))
+            let path = self
+                .loader_facts
+                .module_path(module_id)?
+                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} has no source path"));
+            identities.push(path.identity());
+        }
+        Ok(StableModuleSequence::from_source_identities(identities))
     }
 
-    fn resolve_stable_module_sequence(&self, sequence: &StableModuleSequence) -> Vec<ModuleId> {
+    fn resolve_stable_module_sequence(
+        &self,
+        sequence: &StableModuleSequence,
+    ) -> QueryResult<Vec<ModuleId>> {
         let graph = self.loader_facts.module_graph();
-        sequence
-            .keys
-            .iter()
-            .map(|key| {
-                graph
-                    .modules()
-                    .find(|module| {
-                        self.loader_facts
-                            .module_path(module.id)
-                            .is_some_and(|path| path.identity() == *key.source_identity())
-                    })
-                    .map(|module| module.id)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Nia ICE: stable loaded module `{}` is missing from current loader facts",
-                            key.source_identity().normalized_path()
-                        )
-                    })
-            })
-            .collect()
+        let mut module_ids = Vec::with_capacity(sequence.keys.len());
+        for key in &sequence.keys {
+            let mut current = None;
+            for module in graph.modules() {
+                if self
+                    .loader_facts
+                    .module_path(module.id)?
+                    .is_some_and(|path| path.identity() == *key.source_identity())
+                {
+                    current = Some(module.id);
+                    break;
+                }
+            }
+            module_ids.push(current.unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: stable loaded module `{}` is missing from current loader facts",
+                    key.source_identity().normalized_path()
+                )
+            }));
+        }
+        Ok(module_ids)
     }
 
     fn module_path(
@@ -1386,7 +1394,7 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> QueryResult<SourcePath> {
-        self.loader_facts().module_path(module_id).ok_or_else(|| {
+        self.loader_facts().module_path(module_id)?.ok_or_else(|| {
             db.invalid_input(
                 &ModulePathQuery(module_id),
                 format!("missing loaded module {module_id:?}"),
@@ -1400,7 +1408,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<SourceVersion> {
         self.loader_facts()
-            .module_source_version(module_id)
+            .module_source_version(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleSourceVersionQuery(module_id),
@@ -1415,7 +1423,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<NodeOriginTable> {
         self.loader_facts()
-            .module_origins(module_id)
+            .module_origins(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleOriginsQuery(module_id),
@@ -1430,7 +1438,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<Vec<ParseError>> {
         self.loader_facts()
-            .module_parse_errors(module_id)
+            .module_parse_errors(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleParseErrorsQuery(module_id),
@@ -1445,7 +1453,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ModuleItemTree> {
         self.loader_facts()
-            .module_item_tree(module_id)
+            .module_item_tree(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleItemTreeInputQuery(module_id),
@@ -1460,7 +1468,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ModuleItemTree> {
         self.loader_facts()
-            .module_item_tree(module_id)
+            .module_item_tree(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &DeclarationModuleItemTreeInputQuery(module_id),
@@ -1475,7 +1483,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ModuleItemTree> {
         self.loader_facts()
-            .module_item_tree(module_id)
+            .module_item_tree(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &FullModuleItemTreeInputQuery(module_id),
@@ -1490,7 +1498,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &ActiveModuleItemTreeInputQuery(module_id),
@@ -1505,7 +1513,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &DeclarationActiveModuleItemTreeInputQuery(module_id),
@@ -1520,7 +1528,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &FullActiveModuleItemTreeInputQuery(module_id),
@@ -1536,7 +1544,7 @@ impl CompilerContext {
         set: nia_item_tree::SignatureItemSet,
     ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Signature(set))
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Signature(set))?
             .ok_or_else(|| {
                 db.invalid_input(
                     &SignatureItemTreeQuery(module_id, set),
@@ -1551,7 +1559,7 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::ConstSignature)
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::ConstSignature)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &SignatureConstItemTreeQuery(module_id),
@@ -1566,19 +1574,13 @@ impl CompilerContext {
         module_id: ModuleId,
     ) -> QueryResult<nia_provider_summary::ProviderSummary> {
         self.loader_facts()
-            .module_provider_summary(module_id)
+            .module_provider_summary(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
                     &ExtensionProviderSummaryQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
                 )
             })
-    }
-
-    fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
-        self.loader_facts
-            .module_path(module_id)
-            .unwrap_or_else(|| panic!("Nia ICE: missing loaded module {module_id:?}"))
     }
 
     fn module_id_for_stable_key(&self, stable_key: &StableModuleKey) -> Option<ModuleId> {
@@ -1901,74 +1903,74 @@ mod tests {
             identities.clone()
         }
 
-        fn module_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+        fn module_path(&self, module_id: ModuleId) -> QueryResult<Option<SourcePath>> {
             let fact = self.fact(TestLoaderFactKey::ModulePath(module_id));
             let TestLoaderFactValue::ModulePath(path) = fact.as_ref() else {
                 unreachable!()
             };
-            path.clone()
+            Ok(path.clone())
         }
 
-        fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion> {
+        fn module_source_version(&self, module_id: ModuleId) -> QueryResult<Option<SourceVersion>> {
             let fact = self.fact(TestLoaderFactKey::ModuleSourceVersion(module_id));
             let TestLoaderFactValue::ModuleSourceVersion(version) = fact.as_ref() else {
                 unreachable!()
             };
-            *version
+            Ok(*version)
         }
 
         fn module_source_fingerprint(
             &self,
             _module_id: ModuleId,
-        ) -> Option<(crate::SourceContentFingerprint, usize)> {
-            None
+        ) -> QueryResult<Option<(crate::SourceContentFingerprint, usize)>> {
+            Ok(None)
         }
 
         fn module_provider_summary(
             &self,
             module_id: ModuleId,
-        ) -> Option<nia_provider_summary::ProviderSummary> {
+        ) -> QueryResult<Option<nia_provider_summary::ProviderSummary>> {
             let fact = self.fact(TestLoaderFactKey::ModuleProviderSummary(module_id));
             let TestLoaderFactValue::ModuleProviderSummary(summary) = fact.as_ref() else {
                 unreachable!()
             };
-            summary.clone()
+            Ok(summary.clone())
         }
 
-        fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable> {
+        fn module_origins(&self, module_id: ModuleId) -> QueryResult<Option<NodeOriginTable>> {
             let fact = self.fact(TestLoaderFactKey::ModuleOrigins(module_id));
             let TestLoaderFactValue::ModuleOrigins(origins) = fact.as_ref() else {
                 unreachable!()
             };
-            origins.clone()
+            Ok(origins.clone())
         }
 
-        fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>> {
+        fn module_parse_errors(&self, module_id: ModuleId) -> QueryResult<Option<Vec<ParseError>>> {
             let fact = self.fact(TestLoaderFactKey::ModuleParseErrors(module_id));
             let TestLoaderFactValue::ModuleParseErrors(errors) = fact.as_ref() else {
                 unreachable!()
             };
-            errors.clone()
+            Ok(errors.clone())
         }
 
-        fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree> {
+        fn module_item_tree(&self, module_id: ModuleId) -> QueryResult<Option<ModuleItemTree>> {
             let fact = self.fact(TestLoaderFactKey::ModuleItemTree(module_id));
             let TestLoaderFactValue::ModuleItemTree(tree) = fact.as_ref() else {
                 unreachable!()
             };
-            tree.clone()
+            Ok(tree.clone())
         }
 
         fn active_module_item_tree(
             &self,
             module_id: ModuleId,
             kind: ActiveModuleItemTreeFactKind,
-        ) -> Option<ActiveModuleItemTree> {
+        ) -> QueryResult<Option<ActiveModuleItemTree>> {
             let fact = self.fact(TestLoaderFactKey::ActiveModuleItemTree(module_id, kind));
             let TestLoaderFactValue::ActiveModuleItemTree(tree) = fact.as_ref() else {
                 unreachable!()
             };
-            tree.clone()
+            Ok(tree.clone())
         }
 
         fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
@@ -2052,34 +2054,45 @@ mod tests {
                     .find_map(|module| {
                         facts
                             .module_path(module.id)
+                            .expect("test module path query")
                             .is_some_and(|path| path.identity() == identity)
                             .then_some(module.id)
                     })
                     .expect("test loaded module identity must resolve in graph");
                 LoadedModule {
                     id: module_id,
-                    path: facts.module_path(module_id).expect("test module path"),
+                    path: facts
+                        .module_path(module_id)
+                        .expect("test module path query")
+                        .expect("test module path"),
                     source_identity: facts
                         .module_path(module_id)
+                        .expect("test module path query")
                         .expect("test module path")
                         .identity(),
                     source_version: facts
                         .module_source_version(module_id)
+                        .expect("test module source version query")
                         .expect("test module source version"),
                     item_tree: facts
                         .module_item_tree(module_id)
+                        .expect("test module item tree query")
                         .expect("test module item tree"),
                     active_item_tree: facts
                         .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+                        .expect("test active module item tree query")
                         .expect("test active module item tree"),
                     provider_summary: facts
                         .module_provider_summary(module_id)
+                        .expect("test module provider summary query")
                         .expect("test module provider summary"),
                     origins: facts
                         .module_origins(module_id)
+                        .expect("test module origins query")
                         .expect("test module origins"),
                     parse_errors: facts
                         .module_parse_errors(module_id)
+                        .expect("test module parse errors query")
                         .expect("test module parse errors"),
                 }
             })
@@ -2377,37 +2390,37 @@ mod tests {
             self.program.loaded_module_source_identities()
         }
 
-        fn module_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+        fn module_path(&self, module_id: ModuleId) -> QueryResult<Option<SourcePath>> {
             self.program.module_path(module_id)
         }
 
-        fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion> {
+        fn module_source_version(&self, module_id: ModuleId) -> QueryResult<Option<SourceVersion>> {
             self.program.module_source_version(module_id)
         }
 
         fn module_source_fingerprint(
             &self,
             module_id: ModuleId,
-        ) -> Option<(crate::SourceContentFingerprint, usize)> {
-            self.sources.get(&module_id).copied()
+        ) -> QueryResult<Option<(crate::SourceContentFingerprint, usize)>> {
+            Ok(self.sources.get(&module_id).copied())
         }
 
         fn module_provider_summary(
             &self,
             module_id: ModuleId,
-        ) -> Option<nia_provider_summary::ProviderSummary> {
+        ) -> QueryResult<Option<nia_provider_summary::ProviderSummary>> {
             self.program.module_provider_summary(module_id)
         }
 
-        fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable> {
+        fn module_origins(&self, module_id: ModuleId) -> QueryResult<Option<NodeOriginTable>> {
             self.program.module_origins(module_id)
         }
 
-        fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>> {
+        fn module_parse_errors(&self, module_id: ModuleId) -> QueryResult<Option<Vec<ParseError>>> {
             self.program.module_parse_errors(module_id)
         }
 
-        fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree> {
+        fn module_item_tree(&self, module_id: ModuleId) -> QueryResult<Option<ModuleItemTree>> {
             self.program.module_item_tree(module_id)
         }
 
@@ -2415,7 +2428,7 @@ mod tests {
             &self,
             module_id: ModuleId,
             kind: ActiveModuleItemTreeFactKind,
-        ) -> Option<ActiveModuleItemTree> {
+        ) -> QueryResult<Option<ActiveModuleItemTree>> {
             self.program.active_module_item_tree(module_id, kind)
         }
 
@@ -2486,6 +2499,7 @@ mod tests {
                 db.context()
                     .loader_facts
                     .module_path(module.id)
+                    .expect("test module path query")
                     .is_some_and(|path| path.identity() == *identity)
                     .then_some(module.id)
             })

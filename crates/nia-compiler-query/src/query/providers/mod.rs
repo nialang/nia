@@ -575,10 +575,5 @@ fn time_module_provider<T>(
     if !timings.detail() {
         return f();
     }
-    let path = db.context().path_for_module(module_id);
-    nia_timing::time_query(
-        timings,
-        &format!("{name}[{module_id:?} {}]", path.as_str()),
-        f,
-    )
+    nia_timing::time_query(timings, &format!("{name}[{module_id:?}]"), f)
 }
