@@ -1622,6 +1622,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-4c 为目录型case补充跨模块失败快照。`fail/imported_error`由entry导入依赖模块，依赖模块的body type mismatch必须使整个fail suite归类为错误；snapshot锁定diagnostic的fixture相对`math.nia` path、code、summary和span，证明runner不会把entry路径错误归属给依赖模块，也不会漏报non-entry诊断。后续incremental与backend/link case仍需用显式case metadata描述运行模式和资源权重，不能以目录名或隐式环境变量猜测。
 
+进展（2026-07-26）：I-2f 开始拆分signature语义产品与session诊断所有权。`SignatureTypeResolutionQuery`不再直接发布带`Vec<Diagnostic>`的`TypeResolution`：fresh resolution先移出diagnostics并将语义值与8-byte session bundle组成唯一query product，cache hit只恢复无diagnostic的语义payload并使用canonical empty bundle；签名缓存仍只保存可持久化的语义值，拒绝诊断结果而不另建codec。type lowering直接借用该语义值，executable signature checked module持有同一`Arc`并把bundle带到唯一report aggregation；普通checked module明确使用canonical empty frontend bundle。新增回归锁定缺失signature type只出现在bundle、不会残留在semantic value，compiler-query 174项和严格Clippy通过。该切片只完成signature type-resolution边界，`TypeLowering`、`ItemSignatures`、`TypeNormalization`及非signature `TypeResolution`仍须按同一“语义payload先拆、diagnostic handle再接入report”规则迁移，禁止为旧`Vec`添加getter或forwarding wrapper。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

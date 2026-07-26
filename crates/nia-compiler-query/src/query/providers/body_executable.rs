@@ -2102,6 +2102,7 @@ fn checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(Arc::clone(&body_check.diagnostics)),
+        frontend_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
 }
 
@@ -2150,6 +2151,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(body_check.diagnostics),
+        frontend_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
 }
 
@@ -2159,7 +2161,7 @@ pub(super) fn executable_signature_checked_module(
     layouts: Arc<nia_layout::Layouts>,
     program_signatures: &ProgramExecutableNonFunctionSignatures,
 ) -> QueryResult<CheckedModule> {
-    let type_resolution = db.get(SignatureTypeResolutionQuery(
+    let signature_type_resolution = db.get(SignatureTypeResolutionQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ))?;
@@ -2190,7 +2192,7 @@ pub(super) fn executable_signature_checked_module(
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
         defs: db.get(ModuleDefsQuery(module_id))?,
-        type_resolution,
+        type_resolution: Arc::clone(&signature_type_resolution.semantic),
         type_lowering,
         value_resolution: Arc::new(ValueResolution::with_store(db.context().node_store())),
         local_resolution: Arc::new(nia_local_resolve::LocalResolution::with_store(
@@ -2227,6 +2229,7 @@ pub(super) fn executable_signature_checked_module(
         executable_reachable_unions: None,
         executable_type_only: true,
         body_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        frontend_diagnostics: signature_type_resolution.diagnostics.clone(),
     })
 }
 

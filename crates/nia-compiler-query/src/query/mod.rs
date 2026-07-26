@@ -6808,6 +6808,20 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn signature_type_resolution_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main(value: Missing) {}");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let resolution = db.expect_get(SignatureTypeResolutionQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        assert!(resolution.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    }
+
+    #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let fixture = LoadedProgramFixture::new("main.nia", source);
