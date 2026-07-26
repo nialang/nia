@@ -182,7 +182,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )
-            .is_some_and(|signatures| signatures.enums.contains_key(&def_id.def_id))
+            .is_some_and(|signatures| signatures.semantic.enums.contains_key(&def_id.def_id))
     };
     let item_signatures_for_module = |module_id| {
         if use_signature_facts_for(module_id) {

@@ -88,7 +88,7 @@ fn with_signature_const_input<T>(
                     nia_item_tree::SignatureItemSet::Types,
                 )),
             )
-            .is_some_and(|signatures| signatures.enums.contains_key(&def_id.def_id))
+            .is_some_and(|signatures| signatures.semantic.enums.contains_key(&def_id.def_id))
     };
     let item_signatures_for_module = |module_id| {
         capture_query_failure(
@@ -437,6 +437,7 @@ pub(super) fn signature_layouts_for_types(
             )
             .and_then(|signatures| {
                 signatures
+                    .semantic
                     .structs
                     .get(&def_id.def_id)
                     .cloned()
@@ -453,6 +454,7 @@ pub(super) fn signature_layouts_for_types(
             )
             .and_then(|signatures| {
                 signatures
+                    .semantic
                     .unions
                     .get(&def_id.def_id)
                     .cloned()
@@ -469,6 +471,7 @@ pub(super) fn signature_layouts_for_types(
             )
             .and_then(|signatures| {
                 signatures
+                    .semantic
                     .enums
                     .get(&def_id.def_id)
                     .cloned()
@@ -485,6 +488,7 @@ pub(super) fn signature_layouts_for_types(
             )
             .and_then(|signatures| {
                 signatures
+                    .semantic
                     .type_aliases
                     .get(&def_id.def_id)
                     .cloned()
@@ -524,7 +528,7 @@ pub(super) fn signature_layouts_for_types(
             signature_layout_roots(
                 &db.context().type_store,
                 module_id,
-                &item_signatures,
+                &item_signatures.semantic,
                 &program_struct,
                 &program_union,
                 type_lowering
@@ -538,7 +542,7 @@ pub(super) fn signature_layouts_for_types(
             nia_layout::LayoutComputationInput {
                 type_store: &db.context().type_store,
                 defs: &defs,
-                signatures: &item_signatures,
+                signatures: &item_signatures.semantic,
                 root_types: &[],
                 normalized: &type_normalization.normalized,
                 array_lengths: &local_array_lengths,

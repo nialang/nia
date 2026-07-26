@@ -35,7 +35,7 @@ pub(super) fn provide_module_program_signature_facts(
         nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
             module_id,
             type_store: &db.context().type_store,
-            signatures: &signatures,
+            signatures: &signatures.semantic,
         }),
     )
 }
@@ -50,6 +50,7 @@ pub(super) fn provide_module_abi_signature_facts(
     ))?;
     Ok(ModuleAbiSignatureFactsQueryValue {
         structs: signatures
+            .semantic
             .structs
             .iter()
             .map(|(def_id, signature)| {
@@ -63,6 +64,7 @@ pub(super) fn provide_module_abi_signature_facts(
             })
             .collect(),
         unions: signatures
+            .semantic
             .unions
             .iter()
             .map(|(def_id, signature)| {
@@ -76,6 +78,7 @@ pub(super) fn provide_module_abi_signature_facts(
             })
             .collect(),
         enums: signatures
+            .semantic
             .enums
             .iter()
             .map(|(def_id, signature)| {

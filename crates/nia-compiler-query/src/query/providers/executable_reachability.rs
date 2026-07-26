@@ -342,7 +342,7 @@ fn executable_check_in_session(
                 nia_item_tree::SignatureItemSet::Functions,
             )),
         )?;
-        let signature = signatures.functions.get(&def_id.def_id).cloned()?;
+        let signature = signatures.semantic.functions.get(&def_id.def_id).cloned()?;
         let defs =
             capture_query_failure(&query_failure, db.get(ModuleDefsQuery(def_id.module_id)))?;
         let signature = ProgramFunctionSignature {
@@ -368,6 +368,7 @@ fn executable_check_in_session(
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )?
+        .semantic
         .structs
         .get(&def_id.def_id)
         .cloned()
@@ -381,6 +382,7 @@ fn executable_check_in_session(
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )?
+        .semantic
         .unions
         .get(&def_id.def_id)
         .cloned()
@@ -394,6 +396,7 @@ fn executable_check_in_session(
                 nia_item_tree::SignatureItemSet::Traits,
             )),
         )?
+        .semantic
         .traits
         .get(&def_id.def_id)
         .cloned()
@@ -408,6 +411,7 @@ fn executable_check_in_session(
             )),
         )?;
         signatures
+            .semantic
             .traits
             .iter()
             .find_map(|(trait_def_id, signature)| {

@@ -14,6 +14,12 @@ pub(super) struct SignatureTypeLowering {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct SignatureItemSignatures {
+    pub(super) semantic: Arc<ItemSignatures>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -59,7 +65,10 @@ pub(super) fn signature_item_signatures_semantic(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<Arc<ItemSignatures>> {
-    db.get(SignatureItemSignaturesQuery(module_id, set))
+    Ok(Arc::clone(
+        &db.get(SignatureItemSignaturesQuery(module_id, set))?
+            .semantic,
+    ))
 }
 
 pub(super) fn synthetic_diagnostic_path() -> SourcePath {

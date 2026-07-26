@@ -186,7 +186,7 @@ pub(super) struct SignatureItemSignaturesQuery(
 );
 
 impl QueryKey<CompilerContext> for SignatureItemSignaturesQuery {
-    type Value = ItemSignatures;
+    type Value = SignatureItemSignatures;
 
     fn name() -> &'static str {
         "signature_item_signatures"
