@@ -6822,6 +6822,29 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn signature_type_lowering_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "struct Box[T] { value: T } fn main(value: Box) {}",
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let lowering = db.expect_get(SignatureTypeLoweringQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        assert!(lowering.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &lowering.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("generic argument count mismatch"))
+        );
+    }
+
+    #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let fixture = LoadedProgramFixture::new("main.nia", source);

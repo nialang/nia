@@ -312,7 +312,7 @@ pub(super) struct CompilerQueryProviders {
         &QueryDb<CompilerContext>,
         ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> QueryResult<TypeLowering>,
+    ) -> QueryResult<SignatureTypeLowering>,
     pub(super) signature_const_type_lowering:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
     pub(super) item_signatures:

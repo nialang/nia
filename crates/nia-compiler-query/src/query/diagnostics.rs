@@ -8,6 +8,12 @@ pub(super) struct SignatureTypeResolution {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct SignatureTypeLowering {
+    pub(super) semantic: Arc<TypeLowering>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,

@@ -521,7 +521,7 @@ pub(super) fn provide_signature_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> QueryResult<TypeLowering> {
+) -> QueryResult<SignatureTypeLowering> {
     let program_sources = db.get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
@@ -592,14 +592,17 @@ pub(super) fn provide_signature_type_lowering(
     if let Some(crate::signature_cache::SignatureTypeLoweringLookup::Hit(cached)) = &cached
         && !db.context().verify_frontend_cache
     {
-        return Ok(cached.as_ref().clone());
+        return Ok(SignatureTypeLowering {
+            semantic: Arc::new(cached.as_ref().clone()),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        });
     }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     let type_resolution = db.get(SignatureTypeResolutionQuery(module_id, set))?;
     let query_failure = RefCell::new(None);
     let program_defs =
         |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
-    let lowering =
+    let mut lowering =
         nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
             module_id,
             &active_item_tree,
@@ -612,6 +615,7 @@ pub(super) fn provide_signature_type_lowering(
             )
             .with_symbols(&symbols),
         );
+    let diagnostics = std::mem::take(&mut lowering.diagnostics);
     nia_timing::emit_counter(
         if lowering.const_exprs.is_empty() && lowering.const_expr_summaries.is_empty() {
             "frontend.signature_type_lowering_cacheable"
@@ -634,7 +638,7 @@ pub(super) fn provide_signature_type_lowering(
         if replace {
             cache.remove_type_lowering(key);
         }
-        if lowering.diagnostics.is_empty()
+        if diagnostics.is_empty()
             && lowering.const_exprs.is_empty()
             && lowering.const_expr_summaries.is_empty()
         {
@@ -656,7 +660,10 @@ pub(super) fn provide_signature_type_lowering(
             );
         }
     }
-    Ok(lowering)
+    Ok(SignatureTypeLowering {
+        semantic: Arc::new(lowering),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_signature_const_type_lowering(
@@ -789,14 +796,14 @@ pub(super) fn provide_signature_item_signatures(
         nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
             source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
             defs: &defs,
-            lowered: &type_lowering,
+            lowered: &type_lowering.semantic,
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
         });
     let cacheable = fresh.diagnostics.is_empty()
-        && type_lowering.diagnostics.is_empty()
-        && type_lowering.const_exprs.is_empty()
-        && type_lowering.const_expr_summaries.is_empty();
+        && resolve_diagnostic_bundle(db.context(), &type_lowering.diagnostics).is_empty()
+        && type_lowering.semantic.const_exprs.is_empty()
+        && type_lowering.semantic.const_expr_summaries.is_empty();
     nia_timing::emit_counter(
         if cacheable {
             "frontend.signature_item_signatures_cacheable"
@@ -894,7 +901,7 @@ pub(super) fn provide_signature_type_normalization(
     Ok(normalize_types_in_session_store(
         db,
         module_id,
-        &type_lowering,
+        &type_lowering.semantic,
         &item_signatures,
     ))
 }
