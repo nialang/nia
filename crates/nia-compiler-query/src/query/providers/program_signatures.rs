@@ -5,11 +5,11 @@ pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<StableModuleSequence> {
-    let semantic_modules = db.try_get(SemanticModuleIdsQuery)?;
+    let semantic_modules = db.get(SemanticModuleIdsQuery)?;
     let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &semantic_modules)?;
     let mut eligible = Vec::new();
     for module_id in module_ids {
-        if *db.try_get(ProgramSignatureModuleEligibilityQuery(module_id, set))? {
+        if *db.get(ProgramSignatureModuleEligibilityQuery(module_id, set))? {
             eligible.push(module_id);
         }
     }
@@ -21,7 +21,7 @@ pub(super) fn provide_program_signature_module_eligibility(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<bool> {
-    let tree = db.try_get(SignatureItemTreeQuery(module_id, set))?;
+    let tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     Ok(nia_program_signatures::signature_tree_has_program_signature_facts(&tree, set))
 }
 
@@ -30,7 +30,7 @@ pub(super) fn provide_module_program_signature_facts(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<ModuleProgramSignatureFactsValue> {
-    let signatures = db.try_get(SignatureItemSignaturesQuery(module_id, set))?;
+    let signatures = db.get(SignatureItemSignaturesQuery(module_id, set))?;
     Ok(
         nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
             module_id,
@@ -44,7 +44,7 @@ pub(super) fn provide_module_abi_signature_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ModuleAbiSignatureFactsValue> {
-    let signatures = db.try_get(SignatureItemSignaturesQuery(
+    let signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ))?;
@@ -95,11 +95,11 @@ pub(super) fn program_signature_facts(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<Vec<Arc<ModuleProgramSignatureFactsValue>>> {
-    let module_sequence = db.try_get(ProgramSignatureModuleIdsQuery(set))?;
+    let module_sequence = db.get(ProgramSignatureModuleIdsQuery(set))?;
     let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
     module_ids
         .into_iter()
-        .map(|module_id| db.try_get(ModuleProgramSignatureFactsQuery(module_id, set)))
+        .map(|module_id| db.get(ModuleProgramSignatureFactsQuery(module_id, set)))
         .collect()
 }
 
@@ -260,7 +260,7 @@ pub(super) fn executable_program_functions_for_modules(
     module_ids
         .into_iter()
         .map(|module_id| {
-            let lowered = db.try_get(TypeLoweringQuery(module_id))?;
+            let lowered = db.get(TypeLoweringQuery(module_id))?;
             let signatures = body_local_item_signatures(db, module_id, &lowered)?;
             Ok(signatures
                 .functions
@@ -280,13 +280,13 @@ pub(super) fn provide_program_abi_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ProgramAbiSignaturesValue> {
     time_provider(db.context().timings(), "program_abi_signatures", || {
-        let module_sequence = db.try_get(ProgramSignatureModuleIdsQuery(
+        let module_sequence = db.get(ProgramSignatureModuleIdsQuery(
             nia_item_tree::SignatureItemSet::Types,
         ))?;
         let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
         let facts = module_ids
             .into_iter()
-            .map(|module_id| db.try_get(ModuleAbiSignatureFactsQuery(module_id)))
+            .map(|module_id| db.get(ModuleAbiSignatureFactsQuery(module_id)))
             .collect::<QueryResult<Vec<_>>>()?;
         let mut structs = HashMap::new();
         let mut unions = HashMap::new();

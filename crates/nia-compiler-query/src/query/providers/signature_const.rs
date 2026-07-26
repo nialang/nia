@@ -15,14 +15,14 @@ fn with_signature_const_input<T>(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> QueryResult<T> {
-    let module = db.try_get(SignatureConstModuleQuery(module_id))?;
-    let active_item_tree = db.try_get(SignatureConstItemTreeQuery(module_id))?;
-    let defs = db.try_get(ModuleDefsQuery(module_id))?;
-    let type_lowering = db.try_get(SignatureConstTypeLoweringQuery(module_id))?;
+    let module = db.get(SignatureConstModuleQuery(module_id))?;
+    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
+    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let values = signature_const_value_resolution(db, module_id, &active_item_tree)?;
     let locals = empty_local_resolution(db.context().node_store());
-    let type_resolution = db.try_get(SignatureConstTypeResolutionQuery(module_id))?;
-    let type_normalization = db.try_get(SignatureConstTypeNormalizationQuery(module_id))?;
+    let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
+    let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id))?;
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         db.context().node_store(),
         &db.context().type_store,
@@ -32,33 +32,30 @@ fn with_signature_const_input<T>(
         &type_resolution,
         &type_lowering,
     );
-    let signatures = db.try_get(SignatureConstItemSignaturesQuery(module_id))?;
-    let source_path = db.try_get(ModulePathQuery(module_id))?;
+    let signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
+    let source_path = db.get(ModulePathQuery(module_id))?;
     let query_failure = RefCell::new(None);
     let program_module = |module_id| {
-        capture_query_failure(
-            &query_failure,
-            db.try_get(SignatureConstModuleQuery(module_id)),
-        )
-        .map(|module| Arc::clone(&module.module))
+        capture_query_failure(&query_failure, db.get(SignatureConstModuleQuery(module_id)))
+            .map(|module| Arc::clone(&module.module))
     };
     let program_source_path = |module_id| {
-        capture_query_failure(&query_failure, db.try_get(ModulePathQuery(module_id)))
+        capture_query_failure(&query_failure, db.get(ModulePathQuery(module_id)))
             .map(|path| path.as_ref().clone())
     };
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.try_get(SignatureTypeNormalizationQuery(
+            db.get(SignatureTypeNormalizationQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )),
         )
     };
     let local_trait_impls = if non_function_signatures_override.is_none() {
-        Some(db.try_get(VisibleTraitImplsQuery(module_id))?)
+        Some(db.get(VisibleTraitImplsQuery(module_id))?)
     } else {
         None
     };
@@ -77,7 +74,7 @@ fn with_signature_const_input<T>(
         }
         capture_query_failure(
             &query_failure,
-            db.try_get(VisibleTraitImplsQuery(requested_module_id)),
+            db.get(VisibleTraitImplsQuery(requested_module_id)),
         )
         .map(|signatures| signatures.trait_impls.clone())
     };
@@ -86,7 +83,7 @@ fn with_signature_const_input<T>(
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || capture_query_failure(
                 &query_failure,
-                db.try_get(SignatureItemSignaturesQuery(
+                db.get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 )),
@@ -96,7 +93,7 @@ fn with_signature_const_input<T>(
     let item_signatures_for_module = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.try_get(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )),
@@ -105,24 +102,24 @@ fn with_signature_const_input<T>(
     let value_signatures_for_module = |module_id| {
         capture_query_failure(
             &query_failure,
-            db.try_get(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Values,
             )),
         )
     };
-    let local_visible_extensions = db.try_get(VisibleExtensionsQuery(module_id))?;
+    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id))?;
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return Some(local_visible_extensions.methods.clone());
         }
         capture_query_failure(
             &query_failure,
-            db.try_get(VisibleExtensionsQuery(requested_module_id)),
+            db.get(VisibleExtensionsQuery(requested_module_id)),
         )
         .map(|extensions| extensions.methods.clone())
     };
-    let target = db.try_get(CompilerTargetQuery)?;
+    let target = db.get(CompilerTargetQuery)?;
     let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
@@ -162,12 +159,12 @@ pub(super) fn provide_signature_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ConstModuleLowering> {
-    let active_item_tree = db.try_get(SignatureConstItemTreeQuery(module_id))?;
-    let defs = db.try_get(ModuleDefsQuery(module_id))?;
-    let type_lowering = db.try_get(SignatureConstTypeLoweringQuery(module_id))?;
+    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
+    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let values = signature_const_value_resolution(db, module_id, &active_item_tree)?;
     let locals = empty_local_resolution(db.context().node_store());
-    let type_resolution = db.try_get(SignatureConstTypeResolutionQuery(module_id))?;
+    let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         db.context().node_store(),
         &db.context().type_store,
@@ -177,8 +174,8 @@ pub(super) fn provide_signature_const_module(
         &type_resolution,
         &type_lowering,
     );
-    let signatures = db.try_get(SignatureConstItemSignaturesQuery(module_id))?;
-    let source_path = db.try_get(ModulePathQuery(module_id))?;
+    let signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
+    let source_path = db.get(ModulePathQuery(module_id))?;
     let symbols = db.context().symbols();
     Ok(nia_const_check::lower_module_const(
         nia_const_check::ConstModuleInput {
@@ -199,7 +196,7 @@ pub(super) fn signature_const_module_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<Arc<ConstModuleLowering>> {
-    db.try_get(SignatureConstModuleQuery(module_id))
+    db.get(SignatureConstModuleQuery(module_id))
 }
 
 pub(super) fn signature_const_array_lengths(
@@ -255,7 +252,7 @@ fn signature_const_value_resolution(
     module_id: ModuleId,
     active_item_tree: &ActiveModuleItemTree,
 ) -> QueryResult<ValueResolution> {
-    let type_lowering = db.try_get(SignatureConstTypeLoweringQuery(module_id))?;
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
         &db.context().type_store,
         active_item_tree,
@@ -274,16 +271,16 @@ fn signature_const_value_resolution(
     if exprs.is_empty() && !has_const_provider_values {
         return Ok(empty_value_resolution(db.context().node_store()));
     }
-    let defs = db.try_get(ModuleDefsQuery(module_id))?;
-    let public_surfaces = db.try_get(PublicSurfacesQuery)?;
-    let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
-    let graph = db.try_get(ModuleGraphQuery)?;
-    let visible_extensions = || db.try_get(VisibleExtensionsQuery(module_id));
+    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let public_surfaces = db.get(PublicSurfacesQuery)?;
+    let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+    let graph = db.get(ModuleGraphQuery)?;
+    let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
     let associated_values =
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let query_failure = RefCell::new(None);
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     let values =
         nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
@@ -410,20 +407,20 @@ pub(super) fn signature_layouts_for_types(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "signature_layouts", module_id, || {
-        let defs = db.try_get(ModuleDefsQuery(module_id))?;
-        let active_item_tree = db.try_get(SignatureItemTreeQuery(
+        let defs = db.get(ModuleDefsQuery(module_id))?;
+        let active_item_tree = db.get(SignatureItemTreeQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))?;
-        let type_lowering = db.try_get(SignatureTypeLoweringQuery(
+        let type_lowering = db.get(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))?;
-        let type_normalization = db.try_get(SignatureTypeNormalizationQuery(
+        let type_normalization = db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))?;
-        let item_signatures = db.try_get(SignatureItemSignaturesQuery(
+        let item_signatures = db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))?;
@@ -431,7 +428,7 @@ pub(super) fn signature_layouts_for_types(
         let program_struct = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
-                db.try_get(SignatureItemSignaturesQuery(
+                db.get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 )),
@@ -447,7 +444,7 @@ pub(super) fn signature_layouts_for_types(
         let program_union = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
-                db.try_get(SignatureItemSignaturesQuery(
+                db.get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 )),
@@ -463,7 +460,7 @@ pub(super) fn signature_layouts_for_types(
         let program_enum = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
-                db.try_get(SignatureItemSignaturesQuery(
+                db.get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 )),
@@ -479,7 +476,7 @@ pub(super) fn signature_layouts_for_types(
         let program_type_alias = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
-                db.try_get(SignatureItemSignaturesQuery(
+                db.get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 )),

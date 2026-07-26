@@ -87,7 +87,7 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
         capture_query_failure(
             &self.failure,
-            self.db.try_get(ModulePublicSurfaceQuery(module_id)),
+            self.db.get(ModulePublicSurfaceQuery(module_id)),
         )?
         .as_ref()
         .clone()
@@ -96,7 +96,7 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
         let target = capture_query_failure(
             &self.failure,
-            self.db.try_get(PublicSurfaceModuleQuery(module_id, *name)),
+            self.db.get(PublicSurfaceModuleQuery(module_id, *name)),
         )?;
         let stable_key = target.as_ref().as_ref()?;
         capture_query_failure(
@@ -108,7 +108,7 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
         capture_query_failure(
             &self.failure,
-            self.db.try_get(PublicSurfaceValueQuery(module_id, *name)),
+            self.db.get(PublicSurfaceValueQuery(module_id, *name)),
         )?
         .as_ref()
         .clone()
@@ -117,7 +117,7 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     fn public_type(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
         capture_query_failure(
             &self.failure,
-            self.db.try_get(PublicSurfaceTypeQuery(module_id, *name)),
+            self.db.get(PublicSurfaceTypeQuery(module_id, *name)),
         )?
         .as_ref()
         .clone()
@@ -148,8 +148,7 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     fn using_module(&self, name: &SymbolId) -> Option<ModuleId> {
         let target = capture_query_failure(
             &self.failure,
-            self.db
-                .try_get(UsingScopeModuleQuery(self.module_id, *name)),
+            self.db.get(UsingScopeModuleQuery(self.module_id, *name)),
         )?;
         let stable_key = target.as_ref().as_ref()?;
         capture_query_failure(
@@ -161,7 +160,7 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     fn using_value(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
         capture_query_failure(
             &self.failure,
-            self.db.try_get(UsingScopeValueQuery(self.module_id, *name)),
+            self.db.get(UsingScopeValueQuery(self.module_id, *name)),
         )?
         .as_ref()
         .clone()
@@ -170,7 +169,7 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     fn using_type(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
         capture_query_failure(
             &self.failure,
-            self.db.try_get(UsingScopeTypeQuery(self.module_id, *name)),
+            self.db.get(UsingScopeTypeQuery(self.module_id, *name)),
         )?
         .as_ref()
         .clone()
@@ -180,7 +179,7 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
         capture_query_failure(
             &self.failure,
             self.db
-                .try_get(UsingScopeUnresolvedQuery(self.module_id, *name)),
+                .get(UsingScopeUnresolvedQuery(self.module_id, *name)),
         )
         .is_some_and(|unresolved| *unresolved)
     }
@@ -194,7 +193,7 @@ pub(super) struct QueryModuleGraphLookup<'a> {
 
 impl<'a> QueryModuleGraphLookup<'a> {
     pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> QueryResult<Self> {
-        let stable_key = db.try_get(ModuleGraphEntryQuery)?;
+        let stable_key = db.get(ModuleGraphEntryQuery)?;
         let entry_module = db
             .context()
             .module_id_for_stable_key(&stable_key)?
@@ -217,10 +216,8 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     }
 
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
-        let root = capture_query_failure(
-            &self.failure,
-            self.db.try_get(ModulePackageRootQuery(*package)),
-        )?;
+        let root =
+            capture_query_failure(&self.failure, self.db.get(ModulePackageRootQuery(*package)))?;
         let stable_key = root.as_ref().as_ref()?;
         capture_query_failure(
             &self.failure,
@@ -229,18 +226,15 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     }
 
     fn module_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
-        capture_query_failure(
-            &self.failure,
-            self.db.try_get(ModuleGraphPathQuery(module_id)),
-        )?
-        .as_ref()
-        .clone()
+        capture_query_failure(&self.failure, self.db.get(ModuleGraphPathQuery(module_id)))?
+            .as_ref()
+            .clone()
     }
 
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
         let parent = capture_query_failure(
             &self.failure,
-            self.db.try_get(ModuleGraphParentQuery(module_id)),
+            self.db.get(ModuleGraphParentQuery(module_id)),
         )?;
         let stable_key = parent.as_ref().as_ref()?;
         capture_query_failure(
@@ -256,7 +250,7 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     ) -> Option<(ModuleId, nia_ids::Visibility)> {
         let child = capture_query_failure(
             &self.failure,
-            self.db.try_get(ModuleGraphChildQuery(module_id, *name)),
+            self.db.get(ModuleGraphChildQuery(module_id, *name)),
         )?;
         let (stable_key, visibility) = child.as_ref().as_ref()?;
         capture_query_failure(

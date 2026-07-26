@@ -331,9 +331,7 @@ impl CompilerDatabase {
     }
 
     fn check_program_once(&self) -> QueryResult<CheckedProgramAnalysis> {
-        self.db
-            .try_get(CheckedProgramQuery)
-            .map(Arc::unwrap_or_clone)
+        self.db.get(CheckedProgramQuery).map(Arc::unwrap_or_clone)
     }
 
     pub fn entry_check_program(&self) -> QueryResult<CheckedProgram> {
@@ -351,7 +349,7 @@ impl CompilerDatabase {
 
     fn entry_check_program_once(&self) -> QueryResult<CheckedProgramAnalysis> {
         self.db
-            .try_get(EntryCheckedProgramQuery)
+            .get(EntryCheckedProgramQuery)
             .map(Arc::unwrap_or_clone)
     }
 
@@ -422,11 +420,11 @@ impl CompilerDatabase {
         &self,
         scope: FrontendCheckScope,
     ) -> QueryResult<Option<CheckCertificateContext>> {
-        let program_sources = self.db.try_get(FrontendProgramSourcesQuery)?;
+        let program_sources = self.db.get(FrontendProgramSourcesQuery)?;
         let Some(program_sources) = program_sources.as_ref().as_ref() else {
             return Ok(None);
         };
-        let graph = self.db.try_get(ModuleGraphQuery)?;
+        let graph = self.db.get(ModuleGraphQuery)?;
         let Some(entry) = graph.stable_key(graph.entry()).cloned() else {
             return Ok(None);
         };
@@ -449,13 +447,13 @@ impl CompilerDatabase {
 
     fn executable_provider_demands(&self) -> QueryResult<Vec<crate::ProviderDemand>> {
         self.db
-            .try_get(ExecutableProviderDemandsQuery)
+            .get(ExecutableProviderDemandsQuery)
             .map(Arc::unwrap_or_clone)
     }
 
     pub fn provider_fact_revision(&self) -> QueryResult<crate::ProviderFactRevision> {
         self.db
-            .try_get(ProviderFactRevisionQuery)
+            .get(ProviderFactRevisionQuery)
             .map(|revision| *revision)
     }
 
@@ -485,14 +483,12 @@ impl CompilerDatabase {
 
     fn codegen_preparation_once(&self) -> QueryResult<CodegenPreparation> {
         self.db
-            .try_get(CodegenPreparationQuery)
+            .get(CodegenPreparationQuery)
             .map(Arc::unwrap_or_clone)
     }
 
     fn codegen_program_once(&self) -> QueryResult<CodegenProgram> {
-        self.db
-            .try_get(CodegenProgramQuery)
-            .map(Arc::unwrap_or_clone)
+        self.db.get(CodegenProgramQuery).map(Arc::unwrap_or_clone)
     }
 
     fn settle_provider_worklist<T>(
@@ -865,7 +861,7 @@ fn resolve_stable_module_sequence(
     db: &QueryDb<CompilerContext>,
     sequence: &StableModuleSequence,
 ) -> QueryResult<Vec<ModuleId>> {
-    let _graph = db.try_get(ModuleGraphQuery)?;
+    let _graph = db.get(ModuleGraphQuery)?;
     db.context().resolve_stable_module_sequence(sequence)
 }
 
@@ -1184,15 +1180,15 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
     ) -> QueryResult<Option<FrontendProgramSources>> {
-        let modules = db.try_get(LoadedModulesQuery)?;
+        let modules = db.get(LoadedModulesQuery)?;
         let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &modules)?;
         let mut by_module = HashMap::new();
         let mut module_by_path = HashMap::new();
         let mut path_by_module = HashMap::new();
         let mut fingerprint_inputs = Vec::new();
         for module_id in module_ids {
-            let path = db.try_get(ModulePathQuery(module_id))?;
-            let version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
+            let path = db.get(ModulePathQuery(module_id))?;
+            let version = *db.get(ModuleSourceVersionQuery(module_id))?;
             let Some((source, len)) = self.loader_facts.module_source_fingerprint(module_id)?
             else {
                 return Ok(None);
@@ -1512,6 +1508,21 @@ mod tests {
     use nia_symbol::{SymbolId, stable_hash};
     use std::ops::Deref;
 
+    trait QueryDbTestExt<C> {
+        fn expect_get<K>(&self, key: K) -> Arc<K::Value>
+        where
+            K: QueryKey<C>;
+    }
+
+    impl<C> QueryDbTestExt<C> for QueryDb<C> {
+        fn expect_get<K>(&self, key: K) -> Arc<K::Value>
+        where
+            K: QueryKey<C>,
+        {
+            self.get(key).expect("test query must succeed")
+        }
+    }
+
     thread_local! {
         static TEST_SYMBOLS: nia_symbol_table::SymbolTable = nia_symbol_table::SymbolTable::new();
     }
@@ -1629,7 +1640,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestLoaderContext>) -> QueryResult<Self::Value> {
-            let program = db.get(TestLoadedProgramQuery);
+            let program = db.get(TestLoadedProgramQuery)?;
             let module = |module_id| program.modules.iter().find(|module| module.id == module_id);
             Ok(match self.0 {
                 TestLoaderFactKey::Graph => Self::Value::Graph(program.graph.clone()),
@@ -1712,11 +1723,11 @@ mod tests {
         }
 
         fn program(&self) -> Arc<LoadedProgram> {
-            self.db.get(TestLoadedProgramQuery)
+            self.db.expect_get(TestLoadedProgramQuery)
         }
 
         fn fact(&self, key: TestLoaderFactKey) -> Arc<TestLoaderFactValue> {
-            self.db.get(TestLoaderFactQuery(key))
+            self.db.expect_get(TestLoaderFactQuery(key))
         }
 
         fn replace_program(&self, program: LoadedProgram) -> nia_query::QueryInvalidation {
@@ -1759,7 +1770,7 @@ mod tests {
         }
 
         fn provider_facts(&self) -> QueryResult<crate::ProviderFactSnapshot> {
-            Ok(self.db.get(TestProviderFactsQuery).as_ref().clone())
+            Ok(self.db.get(TestProviderFactsQuery)?.as_ref().clone())
         }
 
         fn update_provider_demands(
@@ -2677,19 +2688,19 @@ pub fn expensive_or_invalid() i32 {
         let db = query_db(fixture.program());
 
         assert_eq!(
-            resolve_stable_module_sequence(&db, &db.get(ParseOkModuleIdsQuery))
+            resolve_stable_module_sequence(&db, &db.expect_get(ParseOkModuleIdsQuery))
                 .expect("parse-ok module sequence")
                 .as_slice(),
             &[entry_id, facade_id]
         );
         assert_eq!(
-            resolve_stable_module_sequence(&db, &db.get(SemanticModuleIdsQuery))
+            resolve_stable_module_sequence(&db, &db.expect_get(SemanticModuleIdsQuery))
                 .expect("semantic module sequence")
                 .as_slice(),
             &[entry_id]
         );
 
-        assert_eq!(db.get(CheckedModuleIdsQuery).as_slice(), &[entry_id]);
+        assert_eq!(db.expect_get(CheckedModuleIdsQuery).as_slice(), &[entry_id]);
     }
 
     #[test]
@@ -2713,11 +2724,11 @@ pub fn expensive_or_invalid() i32 {
         let package_id =
             fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
         let database = fixture.database();
-        let first = database.db.get(LoadedModulesQuery);
+        let first = database.db.expect_get(LoadedModulesQuery);
         let mut reordered = fixture.program();
         reordered.modules.reverse();
         database.update(CompileRequest::new(reordered));
-        let latest = database.db.get(LoadedModulesQuery);
+        let latest = database.db.expect_get(LoadedModulesQuery);
         assert!(!Arc::ptr_eq(&first, &latest));
         assert_eq!(
             resolve_stable_module_sequence(&database.db, &latest)
@@ -2731,7 +2742,7 @@ pub fn expensive_or_invalid() i32 {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
         let database = fixture.database();
-        let first = database.db.get(ExecutableFactEpochQuery);
+        let first = database.db.expect_get(ExecutableFactEpochQuery);
         fixture.add_child(
             entry_id,
             "provider",
@@ -2739,7 +2750,7 @@ pub fn expensive_or_invalid() i32 {
             "pub fn value() i32 { 1 }",
         );
         database.update(CompileRequest::new(fixture.program()));
-        let latest = database.db.get(ExecutableFactEpochQuery);
+        let latest = database.db.expect_get(ExecutableFactEpochQuery);
 
         assert_ne!(first.as_ref(), latest.as_ref());
         assert_eq!(first.modules.len() + 1, latest.modules.len());
@@ -2754,13 +2765,13 @@ pub fn expensive_or_invalid() i32 {
         let new_entry = new_fixture.entry_id();
         assert_ne!(old_entry, new_entry);
         let database = old_fixture.database();
-        let first = database.db.get(ModuleGraphEntryQuery);
-        let first_loaded = database.db.get(LoadedModulesQuery);
+        let first = database.db.expect_get(ModuleGraphEntryQuery);
+        let first_loaded = database.db.expect_get(LoadedModulesQuery);
 
         database.update(CompileRequest::new(new_fixture.program()));
 
-        let latest = database.db.get(ModuleGraphEntryQuery);
-        let latest_loaded = database.db.get(LoadedModulesQuery);
+        let latest = database.db.expect_get(ModuleGraphEntryQuery);
+        let latest_loaded = database.db.expect_get(LoadedModulesQuery);
         assert!(!Arc::ptr_eq(&first, &latest));
         assert_eq!(first.as_ref(), latest.as_ref());
         assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
@@ -2817,17 +2828,29 @@ pub fn expensive_or_invalid() i32 {
         assert_ne!(old_child, new_child);
         assert_ne!(old_root, new_root);
         let database = old_fixture.database();
-        let first_child = database.db.get(ModuleGraphChildQuery(entry, child_name));
-        let first_root = database.db.get(ModulePackageRootQuery(package));
-        let first_public = database.db.get(PublicSurfaceModuleQuery(entry, child_name));
-        let first_using = database.db.get(UsingScopeModuleQuery(entry, child_name));
+        let first_child = database
+            .db
+            .expect_get(ModuleGraphChildQuery(entry, child_name));
+        let first_root = database.db.expect_get(ModulePackageRootQuery(package));
+        let first_public = database
+            .db
+            .expect_get(PublicSurfaceModuleQuery(entry, child_name));
+        let first_using = database
+            .db
+            .expect_get(UsingScopeModuleQuery(entry, child_name));
 
         database.update(CompileRequest::new(new_fixture.program()));
 
-        let latest_child = database.db.get(ModuleGraphChildQuery(entry, child_name));
-        let latest_root = database.db.get(ModulePackageRootQuery(package));
-        let latest_public = database.db.get(PublicSurfaceModuleQuery(entry, child_name));
-        let latest_using = database.db.get(UsingScopeModuleQuery(entry, child_name));
+        let latest_child = database
+            .db
+            .expect_get(ModuleGraphChildQuery(entry, child_name));
+        let latest_root = database.db.expect_get(ModulePackageRootQuery(package));
+        let latest_public = database
+            .db
+            .expect_get(PublicSurfaceModuleQuery(entry, child_name));
+        let latest_using = database
+            .db
+            .expect_get(UsingScopeModuleQuery(entry, child_name));
         assert!(!Arc::ptr_eq(&first_child, &latest_child));
         assert!(!Arc::ptr_eq(&first_root, &latest_root));
         assert_eq!(first_child.as_ref(), latest_child.as_ref());
@@ -2871,10 +2894,10 @@ pub fn expensive_or_invalid() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-        let first_loaded = database.db.get(LoadedModulesQuery);
+        let first_loaded = database.db.expect_get(LoadedModulesQuery);
 
         database.update(CompileRequest::new(new_program));
-        let latest_loaded = database.db.get(LoadedModulesQuery);
+        let latest_loaded = database.db.expect_get(LoadedModulesQuery);
         assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
         assert_eq!(
             resolve_stable_module_sequence(&database.db, &latest_loaded)
@@ -2895,11 +2918,11 @@ pub fn expensive_or_invalid() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-        let first_source_version = database.db.get(ModuleSourceVersionQuery(module_id));
+        let first_source_version = database.db.expect_get(ModuleSourceVersionQuery(module_id));
 
         fixture.update_module_source(module_id, "fn main() i32 { true }", SourceRevision(1));
         database.update(CompileRequest::new(fixture.program()));
-        let latest_source_version = database.db.get(ModuleSourceVersionQuery(module_id));
+        let latest_source_version = database.db.expect_get(ModuleSourceVersionQuery(module_id));
         assert!(!Arc::ptr_eq(&first_source_version, &latest_source_version));
         assert_eq!(latest_source_version.revision, SourceRevision(1));
 
@@ -2923,7 +2946,7 @@ pub fn expensive_or_invalid() i32 {
         let mut fixture = LoadedProgramFixture::new("main.nia", source);
         let module_id = fixture.entry_id();
         let database = fixture.database();
-        let first = database.db.get(ModuleSourceVersionQuery(module_id));
+        let first = database.db.expect_get(ModuleSourceVersionQuery(module_id));
         let replacement = SourceVersion {
             id: SourceId(first.id.0 + 1),
             revision: first.revision,
@@ -2932,7 +2955,7 @@ pub fn expensive_or_invalid() i32 {
             loaded_module_with_source_version(module_id, "main.nia", source, replacement);
 
         database.update(CompileRequest::new(fixture.program()));
-        let latest = database.db.get(ModuleSourceVersionQuery(module_id));
+        let latest = database.db.expect_get(ModuleSourceVersionQuery(module_id));
 
         assert!(!Arc::ptr_eq(&first, &latest));
         assert_eq!(*latest, replacement);
@@ -2982,10 +3005,10 @@ pub fn expensive_or_invalid() i32 {
         let loaded = fixture.program();
         let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
         assert_eq!(
-            database.db.get(ExecutableRootModulesQuery).as_ref(),
+            database.db.expect_get(ExecutableRootModulesQuery).as_ref(),
             &(entry_id, Vec::new())
         );
-        let _ = database.db.get(TypeResolutionQuery(entry_id));
+        let _ = database.db.expect_get(TypeResolutionQuery(entry_id));
 
         let mut grown = loaded;
         let mut graph = (*grown.graph).clone();
@@ -2994,7 +3017,7 @@ pub fn expensive_or_invalid() i32 {
         let before_update = database.query_trace();
         database.update(CompileRequest::new(grown));
         assert_eq!(
-            database.db.get(ExecutableRootModulesQuery).as_ref(),
+            database.db.expect_get(ExecutableRootModulesQuery).as_ref(),
             &(entry_id, Vec::new())
         );
         let after_update = database.query_trace();
@@ -3108,7 +3131,7 @@ pub fn expensive_or_invalid() i32 {
             assert!(session.modules.contains_key(&entry_id));
             assert_eq!(session.applied_provider_fact_revision, Some(revision));
         }
-        let worklist = database.db.get(ProviderFactWorklistQuery);
+        let worklist = database.db.expect_get(ProviderFactWorklistQuery);
         let mut session = database
             .db
             .context()
@@ -3233,7 +3256,7 @@ pub fn expensive_or_invalid() i32 {
         assert_eq!(std::mem::size_of::<ExecutableFactEpochQuery>(), 0);
 
         let _ = database.executable_provider_demands();
-        let modules = database.db.get(ExecutableCheckedModulesQuery);
+        let modules = database.db.expect_get(ExecutableCheckedModulesQuery);
         assert!(!modules.is_empty());
         assert_eq!(
             database.provider_fact_revision().expect("revision"),
@@ -3283,8 +3306,8 @@ pub fn expensive_or_invalid() i32 {
         let db = query_db(program);
 
         let (_demands, modules) = std::thread::scope(|scope| {
-            let demands = scope.spawn(|| db.get(ExecutableProviderDemandsQuery));
-            let modules = scope.spawn(|| db.get(ExecutableCheckedModulesQuery));
+            let demands = scope.spawn(|| db.expect_get(ExecutableProviderDemandsQuery));
+            let modules = scope.spawn(|| db.expect_get(ExecutableCheckedModulesQuery));
             (
                 demands.join().expect("provider demand query thread"),
                 modules.join().expect("checked modules query thread"),
@@ -3338,8 +3361,8 @@ pub fn expensive_or_invalid() i32 {
     fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let database = fixture.database();
-        let first_epoch = database.db.get(ExecutableFactEpochQuery);
-        let _ = database.db.get(ExecutableCheckedModulesQuery);
+        let first_epoch = database.db.expect_get(ExecutableFactEpochQuery);
+        let _ = database.db.expect_get(ExecutableCheckedModulesQuery);
         let _ = database.executable_provider_demands();
         let sentinel = crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -3374,7 +3397,7 @@ pub fn expensive_or_invalid() i32 {
         }
 
         let _ = database.executable_provider_demands();
-        let latest_epoch = database.db.get(ExecutableFactEpochQuery);
+        let latest_epoch = database.db.expect_get(ExecutableFactEpochQuery);
         let session = database
             .db
             .context()
@@ -3394,7 +3417,7 @@ pub fn expensive_or_invalid() i32 {
         program.provider_fact_revision = revision;
         let database = CompilerDatabase::new(CompileRequest::new(program));
         let _ = database.executable_provider_demands();
-        let first_set = database.db.get(ExecutableCheckedModulesQuery);
+        let first_set = database.db.expect_get(ExecutableCheckedModulesQuery);
         assert_eq!(
             database.provider_fact_revision().expect("revision"),
             revision
@@ -3435,7 +3458,7 @@ pub fn expensive_or_invalid() i32 {
             .expect("provider fact revision query trace");
         assert_eq!(revision_query.stats.validations, 1);
         assert_eq!(revision_query.stats.green_validations, 0);
-        let second_set = database.db.get(ExecutableCheckedModulesQuery);
+        let second_set = database.db.expect_get(ExecutableCheckedModulesQuery);
         assert!(!Arc::ptr_eq(&first_set, &second_set));
         assert!(!second_set.is_empty());
     }
@@ -3474,7 +3497,7 @@ pub fn expensive_or_invalid() i32 {
             [first_demand.clone(), second_demand.clone()],
         ));
 
-        let worklist = database.db.get(ProviderFactWorklistQuery);
+        let worklist = database.db.expect_get(ProviderFactWorklistQuery);
         let expected_changes = HashSet::from([first_demand, second_demand]);
         assert_eq!(worklist.revision(), second_revision);
         assert_eq!(worklist.demands(), &expected_changes);
@@ -3493,7 +3516,7 @@ pub fn expensive_or_invalid() i32 {
             reset_revision,
             std::iter::empty(),
         ));
-        let reset = database.db.get(ProviderFactWorklistQuery);
+        let reset = database.db.expect_get(ProviderFactWorklistQuery);
         assert_eq!(reset.revision(), reset_revision);
         assert!(reset.demands().is_empty());
     }
@@ -3563,7 +3586,7 @@ pub fn expensive_or_invalid() i32 {
         assert!(fixture.graph.mark_process_used_paths(second_module));
         database.update(CompileRequest::new(fixture.program()));
 
-        let worklist = database.db.get(BodyActivationWorklistQuery);
+        let worklist = database.db.expect_get(BodyActivationWorklistQuery);
         let expected = HashMap::from([
             (
                 fixture
@@ -3612,7 +3635,7 @@ pub fn expensive_or_invalid() i32 {
         let mut program = fixture.program();
         program.provider_fact_revision = revision;
         let database = CompilerDatabase::new(CompileRequest::new(program));
-        let first_set = database.db.get(ExecutableCheckedModulesQuery);
+        let first_set = database.db.expect_get(ExecutableCheckedModulesQuery);
         let _ = database.executable_provider_demands();
         let before_update = database.query_trace();
 
@@ -3625,7 +3648,7 @@ pub fn expensive_or_invalid() i32 {
             "{:?}",
             invalidation.invalidated
         );
-        let second_set = database.db.get(ExecutableCheckedModulesQuery);
+        let second_set = database.db.expect_get(ExecutableCheckedModulesQuery);
         let _ = database.executable_provider_demands();
         assert!(Arc::ptr_eq(&first_set, &second_set));
         assert!(!second_set.is_empty());
@@ -3788,7 +3811,7 @@ pub fn expensive_or_invalid() i32 {
             revision,
             provider_changes,
         ));
-        let worklist = database.db.get(ProviderFactWorklistQuery);
+        let worklist = database.db.expect_get(ProviderFactWorklistQuery);
 
         let mut session = database
             .db
@@ -3825,8 +3848,8 @@ pub fn expensive_or_invalid() i32 {
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
         let first_tree = database
             .db
-            .get(DeclarationModuleItemTreeInputQuery(module_id));
-        let first_defs = database.db.get(ModuleDefsQuery(module_id));
+            .expect_get(DeclarationModuleItemTreeInputQuery(module_id));
+        let first_defs = database.db.expect_get(ModuleDefsQuery(module_id));
         assert!(
             first_tree
                 .items
@@ -3848,8 +3871,8 @@ pub fn expensive_or_invalid() i32 {
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         let latest_tree = database
             .db
-            .get(DeclarationModuleItemTreeInputQuery(module_id));
-        let latest_defs = database.db.get(ModuleDefsQuery(module_id));
+            .expect_get(DeclarationModuleItemTreeInputQuery(module_id));
+        let latest_defs = database.db.expect_get(ModuleDefsQuery(module_id));
         let after_second_check = database.query_trace();
 
         assert!(!Arc::ptr_eq(&first_tree, &latest_tree));
@@ -3881,7 +3904,7 @@ pub fn expensive_or_invalid() i32 {
         let mut fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
         let module_id = fixture.entry_id();
         let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
-        let first_lowering = database.db.get(TypeLoweringQuery(module_id));
+        let first_lowering = database.db.expect_get(TypeLoweringQuery(module_id));
         let type_store = &database.db.context().type_store;
         let first_i32 = type_store
             .append_for_module(module_id)
@@ -3899,7 +3922,7 @@ pub fn expensive_or_invalid() i32 {
             SourceRevision(1),
         );
         database.update(CompileRequest::new(fixture.program()));
-        let second_lowering = database.db.get(TypeLoweringQuery(module_id));
+        let second_lowering = database.db.expect_get(TypeLoweringQuery(module_id));
 
         assert_eq!(
             type_store.get(first_i32),
@@ -3925,8 +3948,8 @@ pub fn expensive_or_invalid() i32 {
         );
         let module_id = fixture.entry_id();
         let database = fixture.database();
-        let lowering = database.db.get(TypeLoweringQuery(module_id));
-        let normalization = database.db.get(TypeNormalizationQuery(module_id));
+        let lowering = database.db.expect_get(TypeLoweringQuery(module_id));
+        let normalization = database.db.expect_get(TypeNormalizationQuery(module_id));
         let type_store = &database.db.context().type_store;
 
         for ty_id in lowering.explicit_type_roots() {
@@ -3956,14 +3979,14 @@ fn main() i32 { 0 }
         );
         let module_id = fixture.entry_id();
         let database = fixture.database();
-        let lowering = database.db.get(TypeLoweringQuery(module_id));
-        let _ = database.db.get(TypeNormalizationQuery(module_id));
+        let lowering = database.db.expect_get(TypeLoweringQuery(module_id));
+        let _ = database.db.expect_get(TypeNormalizationQuery(module_id));
 
-        let _ = database.db.get(ConstArrayLengthsQuery(module_id));
-        let _ = database.db.get(ConstEnumValuesQuery(module_id));
-        let values = database.db.get(ConstValuesQuery(module_id));
-        let _ = database.db.get(ConstTypedFactsQuery(module_id));
-        let _ = database.db.get(ConstQuery(module_id));
+        let _ = database.db.expect_get(ConstArrayLengthsQuery(module_id));
+        let _ = database.db.expect_get(ConstEnumValuesQuery(module_id));
+        let values = database.db.expect_get(ConstValuesQuery(module_id));
+        let _ = database.db.expect_get(ConstTypedFactsQuery(module_id));
+        let _ = database.db.expect_get(ConstQuery(module_id));
 
         for ty in lowering.explicit_type_roots() {
             assert!(database.db.context().type_store.get(ty).is_some());
@@ -3995,9 +4018,9 @@ fn main() i32 {
         );
         let module_id = fixture.entry_id();
         let database = fixture.database();
-        let _ = database.db.get(ConstQuery(module_id));
+        let _ = database.db.expect_get(ConstQuery(module_id));
 
-        let body = database.db.get(BodyCheckQuery(module_id));
+        let body = database.db.expect_get(BodyCheckQuery(module_id));
 
         assert!(body.facts.function_facts.values().any(|facts| {
             facts.local_types.values().any(|ty| {
@@ -4026,12 +4049,12 @@ fn main() i32 {
                 nia_item_tree::SignatureItemSet::Functions,
             );
             let (signature, full) = if signature_first {
-                let signature = database.db.get(signature_key);
-                let full = database.db.get(TypeNormalizationQuery(module_id));
+                let signature = database.db.expect_get(signature_key);
+                let full = database.db.expect_get(TypeNormalizationQuery(module_id));
                 (signature, full)
             } else {
-                let full = database.db.get(TypeNormalizationQuery(module_id));
-                let signature = database.db.get(signature_key);
+                let full = database.db.expect_get(TypeNormalizationQuery(module_id));
+                let signature = database.db.expect_get(signature_key);
                 (signature, full)
             };
 
@@ -4067,8 +4090,8 @@ fn main() i32 {
         let second_module_id = second_fixture.entry_id();
         let first = first_fixture.database();
         let second = second_fixture.database();
-        let _ = first.db.get(TypeLoweringQuery(first_module_id));
-        let _ = second.db.get(TypeLoweringQuery(second_module_id));
+        let _ = first.db.expect_get(TypeLoweringQuery(first_module_id));
+        let _ = second.db.expect_get(TypeLoweringQuery(second_module_id));
         let first_store = &first.db.context().type_store;
         let second_store = &second.db.context().type_store;
         let first_i32 = first_store
@@ -4154,7 +4177,7 @@ fn main() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-        let first_using_scope = database.db.get(ModuleUsingScopeQuery(module_id));
+        let first_using_scope = database.db.expect_get(ModuleUsingScopeQuery(module_id));
 
         fixture.update_module_source(
             module_id,
@@ -4165,7 +4188,7 @@ fn main() i32 {
 
         let second = database.analyze_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-        let latest_using_scope = database.db.get(ModuleUsingScopeQuery(module_id));
+        let latest_using_scope = database.db.expect_get(ModuleUsingScopeQuery(module_id));
         assert!(Arc::ptr_eq(&first_using_scope, &latest_using_scope));
     }
 
@@ -4301,13 +4324,13 @@ fn main() i32 {
 
         fixture.update_module_path(module_id, "other.nia");
         database.update(CompileRequest::new(fixture.program()));
-        let loaded = database.db.get(LoadedModulesQuery);
+        let loaded = database.db.expect_get(LoadedModulesQuery);
         assert_eq!(
             resolve_stable_module_sequence(&database.db, &loaded).expect("renamed module sequence"),
             vec![module_id]
         );
         assert_eq!(
-            database.db.get(ModulePathQuery(module_id)).as_str(),
+            database.db.expect_get(ModulePathQuery(module_id)).as_str(),
             "other.nia"
         );
     }
@@ -4356,114 +4379,114 @@ fn main() i32 {
         for error in [
             database
                 .db
-                .try_get(ModulePathQuery(missing_module))
+                .get(ModulePathQuery(missing_module))
                 .expect_err("missing module path should be a query error"),
             database
                 .db
-                .try_get(ModuleItemTreeQuery(missing_module))
+                .get(ModuleItemTreeQuery(missing_module))
                 .expect_err("missing module item tree should propagate its input query error"),
             database
                 .db
-                .try_get(ModuleDefsQuery(missing_module))
+                .get(ModuleDefsQuery(missing_module))
                 .expect_err("module definitions should propagate a missing item tree error"),
             database
                 .db
-                .try_get(TypeResolutionQuery(missing_module))
+                .get(TypeResolutionQuery(missing_module))
                 .expect_err("type resolution should propagate a missing module input"),
             database
                 .db
-                .try_get(TypeNormalizationQuery(missing_module))
+                .get(TypeNormalizationQuery(missing_module))
                 .expect_err("type normalization should propagate a missing module input"),
             database
                 .db
-                .try_get(SemanticUseTableQuery(missing_module))
+                .get(SemanticUseTableQuery(missing_module))
                 .expect_err("semantic uses should propagate a missing module input"),
             database
                 .db
-                .try_get(ConstModuleQuery(missing_module))
+                .get(ConstModuleQuery(missing_module))
                 .expect_err("const lowering should propagate a missing module input"),
             database
                 .db
-                .try_get(SignatureConstModuleQuery(missing_module))
+                .get(SignatureConstModuleQuery(missing_module))
                 .expect_err("signature const lowering should propagate a missing module input"),
             database
                 .db
-                .try_get(ConstArrayLengthsQuery(missing_module))
+                .get(ConstArrayLengthsQuery(missing_module))
                 .expect_err("const array lengths should propagate a missing module input"),
             database
                 .db
-                .try_get(ConstEnumValuesQuery(missing_module))
+                .get(ConstEnumValuesQuery(missing_module))
                 .expect_err("const enum values should propagate a missing module input"),
             database
                 .db
-                .try_get(ConstValuesQuery(missing_module))
+                .get(ConstValuesQuery(missing_module))
                 .expect_err("const values should propagate a missing module input"),
             database
                 .db
-                .try_get(ConstTypedFactsQuery(missing_module))
+                .get(ConstTypedFactsQuery(missing_module))
                 .expect_err("const typed facts should propagate a missing module input"),
             database
                 .db
-                .try_get(ConstQuery(missing_module))
+                .get(ConstQuery(missing_module))
                 .expect_err("const checking should propagate a missing module input"),
             database
                 .db
-                .try_get(SignatureLayoutsQuery(missing_module))
+                .get(SignatureLayoutsQuery(missing_module))
                 .expect_err("signature layouts should propagate a missing module input"),
             database
                 .db
-                .try_get(LayoutsQuery(missing_module))
+                .get(LayoutsQuery(missing_module))
                 .expect_err("layouts should propagate a missing module input"),
             database
                 .db
-                .try_get(StaticCheckQuery(missing_module))
+                .get(StaticCheckQuery(missing_module))
                 .expect_err("static checking should propagate a missing module input"),
             database
                 .db
-                .try_get(BodyCheckQuery(missing_module))
+                .get(BodyCheckQuery(missing_module))
                 .expect_err("body checking should propagate a missing module input"),
             full_body_check_resolution_inputs(&database.db, missing_module)
                 .err()
                 .expect("body resolution inputs should propagate a missing module input"),
             database
                 .db
-                .try_get(CheckedModuleQuery(missing_module))
+                .get(CheckedModuleQuery(missing_module))
                 .expect_err("checked modules should propagate a missing module input"),
             database
                 .db
-                .try_get(CheckedProgramQuery)
+                .get(CheckedProgramQuery)
                 .expect_err("checked program aggregation should propagate a missing module input"),
             database
                 .db
-                .try_get(FlowCheckQuery(missing_module))
+                .get(FlowCheckQuery(missing_module))
                 .expect_err("flow checking should propagate a missing module input"),
             database
                 .db
-                .try_get(ModuleAbiSignatureFactsQuery(missing_module))
+                .get(ModuleAbiSignatureFactsQuery(missing_module))
                 .expect_err("ABI signature facts should propagate a missing module input"),
             database
                 .db
-                .try_get(AbiCheckQuery(missing_module))
+                .get(AbiCheckQuery(missing_module))
                 .expect_err("ABI checking should propagate a missing module input"),
             database
                 .db
-                .try_get(ExtensionSignatureModuleInputQuery(missing_module))
+                .get(ExtensionSignatureModuleInputQuery(missing_module))
                 .expect_err("extension signature input should propagate a missing module input"),
             database
                 .db
-                .try_get(ExtensionTraitSolvingModuleFactsQuery(missing_module))
+                .get(ExtensionTraitSolvingModuleFactsQuery(missing_module))
                 .expect_err("extension trait facts should propagate a missing module input"),
             database
                 .db
-                .try_get(ExtensionProviderValidationFactsQuery(missing_module))
+                .get(ExtensionProviderValidationFactsQuery(missing_module))
                 .expect_err("extension validation should propagate a missing module input"),
             database
                 .db
-                .try_get(VisibleExtensionsQuery(missing_module))
+                .get(VisibleExtensionsQuery(missing_module))
                 .expect_err("visible extensions should propagate a missing module input"),
             database
                 .db
-                .try_get(ExecutableValueRefEdgesQuery(GlobalDefId {
+                .get(ExecutableValueRefEdgesQuery(GlobalDefId {
                     module_id: missing_module,
                     def_id: nia_ids::DefId(0),
                 }))
@@ -4503,7 +4526,7 @@ fn main() i32 {
         );
         let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(entry_id));
+        let checked = db.expect_get(BodyCheckQuery(entry_id));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
@@ -4573,7 +4596,7 @@ extend Value : Ops {
         );
         let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(entry_id));
+        let checked = db.expect_get(BodyCheckQuery(entry_id));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
@@ -4618,7 +4641,7 @@ extend Value : Ops {
             node_key: None,
         }];
         let database = CompilerDatabase::new(CompileRequest::new(initial));
-        let first = database.db.get(ProgramSignatureModuleIdsQuery(
+        let first = database.db.expect_get(ProgramSignatureModuleIdsQuery(
             nia_item_tree::SignatureItemSet::Functions,
         ));
         assert_eq!(
@@ -4640,7 +4663,7 @@ extend Value : Ops {
 
         database.update(CompileRequest::new(updated));
 
-        let latest = database.db.get(ProgramSignatureModuleIdsQuery(
+        let latest = database.db.expect_get(ProgramSignatureModuleIdsQuery(
             nia_item_tree::SignatureItemSet::Functions,
         ));
         assert!(Arc::ptr_eq(&first, &latest));
@@ -4661,7 +4684,7 @@ extend Value : Ops {
             LoadedProgramFixture::new("main.nia", "fn first() i32 { 1 } fn main() i32 { first() }");
         let module_id = fixture.entry_id();
         let database = fixture.database();
-        let first = database.db.get(ProgramSignatureModuleIdsQuery(
+        let first = database.db.expect_get(ProgramSignatureModuleIdsQuery(
             nia_item_tree::SignatureItemSet::Functions,
         ));
 
@@ -4672,7 +4695,7 @@ extend Value : Ops {
         );
         database.update(CompileRequest::new(fixture.program()));
 
-        let latest = database.db.get(ProgramSignatureModuleIdsQuery(
+        let latest = database.db.expect_get(ProgramSignatureModuleIdsQuery(
             nia_item_tree::SignatureItemSet::Functions,
         ));
         assert!(Arc::ptr_eq(&first, &latest));
@@ -4731,7 +4754,7 @@ extend Value : Ops {
         assert_eq!(
             resolve_stable_module_sequence(
                 &db,
-                &db.get(ProgramSignatureModuleIdsQuery(
+                &db.expect_get(ProgramSignatureModuleIdsQuery(
                     nia_item_tree::SignatureItemSet::Functions
                 ))
             )
@@ -4742,7 +4765,7 @@ extend Value : Ops {
         assert_eq!(
             resolve_stable_module_sequence(
                 &db,
-                &db.get(ProgramSignatureModuleIdsQuery(
+                &db.expect_get(ProgramSignatureModuleIdsQuery(
                     nia_item_tree::SignatureItemSet::Values
                 ))
             )
@@ -4753,7 +4776,7 @@ extend Value : Ops {
         assert_eq!(
             resolve_stable_module_sequence(
                 &db,
-                &db.get(ProgramSignatureModuleIdsQuery(
+                &db.expect_get(ProgramSignatureModuleIdsQuery(
                     nia_item_tree::SignatureItemSet::Types
                 ))
             )
@@ -4764,7 +4787,7 @@ extend Value : Ops {
         assert_eq!(
             resolve_stable_module_sequence(
                 &db,
-                &db.get(ProgramSignatureModuleIdsQuery(
+                &db.expect_get(ProgramSignatureModuleIdsQuery(
                     nia_item_tree::SignatureItemSet::Traits
                 ))
             )
@@ -4775,7 +4798,7 @@ extend Value : Ops {
         assert_eq!(
             resolve_stable_module_sequence(
                 &db,
-                &db.get(ProgramSignatureModuleIdsQuery(
+                &db.expect_get(ProgramSignatureModuleIdsQuery(
                     nia_item_tree::SignatureItemSet::ExtensionFunctions
                 ))
             )
@@ -4837,7 +4860,7 @@ extend Value : Ops {
         let db = query_db(fixture.program());
 
         assert_eq!(
-            resolve_stable_module_sequence(&db, &db.get(ExtensionProviderModuleIdsQuery))
+            resolve_stable_module_sequence(&db, &db.expect_get(ExtensionProviderModuleIdsQuery))
                 .expect("extension provider module sequence")
                 .as_slice(),
             &[module5]
@@ -4864,9 +4887,9 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let defs = db.get(ModuleDefsQuery(module_id));
+        let defs = db.expect_get(ModuleDefsQuery(module_id));
         let alias_id = defs.module_scope.types.get(&sym("Alias")).unwrap();
-        let _ = db.get(ProgramTypeAliasSignatureQuery(GlobalDefId {
+        let _ = db.expect_get(ProgramTypeAliasSignatureQuery(GlobalDefId {
             module_id,
             def_id: alias_id,
         }));
@@ -4891,7 +4914,7 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let layouts = db.get(LayoutsQuery(module_id));
+        let layouts = db.expect_get(LayoutsQuery(module_id));
         let trace = db.query_trace();
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -4928,7 +4951,7 @@ extend Value : Ops {
         );
         let db = query_db(fixture.program());
 
-        let layouts = db.get(LayoutsQuery(entry_id));
+        let layouts = db.expect_get(LayoutsQuery(entry_id));
         let trace = db.query_trace();
         let entry_description = format!("{entry_id:?}");
         let module1_description = format!("{module1:?}");
@@ -4964,9 +4987,9 @@ extend Value : Ops {
         let db = query_db(fixture.program());
         let signature_types = nia_item_tree::SignatureItemSet::Types;
 
-        let _ = db.get(SignatureTypeNormalizationQuery(entry_id, signature_types));
-        let _ = db.get(SignatureItemSignaturesQuery(entry_id, signature_types));
-        let layouts = db.get(SignatureLayoutsQuery(entry_id));
+        let _ = db.expect_get(SignatureTypeNormalizationQuery(entry_id, signature_types));
+        let _ = db.expect_get(SignatureItemSignaturesQuery(entry_id, signature_types));
+        let layouts = db.expect_get(SignatureLayoutsQuery(entry_id));
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert!(
@@ -4986,7 +5009,7 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(AbiCheckQuery(module_id));
+        let _ = db.expect_get(AbiCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5021,9 +5044,9 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(PublicSurfacesQuery);
-        let _ = db.get(ModulePublicSurfaceQuery(module_id));
-        let _ = db.get(ModuleUsingScopeQuery(module_id));
+        let _ = db.expect_get(PublicSurfacesQuery);
+        let _ = db.expect_get(ModulePublicSurfaceQuery(module_id));
+        let _ = db.expect_get(ModuleUsingScopeQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5062,12 +5085,12 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let module_input: Arc<ModuleItemTree> = db.get(ModuleItemTreeInputQuery(module_id));
+        let module_input: Arc<ModuleItemTree> = db.expect_get(ModuleItemTreeInputQuery(module_id));
         let active_input: Arc<ActiveModuleItemTree> =
-            db.get(ActiveModuleItemTreeInputQuery(module_id));
-        let full_module: Arc<ModuleItemTree> = db.get(FullModuleItemTreeQuery(module_id));
+            db.expect_get(ActiveModuleItemTreeInputQuery(module_id));
+        let full_module: Arc<ModuleItemTree> = db.expect_get(FullModuleItemTreeQuery(module_id));
         let full_active: Arc<ActiveModuleItemTree> =
-            db.get(FullActiveModuleItemTreeQuery(module_id));
+            db.expect_get(FullActiveModuleItemTreeQuery(module_id));
 
         let module_input_batch = db
             .get_many([ModuleItemTreeInputQuery(module_id)])
@@ -5096,7 +5119,7 @@ extend Value : Ops {
         );
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
-        let defs = db.get(ModuleDefsQuery(module_id));
+        let defs = db.expect_get(ModuleDefsQuery(module_id));
         let main = GlobalDefId {
             module_id,
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
@@ -5106,7 +5129,7 @@ extend Value : Ops {
             def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
         };
 
-        let edges = db.get(ExecutableValueRefEdgesQuery(main));
+        let edges = db.expect_get(ExecutableValueRefEdgesQuery(main));
         let trace = db.query_trace();
 
         assert!(edges.functions.contains(&helper), "{:?}", edges.functions);
@@ -5294,7 +5317,7 @@ extend Value : Ops {
                 root.clone(),
                 verify,
             );
-            let defs = db.get(ModuleDefsQuery(module_id));
+            let defs = db.expect_get(ModuleDefsQuery(module_id));
             let owner = GlobalDefId {
                 module_id,
                 def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
@@ -5303,7 +5326,7 @@ extend Value : Ops {
                 module_id,
                 def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
             };
-            let edges = db.get(ExecutableValueRefEdgesQuery(owner));
+            let edges = db.expect_get(ExecutableValueRefEdgesQuery(owner));
             (owner, edges.functions.contains(&helper), db.query_trace())
         };
 
@@ -5388,12 +5411,12 @@ extend Value : Ops {
         let mut fixture = LoadedProgramFixture::new("main.nia", source);
         let module_id = fixture.entry_id();
         let database = fixture.database();
-        let defs = database.db.get(ModuleDefsQuery(module_id));
+        let defs = database.db.expect_get(ModuleDefsQuery(module_id));
         let owner = GlobalDefId {
             module_id,
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
         };
-        let first = database.db.get(ExecutableValueRefItemQuery(owner));
+        let first = database.db.expect_get(ExecutableValueRefItemQuery(owner));
         assert_eq!(
             first.as_ref().as_ref().unwrap().owner_node_key.revision,
             SourceRevision::INITIAL
@@ -5402,7 +5425,7 @@ extend Value : Ops {
         fixture.update_module_source(module_id, source, SourceRevision(1));
         database.update(CompileRequest::new(fixture.program()));
 
-        let latest = database.db.get(ExecutableValueRefItemQuery(owner));
+        let latest = database.db.expect_get(ExecutableValueRefItemQuery(owner));
         assert!(!Arc::ptr_eq(&first, &latest));
         assert_eq!(
             latest.as_ref().as_ref().unwrap().owner_node_key.revision,
@@ -5418,7 +5441,7 @@ extend Value : Ops {
         );
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
-        let defs = db.get(ModuleDefsQuery(module_id));
+        let defs = db.expect_get(ModuleDefsQuery(module_id));
         let main = GlobalDefId {
             module_id,
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
@@ -5428,7 +5451,7 @@ extend Value : Ops {
             def_id: defs.module_scope.values.get(&sym("calls")).unwrap(),
         };
 
-        let edges = db.get(ExecutableValueRefEdgesQuery(main));
+        let edges = db.expect_get(ExecutableValueRefEdgesQuery(main));
 
         assert!(edges.globals.contains(&calls), "{:?}", edges.globals);
     }
@@ -5439,8 +5462,8 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let defs = db.get(ModuleDefsQuery(module_id));
-        let item_tree = db.get(ActiveModuleItemTreeQuery(module_id));
+        let defs = db.expect_get(ModuleDefsQuery(module_id));
+        let item_tree = db.expect_get(ActiveModuleItemTreeQuery(module_id));
         let item_node_key = &item_tree.items[0].node_key;
         let item_node_id = defs
             .def_nodes
@@ -5478,10 +5501,10 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(ExtensionProviderValidationFactsQuery(module_id));
-        let _ = db.get(ExtensionProviderModuleFactsQuery(module_id));
-        let _ = db.get(ExtensionMethodIndexQuery);
-        let _ = db.get(ExtensionProviderDiscoveryIndexQuery);
+        let _ = db.expect_get(ExtensionProviderValidationFactsQuery(module_id));
+        let _ = db.expect_get(ExtensionProviderModuleFactsQuery(module_id));
+        let _ = db.expect_get(ExtensionMethodIndexQuery);
+        let _ = db.expect_get(ExtensionProviderDiscoveryIndexQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -5674,7 +5697,7 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let database = fixture.database();
 
-        let _ = database.db.get(ExtensionMethodIndexQuery);
+        let _ = database.db.expect_get(ExtensionMethodIndexQuery);
         let before_update = database.query_trace();
         assert!(
             query_executions(&before_update, "extension_provider_module_facts") > 0,
@@ -5689,7 +5712,7 @@ extend Value : Ops {
         database.update(CompileRequest::new(fixture.program()));
         let before_second_query = database.query_trace();
 
-        let _ = database.db.get(ExtensionMethodIndexQuery);
+        let _ = database.db.expect_get(ExtensionMethodIndexQuery);
         let after_second_query = database.query_trace();
 
         assert_query_executions_unchanged(
@@ -5713,9 +5736,9 @@ extend Value : Ops {
         let database = fixture.database();
         let first = database
             .db
-            .get(ExtensionProviderModuleEligibilityQuery(module_id));
+            .expect_get(ExtensionProviderModuleEligibilityQuery(module_id));
         assert!(*first);
-        let first_modules = database.db.get(ExtensionProviderModuleIdsQuery);
+        let first_modules = database.db.expect_get(ExtensionProviderModuleIdsQuery);
 
         fixture.update_module_source(
             module_id,
@@ -5726,10 +5749,10 @@ extend Value : Ops {
 
         let second = database
             .db
-            .get(ExtensionProviderModuleEligibilityQuery(module_id));
+            .expect_get(ExtensionProviderModuleEligibilityQuery(module_id));
         assert!(*second);
         assert!(!Arc::ptr_eq(&first, &second));
-        let latest_modules = database.db.get(ExtensionProviderModuleIdsQuery);
+        let latest_modules = database.db.expect_get(ExtensionProviderModuleIdsQuery);
         assert!(Arc::ptr_eq(&first_modules, &latest_modules));
         let trace = database.query_trace();
         let eligibility = trace
@@ -5757,7 +5780,7 @@ extend Value : Ops {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(ValueResolutionQuery(module_id));
+        let _ = db.expect_get(ValueResolutionQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5790,7 +5813,7 @@ fn main() i32 {
         fixture.add_child(entry_id, "helper", "helper.nia", "pub fn value() i32 { 1 }");
         let db = query_db(fixture.program());
 
-        let values = db.get(ValueResolutionQuery(entry_id));
+        let values = db.expect_get(ValueResolutionQuery(entry_id));
         let trace = db.query_trace();
 
         assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
@@ -5825,7 +5848,7 @@ fn main() usize {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let values = db.get(ValueResolutionQuery(module_id));
+        let values = db.expect_get(ValueResolutionQuery(module_id));
         let trace = db.query_trace();
 
         assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
@@ -5842,7 +5865,7 @@ fn main() usize {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(FlowCheckQuery(module_id));
+        let _ = db.expect_get(FlowCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5868,7 +5891,7 @@ fn main() usize {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(StaticCheckQuery(module_id));
+        let _ = db.expect_get(StaticCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5911,7 +5934,7 @@ fn main() usize {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(BodyCheckQuery(module_id));
+        let _ = db.expect_get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5983,7 +6006,7 @@ fn main() i32 {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(module_id));
+        let checked = db.expect_get(BodyCheckQuery(module_id));
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
@@ -6034,7 +6057,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let _ = db.get(VisibleExtensionsQuery(entry_id));
+        let _ = db.expect_get(VisibleExtensionsQuery(entry_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -6124,7 +6147,7 @@ extend Used {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(ConstQuery(module_id));
+        let _ = db.expect_get(ConstQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -6173,7 +6196,7 @@ extend Used {
         let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
         let db = query_db(fixture.program());
 
-        let _ = db.get(MonomorphizationQuery);
+        let _ = db.expect_get(MonomorphizationQuery);
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -6190,7 +6213,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let _ = db.get(ExecutableCheckedModulesQuery);
+        let _ = db.expect_get(ExecutableCheckedModulesQuery);
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -6225,7 +6248,7 @@ extend Used {
         );
         let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(module_id));
+        let checked = db.expect_get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -6255,7 +6278,7 @@ extend Used {
         );
         let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(module_id));
+        let checked = db.expect_get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -6277,7 +6300,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.get(CodegenProgramQuery);
+        let checked = db.expect_get(CodegenProgramQuery);
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -6316,7 +6339,7 @@ extend Used {
         );
         let db = query_db(fixture.program());
 
-        let checked = db.get(EntryCheckedProgramQuery);
+        let checked = db.expect_get(EntryCheckedProgramQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -6351,7 +6374,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.get(EntryCheckedProgramQuery);
+        let checked = db.expect_get(EntryCheckedProgramQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -6463,7 +6486,7 @@ pub struct ArgsIter {}
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.get(CodegenProgramQuery);
+        let checked = db.expect_get(CodegenProgramQuery);
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
@@ -6523,7 +6546,7 @@ pub struct Used {}
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.get(CodegenProgramQuery);
+        let checked = db.expect_get(CodegenProgramQuery);
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
@@ -6591,7 +6614,7 @@ extend i32 : ParseFrom[&[u8]] {
         );
         let db = query_db(fixture.program());
 
-        let trait_impls = db.get(VisibleTraitImplsQuery(entry_id));
+        let trait_impls = db.expect_get(VisibleTraitImplsQuery(entry_id));
 
         assert_eq!(trait_impls.trait_impls.len(), 2);
         assert!(
@@ -6647,7 +6670,7 @@ extend i32 : ParseFrom[Input] {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.get(ExecutableCheckedModulesQuery);
+        let checked = db.expect_get(ExecutableCheckedModulesQuery);
         let parse_module = checked
             .iter()
             .find(|module| module.id == parse_id)
@@ -6684,7 +6707,7 @@ extend i32 : ParseFrom[Input] {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(ConstModuleQuery(module_id));
+        let _ = db.expect_get(ConstModuleQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -6700,7 +6723,7 @@ extend i32 : ParseFrom[Input] {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let table = db.get(SemanticUseTableQuery(module_id));
+        let table = db.expect_get(SemanticUseTableQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -6744,7 +6767,7 @@ extend i32 : ParseFrom[Input] {
         let db = query_db(fixture.program());
         let node_store_id = db.context().node_store().id();
 
-        let values = db.get(ValueResolutionQuery(module_id));
+        let values = db.expect_get(ValueResolutionQuery(module_id));
         assert_eq!(values.node_names.store_id(), node_store_id);
         assert_eq!(values.node_qualified_values.store_id(), node_store_id);
         assert_eq!(
@@ -6757,11 +6780,11 @@ extend i32 : ParseFrom[Input] {
             node_store_id
         );
 
-        let locals = db.get(LocalResolutionQuery(module_id));
+        let locals = db.expect_get(LocalResolutionQuery(module_id));
         assert_eq!(locals.node_local_defs.store_id(), node_store_id);
         assert_eq!(locals.node_uses.store_id(), node_store_id);
 
-        let types = db.get(TypeResolutionQuery(module_id));
+        let types = db.expect_get(TypeResolutionQuery(module_id));
         assert_eq!(types.node_const_generic_names.store_id(), node_store_id);
     }
 
@@ -6806,24 +6829,24 @@ extend i32 : ParseFrom[Input] {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let checked = db.get(CheckedModuleQuery(module_id));
-        let checked_program = db.get(CheckedProgramQuery);
-        let values = db.get(ValueResolutionQuery(module_id));
-        let locals = db.get(LocalResolutionQuery(module_id));
-        let semantic_uses = db.get(SemanticUseTableQuery(module_id));
-        let type_resolution = db.get(TypeResolutionQuery(module_id));
-        let type_lowering = db.get(TypeLoweringQuery(module_id));
-        let type_normalization = db.get(TypeNormalizationQuery(module_id));
-        let layouts = db.get(LayoutsQuery(module_id));
-        let body_check = db.get(BodyCheckQuery(module_id));
-        let const_eval = db.get(ConstQuery(module_id));
-        let const_array_lengths = db.get(ConstArrayLengthsQuery(module_id));
-        let const_enum_values = db.get(ConstEnumValuesQuery(module_id));
-        let const_values = db.get(ConstValuesQuery(module_id));
-        let const_typed_facts = db.get(ConstTypedFactsQuery(module_id));
-        let static_check = db.get(StaticCheckQuery(module_id));
-        let abi_check = db.get(AbiCheckQuery(module_id));
-        let flow_check = db.get(FlowCheckQuery(module_id));
+        let checked = db.expect_get(CheckedModuleQuery(module_id));
+        let checked_program = db.expect_get(CheckedProgramQuery);
+        let values = db.expect_get(ValueResolutionQuery(module_id));
+        let locals = db.expect_get(LocalResolutionQuery(module_id));
+        let semantic_uses = db.expect_get(SemanticUseTableQuery(module_id));
+        let type_resolution = db.expect_get(TypeResolutionQuery(module_id));
+        let type_lowering = db.expect_get(TypeLoweringQuery(module_id));
+        let type_normalization = db.expect_get(TypeNormalizationQuery(module_id));
+        let layouts = db.expect_get(LayoutsQuery(module_id));
+        let body_check = db.expect_get(BodyCheckQuery(module_id));
+        let const_eval = db.expect_get(ConstQuery(module_id));
+        let const_array_lengths = db.expect_get(ConstArrayLengthsQuery(module_id));
+        let const_enum_values = db.expect_get(ConstEnumValuesQuery(module_id));
+        let const_values = db.expect_get(ConstValuesQuery(module_id));
+        let const_typed_facts = db.expect_get(ConstTypedFactsQuery(module_id));
+        let static_check = db.expect_get(StaticCheckQuery(module_id));
+        let abi_check = db.expect_get(AbiCheckQuery(module_id));
+        let flow_check = db.expect_get(FlowCheckQuery(module_id));
 
         assert!(Arc::ptr_eq(&checked, &checked_program.modules[0]));
         assert!(Arc::ptr_eq(&checked.value_resolution, &values));
@@ -6876,9 +6899,9 @@ extend i32 : ParseFrom[Input] {
         let input_graph = loaded.graph.clone();
         let db = query_db(loaded);
 
-        let cached_graph = db.get(ModuleGraphQuery);
-        let checked = db.get(CheckedProgramQuery);
-        let codegen = db.get(CodegenProgramQuery);
+        let cached_graph = db.expect_get(ModuleGraphQuery);
+        let checked = db.expect_get(CheckedProgramQuery);
+        let codegen = db.expect_get(CodegenProgramQuery);
 
         assert!(input_graph.ptr_eq(&cached_graph));
         assert!(input_graph.ptr_eq(&checked.graph));
@@ -6891,9 +6914,9 @@ extend i32 : ParseFrom[Input] {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let defs = db.get(FullModuleDefsQuery(module_id));
-        let checked = db.get(CheckedModuleQuery(module_id));
-        let executable = db.get(ExecutableCheckedModulesQuery);
+        let defs = db.expect_get(FullModuleDefsQuery(module_id));
+        let checked = db.expect_get(CheckedModuleQuery(module_id));
+        let executable = db.expect_get(ExecutableCheckedModulesQuery);
         let executable = executable
             .iter()
             .find(|module| module.id == module_id)
@@ -6913,18 +6936,19 @@ extend i32 : ParseFrom[Input] {
         let db = query_db(fixture.program());
         let signature_set = nia_item_tree::SignatureItemSet::Types;
 
-        let signature = db.get(ModuleProgramSignatureFactsQuery(module_id, signature_set));
-        let abi = db.get(ModuleAbiSignatureFactsQuery(module_id));
-        let trait_solving = db.get(ExtensionTraitSolvingModuleFactsQuery(module_id));
-        let provider = db.get(ExtensionProviderModuleFactsQuery(module_id));
-        let nominal = db.get(ExtensionProviderNominalModuleFactsQuery(module_id));
+        let signature = db.expect_get(ModuleProgramSignatureFactsQuery(module_id, signature_set));
+        let abi = db.expect_get(ModuleAbiSignatureFactsQuery(module_id));
+        let trait_solving = db.expect_get(ExtensionTraitSolvingModuleFactsQuery(module_id));
+        let provider = db.expect_get(ExtensionProviderModuleFactsQuery(module_id));
+        let nominal = db.expect_get(ExtensionProviderNominalModuleFactsQuery(module_id));
         let visible_extensions: Arc<VisibleExtensionsForModule> =
-            db.get(VisibleExtensionsQuery(module_id));
+            db.expect_get(VisibleExtensionsQuery(module_id));
         let visible_trait_impls: Arc<VisibleTraitImplsForModule> =
-            db.get(VisibleTraitImplsQuery(module_id));
+            db.expect_get(VisibleTraitImplsQuery(module_id));
         let trait_method_index: Arc<nia_program_signatures::ProgramTraitMethodIndex> =
-            db.get(ProgramTraitMethodIndexQuery);
-        let abi_signatures: Arc<ProgramAbiSignaturesValue> = db.get(ProgramAbiSignaturesQuery);
+            db.expect_get(ProgramTraitMethodIndexQuery);
+        let abi_signatures: Arc<ProgramAbiSignaturesValue> =
+            db.expect_get(ProgramAbiSignaturesQuery);
 
         let signature_batch = db
             .get_many([ModuleProgramSignatureFactsQuery(module_id, signature_set)])
@@ -6982,7 +7006,7 @@ extend i32 : ParseFrom[Input] {
         );
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
-        let defs = db.get(ModuleDefsQuery(module_id));
+        let defs = db.expect_get(ModuleDefsQuery(module_id));
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
             module_id,
             def_id: defs.module_scope.types.get(&sym("Read")).unwrap(),
@@ -6993,21 +7017,21 @@ extend i32 : ParseFrom[Input] {
         };
 
         let validation: Arc<ExtensionProviderValidationFactsQueryValue> =
-            db.get(ExtensionProviderValidationFactsQuery(module_id));
+            db.expect_get(ExtensionProviderValidationFactsQuery(module_id));
         let discovery: Arc<ExtensionProviderDiscoveryIndexQueryValue> =
-            db.get(ExtensionProviderDiscoveryIndexQuery);
-        let exposure: Arc<TypeExposureIndex> = db.get(TypeExposureIndexQuery);
-        let methods: Arc<ExtensionMethodIndexQueryValue> = db.get(ExtensionMethodIndexQuery);
+            db.expect_get(ExtensionProviderDiscoveryIndexQuery);
+        let exposure: Arc<TypeExposureIndex> = db.expect_get(TypeExposureIndexQuery);
+        let methods: Arc<ExtensionMethodIndexQueryValue> = db.expect_get(ExtensionMethodIndexQuery);
         let named: Arc<ExtensionMethodsNamedQueryValue> =
-            db.get(ExtensionMethodsNamedQuery(sym("get")));
+            db.expect_get(ExtensionMethodsNamedQuery(sym("get")));
         let method: Arc<ExtensionMethodByIdQueryValue> =
-            db.get(ExtensionMethodByIdQuery(method_id));
+            db.expect_get(ExtensionMethodByIdQuery(method_id));
         let trait_index: Arc<ExtensionTraitSignatureIndex> =
-            db.get(ExtensionTraitSignatureIndexQuery);
+            db.expect_get(ExtensionTraitSignatureIndexQuery);
         let signature_input: Arc<ExtensionSignatureModuleInputQueryValue> =
-            db.get(ExtensionSignatureModuleInputQuery(module_id));
+            db.expect_get(ExtensionSignatureModuleInputQuery(module_id));
         let trait_impls: Arc<ExtensionTraitImplsForTraitQueryValue> =
-            db.get(ExtensionTraitImplsForTraitQuery(trait_id));
+            db.expect_get(ExtensionTraitImplsForTraitQuery(trait_id));
 
         let validation_batch = db
             .get_many([ExtensionProviderValidationFactsQuery(module_id)])
@@ -7054,9 +7078,10 @@ extend i32 : ParseFrom[Input] {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let surfaces: Arc<PublicSurfacesQueryValue> = db.get(PublicSurfacesQuery);
-        let using_scopes: Arc<PublicUsingScopesQueryValue> = db.get(PublicUsingScopesQuery);
-        let module_using_scope: Arc<ModuleUsingScope> = db.get(ModuleUsingScopeQuery(module_id));
+        let surfaces: Arc<PublicSurfacesQueryValue> = db.expect_get(PublicSurfacesQuery);
+        let using_scopes: Arc<PublicUsingScopesQueryValue> = db.expect_get(PublicUsingScopesQuery);
+        let module_using_scope: Arc<ModuleUsingScope> =
+            db.expect_get(ModuleUsingScopeQuery(module_id));
 
         let surfaces_batch = db
             .get_many([PublicSurfacesQuery])
@@ -7082,7 +7107,7 @@ extend i32 : ParseFrom[Input] {
             LoadedProgramFixture::new("main.nia", "fn main() i32 { static value: i32 = 1; value }");
         let db = query_db(fixture.program());
 
-        let _ = db.get(BackendLoweringQuery);
+        let _ = db.expect_get(BackendLoweringQuery);
         let trace = db.query_trace();
 
         assert!(trace_has_dependency(
@@ -7175,21 +7200,21 @@ extend i32 : ParseFrom[Input] {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let first_codegen = db.get(CodegenProgramQuery);
+        let first_codegen = db.expect_get(CodegenProgramQuery);
         assert!(
             first_codegen.diagnostics.is_empty(),
             "{:?}",
             first_codegen.diagnostics
         );
-        let monomorphization = db.get(MonomorphizationQuery);
-        let entry_source_item_plan = db.get(BackendModuleSourceItemPlanQuery(module_id));
-        let helper_source_item_plan = db.get(BackendModuleSourceItemPlanQuery(helper_id));
+        let monomorphization = db.expect_get(MonomorphizationQuery);
+        let entry_source_item_plan = db.expect_get(BackendModuleSourceItemPlanQuery(module_id));
+        let helper_source_item_plan = db.expect_get(BackendModuleSourceItemPlanQuery(helper_id));
         let entry_function_instance_plan =
-            db.get(BackendModuleFunctionInstancePlanQuery(module_id));
+            db.expect_get(BackendModuleFunctionInstancePlanQuery(module_id));
         let helper_function_instance_plan =
-            db.get(BackendModuleFunctionInstancePlanQuery(helper_id));
-        let backend_lowering = db.get(BackendLoweringQuery);
-        let second_codegen = db.get(CodegenProgramQuery);
+            db.expect_get(BackendModuleFunctionInstancePlanQuery(helper_id));
+        let backend_lowering = db.expect_get(BackendLoweringQuery);
+        let second_codegen = db.expect_get(CodegenProgramQuery);
         let trace = db.query_trace();
 
         assert!(Arc::ptr_eq(&first_codegen, &second_codegen));
@@ -7299,7 +7324,7 @@ extend i32 : ParseFrom[Input] {
         );
         let db = query_db(fixture.program());
 
-        let first = db.get(BackendLoweringQuery);
+        let first = db.expect_get(BackendLoweringQuery);
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
         assert_eq!(
             first
@@ -7312,13 +7337,13 @@ extend i32 : ParseFrom[Input] {
         );
         for owner in [module_id, helper_id] {
             assert!(
-                db.try_get_owned(BackendModuleItemPlanQuery(owner)).is_err(),
+                db.get_owned(BackendModuleItemPlanQuery(owner)).is_err(),
                 "finalization must leave no module-plan payload in its query slot"
             );
         }
 
         db.invalidate(BackendLoweringQuery);
-        let second = db.get(BackendLoweringQuery);
+        let second = db.expect_get(BackendLoweringQuery);
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
 
         let invalidation = db.invalidate(BackendItemPlanQuery);
@@ -7335,7 +7360,7 @@ extend i32 : ParseFrom[Input] {
                 .any(|frame| { frame.name == "backend_lowering" })
         );
 
-        let third = db.get(BackendLoweringQuery);
+        let third = db.expect_get(BackendLoweringQuery);
         assert!(third.diagnostics.is_empty(), "{:?}", third.diagnostics);
         let trace = db.query_trace();
         assert_eq!(query_executions(&trace, "backend_item_plan"), 3);
@@ -7403,7 +7428,7 @@ pub fn value() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
         let module = facts
             .modules
             .iter()
@@ -7424,7 +7449,7 @@ pub fn value() i32 {
         let unused = function("unused");
         let main = function("main");
 
-        let plan = db.get(BackendModuleSourceItemPlanQuery(module_id));
+        let plan = db.expect_get(BackendModuleSourceItemPlanQuery(module_id));
         for items in [&plan.functions, &plan.globals, &plan.structs, &plan.unions] {
             assert!(items.windows(2).all(|pair| pair[0] < pair[1]), "{plan:?}");
             assert!(
@@ -7437,7 +7462,7 @@ pub fn value() i32 {
         assert!(!plan.functions.contains(&unused), "{plan:?}");
         assert!(plan.structs.is_empty(), "{plan:?}");
 
-        let child_plan = db.get(BackendModuleSourceItemPlanQuery(child_id));
+        let child_plan = db.expect_get(BackendModuleSourceItemPlanQuery(child_id));
         for items in [
             &child_plan.functions,
             &child_plan.globals,
@@ -7456,7 +7481,7 @@ pub fn value() i32 {
         assert_eq!(child_plan.functions.len(), 1, "{child_plan:?}");
         assert_eq!(child_plan.structs.len(), 1, "{child_plan:?}");
 
-        let backend = db.get(BackendLoweringQuery);
+        let backend = db.expect_get(BackendLoweringQuery);
         assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
         let backend_module = backend
             .program
@@ -7494,7 +7519,7 @@ pub fn value() i32 {
         );
         let db = query_db(fixture.program());
 
-        let codegen = db.get(CodegenProgramQuery);
+        let codegen = db.expect_get(CodegenProgramQuery);
         let trace = db.query_trace();
 
         assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
@@ -7540,7 +7565,7 @@ pub fn value() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
         let module = facts.modules.first().expect("entry module facts");
         let def_id = module
             .defs
@@ -7559,12 +7584,12 @@ pub fn value() i32 {
             "an empty body should not need a synthetic semantic-facts entry"
         );
 
-        let body = db.get(ExecutableFunctionBodyQuery(def_id));
+        let body = db.expect_get(ExecutableFunctionBodyQuery(def_id));
         let body = body.as_ref().as_ref().expect("empty checked body product");
         assert!(body.stmts.is_empty());
         assert!(body.tail.is_none());
 
-        let checked = db.get(ExecutableCheckedModulesQuery);
+        let checked = db.expect_get(ExecutableCheckedModulesQuery);
         let aggregate_body = checked
             .iter()
             .find(|module| module.id == def_id.module_id)
@@ -7572,7 +7597,7 @@ pub fn value() i32 {
             .expect("aggregate empty checked body");
         assert!(Arc::ptr_eq(body, aggregate_body));
 
-        let codegen = db.get(CodegenProgramQuery);
+        let codegen = db.expect_get(CodegenProgramQuery);
         assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
         assert!(
             codegen
@@ -7600,7 +7625,7 @@ pub fn value() i32 {
             "{:?}",
             first_codegen.diagnostics
         );
-        let checked = database.db.get(ExecutableCheckedModulesQuery);
+        let checked = database.db.expect_get(ExecutableCheckedModulesQuery);
         let module = checked
             .iter()
             .find(|module| module.id == module_id)
@@ -7617,7 +7642,7 @@ pub fn value() i32 {
         };
         let helper = function("helper");
         let main = function("main");
-        let fact_modules = database.db.get(ExecutableCheckedModuleFactsQuery);
+        let fact_modules = database.db.expect_get(ExecutableCheckedModuleFactsQuery);
         let fact_module = fact_modules
             .modules
             .iter()
@@ -7634,14 +7659,14 @@ pub fn value() i32 {
             .function_bodies
             .get(&helper)
             .expect("helper should have a checked body");
-        let checked_helper_product = database.db.get(ExecutableFunctionBodyQuery(helper));
+        let checked_helper_product = database.db.expect_get(ExecutableFunctionBodyQuery(helper));
         let checked_helper_product = checked_helper_product
             .as_ref()
             .as_ref()
             .expect("helper checked-body product");
         assert!(Arc::ptr_eq(checked_helper, checked_helper_product));
-        let first_helper = database.db.get(LoweredFunctionBodyQuery(helper));
-        let first_main = database.db.get(LoweredFunctionBodyQuery(main));
+        let first_helper = database.db.expect_get(LoweredFunctionBodyQuery(helper));
+        let first_main = database.db.expect_get(LoweredFunctionBodyQuery(main));
 
         fixture.update_module_source(
             module_id,
@@ -7655,8 +7680,8 @@ pub fn value() i32 {
             "{:?}",
             second_codegen.diagnostics
         );
-        let second_helper = database.db.get(LoweredFunctionBodyQuery(helper));
-        let second_main = database.db.get(LoweredFunctionBodyQuery(main));
+        let second_helper = database.db.expect_get(LoweredFunctionBodyQuery(helper));
+        let second_main = database.db.expect_get(LoweredFunctionBodyQuery(main));
         let trace = database.query_trace();
 
         assert!(!Arc::ptr_eq(&first_helper, &second_helper));
@@ -7688,7 +7713,7 @@ fn main() u8 {
             "{:?}",
             first_codegen.diagnostics
         );
-        let checked = database.db.get(ExecutableCheckedModulesQuery);
+        let checked = database.db.expect_get(ExecutableCheckedModulesQuery);
         let module = checked
             .iter()
             .find(|module| module.id == module_id)
@@ -7706,7 +7731,7 @@ fn main() u8 {
         };
         let first = global("first");
         let second = global("second");
-        let fact_modules = database.db.get(ExecutableCheckedModuleFactsQuery);
+        let fact_modules = database.db.expect_get(ExecutableCheckedModuleFactsQuery);
         let fact_module = fact_modules
             .modules
             .iter()
@@ -7723,13 +7748,13 @@ fn main() u8 {
             .global_inits
             .get(&first)
             .expect("first should have a static initializer");
-        let first_item = database.db.get(ExecutableStaticInitQuery(first));
+        let first_item = database.db.expect_get(ExecutableStaticInitQuery(first));
         let first_payload = first_item
             .as_ref()
             .as_ref()
             .expect("first static initializer product");
         assert!(Arc::ptr_eq(aggregate_first, first_payload));
-        let first_second = database.db.get(ExecutableStaticInitQuery(second));
+        let first_second = database.db.expect_get(ExecutableStaticInitQuery(second));
 
         fixture.update_module_source(
             module_id,
@@ -7750,9 +7775,9 @@ fn main() u8 {
             "{:?}",
             second_codegen.diagnostics
         );
-        let second_first = database.db.get(ExecutableStaticInitQuery(first));
-        let second_second = database.db.get(ExecutableStaticInitQuery(second));
-        let checked = database.db.get(ExecutableCheckedModulesQuery);
+        let second_first = database.db.expect_get(ExecutableStaticInitQuery(first));
+        let second_second = database.db.expect_get(ExecutableStaticInitQuery(second));
+        let checked = database.db.expect_get(ExecutableCheckedModulesQuery);
         let module = checked
             .iter()
             .find(|module| module.id == module_id)
@@ -7796,9 +7821,9 @@ fn main() i32 {
         );
         let db = query_db(fixture.program());
 
-        let codegen = db.get(CodegenProgramQuery);
+        let codegen = db.expect_get(CodegenProgramQuery);
         assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
-        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
         let module = facts.modules.first().expect("entry module facts");
         assert!(module.body_ir.global_inits.is_empty());
         let def_id = |name| {
@@ -7819,7 +7844,7 @@ fn main() i32 {
 
         assert!(facts.runtime_functions.contains(&helper));
         assert!(facts.runtime_globals.contains(&callback));
-        let init = db.get(ExecutableStaticInitQuery(callback));
+        let init = db.expect_get(ExecutableStaticInitQuery(callback));
         assert!(
             matches!(
                 init.as_ref().as_deref(),
@@ -7865,9 +7890,9 @@ fn main() i32 {
         );
         let db = query_db(fixture.program());
 
-        let codegen = db.get(CodegenProgramQuery);
+        let codegen = db.expect_get(CodegenProgramQuery);
         assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
-        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
         let module = facts.modules.first().expect("entry module facts");
         assert!(module.body_ir.global_inits.is_empty());
         let def_id = |name, kind| {
@@ -7888,7 +7913,7 @@ fn main() i32 {
 
         assert!(facts.runtime_functions.contains(&helper));
         assert!(facts.runtime_globals.contains(&callback));
-        let init = db.get(ExecutableStaticInitQuery(callback));
+        let init = db.expect_get(ExecutableStaticInitQuery(callback));
         assert!(
             matches!(
                 init.as_ref().as_deref(),
@@ -7914,7 +7939,7 @@ fn main() i32 {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
         let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
-        let cached = database.db.get(CodegenProgramQuery);
+        let cached = database.db.expect_get(CodegenProgramQuery);
         let owned = database.codegen_program();
 
         assert!(Arc::ptr_eq(
@@ -8041,7 +8066,7 @@ pub struct Point {
                 "{level:?}: {:?}",
                 preparation.diagnostics
             );
-            let defs = database.db.get(FullModuleDefsQuery(geom));
+            let defs = database.db.expect_get(FullModuleDefsQuery(geom));
             let point =
                 defs.defs
                     .iter()
@@ -8102,7 +8127,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
         assert!(facts.const_modules.contains_key(&module_id));
         assert!(
             facts
@@ -8111,7 +8136,7 @@ fn main() i32 {
                 .chain(&facts.runtime_globals)
                 .all(|def_id| facts.const_modules.contains_key(&def_id.module_id))
         );
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -8166,7 +8191,7 @@ fn main() usize {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -8208,7 +8233,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -8263,7 +8288,7 @@ pub const LEN: usize = 4usize;
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let entry = modules
             .iter()
             .find(|module| module.id == entry_id)
@@ -8322,7 +8347,7 @@ pub const LEN: usize = 4usize;
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let entry = modules
             .iter()
             .find(|module| module.id == entry_id)
@@ -8408,7 +8433,7 @@ extend Sink : Writer {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let writer = modules
             .iter()
             .find(|module| module.id == writer_id)
@@ -8474,7 +8499,7 @@ extend Sink : Writer {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let signatures = db.get(SignatureItemSignaturesQuery(
+        let signatures = db.expect_get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -8531,7 +8556,7 @@ pub enum Errno: i32 {
         );
         let db = query_db(fixture.program());
 
-        let signatures = db.get(SignatureItemSignaturesQuery(
+        let signatures = db.expect_get(SignatureItemSignaturesQuery(
             entry_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -8599,7 +8624,7 @@ pub enum Errno: i32 {
         );
         let db = query_db(fixture.program());
 
-        let signatures = db.get(SignatureItemSignaturesQuery(
+        let signatures = db.expect_get(SignatureItemSignaturesQuery(
             entry_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -8689,7 +8714,7 @@ pub enum Errno: i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == entry_id)
@@ -8805,7 +8830,7 @@ using entry::error;
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == entry_id)
@@ -8899,7 +8924,7 @@ extend Source : error::IntoError[Target] {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == impls_id)
@@ -8999,7 +9024,7 @@ extend[T] Source!T {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == impls_id)
@@ -9063,7 +9088,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9133,7 +9158,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9193,7 +9218,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9272,7 +9297,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9366,7 +9391,7 @@ fn main() i32!i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9417,7 +9442,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9466,7 +9491,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -9477,7 +9502,7 @@ fn main() i32 {
             module.layouts.diagnostics
         );
 
-        let backend_lowering = db.get(BackendLoweringQuery);
+        let backend_lowering = db.expect_get(BackendLoweringQuery);
         let backend_module = backend_lowering
             .program
             .modules
@@ -9553,7 +9578,7 @@ extend Token : Marker {}
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let backend_lowering = db.get(BackendLoweringQuery);
+        let backend_lowering = db.expect_get(BackendLoweringQuery);
 
         assert!(
             backend_lowering.diagnostics.is_empty(),
@@ -9778,7 +9803,7 @@ where T: Allocator
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let backend_lowering = db.get(BackendLoweringQuery);
+        let backend_lowering = db.expect_get(BackendLoweringQuery);
         assert!(
             backend_lowering.diagnostics.is_empty(),
             "backend lowering should not report diagnostics: {:?}",
@@ -9919,7 +9944,7 @@ pub fn read() i32 {
         let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
 
-        let backend = query_db(loaded).get(BackendLoweringQuery);
+        let backend = query_db(loaded).expect_get(BackendLoweringQuery);
         assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
         let owners = backend
             .program
@@ -9966,7 +9991,7 @@ pub fn slot[T]() &mut T {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let backend_lowering = db.get(BackendLoweringQuery);
+        let backend_lowering = db.expect_get(BackendLoweringQuery);
         assert!(
             backend_lowering.diagnostics.is_empty(),
             "backend lowering should not report diagnostics: {:?}",
@@ -10028,7 +10053,7 @@ pub fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
             .find(|module| module.id == types_id)
@@ -10121,7 +10146,7 @@ pub fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
             .find(|module| module.id == types_id)
@@ -10201,7 +10226,7 @@ pub fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
             .find(|module| module.id == types_id)
@@ -10270,7 +10295,7 @@ fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let helper_module = modules
             .iter()
             .find(|module| module.id == helper_id)
@@ -10319,7 +10344,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -10361,7 +10386,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -10412,7 +10437,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -10472,7 +10497,7 @@ extend Mode {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == helper_id)
@@ -10504,7 +10529,7 @@ extend Mode {
             module.executable_reachable_globals
         );
 
-        let backend = db.get(BackendLoweringQuery);
+        let backend = db.expect_get(BackendLoweringQuery);
         let backend_module = backend
             .program
             .modules
@@ -10538,7 +10563,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == module_id)
@@ -10579,7 +10604,7 @@ pub fn expensive_or_invalid() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.get(ExecutableCheckedModulesQuery);
+        let modules = db.expect_get(ExecutableCheckedModulesQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -10610,7 +10635,7 @@ pub fn expensive_or_invalid() i32 {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(BodyCheckQuery(module_id));
+        let _ = db.expect_get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -10658,7 +10683,7 @@ pub fn expensive_or_invalid() i32 {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(TypeResolutionQuery(module_id));
+        let _ = db.expect_get(TypeResolutionQuery(module_id));
         let invalidation = db.invalidate(ModuleDefsQuery(module_id));
         let invalidated = invalidation
             .invalidated
@@ -10678,7 +10703,7 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(!invalidated.contains(&"type_resolution"), "{invalidated:?}");
 
-        let _ = db.get(TypeResolutionQuery(module_id));
+        let _ = db.expect_get(TypeResolutionQuery(module_id));
     }
 
     #[test]
@@ -10687,7 +10712,7 @@ pub fn expensive_or_invalid() i32 {
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
 
-        let _ = db.get(ModuleDefsQuery(module_id));
+        let _ = db.expect_get(ModuleDefsQuery(module_id));
         let invalidation = db.invalidate(ModuleItemTreeInputQuery(module_id));
         let invalidated = invalidation
             .invalidated

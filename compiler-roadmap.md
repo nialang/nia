@@ -1602,6 +1602,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-1af 贯通loader transaction、compiler公开产品与driver的高层failure contract。`load_program`、module graph/source identity/load diagnostic、provider fact/update/settle统一返回`QueryResult`；`CompilerDatabase::{check_program,analyze_program,entry_check_program,analyze_entry_program,codegen_program,codegen_preparation,update}`不再把query failure包装为空module/空graph产品，旧三个query-error产品构造器已物理删除。语义错误继续保留在产品diagnostics，只有query infrastructure failure沿外层`QueryResult`传播，并在`DriverOutput`唯一公开边界转成internal diagnostic；增量compiler update也不会再以`expect`读取provider facts。测试中的确定成功前置条件使用显式`expect`，不恢复production兼容API；missing-module回归改为直接断言公开analysis返回结构化`InvalidInput`。workspace all-target check、compiler 170项、loader 74项、Driver 490项及三crate all-target/all-features严格Clippy通过。Phase I现约97%；下一切片物理删除runtime单项`get/get_owned` panic wrapper，将`try_get/try_get_owned`收敛为唯一正式名称并迁移全部白盒调用者。
 
+进展（2026-07-26）：I-1ag 完成panic-based query error flow的最终收口。`QueryDb`原panic型`get/get_owned`实现已物理删除，fallible `try_get/try_get_owned`直接改为唯一正式`get/get_owned`，与既有fallible `get_many/get_many_owned`形成单一命名和返回契约；全仓不存在旧标识符、alias、adapter、`panic_any(QueryError)`或`QueryError` downcast。compiler/loader production与fixture provider统一使用`?`传播，白盒成功路径只通过test-module私有`expect_get`工具声明前置条件；cycle、invalid input、batch和跨executor failure按`QueryError`值断言，只有未登记query、错误storage mode与真实provider panic继续作为ICE/invariant unwind测试。query runtime 75项、compiler 170项、loader 74项、workspace all-target check及三crate all-target/all-features严格Clippy通过。Phase I的第1项至此100%，Phase I整体约98%；下一切片进入stable diagnostic store/bundle，先审计diagnostic owner、source span rebase与现有persistent artifact重复codec，再定义不携带revision handle的唯一稳定格式。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

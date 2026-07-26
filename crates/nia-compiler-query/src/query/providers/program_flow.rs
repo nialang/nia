@@ -5,10 +5,10 @@ pub(super) fn provide_checked_program(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<CheckedProgramAnalysis> {
     time_provider(db.context().timings(), "checked_program", || {
-        let graph = db.try_get(ModuleGraphQuery)?.as_ref().clone();
-        let optimization = *db.try_get(CompilerOptimizationQuery)?;
+        let graph = db.get(ModuleGraphQuery)?.as_ref().clone();
+        let optimization = *db.get(CompilerOptimizationQuery)?;
         let mut diagnostics = early_program_diagnostics(db)?;
-        let module_ids = db.try_get(CheckedModuleIdsQuery)?.as_ref().clone();
+        let module_ids = db.get(CheckedModuleIdsQuery)?.as_ref().clone();
         let diagnostic_modules = materialize_checked_modules(db, module_ids)?;
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
         Ok(CheckedProgramAnalysis {
@@ -24,8 +24,8 @@ pub(super) fn provide_entry_checked_program(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<CheckedProgramAnalysis> {
     time_provider(db.context().timings(), "entry_checked_program", || {
-        let graph = db.try_get(ModuleGraphQuery)?.as_ref().clone();
-        let optimization = *db.try_get(CompilerOptimizationQuery)?;
+        let graph = db.get(ModuleGraphQuery)?.as_ref().clone();
+        let optimization = *db.get(CompilerOptimizationQuery)?;
         let mut diagnostics = early_program_diagnostics(db)?;
         let diagnostic_modules = checked_modules_for_diagnostics(db)?;
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
@@ -45,14 +45,14 @@ pub(in crate::query) fn provide_codegen_preparation(
         let graph = time_provider(
             db.context().timings(),
             "codegen_preparation.module_graph",
-            || db.try_get(ModuleGraphQuery),
+            || db.get(ModuleGraphQuery),
         )?
         .as_ref()
         .clone();
         let optimization = time_provider(
             db.context().timings(),
             "codegen_preparation.optimization",
-            || db.try_get(CompilerOptimizationQuery),
+            || db.get(CompilerOptimizationQuery),
         )?;
         let optimization = *optimization;
         let mut diagnostics = time_provider(
@@ -80,7 +80,7 @@ pub(in crate::query) fn provide_codegen_preparation(
                 diagnostics,
             });
         }
-        let monomorphization = db.try_get(MonomorphizationQuery)?;
+        let monomorphization = db.get(MonomorphizationQuery)?;
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.monomorphization_diagnostics",
@@ -101,11 +101,11 @@ pub(super) fn provide_codegen_program(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<CodegenProgram> {
     time_provider(db.context().timings(), "codegen_program", || {
-        let preparation = db.try_get(CodegenPreparationQuery)?;
+        let preparation = db.get(CodegenPreparationQuery)?;
         let backend_lowering = if crate::has_error_diagnostics(&preparation.diagnostics) {
             Arc::new(empty_backend_lowering(preparation.optimization))
         } else {
-            db.try_get(BackendLoweringQuery)?
+            db.get(BackendLoweringQuery)?
         };
         let mut diagnostics = preparation.diagnostics.clone();
         diagnostics.extend(time_provider(

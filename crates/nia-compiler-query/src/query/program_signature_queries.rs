@@ -163,7 +163,7 @@ impl QueryKey<CompilerContext> for ProgramTypeAliasSignatureQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(ModuleProgramSignatureFactsQuery(
+            .get(ModuleProgramSignatureFactsQuery(
                 self.0.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))?
