@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_span::Span;
+
+mod stable_bundle;
+
+pub use stable_bundle::{
+    StableDiagnosticBundleError, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
+};
 use std::cmp::Ordering;
 use std::fmt;
 
