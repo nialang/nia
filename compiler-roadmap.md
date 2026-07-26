@@ -1642,6 +1642,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2o 完成full `ValueResolutionQuery`与`LocalResolutionQuery`诊断所有权迁移。两个query分别发布无diagnostic的semantic `Arc`与session bundle；`LocalResolution`仅通过`value_resolution_semantic`读取上游语义值，semantic-use、body-check、const evaluation和static check全部通过单向semantic helper消费，不保留旧payload访问面。普通checked module复用两个semantic handle，最终report aggregation仍以value→local→item原顺序读取current bundles，因而不复制且不重排用户diagnostics；可执行checked module继续使用其已计算的filtered semantic inputs。新增跨module unknown value及duplicate parameter回归，compiler-query 183项和crate all-target/all-features严格Clippy通过。Phase I约61%；下一域审计其余payload-owning check/layout/backend产品，并按扇出和报告边界选择后续迁移或转入crate/file与data-driven suite重组。
 
+进展（2026-07-26）：I-2p 修正full item/value/local bundle迁移后的executable惰性边界。最终report不再按checked module重新请求三个full query；`CheckedModule`显式携带保持value→local→item顺序的session handles，普通module复用full query bundles，filtered executable resolution在发布semantic `Arc`前移出诊断并注册handles，types-only签名module只携带其既有signature frontend bundles及canonical empty item handle。由checked module派生的单函数/static-init增量body input继续克隆同一handles，不复制payload或恢复full query。type-only executable惰性回归、compiler-query 183项及crate all-target/all-features严格Clippy通过。Phase I仍约61%；下一步继续审计check/layout/backend等剩余payload产品。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

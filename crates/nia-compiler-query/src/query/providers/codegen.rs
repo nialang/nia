@@ -623,24 +623,15 @@ pub(super) fn checked_module_diagnostics(
                 resolve_diagnostic_bundle(db.context(), bundle),
             ));
         }
+        for bundle in &checked.resolution_diagnostics {
+            diagnostics.extend(module_diagnostics(
+                &checked.path,
+                resolve_diagnostic_bundle(db.context(), bundle),
+            ));
+        }
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(
-                db.context(),
-                &db.get(ValueResolutionQuery(checked.id))?.diagnostics,
-            ),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
-            resolve_diagnostic_bundle(
-                db.context(),
-                &db.get(LocalResolutionQuery(checked.id))?.diagnostics,
-            ),
-        ));
-        let item_signatures = db.get(ItemSignaturesQuery(checked.id))?;
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
-            resolve_diagnostic_bundle(db.context(), &item_signatures.diagnostics),
+            resolve_diagnostic_bundle(db.context(), &checked.item_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,

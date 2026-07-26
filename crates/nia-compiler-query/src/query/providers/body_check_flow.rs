@@ -156,12 +156,20 @@ pub(super) fn body_check_resolution_inputs_for_filter(
     context: BodyCheckResolutionContext<'_>,
 ) -> QueryResult<BodyCheckResolutionInputs> {
     match filter {
-        nia_body_check::BodyCheckFilter::All => Ok(BodyCheckResolutionInputs {
-            active_item_tree: context.active_item_tree,
-            values: value_resolution_semantic(db, module_id)?,
-            locals: local_resolution_semantic(db, module_id)?,
-            semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
-        }),
+        nia_body_check::BodyCheckFilter::All => {
+            let values = db.get(ValueResolutionQuery(module_id))?;
+            let locals = db.get(LocalResolutionQuery(module_id))?;
+            Ok(BodyCheckResolutionInputs {
+                active_item_tree: context.active_item_tree,
+                values: Arc::clone(&values.semantic),
+                locals: Arc::clone(&locals.semantic),
+                semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
+                resolution_diagnostics: vec![
+                    values.diagnostics.clone(),
+                    locals.diagnostics.clone(),
+                ],
+            })
+        }
         _ => {
             let filtered_active_item_tree = Arc::new(time_module_provider(
                 db,
@@ -204,7 +212,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();
-            let filtered_values = time_module_provider(
+            let mut filtered_values = time_module_provider(
                 db,
                 "executable_body_check.value_resolution",
                 module_id,
@@ -226,7 +234,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             );
-            let filtered_locals = time_module_provider(
+            let mut filtered_locals = time_module_provider(
                 db,
                 "executable_body_check.local_resolution",
                 module_id,
@@ -292,11 +300,20 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             );
+            let resolution_diagnostics = vec![
+                db.context()
+                    .diagnostic_store
+                    .bundle(std::mem::take(&mut filtered_values.diagnostics)),
+                db.context()
+                    .diagnostic_store
+                    .bundle(std::mem::take(&mut filtered_locals.diagnostics)),
+            ];
             let output = BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,
                 values: Arc::new(filtered_values),
                 locals: Arc::new(filtered_locals),
                 semantic_uses: Arc::new(filtered_semantic_uses),
+                resolution_diagnostics,
             };
             match query_failure
                 .into_inner()
@@ -340,6 +357,7 @@ pub(in crate::query) struct BodyCheckResolutionInputs {
     pub(super) values: Arc<ValueResolution>,
     pub(super) locals: Arc<LocalResolution>,
     pub(super) semantic_uses: Arc<nia_sema_ir::SemanticUseTable>,
+    pub(super) resolution_diagnostics: Vec<nia_diagnostic::DiagnosticBundle>,
 }
 
 pub(in crate::query) struct BodyCheckWithResolutionInputs {
