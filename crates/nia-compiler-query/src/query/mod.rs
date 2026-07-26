@@ -3967,11 +3967,12 @@ pub fn expensive_or_invalid() i32 {
         for ty_id in lowering.explicit_type_roots() {
             assert!(type_store.get(ty_id).is_some());
         }
-        for normalized in normalization.normalized.values() {
+        for normalized in normalization.semantic.normalized.values() {
             assert!(type_store.get(*normalized).is_some());
         }
         assert!(
             normalization
+                .semantic
                 .normalized
                 .iter()
                 .any(|(source, normalized)| source != normalized)
@@ -4075,7 +4076,7 @@ fn main() i32 {
                     .semantic
                     .normalized
                     .values()
-                    .chain(full.normalized.values())
+                    .chain(full.semantic.normalized.values())
                     .all(|ty| database.db.context().type_store.get(*ty).is_some())
             );
             let shared_alias_expansions = signature
@@ -4083,7 +4084,7 @@ fn main() i32 {
                 .normalized
                 .iter()
                 .filter(|(source, normalized)| {
-                    source != normalized && full.normalized.get(source) == Some(normalized)
+                    source != normalized && full.semantic.normalized.get(source) == Some(normalized)
                 })
                 .count();
             assert!(
@@ -6881,6 +6882,17 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn type_normalization_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "type A = B; type B = A;");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let normalization = db.expect_get(TypeNormalizationQuery(module_id));
+        assert!(normalization.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &normalization.diagnostics).is_empty());
+    }
+
+    #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let fixture = LoadedProgramFixture::new("main.nia", source);
@@ -6948,7 +6960,7 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(&checked.type_lowering, &type_lowering));
         assert!(Arc::ptr_eq(
             &checked.type_normalization,
-            &type_normalization
+            &type_normalization.semantic
         ));
         assert!(Arc::ptr_eq(&checked.layouts, &layouts));
         assert!(Arc::ptr_eq(&checked.body_ir, &body_check.ir));

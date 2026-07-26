@@ -350,7 +350,7 @@ pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 pub(super) struct LayoutTypeNormalizationQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeNormalizationQuery {
-    type Value = TypeNormalization;
+    type Value = ModuleTypeNormalization;
 
     fn name() -> &'static str {
         "type_normalization"

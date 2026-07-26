@@ -534,7 +534,7 @@ fn const_inputs_for_body_check(
                 ),
             );
         }
-        capture_query_failure(&query_failure, db.get(TypeNormalizationQuery(module_id)))
+        capture_query_failure(&query_failure, type_normalization_semantic(db, module_id))
     };
     let local_trait_impls = if fact_mode.non_function_signatures.is_none() {
         Some(db.get(VisibleTraitImplsQuery(module_id))?)
@@ -877,7 +877,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                                 defs: &defs,
                                 source_path: &source_path,
                                 signatures: &signatures,
-                                normalization: &normalization,
+                                normalization: &normalization.semantic,
                                 lowered: &lowered,
                                 resolution: inputs,
                             },
@@ -943,7 +943,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 ),
             );
         }
-        capture_query_failure(&query_failure, db.get(TypeNormalizationQuery(module_id)))
+        capture_query_failure(&query_failure, type_normalization_semantic(db, module_id))
     };
     let local_function_signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
@@ -1343,7 +1343,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         &signatures,
                     ),
                     const_signatures: &signatures,
-                    normalization: &normalization,
+                    normalization: &normalization.semantic,
                     seed,
                     target: target.as_ref(),
                     const_eval: body_const,
@@ -2091,6 +2091,7 @@ fn checked_module_with_body_and_flow_check(
     layouts: Option<Arc<nia_layout::Layouts>>,
 ) -> QueryResult<CheckedModule> {
     let path = db.get(ModulePathQuery(module_id))?.as_ref().clone();
+    let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path,
@@ -2099,7 +2100,7 @@ fn checked_module_with_body_and_flow_check(
         type_lowering: db.get(TypeLoweringQuery(module_id))?,
         value_resolution: db.get(ValueResolutionQuery(module_id))?,
         local_resolution: db.get(LocalResolutionQuery(module_id))?,
-        type_normalization: db.get(TypeNormalizationQuery(module_id))?,
+        type_normalization: Arc::clone(&type_normalization.semantic),
         const_eval: db.get(ConstQuery(module_id))?,
         static_check: db.get(StaticCheckQuery(module_id))?,
         layouts: match layouts {
@@ -2120,7 +2121,7 @@ fn checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(Arc::clone(&body_check.diagnostics)),
-        frontend_diagnostics: Vec::new(),
+        frontend_diagnostics: vec![type_normalization.diagnostics.clone()],
     })
 }
 
@@ -2136,6 +2137,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         inputs: body_inputs,
         const_eval,
     } = body_check;
+    let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
@@ -2144,7 +2146,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         type_lowering: db.get(TypeLoweringQuery(module_id))?,
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
-        type_normalization: db.get(TypeNormalizationQuery(module_id))?,
+        type_normalization: Arc::clone(&type_normalization.semantic),
         const_eval: match const_eval {
             Some(const_eval) => Arc::new(const_eval),
             None => db.get(ConstQuery(module_id))?,
@@ -2169,7 +2171,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             .context()
             .diagnostic_store
             .bundle_shared(body_check.diagnostics),
-        frontend_diagnostics: Vec::new(),
+        frontend_diagnostics: vec![type_normalization.diagnostics.clone()],
     })
 }
 

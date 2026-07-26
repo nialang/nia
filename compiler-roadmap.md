@@ -1632,6 +1632,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2j 完成`SignatureTypeNormalizationQuery`的语义/diagnostic分离。normalization query现在将`normalized` mapping作为`Arc` semantic payload发布，递归alias等diagnostics仅在session bundle；body executable、const evaluation、signature const与extension provider的跨模块normalization callback统一经唯一semantic helper返回`Arc<TypeNormalization>`，extension facts直接借用`.semantic`。types-only executable checked module将normalization bundle追加到既有resolution/lowering/item-signature有序frontend handles，最终report逐handle解析，不复制或合并payload。新增递归type alias回归锁定semantic normalization为空诊断而bundle非空；compiler-query 177项与严格Clippy通过。signature resolution/lowering/item-signature/normalization四个高复用前端产品现均完成同一session bundle迁移；下一域转向非signature `TypeResolution`及其checked-module报告边界。
 
+进展（2026-07-26）：I-2k 完成full `TypeNormalizationQuery`及checked-module报告边界迁移。query value以`ModuleTypeNormalization`发布`Arc<TypeNormalization>` semantic mapping和session bundle；full body executable、const eval三组program callback统一经semantic helper返回mapping，normal const/body inputs显式借用`.semantic`。两处full/executable `CheckedModule`构造复用同一semantic `Arc`并把normalization bundle放入frontend handles，codegen不再直接读取已移除的`type_normalization.diagnostics`；因此normal与types-only签名module都只在唯一report边界解析diagnostic payload。新增full recursive type alias回归和existing handle reuse断言锁定该分离；compiler-query 178项与严格Clippy通过。下一项是non-signature `TypeResolution`，其算法consumer更多，需延续同一atomic query/callback/checked-module/report切片。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

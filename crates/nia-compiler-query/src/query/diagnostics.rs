@@ -26,6 +26,12 @@ pub(super) struct SignatureTypeNormalization {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleTypeNormalization {
+    pub(super) semantic: Arc<TypeNormalization>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -85,6 +91,15 @@ pub(super) fn signature_type_normalization_semantic(
     Ok(Arc::clone(
         &db.get(SignatureTypeNormalizationQuery(module_id, set))?
             .semantic,
+    ))
+}
+
+pub(super) fn type_normalization_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<TypeNormalization>> {
+    Ok(Arc::clone(
+        &db.get(TypeNormalizationQuery(module_id))?.semantic,
     ))
 }
 
