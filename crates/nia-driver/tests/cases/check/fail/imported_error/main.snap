@@ -1,0 +1,4 @@
+path: fail/imported_error/math.nia
+code: E0301
+summary: type mismatch in function body: expected i32, got bool
+label: 22..26 Primary Source type mismatch in function body: expected i32, got bool
