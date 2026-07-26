@@ -6884,10 +6884,10 @@ extend i32 : ParseFrom[Input] {
             &checked.provider_demands,
             &body_check.provider_demands
         ));
-        assert!(Arc::ptr_eq(
-            &checked.body_diagnostics,
-            &body_check.diagnostics
-        ));
+        assert_eq!(
+            resolve_diagnostic_bundle(db.context(), &checked.body_diagnostics),
+            body_check.diagnostics.as_slice()
+        );
         assert!(Arc::ptr_eq(&checked.const_eval, &const_eval));
         assert!(Arc::ptr_eq(&const_eval.values, &const_values.values));
         assert!(Arc::ptr_eq(

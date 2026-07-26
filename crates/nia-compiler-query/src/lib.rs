@@ -542,7 +542,7 @@ pub struct CheckedModule {
         Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
     pub executable_reachable_unions: Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
     pub executable_type_only: bool,
-    pub body_diagnostics: std::sync::Arc<Vec<Diagnostic>>,
+    pub(crate) body_diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
 pub(crate) fn module_diagnostics(

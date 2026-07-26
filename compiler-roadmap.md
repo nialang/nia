@@ -1614,6 +1614,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-26）：I-2d 迁移public-surface与public-using-scope两个高扇出compiler query product。`nia-public-surface`继续只产出纯算法瞬时`Vec<(ModuleId, Diagnostic)>`，不把session owner侵入独立算法crate；compiler publish边界将连续相同`ModuleId`诊断压入顺序保持的`ModuleDiagnosticBundle`，每个元素只携带module owner与8-byte bundle handle。正式early-program aggregation只能经current `CompilerContext` store解包并转换为`ProgramDiagnostic`，原query value的两条`Vec<(ModuleId, Diagnostic)>`字段和直接clone读取均已删除；不同module交错时不做全局重排，避免改变用户可见diagnostic次序。module bundle顺序/合并回归与既有public query handle reuse回归通过。signature resolution/lowering/item-signature当前直接以完整产品作为数十个typed provider输入，后续必须先拆分可消费的semantic payload与诊断handle，再迁移消费者，禁止新增只转发旧`Vec`的compat wrapper。
 
+进展（2026-07-26）：I-2e 迁移`CheckedModule`的body diagnostic edge，并消除bundle化过程中的payload复制。`DiagnosticBundle`现在可借用既有`Arc<Vec<Diagnostic>>` shared payload；仍保持8-byte handle、owner-scoped resolve与最后handle释放回收，普通fresh bundle继续使用owned slice。普通与executable checked-module构造都把`BodyCheck.diagnostics`直接注册为shared bundle，signature-only模块使用canonical empty bundle；公开`CheckedModule`不再暴露不可脱离session读取的body diagnostic payload。program aggregation经store解包，原`Arc<Vec<Diagnostic>>`字段及其query-product clone路径删除；回归同时覆盖shared allocation、checked-module semantic product与包含body错误的完整check/certificate路径。下一项signature resolution/lowering/item-signature必须以拆分完整跨crate semantic product为前置设计任务，不能把diagnostic store误作只包一层的新type alias。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

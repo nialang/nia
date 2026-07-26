@@ -2098,7 +2098,10 @@ fn checked_module_with_body_and_flow_check(
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: false,
-        body_diagnostics: Arc::clone(&body_check.diagnostics),
+        body_diagnostics: db
+            .context()
+            .diagnostic_store
+            .bundle_shared(Arc::clone(&body_check.diagnostics)),
     })
 }
 
@@ -2143,7 +2146,10 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: false,
-        body_diagnostics: body_check.diagnostics,
+        body_diagnostics: db
+            .context()
+            .diagnostic_store
+            .bundle_shared(body_check.diagnostics),
     })
 }
 
@@ -2220,7 +2226,7 @@ pub(super) fn executable_signature_checked_module(
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: true,
-        body_diagnostics: Arc::new(Vec::new()),
+        body_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
 }
 
