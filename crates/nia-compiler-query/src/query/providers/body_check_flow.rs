@@ -135,9 +135,15 @@ fn body_check_filter_includes_def(
 pub(super) fn provide_body_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<nia_body_check::BodyCheck> {
+) -> QueryResult<ModuleBodyCheck> {
     time_module_provider(db, "body_check", module_id, || {
-        body_check_with_filter(db, module_id, nia_body_check::BodyCheckFilter::All)
+        let mut body_check =
+            body_check_with_filter(db, module_id, nia_body_check::BodyCheckFilter::All)?;
+        let diagnostics = std::mem::take(&mut body_check.diagnostics);
+        Ok(ModuleBodyCheck {
+            semantic: Arc::new(body_check),
+            diagnostics: db.context().diagnostic_store.bundle_shared(diagnostics),
+        })
     })
 }
 
@@ -199,7 +205,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
             )?;
             let query_failure = RefCell::new(None);
             let program_defs = |module_id| {
-                capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
+                capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
             };
             let visible_extensions = || {
                 time_module_provider(
@@ -333,7 +339,7 @@ pub(in crate::query) fn full_body_check_resolution_inputs(
     let source_version = *db.get(ModuleSourceVersionQuery(module_id))?;
     let origins = db.get(ModuleOriginsQuery(module_id))?;
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let type_resolution = type_resolution_semantic(db, module_id)?;
     let lowered = type_lowering_semantic(db, module_id)?;
     body_check_resolution_inputs_for_filter(
@@ -380,7 +386,7 @@ pub(super) fn body_local_item_signatures(
     module_id: ModuleId,
     lowered: &TypeLowering,
 ) -> QueryResult<ItemSignatures> {
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let functions = collect_body_signature_subset(
         db,
         module_id,

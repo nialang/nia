@@ -77,33 +77,39 @@ pub(super) fn provide_full_active_module_item_tree(
 pub(super) fn provide_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<DefCollection> {
+) -> QueryResult<ModuleDefinitions> {
     let item_tree = db.get(ActiveModuleItemTreeQuery(module_id))?;
     let symbols = db.context().symbols();
-    Ok(
-        nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
-            module_id,
-            &item_tree,
-            db.context().node_store(),
-            &symbols,
-        ),
-    )
+    let mut defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+        module_id,
+        &item_tree,
+        db.context().node_store(),
+        &symbols,
+    );
+    let diagnostics = std::mem::take(&mut defs.diagnostics);
+    Ok(ModuleDefinitions {
+        semantic: Arc::new(defs),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 pub(super) fn provide_full_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<DefCollection> {
+) -> QueryResult<FullModuleDefinitions> {
     let item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let symbols = db.context().symbols();
-    Ok(
-        nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
-            module_id,
-            &item_tree,
-            db.context().node_store(),
-            &symbols,
-        ),
-    )
+    let mut defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+        module_id,
+        &item_tree,
+        db.context().node_store(),
+        &symbols,
+    );
+    let diagnostics = std::mem::take(&mut defs.diagnostics);
+    Ok(FullModuleDefinitions {
+        semantic: Arc::new(defs),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+    })
 }
 
 fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<DefCollection>>> {
@@ -114,7 +120,7 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<D
         .resolve_stable_module_sequence(&parse_ok_modules)?;
     module_ids
         .into_iter()
-        .map(|module_id| db.get(ModuleDefsQuery(module_id)))
+        .map(|module_id| module_defs_semantic(db, module_id))
         .collect()
 }
 
@@ -236,13 +242,13 @@ pub(super) fn provide_type_resolution(
 ) -> QueryResult<ModuleTypeResolution> {
     time_module_provider(db, "type_resolution", module_id, || {
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        let defs = full_module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs = |module_id| {
-            capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
+            capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
         };
         let symbols = db.context().symbols();
         let mut resolution =
@@ -277,13 +283,13 @@ pub(super) fn provide_declaration_type_resolution(
 ) -> QueryResult<TypeResolution> {
     time_module_provider(db, "declaration_type_resolution", module_id, || {
         let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id))?;
-        let defs = db.get(ModuleDefsQuery(module_id))?;
+        let defs = module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs =
-            |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+            |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
         let symbols = db.context().symbols();
         let resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
@@ -387,13 +393,13 @@ pub(super) fn provide_signature_type_resolution(
             });
         }
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
-        let defs = db.get(ModuleDefsQuery(module_id))?;
+        let defs = module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs =
-            |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+            |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
         let mut fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
@@ -451,13 +457,13 @@ pub(super) fn provide_signature_const_type_resolution(
 ) -> QueryResult<TypeResolution> {
     time_module_provider(db, "signature_const_type_resolution", module_id, || {
         let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
-        let defs = db.get(ModuleDefsQuery(module_id))?;
+        let defs = module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs =
-            |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+            |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
         let symbols = db.context().symbols();
         let resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
@@ -484,7 +490,7 @@ pub(super) fn provide_type_lowering(
     let type_resolution = type_resolution_semantic(db, module_id)?;
     let query_failure = RefCell::new(None);
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let symbols = db.context().symbols();
     let mut lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
@@ -518,7 +524,7 @@ pub(super) fn provide_declaration_type_lowering(
     let type_resolution = db.get(DeclarationTypeResolutionQuery(module_id))?;
     let query_failure = RefCell::new(None);
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
     let symbols = db.context().symbols();
     let lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
@@ -619,7 +625,7 @@ pub(super) fn provide_signature_type_lowering(
     let type_resolution = db.get(SignatureTypeResolutionQuery(module_id, set))?;
     let query_failure = RefCell::new(None);
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
     let mut lowering =
         nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
             module_id,
@@ -692,7 +698,7 @@ pub(super) fn provide_signature_const_type_lowering(
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let query_failure = RefCell::new(None);
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
     let symbols = db.context().symbols();
     let lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
@@ -714,7 +720,7 @@ pub(super) fn provide_item_signatures(
     module_id: ModuleId,
 ) -> QueryResult<ModuleItemSignatures> {
     let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(DeclarationTypeLoweringQuery(module_id))?;
     let symbols = db.context().symbols();
     let mut signatures =
@@ -815,7 +821,7 @@ pub(super) fn provide_signature_item_signatures(
         });
     }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
-    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set))?;
     let mut fresh =
         nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
@@ -878,7 +884,7 @@ pub(super) fn provide_signature_const_item_signatures(
     module_id: ModuleId,
 ) -> QueryResult<ItemSignatures> {
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
-    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let symbols = db.context().symbols();
     Ok(nia_item_signatures::collect_item_signatures(

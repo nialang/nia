@@ -89,7 +89,7 @@ impl ExecutableValueRefEdges {
         db: &QueryDb<CompilerContext>,
         global_id: GlobalDefId,
     ) -> QueryResult<bool> {
-        let defs = db.get(FullModuleDefsQuery(global_id.module_id))?;
+        let defs = full_module_defs_semantic(db, global_id.module_id)?;
         let Some(def) = defs.defs.get(global_id.def_id) else {
             return Ok(false);
         };
@@ -205,7 +205,7 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.defs",
         global_id.module_id,
-        || db.get(FullModuleDefsQuery(global_id.module_id)),
+        || full_module_defs_semantic(db, global_id.module_id),
     )?;
     let source_path = time_module_provider(
         db,
@@ -239,7 +239,7 @@ fn filtered_const_global_initializer_for_body_check(
     );
     let graph = db.get(ModuleGraphQuery)?;
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let public_surfaces = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.public_surfaces",
@@ -522,7 +522,7 @@ fn const_inputs_for_body_check(
             .map(|path| path.as_ref().clone())
     };
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return capture_query_failure(
@@ -760,7 +760,7 @@ pub(super) struct ExecutableBodyCheckInput<'a> {
 }
 
 type ExecutableProgramLayoutCache<'a> = (
-    &'a RefCell<HashMap<ModuleId, Arc<nia_layout::Layouts>>>,
+    &'a RefCell<HashMap<ModuleId, ModuleLayouts>>,
     &'a RefCell<Option<QueryError>>,
 );
 
@@ -787,9 +787,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let source_version = *db.get(ModuleSourceVersionQuery(module_id))?;
     let origins = db.get(ModuleOriginsQuery(module_id))?;
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let type_resolution = type_resolution_semantic(db, module_id)?;
     let lowered = type_lowering_semantic(db, module_id)?;
     let executable_reachable_filter = matches!(
@@ -903,7 +903,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let layouts = match layouts {
         Some(layouts) => layouts,
-        None => db.get(LayoutsQuery(module_id))?,
+        None => Arc::clone(&db.get(LayoutsQuery(module_id))?.semantic),
     };
     let program_layouts = |module_id| {
         if let Some(program_layouts) = program_layouts_override {
@@ -914,6 +914,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             }
         }
         capture_query_failure(&query_failure, db.get(SignatureLayoutsQuery(module_id)))
+            .map(|layouts| Arc::clone(&layouts.semantic))
     };
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
@@ -990,7 +991,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         )?;
         let signature = signatures.semantic.functions.get(&def_id.def_id).cloned()?;
         let defs =
-            capture_query_failure(&query_failure, db.get(ModuleDefsQuery(def_id.module_id)))?;
+            capture_query_failure(&query_failure, module_defs_semantic(db, def_id.module_id))?;
         let signature = ProgramFunctionSignature {
             name: defs
                 .defs
@@ -1649,7 +1650,7 @@ pub(super) fn executable_layouts_for_reachable_items(
 ) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "executable_layouts", module_id, || {
         let query_failure = RefCell::new(None);
-        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        let defs = full_module_defs_semantic(db, module_id)?;
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
         let type_lowering = type_lowering_semantic(db, module_id)?;
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
@@ -1873,7 +1874,7 @@ pub(super) fn executable_program_layouts<'a>(
     let (cache, failure) = cache_and_failure;
     move |module_id| {
         if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
-            return Some(layouts);
+            return Some(layouts.semantic);
         }
         let has_reachable_body_items = reachable_body_modules_override
             .map(|modules| modules.contains(module_id))
@@ -1889,7 +1890,7 @@ pub(super) fn executable_program_layouts<'a>(
                 )
                 .unwrap_or(false)
             });
-        let layouts = Arc::new(if has_reachable_body_items {
+        let layouts = if has_reachable_body_items {
             capture_query_failure(
                 failure,
                 executable_layouts_for_reachable_items(
@@ -1907,9 +1908,10 @@ pub(super) fn executable_program_layouts<'a>(
                 failure,
                 signature_layouts_for_types(db, module_id, non_function_signatures_override),
             )?
-        });
+        };
+        let layouts = store_module_layouts(db.context(), layouts);
         cache.borrow_mut().insert(module_id, layouts.clone());
-        Some(layouts)
+        Some(layouts.semantic)
     }
 }
 
@@ -1937,8 +1939,7 @@ fn has_reachable_executable_body_items(
 }
 
 fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: GlobalDefId) -> QueryResult<bool> {
-    Ok(db
-        .get(ModuleDefsQuery(def_id.module_id))?
+    Ok(module_defs_semantic(db, def_id.module_id)?
         .defs
         .get(def_id.def_id)
         .is_some_and(|def| def.kind == DefKind::Global))
@@ -1949,9 +1950,12 @@ fn rooted_layouts_for_checked_module(
     module: &CheckedModule,
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
-) -> QueryResult<Arc<nia_layout::Layouts>> {
+) -> QueryResult<ModuleLayouts> {
     if module.executable_type_only {
-        return Ok(module.layouts.clone());
+        return Ok(ModuleLayouts {
+            semantic: Arc::clone(&module.layouts),
+            diagnostics: module.layout_diagnostics.clone(),
+        });
     }
     let item_signatures = item_signatures_semantic(db, module.id)?;
     let roots = checked_module_layout_roots(&db.context().type_store, module);
@@ -1962,7 +1966,10 @@ fn rooted_layouts_for_checked_module(
     let layout_query = |module_id| {
         program_layouts_override
             .and_then(|program_layouts| program_layouts(module_id))
-            .or_else(|| capture_query_failure(&query_failure, db.get(LayoutsQuery(module_id))))
+            .or_else(|| {
+                capture_query_failure(&query_failure, db.get(LayoutsQuery(module_id)))
+                    .map(|layouts| Arc::clone(&layouts.semantic))
+            })
     };
     let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
         program_array_lengths_override
@@ -1972,7 +1979,7 @@ fn rooted_layouts_for_checked_module(
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())
             })
     };
-    let layouts = Arc::new(nia_layout::compute_layouts_for_roots_with_program_context(
+    let layouts = nia_layout::compute_layouts_for_roots_with_program_context(
         nia_layout::LayoutComputationInput {
             type_store: &db.context().type_store,
             defs: &module.defs,
@@ -1993,10 +2000,10 @@ fn rooted_layouts_for_checked_module(
             structs: &roots.structs,
             unions: &roots.unions,
         },
-    ));
+    );
     match query_failure.into_inner() {
         Some(error) => Err(error),
-        None => Ok(layouts),
+        None => Ok(store_module_layouts(db.context(), layouts)),
     }
 }
 
@@ -2088,8 +2095,8 @@ pub(super) fn provide_checked_module(
 fn checked_module_with_body_and_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    body_check: Arc<nia_body_check::BodyCheck>,
-    flow_check: Arc<nia_flow_check::FlowCheck>,
+    body_check: Arc<ModuleBodyCheck>,
+    flow_check: Arc<ModuleFlowCheck>,
     layouts: Option<Arc<nia_layout::Layouts>>,
 ) -> QueryResult<CheckedModule> {
     let path = db.get(ModulePathQuery(module_id))?.as_ref().clone();
@@ -2099,35 +2106,46 @@ fn checked_module_with_body_and_flow_check(
     let local_resolution = db.get(LocalResolutionQuery(module_id))?;
     let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
+    let query_layouts = layouts
+        .is_none()
+        .then(|| db.get(LayoutsQuery(module_id)))
+        .transpose()?;
+    let const_eval = db.get(ConstQuery(module_id))?;
+    let static_check = db.get(StaticCheckQuery(module_id))?;
+    let abi_check = db.get(AbiCheckQuery(module_id))?;
+    let definitions = db.get(FullModuleDefsQuery(module_id))?;
     Ok(CheckedModule {
         id: module_id,
         path,
-        defs: db.get(FullModuleDefsQuery(module_id))?,
+        defs: Arc::clone(&definitions.semantic),
+        definition_diagnostics: definitions.diagnostics.clone(),
         type_resolution: Arc::clone(&type_resolution.semantic),
         type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: Arc::clone(&value_resolution.semantic),
         local_resolution: Arc::clone(&local_resolution.semantic),
         type_normalization: Arc::clone(&type_normalization.semantic),
-        const_eval: db.get(ConstQuery(module_id))?,
-        static_check: db.get(StaticCheckQuery(module_id))?,
+        const_eval: Arc::clone(&const_eval.semantic),
+        static_check: Arc::clone(&static_check.semantic),
         layouts: match layouts {
             Some(layouts) => layouts,
-            None => db.get(LayoutsQuery(module_id))?,
+            None => Arc::clone(
+                &query_layouts
+                    .as_ref()
+                    .expect("layouts query must run")
+                    .semantic,
+            ),
         },
-        abi_check: db.get(AbiCheckQuery(module_id))?,
-        flow_check,
-        body_ir: Arc::clone(&body_check.ir),
+        abi_check: Arc::clone(&abi_check.semantic),
+        flow_check: Arc::clone(&flow_check.semantic),
+        body_ir: Arc::clone(&body_check.semantic.ir),
         semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
-        semantic_facts: Arc::clone(&body_check.facts),
-        provider_demands: Arc::clone(&body_check.provider_demands),
+        semantic_facts: Arc::clone(&body_check.semantic.facts),
+        provider_demands: Arc::clone(&body_check.semantic.provider_demands),
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: false,
-        body_diagnostics: db
-            .context()
-            .diagnostic_store
-            .bundle_shared(Arc::clone(&body_check.diagnostics)),
+        body_diagnostics: body_check.diagnostics.clone(),
         frontend_diagnostics: vec![
             type_resolution.diagnostics.clone(),
             type_normalization.diagnostics.clone(),
@@ -2138,6 +2156,14 @@ fn checked_module_with_body_and_flow_check(
             local_resolution.diagnostics.clone(),
         ],
         item_diagnostics: item_signatures.diagnostics.clone(),
+        const_diagnostics: const_eval.diagnostics.clone(),
+        static_diagnostics: static_check.diagnostics.clone(),
+        layout_diagnostics: query_layouts
+            .as_ref()
+            .map(|layouts| layouts.diagnostics.clone())
+            .unwrap_or_else(|| db.context().diagnostic_store.bundle(Vec::new())),
+        abi_diagnostics: abi_check.diagnostics.clone(),
+        flow_diagnostics: flow_check.diagnostics.clone(),
     })
 }
 
@@ -2145,8 +2171,8 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     body_check: BodyCheckWithResolutionInputs,
-    flow_check: nia_flow_check::FlowCheck,
-    layouts: Arc<nia_layout::Layouts>,
+    mut flow_check: nia_flow_check::FlowCheck,
+    layouts: ModuleLayouts,
 ) -> QueryResult<CheckedModule> {
     let BodyCheckWithResolutionInputs {
         body_check,
@@ -2157,23 +2183,42 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
     let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
+    let definitions = db.get(FullModuleDefsQuery(module_id))?;
+    let flow_diagnostics = db
+        .context()
+        .diagnostic_store
+        .bundle(std::mem::take(&mut flow_check.diagnostics));
+    let (const_eval, const_diagnostics) = match const_eval {
+        Some(mut const_eval) => {
+            let diagnostics = db
+                .context()
+                .diagnostic_store
+                .bundle(std::mem::take(&mut const_eval.diagnostics));
+            (Arc::new(const_eval), diagnostics)
+        }
+        None => {
+            let const_eval = db.get(ConstQuery(module_id))?;
+            (
+                Arc::clone(&const_eval.semantic),
+                const_eval.diagnostics.clone(),
+            )
+        }
+    };
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
-        defs: db.get(FullModuleDefsQuery(module_id))?,
+        defs: Arc::clone(&definitions.semantic),
+        definition_diagnostics: definitions.diagnostics.clone(),
         type_resolution: Arc::clone(&type_resolution.semantic),
         type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
         type_normalization: Arc::clone(&type_normalization.semantic),
-        const_eval: match const_eval {
-            Some(const_eval) => Arc::new(const_eval),
-            None => db.get(ConstQuery(module_id))?,
-        },
+        const_eval,
         static_check: Arc::new(nia_static_check::StaticCheck {
             diagnostics: Vec::new(),
         }),
-        layouts,
+        layouts: layouts.semantic,
         abi_check: Arc::new(nia_abi_check::AbiCheck {
             diagnostics: Vec::new(),
         }),
@@ -2197,13 +2242,18 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         ],
         resolution_diagnostics: body_inputs.resolution_diagnostics,
         item_diagnostics: item_signatures.diagnostics.clone(),
+        const_diagnostics,
+        static_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        layout_diagnostics: layouts.diagnostics,
+        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        flow_diagnostics,
     })
 }
 
 pub(super) fn executable_signature_checked_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    layouts: Arc<nia_layout::Layouts>,
+    layouts: ModuleLayouts,
     program_signatures: &ProgramExecutableNonFunctionSignatures,
 ) -> QueryResult<CheckedModule> {
     let signature_type_resolution = db.get(SignatureTypeResolutionQuery(
@@ -2222,6 +2272,7 @@ pub(super) fn executable_signature_checked_module(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ))?;
+    let definitions = db.get(ModuleDefsQuery(module_id))?;
     let (array_lengths, enum_values) = with_type_signature_const_input(
         db,
         module_id,
@@ -2237,10 +2288,23 @@ pub(super) fn executable_signature_checked_module(
     )?;
     let mut const_diagnostics = array_lengths.diagnostics.clone();
     const_diagnostics.extend(enum_values.diagnostics.clone());
+    let mut const_eval = ConstCheck {
+        values: Arc::new(HashMap::new()),
+        typed_values: Arc::new(HashMap::new()),
+        enum_values: enum_values.values,
+        typed_enum_values: enum_values.typed_values,
+        array_lengths: array_lengths.values,
+        diagnostics: const_diagnostics,
+    };
+    let const_diagnostics = db
+        .context()
+        .diagnostic_store
+        .bundle(std::mem::take(&mut const_eval.diagnostics));
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
-        defs: db.get(ModuleDefsQuery(module_id))?,
+        defs: Arc::clone(&definitions.semantic),
+        definition_diagnostics: definitions.diagnostics.clone(),
         type_resolution: Arc::clone(&signature_type_resolution.semantic),
         type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: Arc::new(ValueResolution::with_store(db.context().node_store())),
@@ -2248,18 +2312,11 @@ pub(super) fn executable_signature_checked_module(
             db.context().node_store(),
         )),
         type_normalization: Arc::clone(&type_normalization.semantic),
-        const_eval: Arc::new(ConstCheck {
-            values: Arc::new(HashMap::new()),
-            typed_values: Arc::new(HashMap::new()),
-            enum_values: enum_values.values,
-            typed_enum_values: enum_values.typed_values,
-            array_lengths: array_lengths.values,
-            diagnostics: const_diagnostics,
-        }),
+        const_eval: Arc::new(const_eval),
         static_check: Arc::new(nia_static_check::StaticCheck {
             diagnostics: Vec::new(),
         }),
-        layouts,
+        layouts: layouts.semantic,
         abi_check: Arc::new(nia_abi_check::AbiCheck {
             diagnostics: Vec::new(),
         }),
@@ -2286,6 +2343,11 @@ pub(super) fn executable_signature_checked_module(
         ],
         resolution_diagnostics: Vec::new(),
         item_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        const_diagnostics,
+        static_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        layout_diagnostics: layouts.diagnostics,
+        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        flow_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
 }
 
@@ -2420,10 +2482,10 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(owner.module_id))?;
             let active_item_tree =
                 executable_value_ref_active_item_tree(item_input, &full_active_item_tree);
-            let defs = db.get(ModuleDefsQuery(owner.module_id))?;
+            let defs = module_defs_semantic(db, owner.module_id)?;
             let query_failure = RefCell::new(None);
             let program_defs = |module_id| {
-                capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)))
+                capture_query_failure(&query_failure, module_defs_semantic(db, module_id))
             };
             let graph = QueryModuleGraphLookup::new(db)?;
             let public_surfaces = QueryPublicSurfaceLookup::new(db);
@@ -2812,7 +2874,7 @@ pub(super) fn extend_module_functions_from_local_static_globals(
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
 ) -> QueryResult<HashSet<GlobalDefId>> {
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     for global in module_globals {
         let Some(def) = defs.defs.get(global.def_id) else {
             continue;
@@ -2854,12 +2916,14 @@ pub(super) fn filter_checked_module_for_codegen(
         reachable_functions,
         reachable_globals,
     ));
-    module.layouts = rooted_layouts_for_checked_module(
+    let layouts = rooted_layouts_for_checked_module(
         db,
         &module,
         program_layouts_override,
         program_array_lengths_override,
     )?;
+    module.layouts = layouts.semantic;
+    module.layout_diagnostics = layouts.diagnostics;
     module.executable_reachable_globals = Some(reachable_globals.clone());
     Ok(module)
 }

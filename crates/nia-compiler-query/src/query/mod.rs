@@ -3870,6 +3870,7 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(
             first_defs
+                .semantic
                 .def_nodes
                 .entries()
                 .all(|(key, _)| key.revision == SourceRevision::INITIAL)
@@ -3897,6 +3898,7 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(
             latest_defs
+                .semantic
                 .def_nodes
                 .entries()
                 .all(|(key, _)| key.revision == SourceRevision(1))
@@ -4042,7 +4044,7 @@ fn main() i32 {
 
         let body = database.db.expect_get(BodyCheckQuery(module_id));
 
-        assert!(body.facts.function_facts.values().any(|facts| {
+        assert!(body.semantic.facts.function_facts.values().any(|facts| {
             facts.local_types.values().any(|ty| {
                 matches!(
                     database.db.context().type_store.get(*ty),
@@ -4910,7 +4912,7 @@ extend Value : Ops {
         let db = query_db(fixture.program());
 
         let defs = db.expect_get(ModuleDefsQuery(module_id));
-        let alias_id = defs.module_scope.types.get(&sym("Alias")).unwrap();
+        let alias_id = defs.semantic.module_scope.types.get(&sym("Alias")).unwrap();
         let _ = db.expect_get(ProgramTypeAliasSignatureQuery(GlobalDefId {
             module_id,
             def_id: alias_id,
@@ -4939,7 +4941,11 @@ extend Value : Ops {
         let layouts = db.expect_get(LayoutsQuery(module_id));
         let trace = db.query_trace();
 
-        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(
+            layouts.semantic.diagnostics.is_empty(),
+            "{:?}",
+            layouts.semantic.diagnostics
+        );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "layouts" && dependency.to.name == "layout_type_normalization"
         }));
@@ -4978,7 +4984,11 @@ extend Value : Ops {
         let entry_description = format!("{entry_id:?}");
         let module1_description = format!("{module1:?}");
 
-        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(
+            layouts.semantic.diagnostics.is_empty(),
+            "{:?}",
+            layouts.semantic.diagnostics
+        );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "layouts"
                 && dependency.from.description.contains(&entry_description)
@@ -5013,9 +5023,14 @@ extend Value : Ops {
         let _ = db.expect_get(SignatureItemSignaturesQuery(entry_id, signature_types));
         let layouts = db.expect_get(SignatureLayoutsQuery(entry_id));
 
-        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(
+            layouts.semantic.diagnostics.is_empty(),
+            "{:?}",
+            layouts.semantic.diagnostics
+        );
         assert!(
             layouts
+                .semantic
                 .types
                 .keys()
                 .all(|ty| db.context().type_store.get(*ty).is_some())
@@ -5144,11 +5159,16 @@ extend Value : Ops {
         let defs = db.expect_get(ModuleDefsQuery(module_id));
         let main = GlobalDefId {
             module_id,
-            def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+            def_id: defs.semantic.module_scope.values.get(&sym("main")).unwrap(),
         };
         let helper = GlobalDefId {
             module_id,
-            def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
+            def_id: defs
+                .semantic
+                .module_scope
+                .values
+                .get(&sym("helper"))
+                .unwrap(),
         };
 
         let edges = db.expect_get(ExecutableValueRefEdgesQuery(main));
@@ -5349,11 +5369,16 @@ extend Value : Ops {
             let defs = db.expect_get(ModuleDefsQuery(module_id));
             let owner = GlobalDefId {
                 module_id,
-                def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+                def_id: defs.semantic.module_scope.values.get(&sym("main")).unwrap(),
             };
             let helper = GlobalDefId {
                 module_id,
-                def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
+                def_id: defs
+                    .semantic
+                    .module_scope
+                    .values
+                    .get(&sym("helper"))
+                    .unwrap(),
             };
             let edges = db.expect_get(ExecutableValueRefEdgesQuery(owner));
             (owner, edges.functions.contains(&helper), db.query_trace())
@@ -5443,7 +5468,7 @@ extend Value : Ops {
         let defs = database.db.expect_get(ModuleDefsQuery(module_id));
         let owner = GlobalDefId {
             module_id,
-            def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+            def_id: defs.semantic.module_scope.values.get(&sym("main")).unwrap(),
         };
         let first = database.db.expect_get(ExecutableValueRefItemQuery(owner));
         assert_eq!(
@@ -5473,11 +5498,16 @@ extend Value : Ops {
         let defs = db.expect_get(ModuleDefsQuery(module_id));
         let main = GlobalDefId {
             module_id,
-            def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+            def_id: defs.semantic.module_scope.values.get(&sym("main")).unwrap(),
         };
         let calls = GlobalDefId {
             module_id,
-            def_id: defs.module_scope.values.get(&sym("calls")).unwrap(),
+            def_id: defs
+                .semantic
+                .module_scope
+                .values
+                .get(&sym("calls"))
+                .unwrap(),
         };
 
         let edges = db.expect_get(ExecutableValueRefEdgesQuery(main));
@@ -5495,12 +5525,16 @@ extend Value : Ops {
         let item_tree = db.expect_get(ActiveModuleItemTreeQuery(module_id));
         let item_node_key = &item_tree.items[0].node_key;
         let item_node_id = defs
+            .semantic
             .def_nodes
             .node_id(item_node_key)
             .expect("definition node id");
         let trace = db.query_trace();
 
-        assert_eq!(defs.def_nodes.store_id(), db.context().node_store.id());
+        assert_eq!(
+            defs.semantic.def_nodes.store_id(),
+            db.context().node_store.id()
+        );
         assert_eq!(
             db.context().node_store.locator(item_node_id),
             Some(item_node_key.clone())
@@ -6961,6 +6995,114 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn flow_check_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "fn main(flag: bool) i32 { if flag { return 1; } }",
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let flow_check = db.expect_get(FlowCheckQuery(module_id));
+        assert!(flow_check.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &flow_check.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("does not return on all reachable paths"))
+        );
+    }
+
+    #[test]
+    fn terminal_checks_separate_semantic_values_from_diagnostics() {
+        let static_fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "static global: i32 = make(); fn make() i32 { 1 }",
+        );
+        let static_module_id = static_fixture.entry_id();
+        let static_db = query_db(static_fixture.program());
+        let static_check = static_db.expect_get(StaticCheckQuery(static_module_id));
+
+        assert!(static_check.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(static_db.context(), &static_check.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("global initializer is not static data"))
+        );
+
+        let abi_fixture = LoadedProgramFixture::new("main.nia", "extern fn bad(flag: bool) void;");
+        let abi_module_id = abi_fixture.entry_id();
+        let abi_db = query_db(abi_fixture.program());
+        let abi_check = abi_db.expect_get(AbiCheckQuery(abi_module_id));
+
+        assert!(abi_check.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(abi_db.context(), &abi_check.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("cannot use `bool` directly"))
+        );
+    }
+
+    #[test]
+    fn layouts_separate_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "struct Node { next: Node }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let layouts = db.expect_get(LayoutsQuery(module_id));
+        assert!(layouts.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &layouts.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .summary
+                    .contains("recursive struct layout is not supported"))
+        );
+    }
+
+    #[test]
+    fn const_check_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "const a: i32 = b; const b: i32 = a;");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let const_eval = db.expect_get(ConstQuery(module_id));
+        assert!(const_eval.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &const_eval.diagnostics).is_empty());
+    }
+
+    #[test]
+    fn monomorphization_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "fn grow[T](value: &T) i32 { grow[&T](&value) } fn main() i32 { let value: i32 = 1; grow[i32](&value) }",
+        );
+        let db = query_db(fixture.program());
+
+        let monomorphization = db.expect_get(MonomorphizationQuery);
+        assert!(monomorphization.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &monomorphization.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("type depth limit"))
+        );
+    }
+
+    #[test]
+    fn body_check_separates_semantic_value_from_diagnostics() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { false }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let body_check = db.expect_get(BodyCheckQuery(module_id));
+        assert!(body_check.semantic.diagnostics.is_empty());
+        assert!(!resolve_diagnostic_bundle(db.context(), &body_check.diagnostics).is_empty());
+    }
+
+    #[test]
     fn signature_type_normalization_separates_semantic_value_from_diagnostics() {
         let fixture = LoadedProgramFixture::new("main.nia", "type A = B; type B = A;");
         let module_id = fixture.entry_id();
@@ -7058,38 +7200,46 @@ extend i32 : ParseFrom[Input] {
             &checked.type_normalization,
             &type_normalization.semantic
         ));
-        assert!(Arc::ptr_eq(&checked.layouts, &layouts));
-        assert!(Arc::ptr_eq(&checked.body_ir, &body_check.ir));
-        assert!(Arc::ptr_eq(&checked.semantic_facts, &body_check.facts));
+        assert!(Arc::ptr_eq(&checked.layouts, &layouts.semantic));
+        assert!(Arc::ptr_eq(&checked.body_ir, &body_check.semantic.ir));
+        assert!(Arc::ptr_eq(
+            &checked.semantic_facts,
+            &body_check.semantic.facts
+        ));
         assert!(Arc::ptr_eq(
             &checked.provider_demands,
-            &body_check.provider_demands
+            &body_check.semantic.provider_demands
         ));
-        assert_eq!(
-            resolve_diagnostic_bundle(db.context(), &checked.body_diagnostics),
-            body_check.diagnostics.as_slice()
-        );
-        assert!(Arc::ptr_eq(&checked.const_eval, &const_eval));
-        assert!(Arc::ptr_eq(&const_eval.values, &const_values.values));
+        assert_eq!(checked.body_diagnostics, body_check.diagnostics);
+        assert_eq!(checked.const_diagnostics, const_eval.diagnostics);
+        assert!(Arc::ptr_eq(&checked.const_eval, &const_eval.semantic));
         assert!(Arc::ptr_eq(
-            &const_eval.typed_values,
+            &const_eval.semantic.values,
+            &const_values.values
+        ));
+        assert!(Arc::ptr_eq(
+            &const_eval.semantic.typed_values,
             &const_typed_facts.typed_values
         ));
         assert!(Arc::ptr_eq(
-            &const_eval.enum_values,
+            &const_eval.semantic.enum_values,
             &const_enum_values.values
         ));
         assert!(Arc::ptr_eq(
-            &const_eval.typed_enum_values,
+            &const_eval.semantic.typed_enum_values,
             &const_enum_values.typed_values
         ));
         assert!(Arc::ptr_eq(
-            &const_eval.array_lengths,
+            &const_eval.semantic.array_lengths,
             &const_array_lengths.values
         ));
-        assert!(Arc::ptr_eq(&checked.static_check, &static_check));
-        assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));
-        assert!(Arc::ptr_eq(&checked.flow_check, &flow_check));
+        assert!(Arc::ptr_eq(&checked.static_check, &static_check.semantic));
+        assert!(Arc::ptr_eq(&checked.abi_check, &abi_check.semantic));
+        assert!(Arc::ptr_eq(&checked.flow_check, &flow_check.semantic));
+        assert_eq!(checked.static_diagnostics, static_check.diagnostics);
+        assert_eq!(checked.layout_diagnostics, layouts.diagnostics);
+        assert_eq!(checked.abi_diagnostics, abi_check.diagnostics);
+        assert_eq!(checked.flow_diagnostics, flow_check.diagnostics);
     }
 
     #[test]
@@ -7122,8 +7272,32 @@ extend i32 : ParseFrom[Input] {
             .find(|module| module.id == module_id)
             .expect("entry executable module");
 
-        assert!(Arc::ptr_eq(&checked.defs, &defs));
-        assert!(Arc::ptr_eq(&executable.defs, &defs));
+        assert!(Arc::ptr_eq(&checked.defs, &defs.semantic));
+        assert!(Arc::ptr_eq(&executable.defs, &defs.semantic));
+        assert_eq!(checked.definition_diagnostics, defs.diagnostics);
+        assert_eq!(executable.definition_diagnostics, defs.diagnostics);
+    }
+
+    #[test]
+    fn full_module_definitions_separate_semantic_value_from_diagnostics() {
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "struct Duplicate {} struct Duplicate {}");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let definitions = db.expect_get(FullModuleDefsQuery(module_id));
+        let checked = db.expect_get(CheckedModuleQuery(module_id));
+
+        assert!(definitions.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &definitions.diagnostics)
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .primary_message()
+                    .is_some_and(|message| message.contains("duplicate type definition")))
+        );
+        assert!(Arc::ptr_eq(&checked.defs, &definitions.semantic));
+        assert_eq!(checked.definition_diagnostics, definitions.diagnostics);
     }
 
     #[test]
@@ -7209,7 +7383,7 @@ extend i32 : ParseFrom[Input] {
         let defs = db.expect_get(ModuleDefsQuery(module_id));
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
             module_id,
-            def_id: defs.module_scope.types.get(&sym("Read")).unwrap(),
+            def_id: defs.semantic.module_scope.types.get(&sym("Read")).unwrap(),
         });
         let method_id = GlobalDefId {
             module_id,
@@ -7420,11 +7594,11 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(&first_codegen, &second_codegen));
         assert!(Arc::ptr_eq(
             &first_codegen.monomorphization,
-            &monomorphization
+            &monomorphization.semantic
         ));
         assert!(Arc::ptr_eq(
             &first_codegen.backend_lowering,
-            &backend_lowering
+            &backend_lowering.semantic
         ));
         assert!(trace_has_dependency(
             &trace,
@@ -7525,9 +7699,15 @@ extend i32 : ParseFrom[Input] {
         let db = query_db(fixture.program());
 
         let first = db.expect_get(BackendLoweringQuery);
-        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert!(first.semantic.diagnostics.is_empty());
+        assert!(
+            resolve_diagnostic_bundle(db.context(), &first.diagnostics).is_empty(),
+            "{:?}",
+            resolve_diagnostic_bundle(db.context(), &first.diagnostics)
+        );
         assert_eq!(
             first
+                .semantic
                 .program
                 .modules
                 .iter()
@@ -7684,6 +7864,7 @@ pub fn value() i32 {
         let backend = db.expect_get(BackendLoweringQuery);
         assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
         let backend_module = backend
+            .semantic
             .program
             .modules
             .iter()
@@ -8268,7 +8449,8 @@ pub struct Point {
             );
             let defs = database.db.expect_get(FullModuleDefsQuery(geom));
             let point =
-                defs.defs
+                defs.semantic
+                    .defs
                     .iter()
                     .find_map(|(def_id, def)| {
                         (def.name == sym("Point") && def.kind == nia_defs::DefKind::Struct)
@@ -9700,13 +9882,14 @@ fn main() i32 {
             .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         assert!(
-            module.layouts.diagnostics.is_empty(),
+            resolve_diagnostic_bundle(db.context(), &module.layout_diagnostics).is_empty(),
             "unreachable recursive aggregate should not force layout diagnostics: {:?}",
-            module.layouts.diagnostics
+            resolve_diagnostic_bundle(db.context(), &module.layout_diagnostics)
         );
 
         let backend_lowering = db.expect_get(BackendLoweringQuery);
         let backend_module = backend_lowering
+            .semantic
             .program
             .modules
             .iter()
@@ -10013,6 +10196,7 @@ where T: Allocator
             backend_lowering.diagnostics
         );
         let dispatch_module = backend_lowering
+            .semantic
             .program
             .modules
             .iter()
@@ -10150,6 +10334,7 @@ pub fn read() i32 {
         let backend = query_db(loaded).expect_get(BackendLoweringQuery);
         assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
         let owners = backend
+            .semantic
             .program
             .modules
             .iter()
@@ -10201,6 +10386,7 @@ pub fn slot[T]() &mut T {
             backend_lowering.diagnostics
         );
         let slots_module = backend_lowering
+            .semantic
             .program
             .modules
             .iter()
@@ -10734,6 +10920,7 @@ extend Mode {
 
         let backend = db.expect_get(BackendLoweringQuery);
         let backend_module = backend
+            .semantic
             .program
             .modules
             .iter()

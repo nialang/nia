@@ -88,7 +88,7 @@ impl QueryKey<CompilerContext> for ExecutableValueRefItemIndexQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(self.0))?;
-        let defs = db.get(ModuleDefsQuery(self.0))?;
+        let defs = module_defs_semantic(db, self.0)?;
         let mut index = HashMap::new();
         for (item_index, item) in active_item_tree.items.iter().enumerate() {
             index_executable_value_ref_item(item, item_index, &defs, &mut index);
