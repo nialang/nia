@@ -1758,6 +1758,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3at 将递归声明模块只加载一次、missing source诊断、source existence变化后图重建及两条conditional attribute裁剪共5条回归迁至`nia-loader-query/src/tests/module_discovery.rs`。父harness保留所有共享加载、filesystem和断言工具，子模块仅复用它们，测试逻辑与总数不变；`tests.rs`从3,273行降至3,147行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按package module map、std facade与按需provider loading主题继续拆分loader harness。
 
+进展（2026-07-27）：I-3au 将自定义package module map、被选作value host的map root、默认std toolchain map注入及`std::builtin::target`按需加载共4条回归迁至`nia-loader-query/src/tests/module_map_loading.rs`。测试逻辑与总数不变，子模块复用父harness的加载、图和fixture helper；`tests.rs`从3,147行降至3,035行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按std facade import usage、reexport source与按需provider loading主题继续拆分loader harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
