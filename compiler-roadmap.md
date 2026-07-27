@@ -1786,6 +1786,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bh 将module dependency完整stable-field序列化 round-trip 单条回归迁至`nia-loader-query/src/tests/module_dependency_roundtrip.rs`，覆盖所有module path kind/processing、visibility、import alias、span与symbol恢复。测试逻辑与总数不变；`tests.rs`从1,679行降至1,566行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public-surface full round-trip及provider/facade cache cases。
 
+进展（2026-07-28）：I-3bi 将provider summary跨session cache hit、summary/manifest损坏修复以及verification替换语义错误summary共2条回归迁至`nia-loader-query/src/tests/provider_summary_persistence.rs`。测试逻辑、query execution与缓存恢复断言保持不变；`tests.rs`从1,566行降至1,445行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移provider summary body/signature revision与dependency-manifest verification cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
