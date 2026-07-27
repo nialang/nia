@@ -1710,6 +1710,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3v 将executable full lowering const type复用、same-module call closure及跨facade/local forwarded array length的filtered const解析共4条回归迁至`query/tests/executable_const.rs`。`query/mod.rs`降至5,525行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable value-ref item refresh与static use cases。
 
+进展（2026-07-27）：I-3w 将executable value-ref按item精确解析、当前module facts刷新与unqualified static use收集共3条回归迁至`query/tests/executable_value_refs.rs`。`query/mod.rs`降至5,412行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移extension query dependency与provider refresh cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
