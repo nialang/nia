@@ -1684,6 +1684,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3i 将persistent check certificate与executable value-ref edge两条端到端cache回归迁至`query/tests/persistent_cache.rs`。用例继续直接构造production compiler database以验证cold reuse、fresh verification、corruption/replacement retirement与query execution跳过；为避免测试包装器同名解析，production类型使用明确的父级路径，没有新增adapter或改变cache协议。`query/mod.rs`从8,943行降至8,693行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I上调至约74%；下一步迁移frontend membership/signature invalidation与type-store session实际cases。
 
+进展（2026-07-27）：I-3j 将parse-error与signature-change保持stable program membership的两条实际回归迁至`query/tests/frontend_membership.rs`；只增加主题路径，不改变fixture、断言与测试总数。`query/mod.rs`进一步降至8,607行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约74%；下一步迁移type-store session与revision-bearing product cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
