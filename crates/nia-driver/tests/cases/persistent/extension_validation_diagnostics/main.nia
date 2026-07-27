@@ -1,0 +1,1 @@
+extend ! { fn invalid(self) void {} } pub fn main() i32 { 0 }

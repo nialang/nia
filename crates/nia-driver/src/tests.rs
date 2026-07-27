@@ -14,51 +14,6 @@ mod type_system;
 mod using;
 
 #[test]
-fn extension_validation_diagnostics_persist_across_driver_sessions() {
-    let _permit = nia_test_support::compiler_permit();
-    let root = common::temp_dir("extension_validation_diagnostics_persist");
-    let main = root.join("main.nia");
-    let cache = root.join("cache");
-    common::write(
-        &main,
-        "extend ! { fn invalid(self) void {} } pub fn main() i32 { 0 }",
-    );
-    let request = || crate::CheckRequest::new(main.to_string_lossy().into_owned());
-    let compile = |verify_frontend_cache| {
-        let driver = crate::Driver::with_config(crate::DriverConfig {
-            artifact_cache_dir: Some(cache.clone()),
-            verify_frontend_cache,
-            ..crate::DriverConfig::default()
-        });
-        common::checked_program_from_output(driver.check_entry(request()))
-    };
-
-    let cold = compile(false);
-    let warm = compile(false);
-    let verified = compile(true);
-    assert_eq!(cold.diagnostics, warm.diagnostics);
-    assert_eq!(cold.diagnostics, verified.diagnostics);
-    assert!(cold.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .diagnostic
-            .summary
-            .contains("extend target must be an extendable value type")
-    }));
-    assert!(
-        std::fs::read_dir(
-            cache
-                .join("artifacts")
-                .join("frontend")
-                .join("v3")
-                .join("extension-validation-diagnostics")
-        )
-        .expect("read extension validation diagnostics cache")
-        .next()
-        .is_some()
-    );
-}
-
-#[test]
 fn writing_native_object_preserves_incremental_link_identity() {
     use nia_backend_ir::{
         CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
