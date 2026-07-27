@@ -1748,6 +1748,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ao 将empty executable function body无synthetic facts、item product与aggregate handle复用及codegen materialization的单条回归迁至`query/tests/executable_empty_body.rs`。`query/mod.rs`测试段已不再包含内联`#[test]`，只保留模块挂载与跨模块共享helper；主文件降至1,396行。compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步审计共享test helper与其余巨型production文件的拆分边界。
 
+进展（2026-07-27）：I-3ap 继续拆分第二个巨型test harness：将persistent provider-demand plan的full snapshot/symbol restore、verification replacement与corruption retirement共3条回归迁至`nia-loader-query/src/tests/provider_demand_plan.rs`。`tests.rs`保留`TEMP_DIR_COUNTER`、symbol fixture等全文件共享helper，避免子模块反向拥有父级工具；主文件从4,075行降至3,837行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按frontend persistence与module-loading主题继续拆分loader harness，并审计cache production文件。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
