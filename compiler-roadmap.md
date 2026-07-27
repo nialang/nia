@@ -1790,6 +1790,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bj 将body-only edit复用item-signature provider summary、signature edit发布独立summary key，以及verification修复错误dependency manifest共3条回归迁至`nia-loader-query/src/tests/provider_summary_revisions.rs`。测试逻辑、source/signature/provider key与query execution断言保持不变；`tests.rs`从1,445行降至1,273行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移facade-facts persistence/key/verification/round-trip cases及public-surface full round-trip。
 
+进展（2026-07-28）：I-3bk 将facade facts跨session body-stable reuse/损坏修复、effective module-map cache-key隔离，以及verification替换语义错误facade entry共3条回归迁至`nia-loader-query/src/tests/facade_persistence.rs`。测试逻辑、source/item-signature/facade key及query execution断言保持不变；`tests.rs`从1,273行降至1,123行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移facade path-processing round-trip、reexport/provider reuse及public-surface full round-trip。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
