@@ -1770,6 +1770,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3az 将未知/已知provider demand保持graph stable、semantic provider按source identity跨graph owner remap、以及未显式`using`的provider child不得被加载共3条回归迁至`nia-loader-query/src/tests/provider_graph_transitions.rs`。测试逻辑、trace断言与总数不变，子模块复用父harness的fixture、loader和graph helper；`tests.rs`从2,579行降至2,423行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移std reexport import解析、local/package shadowing与source resolution cases。
 
+进展（2026-07-27）：I-3ba 将std root reexport import、single-value reexport import与qualified root reexport access均保持facade浅加载的3条回归迁至`nia-loader-query/src/tests/std_reexport_resolution.rs`。测试逻辑与总数不变，三个入口继续共同锁定只加载`cstring`而不激活std package facade或process subtree；`tests.rs`从2,423行降至2,380行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移local/package shadowing、entry-relative child与in-memory source cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
