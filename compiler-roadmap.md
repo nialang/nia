@@ -1746,6 +1746,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3an 将const上下文、monomorphization、lazy executable reachability、无/有method lookup的body check、const item tree、semantic use table与compiler-session node owner共8条query scope回归迁至`query/tests/semantic_query_scope.rs`。8条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至1,446行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移最后的executable empty-body product case，并审计tests harness是否还能继续瘦身。
 
+进展（2026-07-27）：I-3ao 将empty executable function body无synthetic facts、item product与aggregate handle复用及codegen materialization的单条回归迁至`query/tests/executable_empty_body.rs`。`query/mod.rs`测试段已不再包含内联`#[test]`，只保留模块挂载与跨模块共享helper；主文件降至1,396行。compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步审计共享test helper与其余巨型production文件的拆分边界。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
