@@ -1792,6 +1792,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bk 将facade facts跨session body-stable reuse/损坏修复、effective module-map cache-key隔离，以及verification替换语义错误facade entry共3条回归迁至`nia-loader-query/src/tests/facade_persistence.rs`。测试逻辑、source/item-signature/facade key及query execution断言保持不变；`tests.rs`从1,273行降至1,123行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移facade path-processing round-trip、reexport/provider reuse及public-surface full round-trip。
 
+进展（2026-07-28）：I-3bl 将facade facts的全path-processing stable-field round-trip，以及reexport/provider loading复用`module_facade_facts` query共2条回归迁至`nia-loader-query/src/tests/facade_orchestration.rs`。测试逻辑、所有路径处理模式、symbol恢复及query execution/cache-hit断言保持不变；`tests.rs`从1,123行降至936行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public-surface full stable-field round-trip及余下source/query invalidation cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
