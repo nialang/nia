@@ -1750,6 +1750,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ap 继续拆分第二个巨型test harness：将persistent provider-demand plan的full snapshot/symbol restore、verification replacement与corruption retirement共3条回归迁至`nia-loader-query/src/tests/provider_demand_plan.rs`。`tests.rs`保留`TEMP_DIR_COUNTER`、symbol fixture等全文件共享helper，避免子模块反向拥有父级工具；主文件从4,075行降至3,837行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按frontend persistence与module-loading主题继续拆分loader harness，并审计cache production文件。
 
+进展（2026-07-27）：I-3aq 将loader query registry、source status/error、source revision owner retirement、provider graph revision boundedness与compiler/loader cross-database dependency共6条contract回归迁至`nia-loader-query/src/tests/loader_query_contracts.rs`。6条用例均以新模块路径执行，`tests.rs`从3,837行降至3,566行；loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按persistent frontend semantic/cache与module-loading主题继续拆分loader harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
