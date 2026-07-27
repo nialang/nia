@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
     ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
-    CodegenPreparation, CodegenProgram, FrontendCheckCertificateCacheKey,
-    FrontendCheckInputFingerprint, FrontendCheckScope, ProgramDiagnostic, RuntimeModel, TimingMode,
-    module_diagnostics,
+    CodegenPreparation, CodegenProgram, FrontendCheckInputFingerprint, FrontendCheckScope,
+    ProgramDiagnostic, RuntimeModel, TimingMode, module_diagnostics,
 };
 #[cfg(test)]
 use crate::{LoadedModule, LoadedProgram};
@@ -46,7 +45,7 @@ use nia_query::{
     QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
     QueryFrame, QueryKey, QueryProviderPolicy, QueryResult, QueryStoragePolicy, QueryTrace,
 };
-use nia_source::{SourceIdentity, SourcePath, SourceVersion};
+use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_target_config::TargetConfig;
@@ -56,7 +55,7 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
@@ -65,6 +64,7 @@ mod backend_lowering;
 mod base;
 mod checked;
 mod checks;
+mod context;
 mod diagnostics;
 mod executable;
 mod extension_provider_queries;
@@ -81,6 +81,7 @@ use backend_lowering::*;
 use base::*;
 use checked::*;
 use checks::*;
+use context::*;
 use diagnostics::*;
 use executable::*;
 use extension_provider_queries::*;
@@ -640,77 +641,6 @@ pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {
     }
 }
 
-struct CompilerContext {
-    inputs: Arc<RwLock<CompilerInputs>>,
-    loader_facts: Arc<dyn crate::LoaderFactProvider>,
-    providers: CompilerQueryProviders,
-    executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
-    executable_fact_scheduler: std::sync::Mutex<()>,
-    type_store: Arc<nia_ty::TypeStore>,
-    diagnostic_store: nia_diagnostic::DiagnosticStore,
-    node_store: nia_node_id::NodeStore,
-    signature_cache: Option<Arc<crate::signature_cache::PersistentSignatureCache>>,
-    verify_frontend_cache: bool,
-    provider_demand_rounds: std::sync::atomic::AtomicU64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FrontendProgramSource {
-    module: StableModuleKey,
-    version: SourceVersion,
-    len: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FrontendProgramSources {
-    fingerprint: crate::FrontendProgramSourceFingerprint,
-    by_module: HashMap<ModuleId, FrontendProgramSource>,
-    module_by_path: HashMap<String, ModuleId>,
-    path_by_module: HashMap<ModuleId, String>,
-}
-
-#[derive(Debug, Clone)]
-struct CheckCertificateContext {
-    namespace: crate::FrontendCacheNamespace,
-    entry: StableModuleKey,
-    input: FrontendCheckInputFingerprint,
-    scope: FrontendCheckScope,
-    source_lengths: BTreeMap<String, usize>,
-}
-
-impl CheckCertificateContext {
-    fn key(&self) -> FrontendCheckCertificateCacheKey {
-        FrontendCheckCertificateCacheKey::new(self.namespace, &self.entry, self.input, self.scope)
-    }
-
-    fn identity(&self) -> crate::signature_cache::CheckCertificateIdentity<'_> {
-        crate::signature_cache::CheckCertificateIdentity {
-            key: self.key(),
-            namespace: self.namespace,
-            entry: &self.entry,
-            input: self.input,
-            scope: self.scope,
-            source_lengths: &self.source_lengths,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct StableModuleSequence {
-    keys: Vec<StableModuleKey>,
-}
-
-impl StableModuleSequence {
-    fn from_source_identities(source_identities: impl IntoIterator<Item = SourceIdentity>) -> Self {
-        Self {
-            keys: source_identities
-                .into_iter()
-                .map(StableModuleKey::from_source_identity)
-                .collect(),
-        }
-    }
-}
-
 fn stable_module_sequence(
     db: &QueryDb<CompilerContext>,
     module_ids: impl IntoIterator<Item = ModuleId>,
@@ -731,26 +661,6 @@ fn resolve_stable_module_sequence(
 ) -> QueryResult<Vec<ModuleId>> {
     let _graph = db.get(ModuleGraphQuery)?;
     db.context().resolve_stable_module_sequence(sequence)
-}
-
-#[derive(Debug, Clone)]
-struct CompilerInputs {
-    optimization: OptimizationPolicy,
-    timings: TimingMode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ExecutableFactEpoch {
-    entry_module: ModuleId,
-    runtime_root_modules: Vec<ModuleId>,
-    modules: Vec<(ModuleId, SourceVersion)>,
-    target: TargetConfig,
-    runtime: crate::RuntimeModel,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct BodyActivationWorklist {
-    modules: Arc<HashMap<StableModuleKey, ModuleId>>,
 }
 
 fn provider_fact_worklist_fingerprint(worklist: &crate::ProviderFactSnapshot) -> QueryFingerprint {
@@ -1020,15 +930,6 @@ fn bool_query_fingerprint(domain: &str, value: bool) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u8(u8::from(value));
     builder.finish()
-}
-
-impl CompilerInputs {
-    fn new(request: CompileRequest) -> Self {
-        Self {
-            optimization: request.optimization.policy(),
-            timings: request.timings,
-        }
-    }
 }
 
 impl CompilerContext {
@@ -1372,7 +1273,7 @@ mod tests {
     use super::*;
     use crate::RuntimeModel;
     use nia_sema_ir::SemanticValueUse;
-    use nia_source::{SourceId, SourceRevision};
+    use nia_source::{SourceId, SourceIdentity, SourceRevision};
     use std::ops::Deref;
 
     #[path = "support.rs"]
