@@ -1698,6 +1698,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3p 将compiler fact batch、extension index与public surface三条`get_many`/`Arc::ptr_eq`产品复用回归迁至`query/tests/query_handle_reuse.rs`。`query/mod.rs`降至7,709行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移backend stage ownership与reuse cases。
 
+进展（2026-07-27）：I-3q 将per-item backend lowering、stage product reuse、module slot republish、frontend planned source materialization与per-function lowering reuse共5条回归迁至`query/tests/backend_stage.rs`。`query/mod.rs`降至7,247行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public adapter、scoped schedule与definition manifest cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
