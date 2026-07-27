@@ -1776,6 +1776,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bc 将std Build reexport的package-private provider加载，以及custom facade Widget provider demand增长、module-id稳定性与source reset回收共2条回归迁至`nia-loader-query/src/tests/package_provider_loading.rs`。测试逻辑与总数不变，子模块复用父harness的provider-demand、module map、source更新和断言helper；`tests.rs`从2,294行降至2,162行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移frontend query trace、provider summary缓存与其余persistent cache cases。
 
+进展（2026-07-28）：I-3bd 将source frontend query trace依赖边以及同一module source version下provider summary cache-hit共2条回归迁至`nia-loader-query/src/tests/query_observability.rs`。测试逻辑、query execution/cache-hit断言与总数不变，子模块复用父harness的trace、query db和source helper；`tests.rs`从2,162行降至2,103行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移module-dependency persistence、verification及cache-key cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
