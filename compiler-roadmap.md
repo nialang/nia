@@ -1730,6 +1730,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3af 将generic extension where-predicate、跨模块trait impl与增量wrapper body触发的3条executable reachability回归迁至`query/tests/executable_generic_reachability.rs`。3条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至3,380行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移type-only signature const与array length cases。
 
+进展（2026-07-27）：I-3ag 将type-only module的enum discriminant与array length signature const保留/精确查询依赖共2条回归迁至`query/tests/executable_type_only.rs`。2条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至3,231行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分剩余incremental/static-init与generic metadata cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
