@@ -1708,6 +1708,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3u 将reachable global/local/extension/cross-module static initializer保留，以及不可达function/module的flow/body check排除共6条回归迁至`query/tests/executable_initializers.rs`。`query/mod.rs`降至5,718行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable value-ref与filtered const cases。
 
+进展（2026-07-27）：I-3v 将executable full lowering const type复用、same-module call closure及跨facade/local forwarded array length的filtered const解析共4条回归迁至`query/tests/executable_const.rs`。`query/mod.rs`降至5,525行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable value-ref item refresh与static use cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
