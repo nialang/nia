@@ -1754,6 +1754,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ar 将persistent signature semantics与extension validation跨session跳过raw dependency、并在verification下重新执行的2条回归迁至`nia-loader-query/src/tests/persistent_semantic_products.rs`。2条用例均以新模块路径执行，`tests.rs`从3,566行降至3,367行；loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移loader revision-bearing field dependents与module-loading/facade cases。
 
+进展（2026-07-27）：I-3as 将compiler/loader更新后definition revision脱离旧source snapshot，以及body-only source change强制刷新revision-bearing declaration/signature field dependents两条回归迁至`nia-loader-query/src/tests/revision_invalidation.rs`。共享`SemanticFieldParent`与diagnostic assertion helper继续由父harness持有，子模块只通过`super::*`访问，避免破坏其余测试；`tests.rs`从3,367行降至3,273行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按module-loading、source-existence与conditional-attribute主题继续拆分loader harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
