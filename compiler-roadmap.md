@@ -1706,6 +1706,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3t 将builtin/default/generic trait witness选择、未匹配/未使用witness排除、不可达global排除与type-owner module保持type-only共7条回归迁至`query/tests/executable_filtering.rs`。`query/mod.rs`降至6,016行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移reachable initializer与unreachable module/function cases。
 
+进展（2026-07-27）：I-3u 将reachable global/local/extension/cross-module static initializer保留，以及不可达function/module的flow/body check排除共6条回归迁至`query/tests/executable_initializers.rs`。`query/mod.rs`降至5,718行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable value-ref与filtered const cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
