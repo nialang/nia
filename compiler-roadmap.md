@@ -1744,6 +1744,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3am 将body signature、trait-method index、program signature module set、parse-ok provider modules、type alias、full/signature layout、canonical signature layout及ABI signature index共9条精确依赖回归迁至`query/tests/signature_query_dependencies.rs`。9条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至1,690行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分余下const/body/semantic-use与executable function-body cases。
 
+进展（2026-07-27）：I-3an 将const上下文、monomorphization、lazy executable reachability、无/有method lookup的body check、const item tree、semantic use table与compiler-session node owner共8条query scope回归迁至`query/tests/semantic_query_scope.rs`。8条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至1,446行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移最后的executable empty-body product case，并审计tests harness是否还能继续瘦身。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
