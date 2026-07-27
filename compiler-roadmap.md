@@ -1784,6 +1784,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bg 将public-surface facts跨session跳过item tree、损坏修复/source key隔离、verification替换语义错误entry，以及diagnostic/malformed surface不持久化共3条回归迁至`nia-loader-query/src/tests/public_surface_persistence.rs`。测试逻辑、query execution断言与总数不变，子模块复用父harness的frontend cache、source、symbol和surface-facts helper；`tests.rs`从1,870行降至1,679行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public-surface和module-dependency的full stable-field round-trip cases。
 
+进展（2026-07-28）：I-3bh 将module dependency完整stable-field序列化 round-trip 单条回归迁至`nia-loader-query/src/tests/module_dependency_roundtrip.rs`，覆盖所有module path kind/processing、visibility、import alias、span与symbol恢复。测试逻辑与总数不变；`tests.rs`从1,679行降至1,566行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public-surface full round-trip及provider/facade cache cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
