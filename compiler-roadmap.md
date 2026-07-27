@@ -1738,6 +1738,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3aj 将body check只依赖const semantic modules、而不回退AST/program aggregate的单条回归迁至`query/tests/const_semantic_dependencies.rs`。测试逻辑与总数不变；`query/mod.rs`降至2,731行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步审计并拆分前段compiler registry、provider activation与incremental consistency cases。
 
+进展（2026-07-27）：I-3ak 将provider activation保留resolved caller facts、method provider变更只移除受影响诊断、randomized incremental与clean recomputation一致性以及source identity失效共4条回归迁至`query/tests/compiler_incremental_consistency.rs`。4条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至2,493行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步拆分剩余compiler contract与signature/semantic query cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
