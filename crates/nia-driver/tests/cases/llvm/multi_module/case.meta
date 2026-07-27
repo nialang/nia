@@ -1,0 +1,7 @@
+mode=emit-llvm
+resource=compiler
+source=main.nia
+ir-contains=define i32 @
+codegen-preparation-executions=1
+backend-lowering-executions=0
+backend-finalization-executions=2

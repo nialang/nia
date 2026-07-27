@@ -1,0 +1,6 @@
+mode=incremental-check
+resource=compiler
+source=main.nia
+edit=edits/main.nia
+initial=pass
+after=fail

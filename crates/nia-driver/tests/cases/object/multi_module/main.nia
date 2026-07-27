@@ -1,0 +1,6 @@
+module helper;
+using entry::helper;
+
+fn main() i32 {
+    helper::value()
+}

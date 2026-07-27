@@ -1,0 +1,4 @@
+mode=codegen
+resource=compiler
+source=main.nia
+expect=pass

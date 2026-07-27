@@ -1,0 +1,21 @@
+using std::mem;
+using std::process;
+using build_script;
+
+fn use_allocator(allocator: &mut mem::Allocator) mem::Error!void {
+    let mut bytes = allocator.alloc_slice[u8](4usize).?;
+    allocator.free_slice[u8](bytes).?;
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut page_allocator = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
+    defer allocator.deinit().ok().exit().?;
+    use_allocator(&mut allocator).exit().?;
+    if build_script::marker() != 1 {
+        return process::exit(1)!;
+    }
+    !{}
+}

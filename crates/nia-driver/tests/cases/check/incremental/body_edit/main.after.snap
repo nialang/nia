@@ -1,0 +1,4 @@
+path: main.nia
+code: E0301
+summary: type mismatch in function body: expected i32, got bool
+label: 16..20 Primary Source type mismatch in function body: expected i32, got bool

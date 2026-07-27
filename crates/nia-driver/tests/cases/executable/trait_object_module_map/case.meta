@@ -1,0 +1,9 @@
+mode=link-execute
+resource=build
+source=runner.nia
+virtual-source=.nia-build/runner/root.nia
+module.build_script=build.nia
+exit-code=0
+codegen-preparation-executions=1
+backend-lowering-executions=0
+backend-finalization-executions=21
