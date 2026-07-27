@@ -1778,6 +1778,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bd 将source frontend query trace依赖边以及同一module source version下provider summary cache-hit共2条回归迁至`nia-loader-query/src/tests/query_observability.rs`。测试逻辑、query execution/cache-hit断言与总数不变，子模块复用父harness的trace、query db和source helper；`tests.rs`从2,162行降至2,103行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移module-dependency persistence、verification及cache-key cases。
 
+进展（2026-07-28）：I-3be 将module dependency持久cache的source-span/损坏修复/编辑key隔离，以及跨session完整graph discovery parse跳过共2条回归迁至`nia-loader-query/src/tests/persistent_module_dependencies.rs`。测试逻辑、query execution断言与总数不变，子模块复用父harness的frontend cache、source与module-declaration helper；`tests.rs`从2,103行降至1,992行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移module-dependency verification、module-map key及diagnostic persistence cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
