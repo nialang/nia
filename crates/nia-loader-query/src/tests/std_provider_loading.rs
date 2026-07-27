@@ -1,0 +1,133 @@
+use super::*;
+
+#[test]
+fn query_loader_loads_implicit_builtin_trait_provider_from_facade() {
+    let root = temp_dir("query_loader_loads_implicit_builtin_trait_provider_from_facade");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std;
+
+fn main() void {
+    for _ in 1usize..4usize {}
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/iter.nia");
+    assert_module_loaded(&program, "lib/std/iter/range.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
+fn query_loader_loads_iterator_provider_for_for_in_iterator_values() {
+    let root = temp_dir("query_loader_loads_iterator_provider_for_for_in_iterator_values");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::process;
+
+fn main(init: process::Init) void {
+    for _ in init.env().iter() {}
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/process/env.nia");
+}
+
+#[test]
+fn query_loader_loads_facade_trait_impl_provider_for_used_trait_method() {
+    let root = temp_dir("query_loader_loads_facade_trait_impl_provider_for_used_trait_method");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::hash;
+
+fn main() u64 {
+let mut hasher = hash::Wyhash::init(1u64);
+42usize.hash(&mut hasher);
+hasher.finish()
+}
+"#,
+    );
+
+    let program =
+        load_program_with_provider_demand(&main_path, ModuleMap::default(), Some("usize"), "hash");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/hash.nia");
+    assert_module_loaded(&program, "lib/std/hash/impls.nia");
+    assert_module_loaded(&program, "lib/std/hash/wyhash.nia");
+}
+
+#[test]
+fn query_loader_loads_reexported_type_inherent_provider_chain() {
+    let root = temp_dir("query_loader_loads_reexported_type_inherent_provider_chain");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::fs;
+using std::io;
+using std::os;
+
+fn main(file: fs::File, state: &mut io::Io[Error = os::Error], buffer: &mut [u8]) fs::Error!io::FileWriter {
+file.writer(state, buffer)
+}
+"#,
+    );
+
+    let program =
+        load_program_with_provider_demand(&main_path, ModuleMap::default(), Some("File"), "writer");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
+    assert_module_loaded(&program, "lib/std/fs/types.nia");
+}
+
+#[test]
+fn query_loader_forwards_provider_requests_to_the_selected_reexport_source() {
+    let root = temp_dir("query_loader_forwards_provider_requests_to_the_selected_reexport_source");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections::ArrayList;
+
+fn main() usize {
+let list = ArrayList[i32]::init();
+_ = list;
+0
+}
+"#,
+    );
+
+    let program = load_program_with_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("ArrayList"),
+        "init",
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/collections.nia");
+    assert_module_loaded(&program, "lib/std/collections/array_list.nia");
+    assert_module_loaded(&program, "lib/std/collections/array_list/list.nia");
+    assert!(
+        !program
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().contains("/collections/hash_map")),
+        "following the selected ArrayList provider chain must not load the HashMap subtree"
+    );
+}
