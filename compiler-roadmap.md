@@ -1722,6 +1722,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ab 将module defs、body-sensitive/value resolution、flow/static check及body check的item-tree、visible-extension、local-signature与full-lowering依赖共8条回归迁至`query/tests/semantic_query_dependencies.rs`。迁移后8条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至4,506行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移semantic value与diagnostic split实际cases。
 
+进展（2026-07-27）：I-3ac 将signature/full type resolution、lowering、item signatures、value/local resolution、flow/terminal checks、layouts、const、monomorphization、body check及type normalization共16条semantic value与diagnostic bundle分离回归迁至`query/tests/semantic_diagnostics.rs`。16条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至4,238行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable reachability与incremental body preservation cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
