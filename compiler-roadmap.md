@@ -1756,6 +1756,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3as 将compiler/loader更新后definition revision脱离旧source snapshot，以及body-only source change强制刷新revision-bearing declaration/signature field dependents两条回归迁至`nia-loader-query/src/tests/revision_invalidation.rs`。共享`SemanticFieldParent`与diagnostic assertion helper继续由父harness持有，子模块只通过`super::*`访问，避免破坏其余测试；`tests.rs`从3,367行降至3,273行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按module-loading、source-existence与conditional-attribute主题继续拆分loader harness。
 
+进展（2026-07-27）：I-3at 将递归声明模块只加载一次、missing source诊断、source existence变化后图重建及两条conditional attribute裁剪共5条回归迁至`nia-loader-query/src/tests/module_discovery.rs`。父harness保留所有共享加载、filesystem和断言工具，子模块仅复用它们，测试逻辑与总数不变；`tests.rs`从3,273行降至3,147行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按package module map、std facade与按需provider loading主题继续拆分loader harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
