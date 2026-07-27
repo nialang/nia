@@ -1766,6 +1766,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ax 将freestanding entry经`std::start`注入运行时、以及std package root child按需加载和未选子树排除共2条回归迁至`nia-loader-query/src/tests/freestanding_runtime.rs`。测试逻辑与总数不变，父harness继续提供runtime加载、module graph查询和断言helper；`tests.rs`从2,809行降至2,709行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移implicit trait、iterator与reexported provider chain loading cases。
 
+进展（2026-07-27）：I-3ay 将implicit builtin iterator trait provider、process environment iterator、facade trait-impl method、reexported File inherent method及ArrayList provider request转发共5条回归迁至`nia-loader-query/src/tests/std_provider_loading.rs`。测试逻辑与总数不变，子模块复用父harness的provider-demand loader、module lookup和断言helper；`tests.rs`从2,709行降至2,579行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移package-private provider、custom facade provider及剩余source/using resolution cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
