@@ -1740,6 +1740,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ak 将provider activation保留resolved caller facts、method provider变更只移除受影响诊断、randomized incremental与clean recomputation一致性以及source identity失效共4条回归迁至`query/tests/compiler_incremental_consistency.rs`。4条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至2,493行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步拆分剩余compiler contract与signature/semantic query cases。
 
+进展（2026-07-27）：I-3al 将compiler query registry、optimization option透传、query trace、untracked snapshot provider拒绝、override provider执行与missing module query-error传播共6条contract回归迁至`query/tests/compiler_contracts.rs`。迁移发现内联`super::CompilerDatabase`在子模块会解析到测试fixture，已显式改为production `crate::query::CompilerDatabase`，使snapshot provider约束继续被验证；其余逻辑与总数不变。`query/mod.rs`降至2,140行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步拆分signature/semantic query cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
