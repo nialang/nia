@@ -1726,6 +1726,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ad 将query-backed extension method lookup、bare/freestanding entry rooted diagnostics与matched trait impl method body保留共4条entry/executable reachability回归迁至`query/tests/executable_entry_reachability.rs`。4条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至4,060行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移extension与trait receiver type的incremental body preservation cases。
 
+进展（2026-07-27）：I-3ae 将incremental extension receiver preservation、local/imported/reexported extend-target trait signature以及reexported trait witness receiver共5条回归迁至`query/tests/incremental_extension_body.rs`。5条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至3,671行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移剩余generic reachability与type-only executable cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
