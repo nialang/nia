@@ -1686,6 +1686,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3j 将parse-error与signature-change保持stable program membership的两条实际回归迁至`query/tests/frontend_membership.rs`；只增加主题路径，不改变fixture、断言与测试总数。`query/mod.rs`进一步降至8,607行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约74%；下一步迁移type-store session与revision-bearing product cases。
 
+进展（2026-07-27）：I-3k 将7条type-store session、revision-bearing product与canonical synthesized type回归迁至`query/tests/type_store_session.rs`，测试逻辑与总数不变。`query/mod.rs`降至8,327行；compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约74%；下一步迁移source/body invalidation实际cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
