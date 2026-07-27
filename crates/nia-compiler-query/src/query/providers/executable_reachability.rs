@@ -344,7 +344,7 @@ fn executable_check_in_session(
         )?;
         let signature = signatures.semantic.functions.get(&def_id.def_id).cloned()?;
         let defs =
-            capture_query_failure(&query_failure, db.get(ModuleDefsQuery(def_id.module_id)))?;
+            capture_query_failure(&query_failure, module_defs_semantic(db, def_id.module_id))?;
         let signature = ProgramFunctionSignature {
             name: defs
                 .defs
@@ -593,7 +593,7 @@ fn executable_check_in_session(
             };
             let mut has_reachable_body_items = !module_functions.is_empty();
             if !has_reachable_body_items && !module_globals.is_empty() {
-                let defs = match db.get(ModuleDefsQuery(module_id)) {
+                let defs = match module_defs_semantic(db, module_id) {
                     Ok(defs) => defs,
                     Err(error) => return_session_error!(error),
                 };
@@ -608,7 +608,7 @@ fn executable_check_in_session(
             } else {
                 ReachableBodyModules::new(&round_reachable_body_modules)
             };
-            let layouts = Arc::new({
+            let layouts = store_module_layouts(db.context(), {
                 let reachability = reachability_state.reachability();
                 match executable_layouts_for_reachable_items(
                     db,
@@ -679,7 +679,7 @@ fn executable_check_in_session(
                             ExecutableBodyCheckInput {
                                 module_id,
                                 filter,
-                                layouts: Some(layouts.clone()),
+                                layouts: Some(Arc::clone(&layouts.semantic)),
                                 program_layouts_override: Some(&executable_program_layouts),
                                 fact_mode: ExecutableFactMode::executable(reachable_body_modules),
                                 resolution_inputs: Some(resolution_inputs),
@@ -901,7 +901,15 @@ fn executable_check_in_session(
             RefCell::new(
                 codegen_modules
                     .iter()
-                    .map(|module| (module.id, module.layouts.clone()))
+                    .map(|module| {
+                        (
+                            module.id,
+                            ModuleLayouts {
+                                semantic: Arc::clone(&module.layouts),
+                                diagnostics: module.layout_diagnostics.clone(),
+                            },
+                        )
+                    })
                     .collect::<HashMap<_, _>>(),
             )
         },
@@ -933,16 +941,20 @@ fn executable_check_in_session(
         .filter(|module_id| !reachability.modules().contains(module_id))
     {
         let layouts = match executable_program_layouts(module_id) {
-            Some(layouts) => layouts,
-            None => Arc::new(
+            Some(_) => codegen_layout_cache
+                .borrow()
+                .get(&module_id)
+                .cloned()
+                .expect("executable layout cache must contain the requested module"),
+            None => {
                 match signature_layouts_for_types(db, module_id, Some(&*non_function_signatures)) {
-                    Ok(layouts) => layouts,
+                    Ok(layouts) => store_module_layouts(db.context(), layouts),
                     Err(error) => {
                         drop(executable_program_layouts);
                         return_session_error!(error)
                     }
-                },
-            ),
+                }
+            }
         };
         let module = match executable_signature_checked_module(
             db,
@@ -1133,7 +1145,7 @@ fn executable_root_defs(
 ) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
     match *db.get(CompilerRuntimeQuery)? {
         RuntimeModel::Bare => {
-            let defs = db.get(FullModuleDefsQuery(entry))?;
+            let defs = full_module_defs_semantic(db, entry)?;
             let mut functions = Vec::new();
             let mut globals = Vec::new();
             for (def_id, def) in defs.defs.iter().filter(|(_, def)| def.parent.is_none()) {
@@ -1164,7 +1176,7 @@ fn executable_root_defs(
                 }
             }
             if let Some(start_module) = start_module {
-                let defs = db.get(FullModuleDefsQuery(start_module))?;
+                let defs = full_module_defs_semantic(db, start_module)?;
                 functions.extend(defs.defs.iter().filter_map(|(def_id, def)| {
                     (def.kind == DefKind::Function && def.parent.is_none()).then_some(GlobalDefId {
                         module_id: start_module,
@@ -1182,7 +1194,7 @@ fn named_top_level_function(
     module_id: ModuleId,
     name: SymbolId,
 ) -> QueryResult<Option<GlobalDefId>> {
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     Ok(defs.defs.iter().find_map(|(def_id, def)| {
         (def.kind == DefKind::Function && def.parent.is_none() && def.name == name)
             .then_some(GlobalDefId { module_id, def_id })
@@ -1197,7 +1209,7 @@ fn executable_debug_function_names(
     if !debug_executable_reachability_enabled() {
         return Ok(Vec::new());
     }
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let symbols = db.context().symbols();
     let mut names = functions
         .iter()
@@ -1229,7 +1241,7 @@ fn final_executable_checked_modules(
                 .then_some((module_id, module_items))
         })
         .collect::<Vec<_>>();
-    let program_layout_cache = RefCell::new(HashMap::<ModuleId, Arc<nia_layout::Layouts>>::new());
+    let program_layout_cache = RefCell::new(HashMap::<ModuleId, ModuleLayouts>::new());
     let program_layout_failure = RefCell::new(None);
     for (module_id, _) in modules_with_executable_items.iter().copied() {
         let layouts = executable_layouts_for_reachable_items(
@@ -1243,7 +1255,7 @@ fn final_executable_checked_modules(
         )?;
         program_layout_cache
             .borrow_mut()
-            .insert(module_id, Arc::new(layouts));
+            .insert(module_id, store_module_layouts(db.context(), layouts));
     }
     let executable_program_layouts = executable_program_layouts(
         db,
@@ -1264,15 +1276,18 @@ fn final_executable_checked_modules(
                     if let Some(layouts) = program_layout_cache.borrow().get(&module_id).cloned() {
                         layouts
                     } else {
-                        Arc::new(executable_layouts_for_reachable_items(
-                            db,
-                            module_id,
-                            reachability.functions(),
-                            reachability.globals(),
-                            Some(&caches.array_lengths),
-                            None,
-                            Some(ReachableBodyModules::new(&reachable_body_modules)),
-                        )?)
+                        store_module_layouts(
+                            db.context(),
+                            executable_layouts_for_reachable_items(
+                                db,
+                                module_id,
+                                reachability.functions(),
+                                reachability.globals(),
+                                Some(&caches.array_lengths),
+                                None,
+                                Some(ReachableBodyModules::new(&reachable_body_modules)),
+                            )?,
+                        )
                     };
                 let filter = nia_body_check::BodyCheckFilter::ReachableItems {
                     functions: module_functions,
@@ -1323,7 +1338,7 @@ fn final_executable_checked_modules(
                             ExecutableBodyCheckInput {
                                 module_id,
                                 filter,
-                                layouts: Some(layouts.clone()),
+                                layouts: Some(Arc::clone(&layouts.semantic)),
                                 program_layouts_override: Some(&executable_program_layouts),
                                 fact_mode: ExecutableFactMode::executable(
                                     ReachableBodyModules::new(&reachable_body_modules),

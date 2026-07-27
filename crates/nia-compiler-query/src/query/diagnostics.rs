@@ -2,6 +2,36 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramMonomorphization {
+    pub(super) semantic: Arc<nia_monomorphize::Monomorphization>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramBackendLowering {
+    pub(super) semantic: Arc<nia_backend_lower::BackendLowering>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleBodyCheck {
+    pub(super) semantic: Arc<nia_body_check::BodyCheck>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct FullModuleDefinitions {
+    pub(super) semantic: Arc<DefCollection>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleDefinitions {
+    pub(super) semantic: Arc<DefCollection>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct SignatureTypeResolution {
     pub(super) semantic: Arc<TypeResolution>,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -62,6 +92,47 @@ pub(super) struct ModuleLocalResolution {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleLayouts {
+    pub(super) semantic: Arc<nia_layout::Layouts>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+pub(super) fn store_module_layouts(
+    context: &CompilerContext,
+    mut layouts: nia_layout::Layouts,
+) -> ModuleLayouts {
+    let diagnostics = std::mem::take(&mut layouts.diagnostics);
+    ModuleLayouts {
+        semantic: Arc::new(layouts),
+        diagnostics: context.diagnostic_store.bundle(diagnostics),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleConstCheck {
+    pub(super) semantic: Arc<ConstCheck>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleStaticCheck {
+    pub(super) semantic: Arc<nia_static_check::StaticCheck>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleAbiCheck {
+    pub(super) semantic: Arc<nia_abi_check::AbiCheck>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleFlowCheck {
+    pub(super) semantic: Arc<nia_flow_check::FlowCheck>,
+    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -100,6 +171,22 @@ pub(super) fn resolve_diagnostic_bundle<'bundle>(
         .diagnostic_store
         .diagnostics(bundle)
         .unwrap_or_else(|| panic!("Nia ICE: diagnostic bundle has a foreign store owner"))
+}
+
+pub(super) fn full_module_defs_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<DefCollection>> {
+    Ok(Arc::clone(
+        &db.get(FullModuleDefsQuery(module_id))?.semantic,
+    ))
+}
+
+pub(super) fn module_defs_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Arc<DefCollection>> {
+    Ok(Arc::clone(&db.get(ModuleDefsQuery(module_id))?.semantic))
 }
 
 pub(super) fn signature_item_signatures_semantic(

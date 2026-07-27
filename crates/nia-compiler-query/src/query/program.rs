@@ -68,7 +68,7 @@ impl QueryKey<CompilerContext> for BackendModuleFunctionInstancePlanQuery {
 pub(super) struct MonomorphizationQuery;
 
 impl QueryKey<CompilerContext> for MonomorphizationQuery {
-    type Value = nia_monomorphize::Monomorphization;
+    type Value = ProgramMonomorphization;
 
     fn name() -> &'static str {
         "monomorphization"
@@ -179,7 +179,7 @@ impl QueryKey<CompilerContext> for BackendModuleFinalizationQuery {
 pub(super) struct BackendLoweringQuery;
 
 impl QueryKey<CompilerContext> for BackendLoweringQuery {
-    type Value = nia_backend_lower::BackendLowering;
+    type Value = ProgramBackendLowering;
 
     fn name() -> &'static str {
         "backend_lowering"

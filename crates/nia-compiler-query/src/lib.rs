@@ -523,6 +523,7 @@ pub struct CheckedModule {
     pub id: ModuleId,
     pub path: SourcePath,
     pub defs: std::sync::Arc<DefCollection>,
+    pub definition_diagnostics: nia_diagnostic::DiagnosticBundle,
     pub type_resolution: std::sync::Arc<TypeResolution>,
     pub type_lowering: std::sync::Arc<TypeLowering>,
     pub value_resolution: std::sync::Arc<ValueResolution>,
@@ -546,6 +547,11 @@ pub struct CheckedModule {
     pub(crate) frontend_diagnostics: Vec<nia_diagnostic::DiagnosticBundle>,
     pub(crate) resolution_diagnostics: Vec<nia_diagnostic::DiagnosticBundle>,
     pub(crate) item_diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(crate) const_diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(crate) static_diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(crate) layout_diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(crate) abi_diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(crate) flow_diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
 pub(crate) fn module_diagnostics(

@@ -84,14 +84,19 @@ pub(in crate::query) fn provide_codegen_preparation(
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.monomorphization_diagnostics",
-            || monomorphization_diagnostics(&modules, &monomorphization),
+            || {
+                monomorphization_diagnostics(
+                    &modules,
+                    resolve_diagnostic_bundle(db.context(), &monomorphization.diagnostics),
+                )
+            },
         ));
         Ok(CodegenPreparation {
             type_store: Arc::clone(&db.context().type_store),
             graph,
             optimization,
             modules,
-            monomorphization,
+            monomorphization: Arc::clone(&monomorphization.semantic),
             diagnostics,
         })
     })
@@ -102,17 +107,28 @@ pub(super) fn provide_codegen_program(
 ) -> QueryResult<CodegenProgram> {
     time_provider(db.context().timings(), "codegen_program", || {
         let preparation = db.get(CodegenPreparationQuery)?;
-        let backend_lowering = if crate::has_error_diagnostics(&preparation.diagnostics) {
-            Arc::new(empty_backend_lowering(preparation.optimization))
-        } else {
-            db.get(BackendLoweringQuery)?
-        };
+        let (backend_lowering, backend_diagnostics) =
+            if crate::has_error_diagnostics(&preparation.diagnostics) {
+                (
+                    Arc::new(empty_backend_lowering(preparation.optimization)),
+                    Vec::new(),
+                )
+            } else {
+                let backend_lowering = db.get(BackendLoweringQuery)?;
+                let diagnostics = time_provider(
+                    db.context().timings(),
+                    "codegen_program.backend_diagnostics",
+                    || {
+                        backend_lowering_diagnostics(
+                            &preparation.modules,
+                            resolve_diagnostic_bundle(db.context(), &backend_lowering.diagnostics),
+                        )
+                    },
+                );
+                (Arc::clone(&backend_lowering.semantic), diagnostics)
+            };
         let mut diagnostics = preparation.diagnostics.clone();
-        diagnostics.extend(time_provider(
-            db.context().timings(),
-            "codegen_program.backend_diagnostics",
-            || backend_lowering_diagnostics(&preparation.modules, &backend_lowering),
-        ));
+        diagnostics.extend(backend_diagnostics);
         Ok(CodegenProgram {
             type_store: Arc::clone(&preparation.type_store),
             graph: preparation.graph.clone(),

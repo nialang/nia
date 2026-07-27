@@ -29,7 +29,7 @@ impl nia_program_signatures::ProgramDefsResolver for SharedProgramDefsResolver<'
         if let Some(defs) = self.cache.borrow().get(&module_id) {
             return defs.clone();
         }
-        let defs = capture_query_failure(&self.failure, self.db.get(ModuleDefsQuery(module_id)));
+        let defs = capture_query_failure(&self.failure, module_defs_semantic(self.db, module_id));
         self.cache.borrow_mut().insert(module_id, defs.clone());
         defs
     }
@@ -137,7 +137,7 @@ pub(super) fn provide_extension_signature_module_input(
 ) -> QueryResult<ExtensionSignatureModuleInputValue> {
     Ok(ExtensionSignatureModuleInputQueryValue {
         module_id,
-        defs: db.get(ModuleDefsQuery(module_id))?,
+        defs: module_defs_semantic(db, module_id)?,
         lowering: Arc::clone(
             &db.get(SignatureTypeLoweringQuery(
                 module_id,
@@ -354,8 +354,7 @@ fn trait_id_index_name(
 ) -> QueryResult<Option<SymbolId>> {
     Ok(match trait_id {
         nia_ty::TraitId::Builtin(trait_id) => Some(trait_id.symbol_id()),
-        nia_ty::TraitId::Source(def_id) => db
-            .get(ModuleDefsQuery(def_id.module_id))?
+        nia_ty::TraitId::Source(def_id) => module_defs_semantic(db, def_id.module_id)?
             .defs
             .get(def_id.def_id)
             .map(|def| def.name),
@@ -376,7 +375,7 @@ pub(super) fn provide_extension_provider_module_facts(
             });
         }
 
-        let defs = db.get(ModuleDefsQuery(module_id))?;
+        let defs = module_defs_semantic(db, module_id)?;
         let lowering = db.get(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
@@ -590,7 +589,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 });
             }
 
-            let defs = db.get(ModuleDefsQuery(module_id))?;
+            let defs = module_defs_semantic(db, module_id)?;
             let lowering = db.get(SignatureTypeLoweringQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,

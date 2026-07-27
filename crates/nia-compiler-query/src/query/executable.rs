@@ -272,7 +272,7 @@ impl ExecutableFactModuleState {
             .collect();
         let mut state = Self {
             module_id,
-            defs: db.get(FullModuleDefsQuery(module_id))?,
+            defs: full_module_defs_semantic(db, module_id)?,
             body_ir: Arc::unwrap_or_clone(ir),
             static_init_refs,
             semantic_facts: Arc::unwrap_or_clone(facts),
@@ -450,8 +450,7 @@ pub(super) fn is_runtime_global_def(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
 ) -> QueryResult<bool> {
-    Ok(db
-        .get(ModuleDefsQuery(def_id.module_id))?
+    Ok(module_defs_semantic(db, def_id.module_id)?
         .defs
         .get(def_id.def_id)
         .is_some_and(|def| def.kind == DefKind::Global))

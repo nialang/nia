@@ -83,13 +83,13 @@ pub(super) fn provide_value_resolution(
 ) -> QueryResult<ModuleValueResolution> {
     time_module_provider(db, "value_resolution", module_id, || {
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        let defs = full_module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs = |module_id| {
-            capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
+            capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
         };
         let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
         let associated_values =
@@ -130,7 +130,7 @@ pub(super) fn provide_local_resolution(
     module_id: ModuleId,
 ) -> QueryResult<ModuleLocalResolution> {
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let values = value_resolution_semantic(db, module_id)?;
     let symbols = db.context().symbols();
     let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
@@ -167,7 +167,7 @@ pub(super) fn provide_semantic_use_table(
     let const_expr_value_resolution = if needed_const_exprs.is_empty() {
         None
     } else {
-        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        let defs = full_module_defs_semantic(db, module_id)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let graph = db.get(ModuleGraphQuery)?;
@@ -176,7 +176,7 @@ pub(super) fn provide_semantic_use_table(
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let program_defs = |module_id| {
-            capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)))
+            capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
         };
         let symbols = db.context().symbols();
         let resolution =

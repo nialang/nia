@@ -914,7 +914,7 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
 }
 
 impl QueryKey<CompilerContext> for ModuleDefsQuery {
-    type Value = DefCollection;
+    type Value = ModuleDefinitions;
 
     fn name() -> &'static str {
         "module_defs"
@@ -930,7 +930,7 @@ impl QueryKey<CompilerContext> for ModuleDefsQuery {
 }
 
 impl QueryKey<CompilerContext> for FullModuleDefsQuery {
-    type Value = DefCollection;
+    type Value = FullModuleDefinitions;
 
     fn name() -> &'static str {
         "full_module_defs"

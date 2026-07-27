@@ -6,7 +6,7 @@ pub(super) fn provide_const_module(
     module_id: ModuleId,
 ) -> QueryResult<ConstModuleLowering> {
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let values = value_resolution_semantic(db, module_id)?;
     let locals = local_resolution_semantic(db, module_id)?;
     let semantic_uses = db.get(SemanticUseTableQuery(module_id))?;
@@ -32,8 +32,8 @@ pub(super) fn provide_const_module(
 pub(super) fn provide_const(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<ConstCheck> {
-    time_module_provider(db, "const", module_id, || {
+) -> QueryResult<ModuleConstCheck> {
+    let mut const_eval = time_module_provider(db, "const", module_id, || {
         let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id))?);
         let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id))?);
         let values = Arc::unwrap_or_clone(db.get(ConstValuesQuery(module_id))?);
@@ -49,6 +49,11 @@ pub(super) fn provide_const(
             const_eval.diagnostics.extend(module.diagnostics.clone());
             const_eval
         })
+    })?;
+    let diagnostics = std::mem::take(&mut const_eval.diagnostics);
+    Ok(ModuleConstCheck {
+        semantic: Arc::new(const_eval),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
     })
 }
 
@@ -118,7 +123,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> QueryResult<T> {
     let module = db.get(ConstModuleQuery(module_id))?;
-    let defs = db.get(FullModuleDefsQuery(module_id))?;
+    let defs = full_module_defs_semantic(db, module_id)?;
     let query_failure = RefCell::new(None);
     let program_module = |module_id| {
         if use_signature_facts_for(module_id) {
@@ -136,7 +141,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
             .map(|path| path.as_ref().clone())
     };
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(FullModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let program_type_normalization = |module_id| {
         if use_signature_facts_for(module_id) {
             return capture_query_failure(

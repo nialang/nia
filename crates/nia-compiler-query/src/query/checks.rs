@@ -20,7 +20,7 @@ impl QueryKey<CompilerContext> for ConstModuleQuery {
 pub(super) struct ConstQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ConstQuery {
-    type Value = ConstCheck;
+    type Value = ModuleConstCheck;
 
     fn name() -> &'static str {
         "const"
@@ -95,7 +95,7 @@ impl QueryKey<CompilerContext> for ConstTypedFactsQuery {
 pub(super) struct LayoutsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for LayoutsQuery {
-    type Value = nia_layout::Layouts;
+    type Value = ModuleLayouts;
 
     fn name() -> &'static str {
         "layouts"
@@ -110,7 +110,7 @@ impl QueryKey<CompilerContext> for LayoutsQuery {
 pub(super) struct SignatureLayoutsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for SignatureLayoutsQuery {
-    type Value = nia_layout::Layouts;
+    type Value = ModuleLayouts;
 
     fn name() -> &'static str {
         "signature_layouts"
@@ -129,7 +129,7 @@ impl QueryKey<CompilerContext> for SignatureLayoutsQuery {
 pub(super) struct AbiCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for AbiCheckQuery {
-    type Value = nia_abi_check::AbiCheck;
+    type Value = ModuleAbiCheck;
 
     fn name() -> &'static str {
         "abi_check"
@@ -144,7 +144,7 @@ impl QueryKey<CompilerContext> for AbiCheckQuery {
 pub(super) struct StaticCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for StaticCheckQuery {
-    type Value = nia_static_check::StaticCheck;
+    type Value = ModuleStaticCheck;
 
     fn name() -> &'static str {
         "static_check"
@@ -159,7 +159,7 @@ impl QueryKey<CompilerContext> for StaticCheckQuery {
 pub(super) struct FlowCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FlowCheckQuery {
-    type Value = nia_flow_check::FlowCheck;
+    type Value = ModuleFlowCheck;
 
     fn name() -> &'static str {
         "flow_check"
@@ -174,7 +174,7 @@ impl QueryKey<CompilerContext> for FlowCheckQuery {
 pub(super) struct BodyCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for BodyCheckQuery {
-    type Value = nia_body_check::BodyCheck;
+    type Value = ModuleBodyCheck;
 
     fn name() -> &'static str {
         "body_check"

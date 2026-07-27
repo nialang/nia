@@ -62,6 +62,7 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
     );
     let monomorphization = db.get(MonomorphizationQuery)?;
     let mut instances = monomorphization
+        .semantic
         .instances
         .iter()
         .filter(|instance| instance.def_id.module_id == module_id)
@@ -98,10 +99,15 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
 
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
-) -> QueryResult<nia_monomorphize::Monomorphization> {
+) -> QueryResult<ProgramMonomorphization> {
     time_provider(db.context().timings(), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db)?;
-        monomorphization_for_checked_modules(db, &checked_modules)
+        let mut monomorphization = monomorphization_for_checked_modules(db, &checked_modules)?;
+        let diagnostics = std::mem::take(&mut monomorphization.diagnostics);
+        Ok(ProgramMonomorphization {
+            semantic: Arc::new(monomorphization),
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        })
     })
 }
 
@@ -259,9 +265,14 @@ pub(in crate::query) fn provide_lowered_function_body(
 
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<CompilerContext>,
-) -> QueryResult<nia_backend_lower::BackendLowering> {
+) -> QueryResult<ProgramBackendLowering> {
     time_provider(db.context().timings(), "backend_lowering", || {
-        provide_backend_lowering_inner(db)
+        let mut lowering = provide_backend_lowering_inner(db)?;
+        let diagnostics = std::mem::take(&mut lowering.diagnostics);
+        Ok(ProgramBackendLowering {
+            semantic: Arc::new(lowering),
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        })
     })
 }
 
@@ -478,7 +489,11 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 .iter()
                 .map(|checked_module| nia_const_check::ConstArrayLengths {
                     values: checked_module.const_eval.array_lengths.clone(),
-                    diagnostics: checked_module.const_eval.diagnostics.clone(),
+                    diagnostics: resolve_diagnostic_bundle(
+                        db.context(),
+                        &checked_module.const_diagnostics,
+                    )
+                    .to_vec(),
                 })
                 .collect::<Vec<_>>();
             let const_enum_values = checked_modules
@@ -486,7 +501,11 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 .map(|checked_module| nia_const_check::ConstEnumValues {
                     values: checked_module.const_eval.enum_values.clone(),
                     typed_values: checked_module.const_eval.typed_enum_values.clone(),
-                    diagnostics: checked_module.const_eval.diagnostics.clone(),
+                    diagnostics: resolve_diagnostic_bundle(
+                        db.context(),
+                        &checked_module.const_diagnostics,
+                    )
+                    .to_vec(),
                 })
                 .collect::<Vec<_>>();
             let visible_extensions = time_provider(
@@ -515,7 +534,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 .collect::<QueryResult<Vec<_>>>()?;
             let program_defs = checked_modules
                 .iter()
-                .map(|module| db.get(FullModuleDefsQuery(module.id)))
+                .map(|module| full_module_defs_semantic(db, module.id))
                 .collect::<QueryResult<Vec<_>>>()?;
             Ok((
                 active_item_trees,
@@ -616,7 +635,10 @@ pub(super) fn checked_module_diagnostics(
 ) -> QueryResult<Vec<ProgramDiagnostic>> {
     let mut diagnostics = Vec::new();
     for checked in checked_modules {
-        diagnostics.extend(module_diagnostics(&checked.path, &checked.defs.diagnostics));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            resolve_diagnostic_bundle(db.context(), &checked.definition_diagnostics),
+        ));
         for bundle in &checked.frontend_diagnostics {
             diagnostics.extend(module_diagnostics(
                 &checked.path,
@@ -635,23 +657,23 @@ pub(super) fn checked_module_diagnostics(
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.const_eval.diagnostics,
+            resolve_diagnostic_bundle(db.context(), &checked.const_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.static_check.diagnostics,
+            resolve_diagnostic_bundle(db.context(), &checked.static_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.layouts.diagnostics,
+            resolve_diagnostic_bundle(db.context(), &checked.layout_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.abi_check.diagnostics,
+            resolve_diagnostic_bundle(db.context(), &checked.abi_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.flow_check.diagnostics,
+            resolve_diagnostic_bundle(db.context(), &checked.flow_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
@@ -679,10 +701,9 @@ pub(super) fn checked_module_diagnostics(
 
 pub(super) fn monomorphization_diagnostics(
     checked_modules: &[Arc<CheckedModule>],
-    monomorphization: &nia_monomorphize::Monomorphization,
+    diagnostics: &[Diagnostic],
 ) -> Vec<ProgramDiagnostic> {
-    monomorphization
-        .diagnostics
+    diagnostics
         .iter()
         .cloned()
         .map(|diagnostic| ProgramDiagnostic {
@@ -724,10 +745,9 @@ fn function_lowering_diagnostics(
 
 pub(super) fn backend_lowering_diagnostics(
     checked_modules: &[Arc<CheckedModule>],
-    backend_lowering: &nia_backend_lower::BackendLowering,
+    diagnostics: &[Diagnostic],
 ) -> Vec<ProgramDiagnostic> {
-    backend_lowering
-        .diagnostics
+    diagnostics
         .iter()
         .cloned()
         .map(|diagnostic| ProgramDiagnostic {

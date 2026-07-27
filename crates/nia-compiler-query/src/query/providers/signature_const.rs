@@ -17,7 +17,7 @@ fn with_signature_const_input<T>(
 ) -> QueryResult<T> {
     let module = db.get(SignatureConstModuleQuery(module_id))?;
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
-    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let values = signature_const_value_resolution(db, module_id, &active_item_tree)?;
     let locals = empty_local_resolution(db.context().node_store());
@@ -44,7 +44,7 @@ fn with_signature_const_input<T>(
             .map(|path| path.as_ref().clone())
     };
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
     let program_type_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
@@ -163,7 +163,7 @@ pub(super) fn provide_signature_const_module(
     module_id: ModuleId,
 ) -> QueryResult<ConstModuleLowering> {
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
-    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let values = signature_const_value_resolution(db, module_id, &active_item_tree)?;
     let locals = empty_local_resolution(db.context().node_store());
@@ -274,7 +274,7 @@ fn signature_const_value_resolution(
     if exprs.is_empty() && !has_const_provider_values {
         return Ok(empty_value_resolution(db.context().node_store()));
     }
-    let defs = db.get(ModuleDefsQuery(module_id))?;
+    let defs = module_defs_semantic(db, module_id)?;
     let public_surfaces = db.get(PublicSurfacesQuery)?;
     let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
     let graph = db.get(ModuleGraphQuery)?;
@@ -283,7 +283,7 @@ fn signature_const_value_resolution(
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let query_failure = RefCell::new(None);
     let program_defs =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleDefsQuery(module_id)));
+        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
     let symbols = db.context().symbols();
     let values =
         nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
@@ -410,7 +410,7 @@ pub(super) fn signature_layouts_for_types(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "signature_layouts", module_id, || {
-        let defs = db.get(ModuleDefsQuery(module_id))?;
+        let defs = module_defs_semantic(db, module_id)?;
         let active_item_tree = db.get(SignatureItemTreeQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
