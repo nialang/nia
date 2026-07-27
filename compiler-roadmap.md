@@ -1700,6 +1700,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3q 将per-item backend lowering、stage product reuse、module slot republish、frontend planned source materialization与per-function lowering reuse共5条回归迁至`query/tests/backend_stage.rs`。`query/mod.rs`降至7,247行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public adapter、scoped schedule与definition manifest cases。
 
+进展（2026-07-27）：I-3r 将public codegen adapter大产品handle、preparation aggregate barrier、按模块scoped schedule与各优化级别definition manifest顺序共4条回归迁至`query/tests/backend_orchestration.rs`。`query/mod.rs`降至7,079行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移backend closure/vtable与cross-module materialization cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
