@@ -1734,6 +1734,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ah 将body edit下无关lowered function复用、global edit下无关static init复用、static-init reference reachability与local static owner facts共4条回归迁至`query/tests/incremental_static_initializers.rs`。4条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至2,909行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移filtered const与generic metadata executable cases。
 
+进展（2026-07-27）：I-3ai 将filtered executable const输入复用与generic metadata-only module不做body check共2条回归迁至`query/tests/executable_const_metadata.rs`。2条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至2,777行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步处理剩余单条body/const语义依赖用例并继续审计production文件拆分边界。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
