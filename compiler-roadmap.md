@@ -1760,6 +1760,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3au 将自定义package module map、被选作value host的map root、默认std toolchain map注入及`std::builtin::target`按需加载共4条回归迁至`nia-loader-query/src/tests/module_map_loading.rs`。测试逻辑与总数不变，子模块复用父harness的加载、图和fixture helper；`tests.rs`从3,147行降至3,035行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按std facade import usage、reexport source与按需provider loading主题继续拆分loader harness。
 
+进展（2026-07-27）：I-3av 将未使用显式std import保持facade浅加载、package facade scope计为有效import usage，以及已使用窄import不产生warning共3条回归迁至`nia-loader-query/src/tests/std_import_usage.rs`。测试逻辑、诊断断言与总数不变，父harness继续持有module lookup和加载断言helper；`tests.rs`从3,035行降至2,911行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移std facade reexport source、依赖传播与freestanding runtime注入cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
