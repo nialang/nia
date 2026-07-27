@@ -1716,6 +1716,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3y 将facade provider chain、using-type不扩张provider module与facade reexport trait impl共3条visible extension回归迁至`query/tests/visible_extensions.rs`。`query/mod.rs`降至4,992行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移extension provider revision refresh与nominal query cases。
 
+进展（2026-07-27）：I-3z 将extension provider module facts跨source revision刷新，以及provider summary变化触发stable module eligibility验证的两条回归迁至`query/tests/extension_provider_refresh.rs`；测试逻辑、断言与总数不变。`query/mod.rs`降至4,909行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移signature normalization与nominal provider query cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
