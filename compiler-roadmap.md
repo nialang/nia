@@ -1762,6 +1762,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3av 将未使用显式std import保持facade浅加载、package facade scope计为有效import usage，以及已使用窄import不产生warning共3条回归迁至`nia-loader-query/src/tests/std_import_usage.rs`。测试逻辑、诊断断言与总数不变，父harness继续持有module lookup和加载断言helper；`tests.rs`从3,035行降至2,911行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移std facade reexport source、依赖传播与freestanding runtime注入cases。
 
+进展（2026-07-27）：I-3aw 将按已用名称加载collections reexport source、reexported value保持facade浅路径、以及reexported `CStringView`类型的跨facade依赖传播共3条回归迁至`nia-loader-query/src/tests/std_facade_reexports.rs`。测试逻辑与总数不变，父harness继续提供加载、图查询和断言工具；`tests.rs`从2,911行降至2,809行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移freestanding std start runtime、按需root children与trait/inherent provider loading cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
