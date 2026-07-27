@@ -1724,6 +1724,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ac 将signature/full type resolution、lowering、item signatures、value/local resolution、flow/terminal checks、layouts、const、monomorphization、body check及type normalization共16条semantic value与diagnostic bundle分离回归迁至`query/tests/semantic_diagnostics.rs`。16条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至4,238行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable reachability与incremental body preservation cases。
 
+进展（2026-07-27）：I-3ad 将query-backed extension method lookup、bare/freestanding entry rooted diagnostics与matched trait impl method body保留共4条entry/executable reachability回归迁至`query/tests/executable_entry_reachability.rs`。4条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至4,060行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移extension与trait receiver type的incremental body preservation cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
