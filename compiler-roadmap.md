@@ -1720,6 +1720,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3aa 将visible extension对signature type normalization、target-scoped nominal provider modules、type exposure与精确provider module facts依赖的综合回归迁至`query/tests/extension_nominal_queries.rs`；所有正反向依赖断言与测试总数保持不变。`query/mod.rs`降至4,782行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按body/value/const resolution主题继续拆分剩余实际cases。
 
+进展（2026-07-27）：I-3ab 将module defs、body-sensitive/value resolution、flow/static check及body check的item-tree、visible-extension、local-signature与full-lowering依赖共8条回归迁至`query/tests/semantic_query_dependencies.rs`。迁移后8条用例均以新模块路径执行，测试逻辑与总数不变；`query/mod.rs`降至4,506行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移semantic value与diagnostic split实际cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
