@@ -1772,6 +1772,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3ba 将std root reexport import、single-value reexport import与qualified root reexport access均保持facade浅加载的3条回归迁至`nia-loader-query/src/tests/std_reexport_resolution.rs`。测试逻辑与总数不变，三个入口继续共同锁定只加载`cstring`而不激活std package facade或process subtree；`tests.rs`从2,423行降至2,380行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移local/package shadowing、entry-relative child与in-memory source cases。
 
+进展（2026-07-28）：I-3bb 将local module不激活同名package、root child相对entry解析，以及完整in-memory source universe加载共3条回归迁至`nia-loader-query/src/tests/source_resolution.rs`。测试逻辑与总数不变，子模块复用父harness的source、module graph和加载断言helper；`tests.rs`从2,380行降至2,294行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移package-private provider fixture与frontend query trace/cache cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
