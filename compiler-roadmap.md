@@ -1690,6 +1690,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3l 将6条function body/signature/source identity invalidation回归迁至`query/tests/body_invalidation.rs`，覆盖public snapshot复用、revision-bearing signature刷新、program type context与module-dependent query失效；测试逻辑与总数不变。`query/mod.rs`从8,327行降至8,180行，compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I上调至约75%；下一步迁移definition/item-tree与public snapshot invalidation cases。
 
+进展（2026-07-27）：I-3m 将module item-tree到defs的失效传播及public snapshot阻断两条回归迁至`query/tests/definition_invalidation.rs`。`query/mod.rs`降至8,124行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移public surface/item-tree handle reuse cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
