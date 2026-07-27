@@ -72,6 +72,7 @@ mod function_body_queries;
 mod program;
 mod program_signature_queries;
 mod providers;
+mod registry;
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -87,6 +88,7 @@ use function_body_queries::*;
 use program::*;
 use program_signature_queries::*;
 use providers::*;
+use registry::*;
 use resolve::*;
 use static_init_queries::*;
 use types::*;
@@ -113,150 +115,6 @@ type ModuleProgramSignatureFactsValue = ModuleProgramSignatureFacts;
 type ModuleAbiSignatureFactsValue = ModuleAbiSignatureFactsQueryValue;
 type PublicSurfacesValue = PublicSurfacesQueryValue;
 type PublicUsingScopesValue = PublicUsingScopesQueryValue;
-
-fn compiler_query_registry() -> nia_query::QueryRegistry {
-    let mut registry = nia_query::QueryRegistry::new();
-    macro_rules! register {
-        ($($key:ty),+ $(,)?) => {
-            $(registry.register::<CompilerContext, $key>();)+
-        };
-    }
-    register!(
-        AbiCheckQuery,
-        ActiveModuleItemTreeInputQuery,
-        ActiveModuleItemTreeQuery,
-        BodyActivationWorklistQuery,
-        BackendFinalizationTaskContextQuery,
-        BackendItemPlanQuery,
-        BackendLoweringInputsQuery,
-        BackendModuleFinalizationQuery,
-        BackendModuleItemPlanQuery,
-        BackendModuleFunctionInstancePlanQuery,
-        BackendModuleSourceItemPlanQuery,
-        BackendLoweringQuery,
-        BodyCheckQuery,
-        CheckedModuleIdsQuery,
-        CheckedModuleQuery,
-        CheckedProgramQuery,
-        CodegenPreparationQuery,
-        CodegenProgramQuery,
-        CompilerOptimizationQuery,
-        CompilerRuntimeQuery,
-        CompilerTargetQuery,
-        ConstArrayLengthsQuery,
-        ConstEnumValuesQuery,
-        ConstModuleQuery,
-        ConstQuery,
-        ConstTypedFactsQuery,
-        ConstValuesQuery,
-        DeclarationActiveModuleItemTreeInputQuery,
-        DeclarationActiveModuleItemTreeQuery,
-        DeclarationModuleItemTreeInputQuery,
-        DeclarationModuleItemTreeQuery,
-        DeclarationTypeLoweringQuery,
-        DeclarationTypeResolutionQuery,
-        EntryCheckedProgramQuery,
-        ExecutableCheckedModuleFactsQuery,
-        ExecutableCheckedModulesQuery,
-        ExecutableFactEpochQuery,
-        ExecutableFunctionBodyQuery,
-        ExecutableProviderDemandsQuery,
-        ExecutableRootModulesQuery,
-        ExecutableStaticInitQuery,
-        ExecutableValueRefEdgesQuery,
-        ExecutableValueRefItemIndexQuery,
-        ExecutableValueRefItemQuery,
-        ExtensionMethodByIdQuery,
-        ExtensionMethodIndexQuery,
-        ExtensionMethodsNamedQuery,
-        ExtensionProviderDiscoveryIndexQuery,
-        ExtensionProviderModuleEligibilityQuery,
-        ExtensionProviderModuleFactsQuery,
-        ExtensionProviderModuleIdsQuery,
-        ExtensionProviderNominalCandidateModulesQuery,
-        ExtensionProviderNominalModuleFactsQuery,
-        ExtensionProviderNominalModulesForTargetsQuery,
-        ExtensionProviderSummaryQuery,
-        ExtensionProviderValidationFactsQuery,
-        ExtensionSignatureModuleInputQuery,
-        ExtensionTraitImplsForTraitQuery,
-        ExtensionTraitSignatureIndexQuery,
-        ExtensionTraitSolvingModuleFactsQuery,
-        FlowCheckQuery,
-        FrontendProgramSourcesQuery,
-        FullActiveModuleItemTreeInputQuery,
-        FullActiveModuleItemTreeQuery,
-        FullModuleDefsQuery,
-        FullModuleItemTreeInputQuery,
-        FullModuleItemTreeQuery,
-        ItemSignaturesQuery,
-        LayoutTypeNormalizationQuery,
-        LayoutsQuery,
-        LoadedModulesQuery,
-        LocalResolutionQuery,
-        LoweredFunctionBodyQuery,
-        ModuleAbiSignatureFactsQuery,
-        ModuleDefsQuery,
-        ModuleGraphChildQuery,
-        ModuleGraphEntryQuery,
-        ModuleGraphParentQuery,
-        ModuleGraphPathQuery,
-        ModuleGraphQuery,
-        ModuleItemTreeInputQuery,
-        ModuleItemTreeQuery,
-        ModuleOriginsQuery,
-        ModulePackageRootQuery,
-        ModuleParseErrorsQuery,
-        ModulePathQuery,
-        ModuleProgramSignatureFactsQuery,
-        ModulePublicSurfaceQuery,
-        PublicSurfaceModuleFactsQuery,
-        ModuleSourceVersionQuery,
-        ModuleUsingScopeQuery,
-        MonomorphizationQuery,
-        ParseOkModuleIdsQuery,
-        ProgramAbiSignaturesQuery,
-        ProgramLoadDiagnosticsQuery,
-        ProgramSignatureModuleEligibilityQuery,
-        ProgramSignatureModuleIdsQuery,
-        ProgramTraitMethodIndexQuery,
-        ProgramTypeAliasSignatureQuery,
-        ProviderFactRevisionQuery,
-        ProviderFactWorklistQuery,
-        PublicSurfaceModuleQuery,
-        PublicSurfaceTypeQuery,
-        PublicSurfaceValueQuery,
-        PublicSurfacesQuery,
-        PublicUsingScopesQuery,
-        SemanticModuleIdsQuery,
-        SemanticUseTableQuery,
-        SignatureConstItemSignaturesQuery,
-        SignatureConstItemTreeQuery,
-        SignatureConstModuleQuery,
-        SignatureConstTypeLoweringQuery,
-        SignatureConstTypeNormalizationQuery,
-        SignatureConstTypeResolutionQuery,
-        SignatureItemSignaturesQuery,
-        SignatureItemTreeQuery,
-        SignatureLayoutsQuery,
-        SignatureTypeLoweringQuery,
-        SignatureTypeNormalizationQuery,
-        SignatureTypeResolutionQuery,
-        StaticCheckQuery,
-        TypeExposureIndexQuery,
-        TypeLoweringQuery,
-        TypeNormalizationQuery,
-        TypeResolutionQuery,
-        UsingScopeModuleQuery,
-        UsingScopeTypeQuery,
-        UsingScopeUnresolvedQuery,
-        UsingScopeValueQuery,
-        ValueResolutionQuery,
-        VisibleExtensionsQuery,
-        VisibleTraitImplsQuery,
-    );
-    registry
-}
 
 #[derive(Clone)]
 pub struct CompileRequest {
