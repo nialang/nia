@@ -1704,6 +1704,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-27）：I-3s 将unreachable aggregate、external extension predicate、cross-module/default/generic vtable、stable vtable owner与generic local static closure共7条回归迁至`query/tests/backend_closure.rs`。`query/mod.rs`降至6,525行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移executable reachability与filtered module cases。
 
+进展（2026-07-27）：I-3t 将builtin/default/generic trait witness选择、未匹配/未使用witness排除、不可达global排除与type-owner module保持type-only共7条回归迁至`query/tests/executable_filtering.rs`。`query/mod.rs`降至6,016行，compiler-query 190项、严格Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移reachable initializer与unreachable module/function cases。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
