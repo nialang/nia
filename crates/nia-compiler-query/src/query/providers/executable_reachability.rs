@@ -711,21 +711,6 @@ fn executable_check_in_session(
             reachability_state
                 .reachability_mut()
                 .insert_functions(checked_this_round.iter().copied());
-            let new_globals_len = module_globals.len();
-            let module_path = match db.get(ModulePathQuery(module_id)) {
-                Ok(path) => path,
-                Err(error) => return_session_error!(error),
-            };
-            let requested_function_names =
-                match executable_debug_function_names(db, module_id, &module_functions) {
-                    Ok(names) => names,
-                    Err(error) => return_session_error!(error),
-                };
-            let checked_function_names =
-                match executable_debug_function_names(db, module_id, &checked_this_round) {
-                    Ok(names) => names,
-                    Err(error) => return_session_error!(error),
-                };
             let merge_result = time_module_provider(
                 db,
                 "executable_checked_modules.fact_merge",
@@ -752,24 +737,6 @@ fn executable_check_in_session(
             );
             if let Err(error) = merge_result {
                 return_session_error!(error);
-            }
-            if let Some(state) = fact_by_id.get(&module_id) {
-                let reachability = reachability_state.reachability();
-                print_executable_round_debug(ExecutableRoundDebug {
-                    module_id,
-                    module_path: &module_path,
-                    requested_function_names,
-                    checked_function_names,
-                    requested_functions: module_functions.len(),
-                    new_functions: checked_this_round.len(),
-                    new_globals: new_globals_len,
-                    checked_functions_total: state.checked_functions.len(),
-                    checked_globals_total: state.checked_globals.len(),
-                    reachable_functions_total: reachability.functions().len(),
-                    reachable_globals_total: reachability.globals().len(),
-                    reachable_modules_total: reachability.modules().len(),
-                    type_modules_total: reachability.type_modules().len(),
-                });
             }
             batch_items.push(ExecutableBodyCheckBatchItem {
                 module_id,
@@ -853,16 +820,6 @@ fn executable_check_in_session(
     }
     let reachability = reachability_state.reachability().clone();
     let reachability_by_module = reachability.by_module();
-    if debug_executable_reachability_enabled() {
-        eprintln!(
-            "debug executable_reachability.final functions={} globals={} modules={} type_modules={}",
-            reachability.functions().len(),
-            reachability.globals().len(),
-            reachability.modules().len(),
-            reachability.type_modules().len(),
-        );
-    }
-
     let parse_ok_modules = parse_ok;
     let mut checked_modules_by_id = match time_provider(
         db.context().timings(),
@@ -1199,26 +1156,6 @@ fn named_top_level_function(
         (def.kind == DefKind::Function && def.parent.is_none() && def.name == name)
             .then_some(GlobalDefId { module_id, def_id })
     }))
-}
-
-fn executable_debug_function_names(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-    functions: &HashSet<GlobalDefId>,
-) -> QueryResult<Vec<String>> {
-    if !debug_executable_reachability_enabled() {
-        return Ok(Vec::new());
-    }
-    let defs = full_module_defs_semantic(db, module_id)?;
-    let symbols = db.context().symbols();
-    let mut names = functions
-        .iter()
-        .filter(|def_id| def_id.module_id == module_id)
-        .filter_map(|def_id| defs.defs.get(def_id.def_id))
-        .map(|def| nia_symbol::symbol_text_or_unresolved(&symbols, def.name))
-        .collect::<Vec<_>>();
-    names.sort();
-    Ok(names)
 }
 
 fn final_executable_checked_modules(
