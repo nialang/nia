@@ -1,0 +1,7 @@
+mode=emit-object
+resource=build
+source=main.nia
+minimum-link-inputs=1
+codegen-preparation-executions=1
+backend-lowering-executions=0
+backend-finalization-executions=2

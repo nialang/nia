@@ -101,67 +101,6 @@ fn main() i32 {
 }
 
 #[test]
-fn in_memory_executable_preserves_trait_object_witnesses_with_module_map() {
-    let _permit = nia_test_support::compiler_permit();
-    let root = temp_dir("in_memory_executable_preserves_trait_object_witnesses_with_module_map");
-    write(
-        &root.join("build.nia"),
-        r#"
-pub fn marker() i32 {
-    1
-}
-"#,
-    );
-    let runner_path = root
-        .join(".nia-build")
-        .join("runner")
-        .join("root.nia")
-        .to_string_lossy()
-        .into_owned();
-    let runner_source = r#"
-using std::mem;
-using std::process;
-using build_script;
-
-fn use_allocator(allocator: &mut mem::Allocator) mem::Error!void {
-    let mut bytes = allocator.alloc_slice[u8](4usize).?;
-    allocator.free_slice[u8](bytes).?;
-    !{}
-}
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
-    let mut page_allocator = mem::PageAllocator::init();
-    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
-    defer allocator.deinit().ok().exit().?;
-    use_allocator(&mut allocator).exit().?;
-    if build_script::marker() != 1 {
-        return process::exit(1)!;
-    }
-    !{}
-}
-"#;
-    let driver = crate::Driver::new();
-    driver.set_source(runner_path.clone(), runner_source);
-    let mut module_map = crate::ModuleMap::new();
-    module_map.insert(
-        "build_script",
-        crate::SourcePath::new(root.join("build.nia").to_string_lossy().into_owned()),
-    );
-    let output = driver.link_executable(crate::LinkExecutableRequest::new(
-        crate::CheckRequest::new(runner_path.clone()).with_module_map(module_map),
-        root.join("runner"),
-    ));
-
-    if let Err(error) = output.result {
-        panic!(
-            "{}",
-            crate::render_driver_error(&error, Some(&runner_path), Some(runner_source))
-        );
-    }
-}
-
-#[test]
 fn readonly_trait_object_extension_methods_resolve_on_readonly_objects() {
     let root = temp_dir("readonly_trait_object_extension_methods_resolve_on_readonly_objects");
     write(

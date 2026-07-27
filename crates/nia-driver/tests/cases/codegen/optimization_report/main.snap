@@ -1,0 +1,8 @@
+diagnostics: none
+backend optimization report:
+  policy level=O0 simplify_cfg=required const_fold=required dead_code_elim=disabled local_copy_prop=disabled inline=never specialize=required-only dedup_monomorphized_instances=true prefer_size=false llvm_codegen=none llvm_size=default
+  enabled_module_passes=none
+  enabled_function_passes=none
+  enabled_global_passes=none
+  changes=0
+  no changes

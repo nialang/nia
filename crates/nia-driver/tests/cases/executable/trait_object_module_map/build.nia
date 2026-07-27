@@ -1,0 +1,3 @@
+pub fn marker() i32 {
+    1
+}
