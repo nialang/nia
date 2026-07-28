@@ -1,0 +1,6 @@
+mode=check-configuration
+resource=compiler
+source=default_std.nia
+cache-source=cache.nia
+private-source=private_main.nia
+public-source=public_main.nia
