@@ -1,0 +1,5 @@
+using share;
+
+fn main() i32 {
+    share::answer
+}

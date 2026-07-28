@@ -1,0 +1,5 @@
+mode=option-placement
+resource=compiler
+source=main.nia
+mapped-entry=mapped_main.nia
+mapped-source=share.nia

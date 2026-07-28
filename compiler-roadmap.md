@@ -1538,6 +1538,14 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 4. 建 data-driven compiler test harness 与 suite 分类。
 5. 删除旧 API、兼容 adapter、临时环境变量和测试 permit。
 
+阶段 I 执行与提交约束：
+
+- 每轮至少推进3–5个相关子项，或一次关闭一个完整acceptance gate；禁止以单文件、单fixture、单测试迁移冒充独立roadmap进展。
+- 机械迁移、runner扩展、fixture搬迁和纯命名清理必须合并到所属领域的验收批次，不单独记录进展或提交。
+- 同一领域应连续完成实现、旧入口物理删除、联合验证和roadmap记账后再提交；每轮通常只产生1–2个broad Conventional Commit。
+- 只有架构边界变化、风险隔离或必须独立回滚时才拆分commit，并在进展记录中说明拆分理由。
+- 面向用户汇报前必须完成多波实际改动；审计或方向讨论本身不计作推进，除非它直接关闭acceptance条件并产出可复核证据。
+
 进展（2026-07-25）：I-1a 建立 provider 到 query runtime 的显式 failure channel。`QueryKey`新增迁移中的`execute_result -> QueryResult<Value>`契约，共享与single-consumer runtime都直接处理`Ok/Err`：普通失败清空未发布slot、丢弃speculative dependency并返回`QueryError`，provider panic只负责同样的状态清理后原样`resume_unwind`，runtime不再downcast panic payload来识别普通错误。same-thread cycle、跨executor parent-stack cycle、invalid input及失败后dependency retirement回归已迁到显式传播；loader的`ModuleGraphQuery`/revision、`SourceTextQuery`、`LoadedModuleQuery`和public-surface facts真实生产边界使用`try_get + ?`，缺失source/module/revision不再通过provider panic。为避免把191个provider的迁移伪装成一次完成，旧裸`execute`与`get/try_get`双入口暂时只作为单一前移边界保留：下一切片必须沿compiler provider graph迁移Result，随后把唯一公开访问收敛为返回`QueryResult`的`get/get_owned/get_many`并物理删除`execute`默认桥、`try_get*`、`invalid_input` panic helper以及`CompilerDatabase`的`catch_unwind<QueryError>`；这些adapter不计入完成态。nia-query 75项、loader-query 73项及loader all-targets check通过。
 
 进展（2026-07-25）：I-1b 将compiler所有loader-backed invalid-input origin改为显式值。module path/source version/origin/parse error、六类item-tree input、signature/const-signature tree、public-surface facts与extension provider summary现在都从`Option`构造`QueryError`并由`execute_result`返回；item-tree的四个可替换provider function pointer同步变为`QueryResult`类型，module/full/declaration/active projection使用`try_get + ?`传播下一层失败，不在provider内部重新unwrap。全仓`.invalid_input(...)`调用只剩显式`QueryError`构造，旧发散返回`!`且内部`panic_any`的helper已物理删除；缺失module回归同时锁定直接input query和两层item-tree projection均返回`Err`，既有完整analysis仍生成同一query diagnostic。当前compiler-query已有20个显式provider、114个legacy裸provider；四个公开check/codegen边界仍因后者而保留`catch_unwind<QueryError>`，必须沿provider DAG继续迁移后统一删除，不能把当前计为panic-flow完成。
@@ -1889,6 +1897,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 进展（2026-07-28）：I-4n/I-5j 完整迁移CLI linker invocation参数主题。新增Unix `linker-invocation` manifest，以同一mock linker依次验证raw `--link-arg`三种写法及structured dynamic-linker/显式linker flavor/library search/native library/rpath参数；期望参数集合由metadata显式声明。raw旧测试夹带的bare executable runtime拒绝被归入selection-errors case，未因迁移丢失。两个旧手写入口、两份嵌入source/mock脚本和独立资源获取物理删除；linker suite以单一build session完成selection三条与invocation两条命令，严格Clippy、fmt与diff检查通过。下一批独立迁移typed link-result与object bucket失效矩阵。
 
 进展（2026-07-28）：I-4o/I-5k 完整关闭CLI linker integration的手写cache主题。新增Unix `typed-link-cache` manifest，以initial/edit fixture和唯一mock wrapper执行cold、warm、definition-edit三次真实链接：锁定link-result单key/单entry、warm不调用linker且恢复字节完全相同并可执行，source edit只使一个LLVM definition bucket失效、其余bucket保持复用，同时link-result只按inputs失效而target/linker/options保持稳定。原约300行嵌入source、脚本、counter重复断言和独立资源入口物理删除；linker metadata suite现以单一build session覆盖selection、invocation与typed cache全部主题，30.45秒通过，严格Clippy、fmt与diff检查通过。下一批转向build command错误矩阵或其余CLI重型主题。
+
+进展（2026-07-28）：I-4p/I-5l 按新的批量执行约束连续完成四波CLI command-suite迁移并关闭临时入口审计。新增唯一`command_cases` suite及`option-errors`、`option-placement`、`inspection-contracts`、`check-configuration`四个metadata mode：统一覆盖timing/optimization/module-map错误矩阵，优化参数前后位置与`-O`别名、trailing module map，tokens/AST/checked/backend/LLVM输出与旧命令/旧emit语法拒绝，以及default std map、cold/warm frontend cache和private/public freestanding startup契约。17个手写`#[test]`、约588行嵌入source与重复command/assertion逻辑物理删除，`commands.rs`由41项测试降为24项；所有新case共享单一compiler resource session。全仓审计确认旧`compiler_permit/build_permit/ResourcePermit`为零，production环境入口只剩标准`NO_COLOR`和已文档化`NIA_LINKER/NIA_LLD`，`NIA_TEST_ENV`仅验证用户程序环境传递而非compiler调试开关。command/optimization/linker三suite联合通过，commands target无运行编译、CLI/test-support严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I上调至约80%；下一轮继续按3–5子项批次迁移build command success/error矩阵并审计production巨型文件，而不再为单case提交。
 
 ## 23. 风险与验证指标
 
