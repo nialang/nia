@@ -1800,6 +1800,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bo 将source frontend query key的紧凑句柄尺寸契约迁至`nia-loader-query/src/tests/query_key_contracts.rs`。所有query key大小断言保持不变，父模块不再承载测试函数，仅保留各主题模块共享的query/source/cache/fixture支持代码；`tests.rs`从504行降至484行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续评估共享test support的归属并推进其他巨型harness拆分。
 
+进展（2026-07-28）：I-3bp 开始拆分`nia-backend-lower`测试harness：将module finalization任务的Send/Sync契约、乱序完成后的program-order合并，以及foreign backend source function按owner分组/缺失owner拒绝共4条回归迁至`nia-backend-lower/src/tests/finalization_contracts.rs`。测试逻辑、module store/readiness publication、optimization report及diagnostic顺序断言保持不变；`tests.rs`从999行降至815行。backend-lower 100项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步按后端fixture/shared support与余下主题继续拆分该harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
