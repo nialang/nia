@@ -8,7 +8,8 @@ mod support;
 
 #[test]
 fn compiler_cases_match_snapshots() {
-    let _permit = nia_test_support::compiler_permit();
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
     let driver = crate::Driver::new();
     check::run(&driver, &root.join("check"));
@@ -18,7 +19,8 @@ fn compiler_cases_match_snapshots() {
 
 #[test]
 fn build_cases_match_expectations() {
-    let _permit = nia_test_support::build_permit();
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
     backend::run_build(&crate::Driver::new(), &root);
 }

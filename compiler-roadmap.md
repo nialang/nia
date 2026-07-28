@@ -1876,6 +1876,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3da 批量关闭剩余七个中小型内联测试harness：`nia-backend-ir`、`nia-defs`、`nia-type-resolve`、`nia-public-surface`、`nia-value-resolve`、`nia-trait-solve`与`nia-ids`的42条契约整体迁至各crate独立`tests.rs`，生产入口合计减少约2400行且原`tests::...`路径、测试体、公开API与production行为均未改变。七crate联合测试、严格all-target/all-feature Clippy、全仓fmt与diff检查通过。至此不再以机械搬迁作为独立推进主题；下一步按Phase I验收条件审计诊断所有权、资源许可与遗留适配入口，并以整类关闭批次推进。
 
+进展（2026-07-28）：I-5a 关闭integration测试的旧permit API并统一资源分类。`nia-test-support`物理删除`compiler_permit`、`build_permit`与公开`ResourcePermit`双轨入口，唯一`TestWorkload::{Compiler,Build}`将调度权重映射到跨进程内存/slot门禁，调用方只持有显式`TestResourceSession`；Driver的compiler、backend与build data-driven cases分别在整个suite会话持有资源，不回退per-case permit。CLI编译/构建子进程在统一command入口按workload获取会话，运行已生成程序与只读status命令不再占用编译资源槽。test-support 8项资源测试、Driver compiler/build suite、三crate严格all-target/all-feature Clippy、fmt与diff检查通过；CLI commands已通过编译、链接、cache及多项build路径，既有invalid-target runner仍在预期诊断前以255退出并独立记录，不由本批扩张处理。Phase I保持约75%；下一步继续以suite metadata收束integration资源权重，并审计可物理删除的临时环境入口与兼容adapter。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

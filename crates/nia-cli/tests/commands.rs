@@ -11,7 +11,7 @@ trait BuildCommandExt {
 
 impl BuildCommandExt for Command {
     fn build_output_timeout(&mut self, context: &str) -> std::process::Output {
-        self.output_timeout_with_resource(context, nia_test_support::build_permit())
+        self.output_timeout_with_workload(context, nia_test_support::TestWorkload::Build)
     }
 }
 

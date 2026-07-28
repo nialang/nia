@@ -15,10 +15,10 @@ const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
 
 pub(crate) trait CommandExt {
     fn output_timeout(&mut self, context: &str) -> Output;
-    fn output_timeout_with_resource(
+    fn output_timeout_with_workload(
         &mut self,
         context: &str,
-        permit: nia_test_support::ResourcePermit<'static>,
+        workload: nia_test_support::TestWorkload,
     ) -> Output;
 }
 
@@ -28,14 +28,15 @@ pub(crate) trait CommandStatusExt {
 
 impl CommandExt for Command {
     fn output_timeout(&mut self, context: &str) -> Output {
-        self.output_timeout_with_resource(context, nia_test_support::compiler_permit())
+        self.output_timeout_with_workload(context, nia_test_support::TestWorkload::Compiler)
     }
 
-    fn output_timeout_with_resource(
+    fn output_timeout_with_workload(
         &mut self,
         context: &str,
-        _permit: nia_test_support::ResourcePermit<'static>,
+        workload: nia_test_support::TestWorkload,
     ) -> Output {
+        let _resources = nia_test_support::acquire_test_resources(workload);
         self.stdout(Stdio::piped()).stderr(Stdio::piped());
         prepare_command(self);
 
@@ -78,7 +79,6 @@ impl CommandExt for Command {
 
 impl CommandStatusExt for Command {
     fn status_timeout(&mut self, context: &str) -> ExitStatus {
-        let _permit = nia_test_support::compiler_permit();
         self.stdout(Stdio::null()).stderr(Stdio::null());
         prepare_command(self);
 

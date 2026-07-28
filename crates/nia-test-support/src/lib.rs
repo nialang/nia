@@ -16,12 +16,23 @@ const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 
 static COMPILER_POOL: OnceLock<ResourcePool> = OnceLock::new();
 
-pub fn compiler_permit() -> ResourcePermit<'static> {
-    compiler_pool().acquire(ResourceRequest::new(1, 1))
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TestWorkload {
+    Compiler,
+    Build,
 }
 
-pub fn build_permit() -> ResourcePermit<'static> {
-    compiler_pool().acquire(ResourceRequest::new(2, 1))
+impl TestWorkload {
+    const fn resource_request(self) -> ResourceRequest {
+        match self {
+            Self::Compiler => ResourceRequest::new(1, 1),
+            Self::Build => ResourceRequest::new(2, 1),
+        }
+    }
+}
+
+pub fn acquire_test_resources(workload: TestWorkload) -> TestResourceSession<'static> {
+    compiler_pool().acquire_session(workload.resource_request())
 }
 
 #[derive(Clone, Copy)]
@@ -97,16 +108,16 @@ impl ResourcePool {
         }
     }
 
-    fn acquire(&self, request: ResourceRequest) -> ResourcePermit<'_> {
-        let permits = request.slots.clamp(1, self.capacity);
+    fn acquire_session(&self, request: ResourceRequest) -> TestResourceSession<'_> {
+        let reserved_slots = request.slots.clamp(1, self.capacity);
         let mut available = lock_unpoisoned(&self.available);
-        while *available < permits {
+        while *available < reserved_slots {
             available = self
                 .ready
                 .wait(available)
                 .unwrap_or_else(|error| error.into_inner());
         }
-        *available -= permits;
+        *available -= reserved_slots;
         drop(available);
 
         let minimum_available_memory = self
@@ -115,43 +126,43 @@ impl ResourcePool {
         let slots = match acquire_process_slots(
             &self.slot_root,
             self.capacity,
-            permits,
+            reserved_slots,
             minimum_available_memory,
         ) {
             Ok(slots) => slots,
             Err(error) => {
-                self.release(permits);
+                self.release(reserved_slots);
                 panic!(
-                    "failed to acquire Nia test resource permits in {}: {error}",
+                    "failed to acquire Nia test resource session in {}: {error}",
                     self.slot_root.display()
                 );
             }
         };
-        ResourcePermit {
+        TestResourceSession {
             pool: self,
-            permits,
+            reserved_slots,
             slots,
         }
     }
 
-    fn release(&self, permits: usize) {
-        *lock_unpoisoned(&self.available) += permits;
+    fn release(&self, reserved_slots: usize) {
+        *lock_unpoisoned(&self.available) += reserved_slots;
         self.ready.notify_all();
     }
 }
 
-pub struct ResourcePermit<'a> {
+pub struct TestResourceSession<'a> {
     pool: &'a ResourcePool,
-    permits: usize,
+    reserved_slots: usize,
     slots: Vec<PathBuf>,
 }
 
-impl Drop for ResourcePermit<'_> {
+impl Drop for TestResourceSession<'_> {
     fn drop(&mut self) {
         for slot in self.slots.drain(..) {
             let _ = fs::remove_dir_all(slot);
         }
-        self.pool.release(self.permits);
+        self.pool.release(self.reserved_slots);
     }
 }
 
@@ -217,8 +228,8 @@ fn acquire_process_slots(
     }
 }
 
-fn minimum_available_memory(memory_limit: usize, permits: usize) -> usize {
-    let workload_memory = permits
+fn minimum_available_memory(memory_limit: usize, memory_units: usize) -> usize {
+    let workload_memory = memory_units
         .saturating_mul(COMPILER_MEMORY_BYTES)
         .saturating_add(AVAILABLE_MEMORY_HEADROOM_BYTES);
     workload_memory.min(test_memory_budget(memory_limit))
@@ -344,11 +355,11 @@ mod tests {
     }
 
     #[test]
-    fn weighted_permits_return_their_full_capacity() {
-        let pool = ResourcePool::new(4, test_slot_root("weighted_permits"));
-        let permit = pool.acquire(ResourceRequest::new(2, 1));
+    fn weighted_sessions_return_their_full_capacity() {
+        let pool = ResourcePool::new(4, test_slot_root("weighted_sessions"));
+        let session = pool.acquire_session(TestWorkload::Build.resource_request());
         assert_eq!(*lock_unpoisoned(&pool.available), 2);
-        drop(permit);
+        drop(session);
         assert_eq!(*lock_unpoisoned(&pool.available), 4);
     }
 
@@ -366,32 +377,32 @@ mod tests {
         let root = test_slot_root("cross_process_slots");
         let first = ResourcePool::new(2, root.clone());
         let second = ResourcePool::new(2, root);
-        let permit = first.acquire(ResourceRequest::new(2, 1));
+        let session = first.acquire_session(ResourceRequest::new(2, 1));
         assert!(second.slot_root.join("0").is_dir());
         assert!(second.slot_root.join("1").is_dir());
-        drop(permit);
-        let second_permit = second.acquire(ResourceRequest::new(2, 1));
-        drop(second_permit);
+        drop(session);
+        let second_session = second.acquire_session(ResourceRequest::new(2, 1));
+        drop(second_session);
     }
 
     #[test]
     fn process_slots_block_independent_pools_until_release() {
         let root = test_slot_root("cross_process_blocking");
         let first = ResourcePool::new(1, root.clone());
-        let first_permit = first.acquire(ResourceRequest::new(1, 1));
+        let first_session = first.acquire_session(ResourceRequest::new(1, 1));
         let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
         let waiter = std::thread::spawn(move || {
             let second = ResourcePool::new(1, root);
-            let second_permit = second.acquire(ResourceRequest::new(1, 1));
+            let second_session = second.acquire_session(ResourceRequest::new(1, 1));
             acquired_tx.send(()).expect("report acquired process slot");
-            drop(second_permit);
+            drop(second_session);
         });
 
         assert!(
             acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
             "independent pool acquired an occupied process slot"
         );
-        drop(first_permit);
+        drop(first_session);
         acquired_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("independent pool should acquire the released process slot");
