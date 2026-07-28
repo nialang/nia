@@ -1842,6 +1842,12 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cj 将同线程/跨worker cycle、显式invalid input、batch error、失败依赖回滚及panic后slot恢复共7条回归迁至`nia-query/src/tests/error_recovery.rs`。第二批三个主题模块使`nia-query/src/lib.rs`继续从5774行降至5416行，query实现、共享fixture与公开API均未改变；nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步拆分priority task pool、executor公平性与跨session预算主题，再抽取共享query fixture。
 
+进展（2026-07-28）：I-3ck 将bounded lane/submission order、priority抢占普通队列及task panic后drain/reuse共3条回归迁至`nia-query/src/tests/priority_tasks.rs`。主题继续直接验证正式priority queue与`QueryTaskPool`，不复制executor fixture或引入测试专用调度入口；3项主题测试通过。Phase I保持约75%；下一步迁移executor资源预算边界。
+
+进展（2026-07-28）：I-3cl 将单session并发上限、共享预算跨session限流、默认session共享进程预算及默认并行度上界共4条回归迁至`nia-query/src/tests/executor_budget.rs`。资源owner、peak active和process budget断言保持不变，nested execution不混入该主题；4项目标测试通过。Phase I保持约75%；下一步迁移nested batch与executor恢复契约。
+
+进展（2026-07-28）：I-3cm 将跨session permit复用、满预算nested get-many、暂停父query的batch隔离及batch panic后executor复用共4条回归迁至`nia-query/src/tests/nested_execution.rs`。本批三个主题模块使`nia-query/src/lib.rs`继续从5416行降至5055行，query实现、共享fixture与公开API均未改变；nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步拆分dependency trace、revision retirement与red-green validation主题，再抽取共享query fixture。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
