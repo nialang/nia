@@ -1848,6 +1848,12 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cm 将跨session permit复用、满预算nested get-many、暂停父query的batch隔离及batch panic后executor复用共4条回归迁至`nia-query/src/tests/nested_execution.rs`。本批三个主题模块使`nia-query/src/lib.rs`继续从5416行降至5055行，query实现、共享fixture与公开API均未改变；nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步拆分dependency trace、revision retirement与red-green validation主题，再抽取共享query fixture。
 
+进展（2026-07-28）：I-3cn 将直接dependency、execution/cache-hit统计、multi-key batch依赖及single-item batch依赖共4条可观测性回归迁至`nia-query/src/tests/dependency_trace.rs`。主题只读取正式`query_trace`与invalidation结果，不复制dependency graph fixture或改变trace格式；4项主题测试通过。Phase I保持约75%；下一步迁移revision retirement生命周期守卫。
+
+进展（2026-07-28）：I-3co 将direct invalidation、slot/edge物理退休且node ID不复用、owned predecessor sealing、异构原子retirement transaction及活动query quiescence共5条回归迁至`nia-query/src/tests/revision_retirement.rs`。旧Arc snapshot存活、current owner物理删除和retirement期间trace阻塞断言保持不变；5项主题测试通过。Phase I保持约75%；下一步开始迁移red-green validation主题。
+
+进展（2026-07-28）：I-3cp 开始拆分red-green validation：将stable input相同值保持green、变化值失效dependent，以及derived output不变时复用parent共3条基础回归迁至`nia-query/src/tests/red_green_validation.rs`。本批三个主题模块使`nia-query/src/lib.rs`从5055行降至4734行，query实现、共享fixture与公开API均未改变；nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续迁移semantic equality、连续revision、batch fingerprint与validation race，再抽取共享query fixture。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
