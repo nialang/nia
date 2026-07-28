@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod cases;
+
+pub use cases::{CaseManifest, case_directories, fixture_relative_path};
+
 use std::{
-    fs, io,
+    fs,
+    io::{self, Read},
     path::{Path, PathBuf},
+    process::{Command, ExitStatus, Output, Stdio},
     sync::{Condvar, Mutex, MutexGuard, OnceLock},
     thread,
     time::{Duration, Instant},
@@ -13,6 +19,7 @@ const COMPILER_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
 const AVAILABLE_MEMORY_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
 
 static COMPILER_POOL: OnceLock<ResourcePool> = OnceLock::new();
 
@@ -23,6 +30,13 @@ pub enum TestWorkload {
 }
 
 impl TestWorkload {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Compiler => "compiler",
+            Self::Build => "build",
+        }
+    }
+
     const fn resource_request(self) -> ResourceRequest {
         match self {
             Self::Compiler => ResourceRequest::new(1, 1),
@@ -33,6 +47,151 @@ impl TestWorkload {
 
 pub fn acquire_test_resources(workload: TestWorkload) -> TestResourceSession<'static> {
     compiler_pool().acquire_session(workload.resource_request())
+}
+
+pub trait CommandExt {
+    fn output_timeout(&mut self, context: &str) -> Output;
+    fn output_timeout_with_workload(&mut self, context: &str, workload: TestWorkload) -> Output;
+    fn output_timeout_in_session(&mut self, context: &str) -> Output;
+}
+
+pub trait CommandStatusExt {
+    fn status_timeout(&mut self, context: &str) -> ExitStatus;
+}
+
+impl CommandExt for Command {
+    fn output_timeout(&mut self, context: &str) -> Output {
+        self.output_timeout_with_workload(context, TestWorkload::Compiler)
+    }
+
+    fn output_timeout_with_workload(&mut self, context: &str, workload: TestWorkload) -> Output {
+        let _resources = acquire_test_resources(workload);
+        self.output_timeout_in_session(context)
+    }
+
+    fn output_timeout_in_session(&mut self, context: &str) -> Output {
+        self.stdout(Stdio::piped()).stderr(Stdio::piped());
+        prepare_command(self);
+
+        let timeout = DEFAULT_COMMAND_TIMEOUT;
+        let mut child = self
+            .spawn()
+            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+        let stdout = child
+            .stdout
+            .take()
+            .expect("stdout pipe was configured before spawn");
+        let stderr = child
+            .stderr
+            .take()
+            .expect("stderr pipe was configured before spawn");
+        let stdout_reader = thread::spawn(move || read_pipe(stdout));
+        let stderr_reader = thread::spawn(move || read_pipe(stderr));
+
+        let started = Instant::now();
+        let wait = wait_child_timeout(&mut child, timeout, context);
+        let run_time = started.elapsed();
+        let stdout = join_reader(stdout_reader, context, "stdout");
+        let stderr = join_reader(stderr_reader, context, "stderr");
+        let status = match wait {
+            Ok(status) => status,
+            Err(()) => panic!(
+                "{context}: command timed out after {timeout:?}; run_time={run_time:?}\nstdout tail:\n{}\nstderr tail:\n{}",
+                output_tail(&stdout),
+                output_tail(&stderr),
+            ),
+        };
+
+        Output {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+}
+
+impl CommandStatusExt for Command {
+    fn status_timeout(&mut self, context: &str) -> ExitStatus {
+        self.stdout(Stdio::null()).stderr(Stdio::null());
+        prepare_command(self);
+
+        let mut child = self
+            .spawn()
+            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+        wait_child_timeout(&mut child, DEFAULT_COMMAND_TIMEOUT, context).unwrap_or_else(|()| {
+            panic!("{context}: command timed out after {DEFAULT_COMMAND_TIMEOUT:?}");
+        })
+    }
+}
+
+fn read_pipe<R: Read>(mut pipe: R) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.read_to_end(&mut bytes).map(|_| bytes)
+}
+
+fn join_reader(
+    reader: thread::JoinHandle<io::Result<Vec<u8>>>,
+    context: &str,
+    stream: &str,
+) -> Vec<u8> {
+    reader
+        .join()
+        .unwrap_or_else(|_| panic!("{context}: {stream} reader panicked"))
+        .unwrap_or_else(|error| panic!("{context}: failed to read {stream}: {error}"))
+}
+
+fn prepare_command(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.process_group(0);
+    }
+}
+
+fn wait_child_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+    context: &str,
+) -> Result<ExitStatus, ()> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if start.elapsed() >= timeout => {
+                terminate_child(child);
+                let _ = child.wait();
+                return Err(());
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(error) => panic!("{context}: failed to wait for command: {error}"),
+        }
+    }
+}
+
+fn output_tail(bytes: &[u8]) -> String {
+    const MAX_TAIL: usize = 4096;
+    let start = bytes.len().saturating_sub(MAX_TAIL);
+    String::from_utf8_lossy(&bytes[start..]).into_owned()
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut std::process::Child) {
+    let _ = Command::new("kill")
+        .arg("-TERM")
+        .arg(format!("-{}", child.id()))
+        .status();
+    thread::sleep(Duration::from_millis(100));
+    if matches!(child.try_wait(), Ok(None)) {
+        let _ = Command::new("kill")
+            .arg("-KILL")
+            .arg(format!("-{}", child.id()))
+            .status();
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_child(child: &mut std::process::Child) {
+    let _ = child.kill();
 }
 
 #[derive(Clone, Copy)]

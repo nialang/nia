@@ -1880,6 +1880,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-4j 关闭data-driven check suite的隐式case分类。原先由`pass/fail`目录名、裸`.nia`文件或`main.nia`目录形状推断语义的5个普通check case全部迁为目录型`case.meta`，每项显式声明`mode=check`、`resource=compiler`、source与expect；incremental、persistent、codegen、LLVM、native-object及link-execute同步复用唯一排序后的case目录发现器，缺少目录或manifest立即失败，不再由各runner复制宽松扫描逻辑。现有11个manifest case的compiler/build suite、Driver严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步把CLI中高成本编译/链接回归逐组迁入同一metadata runner，逐步减少手写integration进程与隐式资源分类。
 
+进展（2026-07-28）：I-4k/I-5g 建立Driver与CLI共用的唯一data-driven协议并迁移首个完整CLI重型矩阵。`CaseManifest`、严格case目录发现、relative fixture path、数值/list及prefixed path解析从Driver私有support提升到`nia-test-support`，Driver的11个现有case直接消费该实现，旧parser与module-map专用副本物理删除；CLI的timeout、process-group终止、stdout/stderr并行收集和workload/session执行器也归入同一test-support边界，CLI私有support从约170行收缩为临时目录helper。7个独立executable优化级别测试与commands中的object优化矩阵共8个手写入口迁为两个`case.meta`，显式声明`resource=build`、source、7档level及exit/minimum-bytes契约，由一个suite会话完成14次编译、7次真实执行，嵌入源码和旧integration target全部删除。新optimization suite 1项、Driver compiler/build suite、test-support 8项、三crate严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一批继续按完整主题迁移CLI backend optimization-report或linker invocation矩阵，不再逐测试建立runner。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

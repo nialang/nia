@@ -4,10 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::support::{
-    CaseManifest, assert_check_case, case_directories, case_expects_errors, copy_case_tree,
-    fixture_relative_path,
-};
+use nia_test_support::{CaseManifest, case_directories, fixture_relative_path};
+
+use super::support::{assert_check_case, case_expects_errors, copy_case_tree};
 
 struct CheckCase {
     source: PathBuf,
@@ -43,7 +42,7 @@ fn run_check_suite(driver: &crate::Driver, root: &Path, suite: &str) {
 
 fn load_check_case(case_root: &Path) -> CheckCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "check");
     manifest.expect("resource", "compiler");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
@@ -110,7 +109,7 @@ fn run_incremental_check_case(driver: &crate::Driver, case_root: &Path) {
 
 fn load_incremental_check_case(case_root: &Path) -> IncrementalCheckCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "incremental-check");
     manifest.expect("resource", "compiler");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
