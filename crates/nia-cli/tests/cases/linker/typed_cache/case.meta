@@ -1,0 +1,5 @@
+mode=typed-link-cache
+resource=build
+platform=unix
+source=main.nia
+edit=main.edited.nia
