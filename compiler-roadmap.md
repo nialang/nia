@@ -1808,6 +1808,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bs 将empty program-signature fixture及其`ProgramSignatureLookup`实现、semantic-use table构造迁至`nia-backend-lower/src/tests/program_signature_fixture.rs`。支持项以tests私有导入继续服务完整lowering pipeline和主题子模块，不扩大crate API；`tests.rs`从685行降至528行。backend-lower 100项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步抽取backend program facts与完整lowering pipeline support。
 
+进展（2026-07-28）：I-3bt 将borrowed function body/static init、const array-length、signature及trait-impl index的backend program facts fixture迁至`nia-backend-lower/src/tests/program_facts_fixture.rs`。其`BackendProgramFacts`实现及按`GlobalDefId`排序的稳定迭代顺序保持不变，并继续只在tests私有范围提供给 lowering pipeline；`tests.rs`从528行降至401行。backend-lower 100项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移完整lowering pipeline，让父harness成为纯模块挂载与共享导入入口。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
