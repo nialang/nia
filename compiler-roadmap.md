@@ -1814,6 +1814,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bv 将唯一的source-to-backend lowering核心 pipeline迁至`nia-backend-lower/src/tests/lowering_pipeline.rs`。pipeline继续拥有同一module identity、frontend analysis/body check、monomorphization、borrowed program facts及`BackendLowerModuleInput`组装；父harness经tests私有导入向配置包装器和主题模块暴露该唯一入口。`tests.rs`从329行降至55行，已成为纯共享导入与主题模块挂载入口。backend-lower 100项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点下一个大型测试harness并继续按主题拆分。
 
+进展（2026-07-28）：I-3bw 开始拆分`nia-const-eval`测试harness：将resolved name不得回退标识符查找、resolved function call使用callee identity、assignment target与pattern binding必须携带resolved local共4条回归迁至`nia-const-eval/src/tests/resolution_contracts.rs`。测试逻辑、resolved global identity和诊断文本断言保持不变；`tests.rs`从469行降至332行。const-eval 14项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移parser-lowered collection/pattern与config主题测试，并抽取共享测试环境。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
