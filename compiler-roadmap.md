@@ -1882,6 +1882,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-4k/I-5g 建立Driver与CLI共用的唯一data-driven协议并迁移首个完整CLI重型矩阵。`CaseManifest`、严格case目录发现、relative fixture path、数值/list及prefixed path解析从Driver私有support提升到`nia-test-support`，Driver的11个现有case直接消费该实现，旧parser与module-map专用副本物理删除；CLI的timeout、process-group终止、stdout/stderr并行收集和workload/session执行器也归入同一test-support边界，CLI私有support从约170行收缩为临时目录helper。7个独立executable优化级别测试与commands中的object优化矩阵共8个手写入口迁为两个`case.meta`，显式声明`resource=build`、source、7档level及exit/minimum-bytes契约，由一个suite会话完成14次编译、7次真实执行，嵌入源码和旧integration target全部删除。新optimization suite 1项、Driver compiler/build suite、test-support 8项、三crate严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一批继续按完整主题迁移CLI backend optimization-report或linker invocation矩阵，不再逐测试建立runner。
 
+进展（2026-07-28）：I-4l/I-5h 将CLI optimization-report完整主题并入既有metadata suite。新增`check-optimization-report`与`emit-optimization-report`两个mode：前者以manifest声明O2/O0/Os矩阵并锁定inline/specialize/dedup/size/LLVM策略、pass集合和实际change记录；后者分别声明backend/LLVM/object level，验证backend IR与LLVM IR留在stdout、report严格进入stderr，以及object的`--opt-report`位于output后、source前或`-o`前均生成非空产物。4个原手写入口、8次独立资源获取、约330行嵌入source与重复断言已物理删除；新增两个fixture后，统一optimization suite在单一build session中继续覆盖全部22次编译和7次真实执行。optimization suite、commands target无运行编译、CLI/test-support严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一批转向linker selection/cache/invocation主题或build command错误矩阵，继续按完整资源主题迁移。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

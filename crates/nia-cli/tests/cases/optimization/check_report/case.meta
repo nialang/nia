@@ -1,0 +1,4 @@
+mode=check-optimization-report
+resource=build
+source=main.nia
+levels=-O2,-O0,-Os
