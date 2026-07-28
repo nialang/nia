@@ -40,6 +40,8 @@ mod program_signature_fixture;
 use program_signature_fixture::*;
 mod program_facts_fixture;
 use program_facts_fixture::*;
+mod lowering_wrappers;
+use lowering_wrappers::*;
 
 mod cfg_and_scalar_passes;
 mod diagnostics;
@@ -49,80 +51,6 @@ mod local_optimizations;
 mod lowering;
 mod reachability_and_instances;
 mod static_initializers;
-
-fn lower_source(source: &str) -> TestBackendLowering {
-    let lowering = lower_source_with_const_mutation(source, |_, _| {});
-    assert!(
-        lowering.diagnostics.is_empty(),
-        "{:?}",
-        lowering.diagnostics
-    );
-    lowering
-}
-
-fn lower_source_with_const_mutation(
-    source: &str,
-    mutate_const: impl FnOnce(&mut nia_const_check::ConstCheck, &TypeLowering),
-) -> TestBackendLowering {
-    lower_source_with_body_mutation_const_mutation_and_optimization(
-        source,
-        |_| {},
-        mutate_const,
-        nia_opt::OptimizationPolicy::default(),
-    )
-}
-
-fn lower_source_with_body_mutation_and_optimization(
-    source: &str,
-    mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
-    optimization: nia_opt::OptimizationPolicy,
-) -> TestBackendLowering {
-    lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
-        source,
-        mutate_body,
-        |_, _, _, _, _| {},
-        |_, _| {},
-        optimization,
-    )
-}
-
-fn lower_source_with_body_mutation_const_mutation_and_optimization(
-    source: &str,
-    mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
-    mutate_const: impl FnOnce(&mut nia_const_check::ConstCheck, &TypeLowering),
-    optimization: nia_opt::OptimizationPolicy,
-) -> TestBackendLowering {
-    lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
-        source,
-        mutate_body,
-        |_, _, _, _, _| {},
-        mutate_const,
-        optimization,
-    )
-}
-
-fn lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
-    source: &str,
-    mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
-    mutate_extensions: impl FnOnce(
-        &mut VisibleExtensionMethods,
-        &nia_defs::DefCollection,
-        &nia_ty::TypeStore,
-        &TypeLowering,
-        &ItemSignatures,
-    ),
-    mutate_const: impl FnOnce(&mut nia_const_check::ConstCheck, &TypeLowering),
-    optimization: nia_opt::OptimizationPolicy,
-) -> TestBackendLowering {
-    lower_source_with_body_check_mutation_and_optimization(
-        source,
-        mutate_body,
-        mutate_extensions,
-        mutate_const,
-        |_, _, _, _, _| {},
-        optimization,
-    )
-}
 
 fn lower_source_with_body_check_mutation_and_optimization(
     source: &str,
