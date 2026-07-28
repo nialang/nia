@@ -1822,6 +1822,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bz 开始拆分`nia-const-check`测试harness：将显式global/local const binding runtime类型、field offset builtin常量值及enum variant backing type共3条typed-value回归迁至`nia-const-check/src/tests/typed_values.rs`。`check_source` fixture、typed key/value与primitive type断言保持不变；`tests.rs`从398行降至269行。const-check 5项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移semantic lowering/layout builtin解析契约并抽取共享fixture。
 
+进展（2026-07-28）：I-3ca 将semantic const lowering缺失resolved local的诊断，以及layout builtin缺失resolved type argument的解析拒绝共2条回归迁至`nia-const-check/src/tests/resolution_contracts.rs`。local node-key剔除、primary span和诊断文本断言保持不变；`tests.rs`从269行降至162行。const-check 5项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步抽取checked-source fixture与semantic-use table，使父harness成为纯入口。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
