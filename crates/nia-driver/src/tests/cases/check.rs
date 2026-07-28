@@ -4,9 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nia_test_support::{CaseManifest, case_directories, fixture_relative_path};
+use nia_test_support::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
-use super::support::{assert_check_case, case_expects_errors, copy_case_tree};
+use super::support::{assert_check_case, case_expects_errors};
 
 struct CheckCase {
     source: PathBuf,

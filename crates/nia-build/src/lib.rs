@@ -336,7 +336,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         r#"    );
     defer api.deinit().exit().?;
 
-    build_script::build(&mut api).exit().?;
+    if !ok = build_script::build(&mut api) {
+        _ = ok;
+    } or error! {
+        return error.as_exit_code()!;
+    }
     api.run_requested_step().exit().?;
     !{}
 }
@@ -649,8 +653,9 @@ mod tests {
         assert!(
             runner
                 .source
-                .contains("build_script::build(&mut api).exit().?;")
+                .contains("if !ok = build_script::build(&mut api)")
         );
+        assert!(runner.source.contains("return error.as_exit_code()!;"));
         assert!(!runner.source.contains("const"));
     }
 

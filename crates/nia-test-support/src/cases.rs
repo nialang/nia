@@ -161,6 +161,29 @@ pub fn case_directories(root: &Path, suite: &str) -> Vec<PathBuf> {
     cases
 }
 
+pub fn copy_case_tree(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination)
+        .unwrap_or_else(|error| panic!("create {}: {error}", destination.display()));
+    for entry in
+        fs::read_dir(source).unwrap_or_else(|error| panic!("read {}: {error}", source.display()))
+    {
+        let entry = entry.expect("read fixture entry");
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_case_tree(&source_path, &destination_path);
+        } else {
+            fs::copy(&source_path, &destination_path).unwrap_or_else(|error| {
+                panic!(
+                    "copy fixture {} to {}: {error}",
+                    source_path.display(),
+                    destination_path.display()
+                )
+            });
+        }
+    }
+}
+
 pub fn fixture_relative_path(manifest_path: &Path, value: String) -> PathBuf {
     let path = PathBuf::from(value);
     assert!(

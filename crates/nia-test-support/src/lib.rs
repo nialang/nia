@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod cases;
 
-pub use cases::{CaseManifest, case_directories, fixture_relative_path};
+pub use cases::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
 use std::{
     fs,

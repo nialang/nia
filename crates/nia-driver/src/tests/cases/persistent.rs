@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::tests::common::checked_program_from_output;
-use nia_test_support::{CaseManifest, case_directories, fixture_relative_path};
+use nia_test_support::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
-use super::support::{case_expects_errors, copy_case_tree, diagnostic_snapshot};
+use super::support::{case_expects_errors, diagnostic_snapshot};
 
 struct PersistentCheckCase {
     source: PathBuf,
