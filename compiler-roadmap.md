@@ -1830,6 +1830,12 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cd 将const-IR测试共享的节点定位、span、symbol及小型IR/AST fixture迁至`nia-const-ir/src/tests/test_support.rs`。支持项只以tests私有可见性提供给lowering契约和resolved-product不变量主题，父`tests.rs`从68行降至7行并成为纯共享导入与模块挂载入口，不扩大crate API。const-ir 9项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点其余大型测试harness并继续按主题拆分。
 
+进展（2026-07-28）：I-3ce 开始拆分`nia-query`约2722行的内联测试harness：将普通Arc cache、不可Clone value、single-consumer owned、externally-published payload及错误访问模式共8条storage ownership回归迁至`nia-query/src/tests/storage_contracts.rs`。测试继续复用父harness唯一的query key/context fixture，不扩大crate API；8项主题测试通过。Phase I保持约75%；下一步迁移declarative registry与fingerprint契约。
+
+进展（2026-07-28）：I-3cf 将declarative registry的storage/provider/fingerprint描述、重复key/name拒绝、fingerprint domain separation及database-scoped dep-node identity共8条回归迁至`nia-query/src/tests/registry_contracts.rs`。测试仍直接验证正式registry与slot identity，不引入并行fixture或第二套声明入口；8项主题测试通过。Phase I保持约75%；下一步迁移跨database session依赖边界。
+
+进展（2026-07-28）：I-3cg 将同session跨database依赖记录/失效与不同session隔离共2条回归迁至`nia-query/src/tests/session_dependencies.rs`。三个新主题模块累计使`nia-query/src/lib.rs`从6098行降至5774行，query实现、fixture与公开API均未改变；nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分get-many/executor与错误恢复主题，再抽取共享fixture。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
