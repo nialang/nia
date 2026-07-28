@@ -1826,6 +1826,10 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cb 将checked-source完整frontend/const-check pipeline、`CheckedFixture`、stable symbol及semantic-use table迁至`nia-const-check/src/tests/test_support.rs`。fixture字段与helper仅在tests父模块及其后代可见，typed-value和resolution主题继续复用同一module identity、type store与semantic inputs，不扩大crate API；父`tests.rs`从162行降至32行，成为纯共享导入与主题模块挂载入口。const-check 5项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点`nia-const-ir`或其余大型测试harness并继续主题化拆分。
 
+进展（2026-07-28）：I-3cc 将AST到const-IR的名称、local、assignment target和type resolution共5条lowering契约迁至`nia-const-ir/src/tests/lowering_contracts.rs`。既有`resolution_invariants`继续只覆盖已构造IR的resolved-product校验，二者共同复用tests私有的节点、span和symbol helper，不扩大crate API；`tests.rs`从208行降至68行。const-ir 9项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步抽取const-IR共享fixture，使父harness成为纯模块挂载入口。
+
+进展（2026-07-28）：I-3cd 将const-IR测试共享的节点定位、span、symbol及小型IR/AST fixture迁至`nia-const-ir/src/tests/test_support.rs`。支持项只以tests私有可见性提供给lowering契约和resolved-product不变量主题，父`tests.rs`从68行降至7行并成为纯共享导入与模块挂载入口，不扩大crate API。const-ir 9项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点其余大型测试harness并继续按主题拆分。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
