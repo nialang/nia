@@ -1820,6 +1820,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3by 将整数/浮点literal解析、config target字段求值与直接lowered表达式、旧`@` builtin语法拒绝，以及optional/error-union payload pattern共7条回归和`ConfigEnv`/`PatternEnv`迁至`nia-const-eval/src/tests/test_environments.rs`。原测试文本、scope push/pop、pattern local绑定和环境诊断保持不变；父`tests.rs`从273行降至25行，成为纯共享导入、stable symbol helper与主题模块挂载入口。const-eval 14项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点`nia-const-check`测试harness并继续主题化拆分。
 
+进展（2026-07-28）：I-3bz 开始拆分`nia-const-check`测试harness：将显式global/local const binding runtime类型、field offset builtin常量值及enum variant backing type共3条typed-value回归迁至`nia-const-check/src/tests/typed_values.rs`。`check_source` fixture、typed key/value与primitive type断言保持不变；`tests.rs`从398行降至269行。const-check 5项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移semantic lowering/layout builtin解析契约并抽取共享fixture。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
