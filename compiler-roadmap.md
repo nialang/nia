@@ -1856,6 +1856,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cq 将semantic value只有输出相等时复用fingerprint、direct invalidation后stable dependent重新validation并保持green，以及derived output变化时重算parent共3条进阶回归迁至`nia-query/src/tests/red_green_advanced.rs`。原invalidation顺序、execution/green-validation计数和Arc identity断言全部保留；`nia-query/src/lib.rs`从4734行降至4651行。nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移连续revision、batch fingerprint、validation race及普通invalidation主题。
 
+进展（2026-07-28）：I-3cr 完整关闭`nia-query` red-green validation测试主题：连续revision以latest value校验、batch dependency fingerprint与并发validation期间再次失效不得恢复stale green共3条剩余回归迁至`nia-query/src/tests/red_green_revisions.rs`。结合既有基础与advanced模块，9条red-green契约现全部离开父harness且原Arc identity、execution/validation计数及race断言保持不变；`nia-query/src/lib.rs`从4651行降至4556行。nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一完整主题一次性迁出普通invalidation并抽离共享query fixture。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
