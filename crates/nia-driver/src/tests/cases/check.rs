@@ -5,11 +5,12 @@ use std::{
 };
 
 use super::support::{
-    CaseManifest, assert_check_case, case_expects_errors, copy_case_tree, fixture_relative_path,
+    CaseManifest, assert_check_case, case_directories, case_expects_errors, copy_case_tree,
+    fixture_relative_path,
 };
 
-struct CheckSuite {
-    name: &'static str,
+struct CheckCase {
+    source: PathBuf,
     expects_errors: bool,
 }
 
@@ -21,67 +22,42 @@ struct IncrementalCheckCase {
 }
 
 pub(super) fn run(driver: &crate::Driver, root: &Path) {
-    for suite in [
-        CheckSuite {
-            name: "pass",
-            expects_errors: false,
-        },
-        CheckSuite {
-            name: "fail",
-            expects_errors: true,
-        },
-    ] {
-        run_check_suite(driver, root, suite);
-    }
+    run_check_suite(driver, root, "pass");
+    run_check_suite(driver, root, "fail");
     run_incremental_check_suite(driver, root);
 }
 
-fn run_check_suite(driver: &crate::Driver, root: &Path, suite: CheckSuite) {
-    let mut cases = fs::read_dir(root.join(suite.name))
-        .unwrap_or_else(|error| panic!("read {} cases: {error}", suite.name))
-        .filter_map(|entry| {
-            let path = entry.expect("read case entry").path();
-            if path.extension().is_some_and(|extension| extension == "nia") {
-                Some(path)
-            } else if path.is_dir() {
-                let entry = path.join("main.nia");
-                assert!(
-                    entry.is_file(),
-                    "{} case must contain main.nia",
-                    path.display()
-                );
-                Some(entry)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    cases.sort();
-    assert!(!cases.is_empty(), "{} suite must contain cases", suite.name);
-    for source in cases {
+fn run_check_suite(driver: &crate::Driver, root: &Path, suite: &str) {
+    for case_root in case_directories(&root.join(suite), suite) {
+        let case = load_check_case(&case_root);
+        let source = case_root.join(case.source);
+        assert!(
+            source.is_file(),
+            "missing check source {}",
+            source.display()
+        );
         let snapshot_path = source.with_extension("snap");
-        assert_check_case(driver, root, &source, suite.expects_errors, &snapshot_path);
+        assert_check_case(driver, root, &source, case.expects_errors, &snapshot_path);
+    }
+}
+
+fn load_check_case(case_root: &Path) -> CheckCase {
+    let mut manifest = CaseManifest::load(case_root);
+    let manifest_path = manifest.path.clone();
+    manifest.expect("mode", "check");
+    manifest.expect("resource", "compiler");
+    let source = fixture_relative_path(&manifest_path, manifest.required("source"));
+    let expects_errors = case_expects_errors(&manifest_path, "expect", manifest.required("expect"));
+    manifest.finish();
+    CheckCase {
+        source,
+        expects_errors,
     }
 }
 
 fn run_incremental_check_suite(driver: &crate::Driver, root: &Path) {
     let suite_root = root.join("incremental");
-    let mut cases = fs::read_dir(&suite_root)
-        .unwrap_or_else(|error| panic!("read {} cases: {error}", suite_root.display()))
-        .map(|entry| entry.expect("read case entry").path())
-        .collect::<Vec<_>>();
-    cases.sort();
-    assert!(
-        !cases.is_empty(),
-        "incremental suite must contain directory cases"
-    );
-
-    for case_root in cases {
-        assert!(
-            case_root.is_dir(),
-            "incremental case {} must be a directory",
-            case_root.display()
-        );
+    for case_root in case_directories(&suite_root, "incremental") {
         run_incremental_check_case(driver, &case_root);
     }
 }

@@ -7,7 +7,8 @@ use std::{
 use crate::tests::common::checked_program_from_output;
 
 use super::support::{
-    CaseManifest, case_expects_errors, copy_case_tree, diagnostic_snapshot, fixture_relative_path,
+    CaseManifest, case_directories, case_expects_errors, copy_case_tree, diagnostic_snapshot,
+    fixture_relative_path,
 };
 
 struct PersistentCheckCase {
@@ -17,19 +18,7 @@ struct PersistentCheckCase {
 }
 
 pub(super) fn run(root: &Path) {
-    let mut cases = fs::read_dir(root)
-        .unwrap_or_else(|error| panic!("read {} cases: {error}", root.display()))
-        .map(|entry| entry.expect("read case entry").path())
-        .collect::<Vec<_>>();
-    cases.sort();
-    assert!(!cases.is_empty(), "persistent suite must contain cases");
-
-    for case_root in cases {
-        assert!(
-            case_root.is_dir(),
-            "persistent case {} must be a directory",
-            case_root.display()
-        );
+    for case_root in case_directories(root, "persistent") {
         run_case(&case_root);
     }
 }
