@@ -1804,6 +1804,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bq 将backend lowering共享fixture identity、monomorphization到backend function-instance plan投影、局部名称与stable symbol helper迁至`nia-backend-lower/src/tests/test_fixture.rs`。父harness以私有导入向所有主题子模块复用这些支持项，不扩大crate API；`TestBackendLowering`字段仍只对tests父模块及其后代可见。`tests.rs`从815行降至773行。backend-lower 100项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移余下pipeline和低层断言support。
 
+进展（2026-07-28）：I-3br 将backend fixture的const enum values投影、active item tree、definition/nominal type查找，以及可变/不可变terminal value断言迁至`nia-backend-lower/src/tests/test_assertions.rs`。所有支持项仍以tests私有可见性经父harness提供给主题子模块，未扩大crate API；`tests.rs`从773行降至685行。backend-lower 100项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步抽取完整lowering pipeline与program facts support。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
