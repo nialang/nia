@@ -1,0 +1,5 @@
+mode=linker-selection-errors
+resource=build
+source=main.nia
+reserved-error=linker flavor `SelfHostedElf` is not implemented
+missing-error=linker `ld.lld` for flavor `Lld` was not found

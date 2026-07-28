@@ -1884,6 +1884,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-4l/I-5h 将CLI optimization-report完整主题并入既有metadata suite。新增`check-optimization-report`与`emit-optimization-report`两个mode：前者以manifest声明O2/O0/Os矩阵并锁定inline/specialize/dedup/size/LLVM策略、pass集合和实际change记录；后者分别声明backend/LLVM/object level，验证backend IR与LLVM IR留在stdout、report严格进入stderr，以及object的`--opt-report`位于output后、source前或`-o`前均生成非空产物。4个原手写入口、8次独立资源获取、约330行嵌入source与重复断言已物理删除；新增两个fixture后，统一optimization suite在单一build session中继续覆盖全部22次编译和7次真实执行。optimization suite、commands target无运行编译、CLI/test-support严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一批转向linker selection/cache/invocation主题或build command错误矩阵，继续按完整资源主题迁移。
 
+进展（2026-07-28）：I-4m/I-5i 建立CLI linker metadata suite并关闭selection错误矩阵。`linker-selection-errors` case以唯一build session验证reserved self-hosted flavor与清空PATH/NIA_LLD后的missing LLD诊断；两个旧手写入口、重复临时源码与独立资源获取已物理删除。新linker suite、CLI严格all-target/all-feature Clippy、fmt与diff检查通过。下一批分别完整迁移linker invocation参数契约与typed link cache失效契约。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
