@@ -1,0 +1,4 @@
+mode=missing-script-error
+resource=build
+contract=missing-script
+step=default

@@ -14,29 +14,6 @@ pub(super) fn case_expects_errors(manifest_path: &Path, key: &str, value: String
     }
 }
 
-pub(super) fn copy_case_tree(source: &Path, destination: &Path) {
-    fs::create_dir_all(destination)
-        .unwrap_or_else(|error| panic!("create {}: {error}", destination.display()));
-    for entry in
-        fs::read_dir(source).unwrap_or_else(|error| panic!("read {}: {error}", source.display()))
-    {
-        let entry = entry.expect("read fixture entry");
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if source_path.is_dir() {
-            copy_case_tree(&source_path, &destination_path);
-        } else {
-            fs::copy(&source_path, &destination_path).unwrap_or_else(|error| {
-                panic!(
-                    "copy fixture {} to {}: {error}",
-                    source_path.display(),
-                    destination_path.display()
-                )
-            });
-        }
-    }
-}
-
 pub(super) fn assert_check_case(
     driver: &crate::Driver,
     root: &Path,

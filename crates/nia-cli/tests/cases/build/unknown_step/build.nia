@@ -1,0 +1,9 @@
+using std::build;
+
+fn check(b: &mut build::Build) build::Error!void { _ = b; !{} }
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    static check_name = "check";
+    _ = b.add_step(&check_name, &check).?;
+    !{}
+}

@@ -1,0 +1,12 @@
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    static src_main = "src/main.nia";
+    static app_name = "app";
+    static output_name = "nested/bad";
+    let root_module = b.add_module(build::ModuleOptions::init(fs::PathView::init(&src_main))).?;
+    let options = build::ExecutableOptions::init(&app_name, root_module).with_output_name(&output_name);
+    _ = b.add_executable(options).?;
+    !{}
+}

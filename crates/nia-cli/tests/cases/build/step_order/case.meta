@@ -1,0 +1,4 @@
+mode=dependency-success
+resource=build
+contract=step-order
+step=check

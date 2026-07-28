@@ -1,0 +1,6 @@
+mode=runner-error
+resource=build
+contract=bare-runtime
+step=default
+runner-status=22
+forbidden=none

@@ -1,0 +1,40 @@
+using std::build;
+using std::fmt;
+using std::io;
+
+fn prepare(b: &mut build::Build) build::Error!void {
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print(&"prepare\n", &[]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    !{}
+}
+
+fn build_app(b: &mut build::Build) build::Error!void {
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print(&"build\n", &[]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    !{}
+}
+
+fn check(b: &mut build::Build) build::Error!void {
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print(&"check\n", &[]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    static prepare_name = "prepare";
+    static build_name = "build";
+    static check_name = "check";
+    let prepare_step = b.add_step(&prepare_name, &prepare).?;
+    let build_step = b.add_step(&build_name, &build_app).?;
+    let check_step = b.add_step(&check_name, &check).?;
+    b.depend_on(build_step, prepare_step).?;
+    b.depend_on(check_step, prepare_step).?;
+    b.depend_on(check_step, build_step).?;
+    !{}
+}
