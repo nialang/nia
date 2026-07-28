@@ -1798,6 +1798,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bn 将in-memory source revision退休、module declaration图重建、LoaderDatabase query boundary更新，以及图外module path无效输入共4条回归迁至`nia-loader-query/src/tests/loader_query_boundaries.rs`。测试逻辑、node-store locator/source version、graph execution与query error断言保持不变；`tests.rs`从675行降至504行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步审计父harness余下的共享支持代码，继续将可独立的测试基建拆分为主题模块。
 
+进展（2026-07-28）：I-3bo 将source frontend query key的紧凑句柄尺寸契约迁至`nia-loader-query/src/tests/query_key_contracts.rs`。所有query key大小断言保持不变，父模块不再承载测试函数，仅保留各主题模块共享的query/source/cache/fixture支持代码；`tests.rs`从504行降至484行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续评估共享test support的归属并推进其他巨型harness拆分。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
