@@ -1796,6 +1796,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bm 将public-surface facts全stable-field round-trip迁至`nia-loader-query/src/tests/public_surface_roundtrip.rs`。该回归继续覆盖所有definition kind、parent/visibility/span、module/enum scopes、嵌套using selector、symbol恢复及short-source拒绝持久化；`tests.rs`从936行降至675行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移余下source/query invalidation cases。
 
+进展（2026-07-28）：I-3bn 将in-memory source revision退休、module declaration图重建、LoaderDatabase query boundary更新，以及图外module path无效输入共4条回归迁至`nia-loader-query/src/tests/loader_query_boundaries.rs`。测试逻辑、node-store locator/source version、graph execution与query error断言保持不变；`tests.rs`从675行降至504行。loader-query 74项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步审计父harness余下的共享支持代码，继续将可独立的测试基建拆分为主题模块。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
