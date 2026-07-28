@@ -1818,6 +1818,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bx 将string-pattern switch、array literal/index及array repeat equality共3条parser-lowered collection回归迁至`nia-const-eval/src/tests/lowered_collections.rs`。parser、const-IR lowering及early evaluator断言保持不变；`tests.rs`从332行降至273行。const-eval 14项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移optional/error-union pattern与config target环境测试。
 
+进展（2026-07-28）：I-3by 将整数/浮点literal解析、config target字段求值与直接lowered表达式、旧`@` builtin语法拒绝，以及optional/error-union payload pattern共7条回归和`ConfigEnv`/`PatternEnv`迁至`nia-const-eval/src/tests/test_environments.rs`。原测试文本、scope push/pop、pattern local绑定和环境诊断保持不变；父`tests.rs`从273行降至25行，成为纯共享导入、stable symbol helper与主题模块挂载入口。const-eval 14项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点`nia-const-check`测试harness并继续主题化拆分。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
