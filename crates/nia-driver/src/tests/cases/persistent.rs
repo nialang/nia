@@ -5,11 +5,9 @@ use std::{
 };
 
 use crate::tests::common::checked_program_from_output;
+use nia_test_support::{CaseManifest, case_directories, fixture_relative_path};
 
-use super::support::{
-    CaseManifest, case_directories, case_expects_errors, copy_case_tree, diagnostic_snapshot,
-    fixture_relative_path,
-};
+use super::support::{case_expects_errors, copy_case_tree, diagnostic_snapshot};
 
 struct PersistentCheckCase {
     source: PathBuf,
@@ -78,7 +76,7 @@ fn run_case(case_root: &Path) {
 
 fn load_case(case_root: &Path) -> PersistentCheckCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "persistent-check");
     manifest.expect("resource", "compiler");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));

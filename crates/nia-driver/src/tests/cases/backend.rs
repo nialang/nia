@@ -7,11 +7,9 @@ use std::{
 };
 
 use crate::tests::common::codegen_program_from_output;
+use nia_test_support::{CaseManifest, case_directories, fixture_relative_path};
 
-use super::support::{
-    CaseManifest, case_directories, case_expects_errors, codegen_snapshot, copy_case_tree,
-    diagnostic_snapshot, fixture_relative_path,
-};
+use super::support::{case_expects_errors, codegen_snapshot, copy_case_tree, diagnostic_snapshot};
 
 struct CodegenCase {
     source: PathBuf,
@@ -87,7 +85,7 @@ fn run_codegen_suite(driver: &crate::Driver, root: &Path) {
 
 fn load_codegen_case(case_root: &Path) -> CodegenCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "codegen");
     manifest.expect("resource", "compiler");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
@@ -126,7 +124,7 @@ fn run_llvm_suite(driver: &crate::Driver, root: &Path) {
 
 fn load_llvm_case(case_root: &Path) -> LlvmCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "emit-llvm");
     manifest.expect("resource", "compiler");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
@@ -182,7 +180,7 @@ fn run_native_object_suite(driver: &crate::Driver, root: &Path) {
 
 fn load_native_object_case(case_root: &Path) -> NativeObjectCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "emit-object");
     manifest.expect("resource", "build");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
@@ -270,12 +268,12 @@ fn run_executable_case(driver: &crate::Driver, case_root: &Path) {
 
 fn load_executable_case(case_root: &Path) -> ExecutableCase {
     let mut manifest = CaseManifest::load(case_root);
-    let manifest_path = manifest.path.clone();
+    let manifest_path = manifest.path().to_owned();
     manifest.expect("mode", "link-execute");
     manifest.expect("resource", "build");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
     let virtual_source = fixture_relative_path(&manifest_path, manifest.required("virtual-source"));
-    let module_map = manifest.required_module_map();
+    let module_map = manifest.required_prefixed_paths("module.");
     assert!(
         !module_map.is_empty(),
         "{} must declare at least one module.<name> mapping",

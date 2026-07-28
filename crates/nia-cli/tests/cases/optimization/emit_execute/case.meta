@@ -1,0 +1,5 @@
+mode=emit-execute-optimization
+resource=build
+source=main.nia
+levels=-O0,-O1,-O2,-O3,-Os,-Oz,-O
+exit-code=42
