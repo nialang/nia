@@ -1886,6 +1886,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-4m/I-5i 建立CLI linker metadata suite并关闭selection错误矩阵。`linker-selection-errors` case以唯一build session验证reserved self-hosted flavor与清空PATH/NIA_LLD后的missing LLD诊断；两个旧手写入口、重复临时源码与独立资源获取已物理删除。新linker suite、CLI严格all-target/all-feature Clippy、fmt与diff检查通过。下一批分别完整迁移linker invocation参数契约与typed link cache失效契约。
 
+进展（2026-07-28）：I-4n/I-5j 完整迁移CLI linker invocation参数主题。新增Unix `linker-invocation` manifest，以同一mock linker依次验证raw `--link-arg`三种写法及structured dynamic-linker/显式linker flavor/library search/native library/rpath参数；期望参数集合由metadata显式声明。raw旧测试夹带的bare executable runtime拒绝被归入selection-errors case，未因迁移丢失。两个旧手写入口、两份嵌入source/mock脚本和独立资源获取物理删除；linker suite以单一build session完成selection三条与invocation两条命令，严格Clippy、fmt与diff检查通过。下一批独立迁移typed link-result与object bucket失效矩阵。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
