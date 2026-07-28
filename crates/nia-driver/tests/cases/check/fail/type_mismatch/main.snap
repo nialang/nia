@@ -1,4 +1,4 @@
-path: fail/type_mismatch.nia
+path: fail/type_mismatch/main.nia
 code: E0301
 summary: type mismatch in function body: expected i32, got bool
 label: 16..20 Primary Source type mismatch in function body: expected i32, got bool

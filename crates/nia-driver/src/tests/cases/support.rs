@@ -13,6 +13,28 @@ pub(super) struct CaseManifest {
     values: BTreeMap<String, String>,
 }
 
+pub(super) fn case_directories(root: &Path, suite: &str) -> Vec<PathBuf> {
+    let mut cases = fs::read_dir(root)
+        .unwrap_or_else(|error| panic!("read {} cases: {error}", root.display()))
+        .map(|entry| entry.expect("read case entry").path())
+        .collect::<Vec<_>>();
+    cases.sort();
+    assert!(!cases.is_empty(), "{suite} suite must contain cases");
+    for case_root in &cases {
+        assert!(
+            case_root.is_dir(),
+            "{suite} case {} must be a directory with case.meta",
+            case_root.display()
+        );
+        assert!(
+            case_root.join("case.meta").is_file(),
+            "{suite} case {} must contain case.meta",
+            case_root.display()
+        );
+    }
+    cases
+}
+
 impl CaseManifest {
     pub(super) fn load(case_root: &Path) -> Self {
         let path = case_root.join("case.meta");

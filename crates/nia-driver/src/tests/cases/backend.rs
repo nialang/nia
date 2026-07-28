@@ -9,8 +9,8 @@ use std::{
 use crate::tests::common::codegen_program_from_output;
 
 use super::support::{
-    CaseManifest, case_expects_errors, codegen_snapshot, copy_case_tree, diagnostic_snapshot,
-    fixture_relative_path,
+    CaseManifest, case_directories, case_expects_errors, codegen_snapshot, copy_case_tree,
+    diagnostic_snapshot, fixture_relative_path,
 };
 
 struct CodegenCase {
@@ -55,9 +55,7 @@ pub(super) fn run_build(driver: &crate::Driver, root: &Path) {
 }
 
 fn run_codegen_suite(driver: &crate::Driver, root: &Path) {
-    let mut cases = directory_cases(root, "codegen");
-    cases.sort();
-    for case_root in cases {
+    for case_root in case_directories(root, "codegen") {
         let case = load_codegen_case(&case_root);
         let source = case_root.join(&case.source);
         assert!(
@@ -102,7 +100,7 @@ fn load_codegen_case(case_root: &Path) -> CodegenCase {
 }
 
 fn run_llvm_suite(driver: &crate::Driver, root: &Path) {
-    for case_root in directory_cases(root, "LLVM") {
+    for case_root in case_directories(root, "LLVM") {
         let case = load_llvm_case(&case_root);
         let source = case_root.join(&case.source);
         assert!(source.is_file(), "missing LLVM source {}", source.display());
@@ -143,7 +141,7 @@ fn load_llvm_case(case_root: &Path) -> LlvmCase {
 }
 
 fn run_native_object_suite(driver: &crate::Driver, root: &Path) {
-    for case_root in directory_cases(root, "native-object") {
+    for case_root in case_directories(root, "native-object") {
         let case = load_native_object_case(&case_root);
         let source = case_root.join(&case.source);
         assert!(
@@ -199,7 +197,7 @@ fn load_native_object_case(case_root: &Path) -> NativeObjectCase {
 }
 
 fn run_executable_suite(driver: &crate::Driver, root: &Path) {
-    for case_root in directory_cases(root, "executable") {
+    for case_root in case_directories(root, "executable") {
         run_executable_case(driver, &case_root);
     }
 }
@@ -293,23 +291,6 @@ fn load_executable_case(case_root: &Path) -> ExecutableCase {
         exit_code,
         executions,
     }
-}
-
-fn directory_cases(root: &Path, suite: &str) -> Vec<PathBuf> {
-    let mut cases = fs::read_dir(root)
-        .unwrap_or_else(|error| panic!("read {} cases: {error}", root.display()))
-        .map(|entry| entry.expect("read case entry").path())
-        .collect::<Vec<_>>();
-    cases.sort();
-    assert!(!cases.is_empty(), "{suite} suite must contain cases");
-    for case_root in &cases {
-        assert!(
-            case_root.is_dir(),
-            "{suite} case {} must be a directory",
-            case_root.display()
-        );
-    }
-    cases
 }
 
 impl BackendExecutionExpectations {
