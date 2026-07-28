@@ -1860,6 +1860,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cs 完整关闭`nia-query`内联测试harness重组：最后5条普通invalidation、传递/batch dependent、debug-label identity与并发batch失效回归迁至`nia-query/src/tests/invalidation_contracts.rs`，core/executor、red-green、storage/registry及dependency/error/invalidation共享fixture按职责拆至4个fixture文件。`nia-query/src/lib.rs`不再包含测试函数或具体fixture，从4556行降至3437行；全部75项测试及原失效顺序、执行计数和stale writeback竞态断言保持不变，未改变production行为或公开API。nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点下一个大型测试harness，并继续收束Phase I遗留的临时入口与诊断边界。
 
+进展（2026-07-28）：I-3ct 完整拆分`nia-compiler-query` signature cache内联测试harness：check certificate、type resolution、item signatures、extension trait facts/validation diagnostics、executable value-ref edges及type lowering共8条持久化round-trip、owner rehydration、corruption retirement与unsupported handle契约按产品边界迁至6个主题模块，唯一临时目录helper迁至tests support。所有cache key、stable field、payload byte equality、current-session owner/type-store重映射及损坏文件删除断言保持不变；`signature_cache.rs`从4980行降至3715行并成为纯测试挂载入口，未改变production行为或公开API。nia-compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分大型内联测试harness，并审计临时cache/diagnostic适配入口的关闭条件。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
