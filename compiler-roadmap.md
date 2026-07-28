@@ -1862,6 +1862,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3ct 完整拆分`nia-compiler-query` signature cache内联测试harness：check certificate、type resolution、item signatures、extension trait facts/validation diagnostics、executable value-ref edges及type lowering共8条持久化round-trip、owner rehydration、corruption retirement与unsupported handle契约按产品边界迁至6个主题模块，唯一临时目录helper迁至tests support。所有cache key、stable field、payload byte equality、current-session owner/type-store重映射及损坏文件删除断言保持不变；`signature_cache.rs`从4980行降至3715行并成为纯测试挂载入口，未改变production行为或公开API。nia-compiler-query 190项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分大型内联测试harness，并审计临时cache/diagnostic适配入口的关闭条件。
 
+进展（2026-07-28）：I-3cu 完整拆分`nia-item-signatures`内联测试harness：module/active-item-tree collection与stable trait-impl identity、builtin function/trait/associated const/extend及bodyless诊断、std builtin source descriptor drift、跨type-store lowered type拒绝共10条契约迁至4个主题模块，stable symbol、完整parse/resolve/lower/signature pipeline与condition resolver迁至共享test support。原函数体不参与签名、builtin descriptor全量对应、visibility/associated item及session type-store断言保持不变；`nia-item-signatures/src/lib.rs`从2587行降至1702行并成为纯测试挂载入口，未改变production行为或公开API。nia-item-signatures 10项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续按职责拆分`nia-layout`或`nia-type-lower`等大型内联测试harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
