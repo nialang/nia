@@ -1816,6 +1816,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3bw 开始拆分`nia-const-eval`测试harness：将resolved name不得回退标识符查找、resolved function call使用callee identity、assignment target与pattern binding必须携带resolved local共4条回归迁至`nia-const-eval/src/tests/resolution_contracts.rs`。测试逻辑、resolved global identity和诊断文本断言保持不变；`tests.rs`从469行降至332行。const-eval 14项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移parser-lowered collection/pattern与config主题测试，并抽取共享测试环境。
 
+进展（2026-07-28）：I-3bx 将string-pattern switch、array literal/index及array repeat equality共3条parser-lowered collection回归迁至`nia-const-eval/src/tests/lowered_collections.rs`。parser、const-IR lowering及early evaluator断言保持不变；`tests.rs`从332行降至273行。const-eval 14项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步迁移optional/error-union pattern与config target环境测试。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
