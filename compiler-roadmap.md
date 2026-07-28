@@ -1874,6 +1874,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cz 完整拆分`nia-linker`内联测试harness：typed link-result fingerprint/invalidation、GNU static/dynamic invocation与输入顺序、LLD参数/flavor/PATH resolution，以及GNU/musl/native dynamic-linker与ld.so.conf discovery共18条契约迁至4个主题模块；typed CGU input、mock linker、ENV_LOCK、环境恢复、target与可执行权限helper迁至共享test support。原cache component分类、完整参数顺序、static/dynamic library切换、missing/non-executable linker错误、平台cfg及动态加载器路径断言保持不变；`nia-linker/src/lib.rs`从1612行降至1041行并成为纯测试挂载入口，未改变production行为或公开API。nia-linker 18项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续盘点剩余大型内联测试harness与Phase I临时适配入口。
 
+进展（2026-07-28）：I-3da 批量关闭剩余七个中小型内联测试harness：`nia-backend-ir`、`nia-defs`、`nia-type-resolve`、`nia-public-surface`、`nia-value-resolve`、`nia-trait-solve`与`nia-ids`的42条契约整体迁至各crate独立`tests.rs`，生产入口合计减少约2400行且原`tests::...`路径、测试体、公开API与production行为均未改变。七crate联合测试、严格all-target/all-feature Clippy、全仓fmt与diff检查通过。至此不再以机械搬迁作为独立推进主题；下一步按Phase I验收条件审计诊断所有权、资源许可与遗留适配入口，并以整类关闭批次推进。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
