@@ -1,0 +1,6 @@
+mode=linker-invocation
+resource=build
+platform=unix
+source=main.nia
+raw-args=-lc,-lm,-Olinker,-o
+structured-args=--dynamic-linker,/loader,-L,/native/lib,-l,native_api,-rpath,$ORIGIN
