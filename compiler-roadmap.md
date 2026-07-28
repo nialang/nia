@@ -1864,6 +1864,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cu 完整拆分`nia-item-signatures`内联测试harness：module/active-item-tree collection与stable trait-impl identity、builtin function/trait/associated const/extend及bodyless诊断、std builtin source descriptor drift、跨type-store lowered type拒绝共10条契约迁至4个主题模块，stable symbol、完整parse/resolve/lower/signature pipeline与condition resolver迁至共享test support。原函数体不参与签名、builtin descriptor全量对应、visibility/associated item及session type-store断言保持不变；`nia-item-signatures/src/lib.rs`从2587行降至1702行并成为纯测试挂载入口，未改变production行为或公开API。nia-item-signatures 10项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续按职责拆分`nia-layout`或`nia-type-lower`等大型内联测试harness。
 
+进展（2026-07-28）：I-3cv 完整拆分`nia-type-lower`内联测试harness：primitive/pointer/array/function/nominal、const generic与associated projection核心lowering，generic argument/value-type诊断，trait object与associated binding校验，以及active-item-tree/canonical type-store共12条契约迁至4个主题模块，stable symbol和program-def-aware lowering pipeline迁至共享test support。原TyKind形状、const arg值、诊断数量/文本、active item过滤及declaration/full lowering共用同一TypeStore的断言保持不变；`nia-type-lower/src/lib.rs`从2817行降至2250行并成为纯测试挂载入口，未改变production行为或公开API。nia-type-lower 12项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续完整拆分`nia-layout`内联测试harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
