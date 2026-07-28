@@ -32,50 +32,8 @@ use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-struct TestBackendLowering {
-    lowering: BackendLowering,
-    module_id: ModuleId,
-    type_store: nia_ty::TypeStore,
-}
-
-fn backend_function_instance_plan(
-    monomorphization: &nia_monomorphize::Monomorphization,
-) -> Vec<BackendFunctionInstancePlan> {
-    monomorphization
-        .instances
-        .iter()
-        .map(|instance| BackendFunctionInstancePlan {
-            def_id: instance.def_id,
-            arg_module_id: instance.arg_module_id,
-            self_arg: instance.self_arg,
-            args: instance.args.clone(),
-            const_args: instance.const_args.clone(),
-            span: instance.span,
-        })
-        .collect()
-}
-
-impl std::ops::Deref for TestBackendLowering {
-    type Target = BackendLowering;
-
-    fn deref(&self) -> &Self::Target {
-        &self.lowering
-    }
-}
-
-impl TestBackendLowering {
-    fn append(&self, module_id: ModuleId) -> nia_ty::TypeStoreAppend {
-        self.type_store.append_for_module(module_id)
-    }
-}
-
-fn local_name(text: &str) -> nia_function_ir::LocalName {
-    nia_function_ir::LocalName::named(sym(text))
-}
-
-fn sym(text: &str) -> SymbolId {
-    SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
-}
+mod test_fixture;
+use test_fixture::*;
 
 struct EmptyBodyProgramSignatures {
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
