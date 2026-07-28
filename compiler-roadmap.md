@@ -1870,6 +1870,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cx 完整拆分`nia-monomorphize`内联测试harness：generic instance去重/concrete-root expansion/session TypeStore追加，递归实例复用与type-depth limit，未解析array-length symbol及诊断去重，以及effective-generics/type-substitution cache共9条契约迁至4个主题模块；type fixture、generic instantiation与module input构造迁至共享test support，专用empty collector留在cache主题。原instance集合/参数、E0601 span/note/help、unresolved symbol稳定文本、单次诊断与substitution ID复用断言保持不变；`nia-monomorphize/src/lib.rs`从1903行降至1339行并成为纯测试挂载入口，未改变production行为或公开API。nia-monomorphize 9项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分`nia-local-resolve`或`nia-linker`等剩余大型内联测试harness。
 
+进展（2026-07-28）：I-3cy 完整拆分`nia-local-resolve`内联测试harness：lexical binding/shadowing、source-versioned/red-child-path facts、unresolved/duplicate/type-prefix诊断语义、field bracket suffix index消歧，以及active-item-tree过滤与full-tree LocalId稳定性共12条契约迁至5个主题模块，stable symbol helper迁至共享test support。原external value被pattern local覆盖、NodePosition/SourceVersion、duplicate诊断、TypePrefix、局部名与primitive同名解析及过滤前后LocalId相等断言保持不变；`nia-local-resolve/src/lib.rs`从2074行降至1566行并成为纯测试挂载入口，未改变production行为或公开API。nia-local-resolve 12项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步完整拆分`nia-linker`内联测试harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
