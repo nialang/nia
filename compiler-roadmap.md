@@ -1872,6 +1872,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cy 完整拆分`nia-local-resolve`内联测试harness：lexical binding/shadowing、source-versioned/red-child-path facts、unresolved/duplicate/type-prefix诊断语义、field bracket suffix index消歧，以及active-item-tree过滤与full-tree LocalId稳定性共12条契约迁至5个主题模块，stable symbol helper迁至共享test support。原external value被pattern local覆盖、NodePosition/SourceVersion、duplicate诊断、TypePrefix、局部名与primitive同名解析及过滤前后LocalId相等断言保持不变；`nia-local-resolve/src/lib.rs`从2074行降至1566行并成为纯测试挂载入口，未改变production行为或公开API。nia-local-resolve 12项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步完整拆分`nia-linker`内联测试harness。
 
+进展（2026-07-28）：I-3cz 完整拆分`nia-linker`内联测试harness：typed link-result fingerprint/invalidation、GNU static/dynamic invocation与输入顺序、LLD参数/flavor/PATH resolution，以及GNU/musl/native dynamic-linker与ld.so.conf discovery共18条契约迁至4个主题模块；typed CGU input、mock linker、ENV_LOCK、环境恢复、target与可执行权限helper迁至共享test support。原cache component分类、完整参数顺序、static/dynamic library切换、missing/non-executable linker错误、平台cfg及动态加载器路径断言保持不变；`nia-linker/src/lib.rs`从1612行降至1041行并成为纯测试挂载入口，未改变production行为或公开API。nia-linker 18项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续盘点剩余大型内联测试harness与Phase I临时适配入口。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
