@@ -1858,6 +1858,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cr 完整关闭`nia-query` red-green validation测试主题：连续revision以latest value校验、batch dependency fingerprint与并发validation期间再次失效不得恢复stale green共3条剩余回归迁至`nia-query/src/tests/red_green_revisions.rs`。结合既有基础与advanced模块，9条red-green契约现全部离开父harness且原Arc identity、execution/validation计数及race断言保持不变；`nia-query/src/lib.rs`从4651行降至4556行。nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一完整主题一次性迁出普通invalidation并抽离共享query fixture。
 
+进展（2026-07-28）：I-3cs 完整关闭`nia-query`内联测试harness重组：最后5条普通invalidation、传递/batch dependent、debug-label identity与并发batch失效回归迁至`nia-query/src/tests/invalidation_contracts.rs`，core/executor、red-green、storage/registry及dependency/error/invalidation共享fixture按职责拆至4个fixture文件。`nia-query/src/lib.rs`不再包含测试函数或具体fixture，从4556行降至3437行；全部75项测试及原失效顺序、执行计数和stale writeback竞态断言保持不变，未改变production行为或公开API。nia-query 75项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步盘点下一个大型测试harness，并继续收束Phase I遗留的临时入口与诊断边界。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
