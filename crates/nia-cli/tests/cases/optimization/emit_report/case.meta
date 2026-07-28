@@ -1,0 +1,6 @@
+mode=emit-optimization-report
+resource=build
+source=main.nia
+backend-level=-O1
+llvm-level=-O1
+object-level=-Os
