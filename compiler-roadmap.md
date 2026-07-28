@@ -1868,6 +1868,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-3cw 完整拆分`nia-layout`内联测试harness：primitive/pointer/array/empty struct基础布局，layout builtin与const-generic array length，Nia physical/C field ordering及inferred placeholder scan，以及generic struct/union instance共9条契约迁至4个主题模块；完整parse、type/value/local resolution、signature、semantic-use、const lowering/check与layout输入构造迁至共享test support。原LP64 size/align、field offset/order、array length、StructLayoutKey及union field offset断言保持不变；`nia-layout/src/lib.rs`从2076行降至1503行并成为纯测试挂载入口，未改变production行为或公开API。nia-layout 9项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续盘点并完整拆分剩余大型内联测试harness。
 
+进展（2026-07-28）：I-3cx 完整拆分`nia-monomorphize`内联测试harness：generic instance去重/concrete-root expansion/session TypeStore追加，递归实例复用与type-depth limit，未解析array-length symbol及诊断去重，以及effective-generics/type-substitution cache共9条契约迁至4个主题模块；type fixture、generic instantiation与module input构造迁至共享test support，专用empty collector留在cache主题。原instance集合/参数、E0601 span/note/help、unresolved symbol稳定文本、单次诊断与substitution ID复用断言保持不变；`nia-monomorphize/src/lib.rs`从1903行降至1339行并成为纯测试挂载入口，未改变production行为或公开API。nia-monomorphize 9项、严格all-target/all-feature Clippy、fmt与diff检查通过。Phase I保持约75%；下一步继续拆分`nia-local-resolve`或`nia-linker`等剩余大型内联测试harness。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
