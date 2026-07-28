@@ -1888,6 +1888,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-28）：I-4n/I-5j 完整迁移CLI linker invocation参数主题。新增Unix `linker-invocation` manifest，以同一mock linker依次验证raw `--link-arg`三种写法及structured dynamic-linker/显式linker flavor/library search/native library/rpath参数；期望参数集合由metadata显式声明。raw旧测试夹带的bare executable runtime拒绝被归入selection-errors case，未因迁移丢失。两个旧手写入口、两份嵌入source/mock脚本和独立资源获取物理删除；linker suite以单一build session完成selection三条与invocation两条命令，严格Clippy、fmt与diff检查通过。下一批独立迁移typed link-result与object bucket失效矩阵。
 
+进展（2026-07-28）：I-4o/I-5k 完整关闭CLI linker integration的手写cache主题。新增Unix `typed-link-cache` manifest，以initial/edit fixture和唯一mock wrapper执行cold、warm、definition-edit三次真实链接：锁定link-result单key/单entry、warm不调用linker且恢复字节完全相同并可执行，source edit只使一个LLVM definition bucket失效、其余bucket保持复用，同时link-result只按inputs失效而target/linker/options保持稳定。原约300行嵌入source、脚本、counter重复断言和独立资源入口物理删除；linker metadata suite现以单一build session覆盖selection、invocation与typed cache全部主题，30.45秒通过，严格Clippy、fmt与diff检查通过。下一批转向build command错误矩阵或其余CLI重型主题。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险
