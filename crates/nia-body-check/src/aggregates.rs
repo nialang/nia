@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use crate::{
-    BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature,
-    generic_inst_base,
-};
+use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{Expr, ExprKind};
 use nia_const_check::{ConstKey, ConstValueType};
 use nia_const_eval::{ConstCommonEnv, ConstError, ConstValue, ResolvedConstEnv};
@@ -15,6 +12,7 @@ use nia_const_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
+use nia_item_signatures::{EnumSignature, StructSignature, UnionSignature};
 use nia_local_resolve::LocalKind;
 use nia_mangle::mangle_symbol_id;
 use nia_sema::{
@@ -27,6 +25,21 @@ use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_symbol::SymbolMap;
 use nia_ty::{ArrayLenTy, TyKind};
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedStructSignature {
+    pub(super) signature: StructSignature,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedUnionSignature {
+    pub(super) signature: UnionSignature,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedEnumSignature {
+    pub(super) signature: EnumSignature,
+}
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {

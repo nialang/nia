@@ -15,6 +15,12 @@ use nia_local_resolve::LocalUse;
 use nia_symbol::known;
 use nia_value_resolve::ValueNameResolution;
 
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedFunctionSignature {
+    pub(super) def_id: nia_ids::GlobalDefId,
+    pub(super) signature: nia_item_signatures::FunctionSignature,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_call(
         &mut self,
