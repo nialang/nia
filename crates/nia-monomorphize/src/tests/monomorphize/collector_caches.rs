@@ -53,6 +53,10 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
     let (type_store, module_id) = &*FIXTURE;
     let collector = MonoCollector {
         type_store,
+        source_identities: HashMap::from([(
+            *module_id,
+            nia_source::SourceIdentity::new("test/collector.nia"),
+        )]),
         defs_by_module: HashMap::new(),
         normalizations_by_module: HashMap::new(),
         const_by_module: HashMap::new(),

@@ -59,8 +59,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define i32 @nia__m0__d"));
-    assert!(ir.contains("call i32 @nia__m0__d"));
+    assert!(ir.contains("define i32 @nia__s"));
+    assert!(ir.contains("call i32 @nia__s"));
     assert!(ir.contains("ret i32"));
 }
 
@@ -89,7 +89,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("define i32 @add("), "{ir}");
-    assert_not_contains_mangled_symbol(ir, '@', 0, "add");
+    assert_not_contains_mangled_symbol(ir, '@', "add");
     assert!(ir.contains("call i32 @add"), "{ir}");
 }
 
@@ -120,7 +120,7 @@ fn main() NiaString {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let nia_string = mangled_symbol(ir, '%', 0, "NiaString");
+    let nia_string = mangled_symbol(ir, '%', "NiaString");
     assert!(
         ir.contains(&format!("declare {nia_string} @make_string()")),
         "{ir}"
@@ -165,8 +165,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(ir.contains("define void @_start("), "{ir}");
-    assert!(ir.contains("define void @nia__m0__"), "{ir}");
-    assert!(ir.contains("call void @nia__m0__"), "{ir}");
+    assert!(ir.contains("define void @nia__s"), "{ir}");
+    assert!(ir.contains("call void @nia__s"), "{ir}");
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call void @nia__m0__d"), "{ir}");
+    assert!(ir.contains("call void @nia__s"), "{ir}");
     assert!(ir.contains("tagged.payload"), "{ir}");
 }
 
@@ -507,7 +507,7 @@ fn main() i32 {
     assert!(ir.contains("declare i32 @puts"));
     assert!(ir.contains("c\"hello\\00\""));
     assert!(ir.contains("call i32 @puts"));
-    assert!(ir.contains("@nia__m0__d"));
+    assert!(ir.contains("@nia__s"));
 }
 
 #[test]
@@ -542,7 +542,7 @@ fn main(i: usize) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("getelementptr"), "{ir}");
-    let read = mangled_symbol(ir, '@', 0, "read");
+    let read = mangled_symbol(ir, '@', "read");
     assert!(ir.contains(&format!("call i32 {read}")), "{ir}");
 }
 

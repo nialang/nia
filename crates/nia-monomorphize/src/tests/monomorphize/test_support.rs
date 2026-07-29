@@ -84,6 +84,10 @@ fn mono_input<'a>(
 ) -> MonomorphizeModuleInput<'a> {
     MonomorphizeModuleInput {
         module_id: defs.module_id,
+        source_identity: nia_source::SourceIdentity::new(format!(
+            "test/module-{}.nia",
+            defs.module_id.local_index()
+        )),
         defs,
         normalization,
         const_eval,

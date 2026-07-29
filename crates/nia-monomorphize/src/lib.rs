@@ -9,8 +9,11 @@ use nia_item_signatures::{
     EnumSignature, ProgramEnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
 };
 use nia_layout::Layouts;
-use nia_mangle::{mangle_base_symbol_id, mangle_symbol_id, mangle_type_with};
+use nia_mangle::{
+    MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_symbol_id, mangle_type_with,
+};
 use nia_sema_ir::GenericInstantiation;
+use nia_source::SourceIdentity;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::TraitSolverContext;
@@ -42,6 +45,7 @@ pub struct MonoInstance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MonomorphizeModuleInput<'a> {
     pub module_id: ModuleId,
+    pub source_identity: SourceIdentity,
     pub defs: &'a DefCollection,
     pub normalization: &'a TypeNormalization,
     pub const_eval: &'a ConstCheck,
@@ -61,6 +65,10 @@ pub fn collect_monomorphizations(
     let empty_trait_impl_index = ProgramTraitImplIndex::default();
     let mut collector = MonoCollector {
         type_store,
+        source_identities: inputs
+            .iter()
+            .map(|input| (input.module_id, input.source_identity.clone()))
+            .collect(),
         defs_by_module: inputs
             .iter()
             .map(|input| (input.module_id, input.defs))
@@ -120,6 +128,7 @@ pub fn collect_monomorphizations(
 
 struct MonoCollector<'a> {
     type_store: &'a TypeStore,
+    source_identities: HashMap<ModuleId, SourceIdentity>,
     defs_by_module: HashMap<ModuleId, &'a DefCollection>,
     normalizations_by_module: HashMap<ModuleId, &'a TypeNormalization>,
     const_by_module: HashMap<ModuleId, &'a ConstCheck>,
@@ -1140,8 +1149,8 @@ impl MonoCollector<'_> {
             }
             ConstGenericValue::ConstExpr(id) => {
                 format!(
-                    "expr__m{}__c{}",
-                    id.module_id.local_index(),
+                    "expr__s{:016x}__c{}",
+                    self.module_mangle_id(id.module_id).raw(),
                     id.const_expr_id.0
                 )
             }
@@ -1160,7 +1169,7 @@ impl MonoCollector<'_> {
             return symbol.clone();
         }
         let name = self.def_name(def_id);
-        let symbol = mangle_base_symbol_id(def_id, name);
+        let symbol = mangle_base_symbol_id(def_id, self.module_mangle_id(def_id.module_id), name);
         self.base_symbols.insert(def_id, symbol.clone());
         symbol
     }
@@ -1184,23 +1193,41 @@ impl MonoCollector<'_> {
         let const_expr_summaries_by_module = &self.const_expr_summaries_by_module;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
+        let source_identities = &self.source_identities;
         let symbol = mangle_type_with(
             self.type_store,
             ty,
-            |def_id| cached_def_name(defs_by_module, def_names, def_id),
-            |id| {
-                array_len(
-                    const_by_module,
-                    const_expr_summaries_by_module,
-                    missing_array_len_diagnostics,
-                    diagnostics,
-                    id,
-                )
-            },
+            MangleResolvers::new(
+                |module_id| module_mangle_id(source_identities, module_id),
+                |def_id| cached_def_name(defs_by_module, def_names, def_id),
+                |id| {
+                    array_len(
+                        const_by_module,
+                        const_expr_summaries_by_module,
+                        missing_array_len_diagnostics,
+                        diagnostics,
+                        id,
+                    )
+                },
+            ),
         );
         self.type_symbols.insert((module_id, ty), symbol.clone());
         symbol
     }
+
+    fn module_mangle_id(&self, module_id: ModuleId) -> MangleModuleId {
+        module_mangle_id(&self.source_identities, module_id)
+    }
+}
+
+fn module_mangle_id(
+    source_identities: &HashMap<ModuleId, SourceIdentity>,
+    module_id: ModuleId,
+) -> MangleModuleId {
+    let source_identity = source_identities.get(&module_id).unwrap_or_else(|| {
+        panic!("Nia ICE: missing source identity for monomorphized module {module_id:?}")
+    });
+    MangleModuleId::from_normalized_source_path(source_identity.normalized_path())
 }
 
 fn array_len(

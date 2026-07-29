@@ -1,0 +1,5 @@
+mode=configured-build-success
+resource=build
+contract=configured-success
+step=default
+contracts=timings,runner-context,configured-output,module-imports

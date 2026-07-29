@@ -2,7 +2,8 @@
 use std::{path::Path, process::Command};
 
 use nia_test_support::{
-    CaseManifest, CommandExt, TestWorkload, case_directories, copy_case_tree, fixture_relative_path,
+    CaseManifest, CommandExt, CommandStatusExt, TestWorkload, case_directories, copy_case_tree,
+    fixture_relative_path,
 };
 
 #[test]
@@ -28,12 +29,20 @@ fn build_cases_match_expectations() {
 
         let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
         command.arg("build");
+        let command_root = if mode == "configured-build-success" {
+            command.arg("--timings");
+            let nested = workspace.join("src/nested");
+            std::fs::create_dir_all(&nested).expect("create nested build case directory");
+            nested
+        } else {
+            workspace.clone()
+        };
         if step != "default" {
             command.arg(&step);
         }
         let output = command
             .arg("--root")
-            .arg(&workspace)
+            .arg(&command_root)
             .output_timeout_in_session("run build metadata case");
 
         match mode.as_str() {
@@ -62,12 +71,86 @@ fn build_cases_match_expectations() {
                     "{stderr}"
                 );
             }
+            "configured-build-success" => {
+                let contracts = manifest.required_list("contracts");
+                manifest.finish();
+                assert_configured_build_success(&contracts, &workspace, &output);
+            }
+            "module-check-success" => {
+                manifest.finish();
+                assert!(
+                    output.status.success(),
+                    "stderr:\n{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
             _ => panic!(
                 "unknown build case mode {mode:?} in {}",
                 manifest_path.display()
             ),
         }
     }
+}
+
+fn assert_configured_build_success(
+    contracts: &[String],
+    workspace: &Path,
+    output: &std::process::Output,
+) {
+    assert_eq!(
+        contracts,
+        [
+            "timings",
+            "runner-context",
+            "configured-output",
+            "module-imports",
+        ]
+    );
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in [
+        format!("root={}\n", workspace.display()),
+        format!("build={}\n", workspace.join(".nia-build").display()),
+        format!("cache={}\n", workspace.join(".nia-cache").display()),
+        format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia")),
+    ] {
+        assert!(
+            stdout.contains(&expected),
+            "missing {expected:?} in {stdout}"
+        );
+    }
+    assert!(stderr.contains("timing"), "{stderr}");
+    assert!(
+        !stderr.lines().any(|line| line.starts_with("error:")),
+        "{stderr}"
+    );
+    assert!(workspace.join(".nia-build/runner").is_dir());
+    assert!(workspace.join(".nia-cache").is_dir());
+    assert!(workspace.join(".nia-build/custom-app").is_file());
+    assert!(!workspace.join(".nia-build/app").exists());
+    assert_eq!(
+        Command::new(workspace.join(".nia-build/custom-app"))
+            .status_timeout("run configured build target")
+            .code(),
+        Some(0)
+    );
+
+    let check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("check")
+        .arg("--root")
+        .arg(workspace)
+        .output_timeout_in_session("run configured build check step");
+    assert!(
+        check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
 }
 
 fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::process::Output) {

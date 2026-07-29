@@ -105,10 +105,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '@', 0, "deref");
-    assert_contains_mangled_symbol(ir, '@', 0, "deref_mut");
-    assert_contains_mangled_symbol(ir, '@', 0, "index");
-    assert_contains_mangled_symbol(ir, '@', 0, "index_mut");
+    assert_contains_mangled_symbol(ir, '@', "deref");
+    assert_contains_mangled_symbol(ir, '@', "deref_mut");
+    assert_contains_mangled_symbol(ir, '@', "index");
+    assert_contains_mangled_symbol(ir, '@', "index_mut");
     assert!(ir.contains("ret i32"), "{ir}");
 }
 

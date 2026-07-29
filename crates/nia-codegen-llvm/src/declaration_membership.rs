@@ -9,7 +9,7 @@ use nia_backend_ir::{
 };
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, TraitObjectVtableRef};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
-use nia_mangle::{mangle_symbol_id, mangle_type_with};
+use nia_mangle::{MangleModuleId, MangleResolvers, mangle_symbol_id, mangle_type_with};
 use nia_ty::{ArrayLenTy, TraitId, TyKind};
 
 use crate::program_index::ProgramIndex;
@@ -590,28 +590,38 @@ fn stable_type_key(index: &ProgramIndex, ty: InternedTyId) -> String {
     mangle_type_with(
         index.type_store(),
         ty,
-        |def_id| {
-            index
-                .struct_item(def_id)
-                .map(|item| mangle_symbol_id(item.name))
-                .or_else(|| {
-                    index
-                        .union_item(def_id)
-                        .map(|item| mangle_symbol_id(item.name))
-                })
-                .or_else(|| {
-                    index
-                        .enum_item(def_id)
-                        .map(|item| mangle_symbol_id(item.name))
-                })
-                .or_else(|| {
-                    index
-                        .function(def_id)
-                        .map(|item| mangle_symbol_id(item.name))
-                })
-                .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
-        },
-        |_| Some(0),
+        MangleResolvers::new(
+            |module_id| {
+                let module = index.module(module_id).unwrap_or_else(|| {
+                    panic!("Nia ICE: stable type key references missing module {module_id:?}")
+                });
+                MangleModuleId::from_normalized_source_path(
+                    module.source_identity.normalized_path(),
+                )
+            },
+            |def_id| {
+                index
+                    .struct_item(def_id)
+                    .map(|item| mangle_symbol_id(item.name))
+                    .or_else(|| {
+                        index
+                            .union_item(def_id)
+                            .map(|item| mangle_symbol_id(item.name))
+                    })
+                    .or_else(|| {
+                        index
+                            .enum_item(def_id)
+                            .map(|item| mangle_symbol_id(item.name))
+                    })
+                    .or_else(|| {
+                        index
+                            .function(def_id)
+                            .map(|item| mangle_symbol_id(item.name))
+                    })
+                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+            },
+            |_| Some(0),
+        ),
     )
 }
 

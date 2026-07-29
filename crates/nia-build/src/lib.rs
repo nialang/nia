@@ -660,6 +660,68 @@ mod tests {
     }
 
     #[test]
+    fn generated_runner_codegen_covers_configured_build_api_closure() {
+        let root = temp_root("generated_runner_codegen_covers_configured_build_api_closure");
+        std::fs::write(
+            root.join("build.nia"),
+            r#"
+using std::build;
+using std::fs;
+using std::fmt;
+using std::io;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let mut buffer: [1024]u8 = [_]u8[0; 1024];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print(&"root={}\n", &[b.package_root().text()]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    static helper_name = "helper";
+    static helper_path = "deps/helper.nia";
+    static src_main = "src/main.nia";
+    static app_name = "app";
+    static output_name = "custom-app";
+    static build_step_name = "build";
+    static check_step_name = "check";
+    let imports = [
+        build::ModuleImport::init(&helper_name, fs::PathView::init(&helper_path)),
+    ];
+    let root_module = b.add_module(
+        build::ModuleOptions::init(fs::PathView::init(&src_main)).with_imports(&imports[..]),
+    ).?;
+    let app = b.add_executable(
+        build::ExecutableOptions::init(&app_name, root_module).with_output_name(&output_name),
+    ).?;
+    let build_step = b.add_emit_executable_step(&build_step_name, app).?;
+    _ = b.add_check_executable_step(&check_step_name, app).?;
+    b.set_default_step(build_step).?;
+    !{}
+}
+"#,
+        )
+        .expect("write configured build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        for session in ["cold", "warm"] {
+            let driver = Driver::with_config(DriverConfig {
+                artifact_cache_dir: Some(plan.cache_dir.clone()),
+                ..DriverConfig::default()
+            });
+            driver.set_source(runner.path.clone(), runner.source.clone());
+
+            let output = driver.codegen(
+                CheckRequest::new(runner.path.clone())
+                    .with_module_map(build_runner_module_map(&plan))
+                    .with_runtime(nia_driver::Runtime::Freestanding),
+            );
+            assert!(
+                output.result.is_ok(),
+                "{session} generated runner codegen failed: {:?}",
+                output.result.err()
+            );
+        }
+    }
+
+    #[test]
     fn preserves_named_step() {
         let root = temp_root("preserves_named_step");
         std::fs::write(root.join("build.nia"), "").expect("write build script");

@@ -203,6 +203,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     let monomorphization = nia_monomorphize::collect_monomorphizations(
         &[nia_monomorphize::MonomorphizeModuleInput {
             module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             defs: &defs,
             normalization: &normalization,
             const_eval: &const_eval,

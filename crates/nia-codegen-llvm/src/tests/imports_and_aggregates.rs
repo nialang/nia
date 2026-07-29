@@ -245,7 +245,7 @@ pub fn value() i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("[256 x %nia__m0__d"), "{}", main_ir.ir);
+    assert!(main_ir.ir.contains("[256 x %nia__s"), "{}", main_ir.ir);
 }
 
 #[test]
@@ -588,7 +588,7 @@ extend Box {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    let make = mangled_symbol_any_module(&main_ir.ir, '@', "make");
+    let make = mangled_symbol(&main_ir.ir, '@', "make");
     assert!(
         main_ir.ir.contains(&format!("call void {make}")),
         "{}",

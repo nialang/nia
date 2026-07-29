@@ -37,12 +37,12 @@ fn main() i32 {
     assert!(ir.contains("i32 65"));
     assert!(ir.contains("[3 x i32] [i32 1, i32 2, i32 3]"));
     assert!(ir.contains("[4 x i8] c\"zzzz\"") || ir.contains("[4 x i8] [i8 122"));
-    let zeroes = mangled_symbol(ir, '@', 0, "zeroes");
+    let zeroes = mangled_symbol(ir, '@', "zeroes");
     assert!(
         ir.contains(&format!("{zeroes} = constant [8 x i32] zeroinitializer")),
         "{ir}"
     );
-    let pair = mangled_symbol(ir, '%', 0, "Pair");
+    let pair = mangled_symbol(ir, '%', "Pair");
     assert!(ir.contains(&format!("{pair} {{ i32 10, i32 20 }}")));
 }
 
@@ -71,10 +71,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let target = mangled_symbol(ir, '@', 0, "target");
-    let values = mangled_symbol(ir, '@', 0, "values");
-    let p = mangled_symbol(ir, '@', 0, "p");
-    let q = mangled_symbol(ir, '@', 0, "q");
+    let target = mangled_symbol(ir, '@', "target");
+    let values = mangled_symbol(ir, '@', "values");
+    let p = mangled_symbol(ir, '@', "p");
+    let q = mangled_symbol(ir, '@', "q");
     assert!(ir.contains(&format!("{target} = global i32 1")));
     assert!(ir.contains(&format!("{p} = constant ptr {target}")));
     assert!(ir.contains(&format!(
@@ -137,8 +137,8 @@ pub fn add(a: i32, b: i32) i32 {
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
     assert!(main_ir.ir.contains("external global i32"));
-    let base = mangled_symbol_any_module(&main_ir.ir, '@', "base");
-    let add = mangled_symbol_any_module(&main_ir.ir, '@', "add");
+    let base = mangled_symbol(&main_ir.ir, '@', "base");
+    let add = mangled_symbol(&main_ir.ir, '@', "add");
     assert!(main_ir.ir.contains(&format!("constant ptr {base}")));
     assert!(main_ir.ir.contains(&format!("call i32 {add}")));
 }
@@ -181,7 +181,7 @@ pub struct Point {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    let _ = mangled_symbol_any_module(&main_ir.ir, '%', "Point");
+    let _ = mangled_symbol(&main_ir.ir, '%', "Point");
     assert!(main_ir.ir.contains("store i32 40"));
     assert!(main_ir.ir.contains("store i32 2"));
     assert!(main_ir.ir.contains("ret i32"));

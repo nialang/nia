@@ -284,7 +284,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '@', 0, "print_i32");
+    assert_contains_mangled_symbol(ir, '@', "print_i32");
     assert!(ir.contains("call void"), "{ir}");
 }
 

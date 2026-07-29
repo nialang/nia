@@ -36,7 +36,7 @@ pub(super) fn source_unit_fingerprint(
     target: ArtifactTarget<'_>,
 ) -> CodegenUnitFingerprintSet {
     declarations.validate_dependencies(partition, index);
-    let mut policy = Encoder::new("nia.llvm.source-policy.v2", index);
+    let mut policy = Encoder::new("nia.llvm.source-policy.v3", index);
     policy.compiler_contract();
     policy.codegen_unit_key(&partition.key);
     policy.optimization(options.optimization);
@@ -108,6 +108,7 @@ impl<'a> Encoder<'a> {
     fn compiler_contract(&mut self) {
         self.builder.write_str(env!("CARGO_PKG_VERSION"));
         self.builder.write_u64(llvm_sys_version());
+        self.builder.write_u64(nia_mangle::MANGLE_ABI_VERSION);
     }
 
     fn tag(&mut self, tag: u8) {
