@@ -2,8 +2,7 @@
 use nia_ast::{
     ArrayElements, Attribute, AttributeKind, Block, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
-    Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
-    SwitchPatternKind,
+    Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
@@ -428,11 +427,11 @@ impl Pruner<'_> {
                 switch.target = self.prune_expr(switch.target);
                 for arm in &mut switch.arms {
                     for pattern in &mut arm.patterns {
-                        *pattern = self.prune_switch_pattern(std::mem::replace(
+                        *pattern = self.prune_pattern(std::mem::replace(
                             pattern,
-                            SwitchPattern {
+                            Pattern {
                                 span: arm.span,
-                                kind: SwitchPatternKind::Wildcard,
+                                kind: PatternKind::Wildcard,
                             },
                         ));
                     }
@@ -498,27 +497,6 @@ impl Pruner<'_> {
             }
         }
         true
-    }
-
-    fn prune_switch_pattern(&mut self, pattern: SwitchPattern) -> SwitchPattern {
-        SwitchPattern {
-            span: pattern.span,
-            kind: match pattern.kind {
-                SwitchPatternKind::Wildcard => SwitchPatternKind::Wildcard,
-                SwitchPatternKind::Expr(expr) => {
-                    SwitchPatternKind::Expr(Box::new(self.prune_expr(*expr)))
-                }
-                SwitchPatternKind::Range {
-                    start,
-                    end,
-                    inclusive,
-                } => SwitchPatternKind::Range {
-                    start: Box::new(self.prune_expr(*start)),
-                    end: Box::new(self.prune_expr(*end)),
-                    inclusive,
-                },
-            },
-        }
     }
 
     fn prune_array_elements(&mut self, elems: ArrayElements) -> ArrayElements {

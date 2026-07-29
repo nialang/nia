@@ -322,7 +322,7 @@ pub struct SemanticFacts {
     pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
     pub node_array_repeat_counts: NodeMap<u64>,
-    pub node_switch_pattern_values: NodeMap<i128>,
+    pub node_pattern_values: NodeMap<i128>,
     pub node_resolved_calls: NodeMap<ResolvedCall>,
     pub node_function_references: NodeMap<FunctionReference>,
 }
@@ -343,7 +343,7 @@ pub struct SemanticFactsBuilder {
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
-    pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
+    pub node_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
 }
@@ -409,10 +409,7 @@ impl SemanticFacts {
             &mut self.node_array_repeat_counts,
             facts.node_array_repeat_counts,
         );
-        extend_node_map(
-            &mut self.node_switch_pattern_values,
-            facts.node_switch_pattern_values,
-        );
+        extend_node_map(&mut self.node_pattern_values, facts.node_pattern_values);
         extend_node_map(&mut self.node_resolved_calls, facts.node_resolved_calls);
         extend_node_map(
             &mut self.node_function_references,
@@ -447,7 +444,7 @@ impl SemanticFacts {
                 .into_entries()
                 .collect(),
             node_array_repeat_counts: self.node_array_repeat_counts.into_entries().collect(),
-            node_switch_pattern_values: self.node_switch_pattern_values.into_entries().collect(),
+            node_pattern_values: self.node_pattern_values.into_entries().collect(),
             node_resolved_calls: self.node_resolved_calls.into_entries().collect(),
             node_function_references: self.node_function_references.into_entries().collect(),
         }
@@ -549,13 +546,11 @@ impl SemanticFacts {
         )
     }
 
-    pub fn iter_node_switch_pattern_values(
-        &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &i128)> + '_ {
-        self.node_switch_pattern_values.iter().chain(
+    pub fn iter_node_pattern_values(&self) -> impl Iterator<Item = (VersionedNodeKey, &i128)> + '_ {
+        self.node_pattern_values.iter().chain(
             self.function_facts
                 .values()
-                .flat_map(|facts| facts.node_switch_pattern_values.iter()),
+                .flat_map(|facts| facts.node_pattern_values.iter()),
         )
     }
 
@@ -609,8 +604,8 @@ impl SemanticFactsBuilder {
             for key in facts.node_array_repeat_counts.keys() {
                 self.node_array_repeat_counts.remove(&key);
             }
-            for key in facts.node_switch_pattern_values.keys() {
-                self.node_switch_pattern_values.remove(&key);
+            for key in facts.node_pattern_values.keys() {
+                self.node_pattern_values.remove(&key);
             }
             for key in facts.node_resolved_calls.keys() {
                 self.node_resolved_calls.remove(&key);
@@ -655,10 +650,7 @@ impl SemanticFactsBuilder {
                 self.node_associated_const_projections,
             ),
             node_array_repeat_counts: node_map_from_entries(store, self.node_array_repeat_counts),
-            node_switch_pattern_values: node_map_from_entries(
-                store,
-                self.node_switch_pattern_values,
-            ),
+            node_pattern_values: node_map_from_entries(store, self.node_pattern_values),
             node_resolved_calls: node_map_from_entries(store, self.node_resolved_calls),
             node_function_references: node_map_from_entries(store, self.node_function_references),
         }
@@ -678,7 +670,7 @@ pub struct FunctionSemanticFacts {
     pub node_builtin_values: NodeMap<BuiltinValue>,
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
     pub node_array_repeat_counts: NodeMap<u64>,
-    pub node_switch_pattern_values: NodeMap<i128>,
+    pub node_pattern_values: NodeMap<i128>,
     pub node_resolved_calls: NodeMap<ResolvedCall>,
     pub node_function_references: NodeMap<FunctionReference>,
     pub trait_method_refs: Vec<SemanticTraitMethodRef>,
@@ -698,7 +690,7 @@ pub struct FunctionSemanticFactsBuilder {
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
     pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
-    pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
+    pub node_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     pub trait_method_refs: Vec<SemanticTraitMethodRef>,
@@ -737,7 +729,7 @@ impl FunctionSemanticFacts {
                 .into_entries()
                 .collect(),
             node_array_repeat_counts: self.node_array_repeat_counts.into_entries().collect(),
-            node_switch_pattern_values: self.node_switch_pattern_values.into_entries().collect(),
+            node_pattern_values: self.node_pattern_values.into_entries().collect(),
             node_resolved_calls: self.node_resolved_calls.into_entries().collect(),
             node_function_references: self.node_function_references.into_entries().collect(),
             trait_method_refs: self.trait_method_refs,
@@ -779,10 +771,7 @@ impl FunctionSemanticFactsBuilder {
                 self.node_associated_const_projections,
             ),
             node_array_repeat_counts: node_map_from_entries(store, self.node_array_repeat_counts),
-            node_switch_pattern_values: node_map_from_entries(
-                store,
-                self.node_switch_pattern_values,
-            ),
+            node_pattern_values: node_map_from_entries(store, self.node_pattern_values),
             node_resolved_calls: node_map_from_entries(store, self.node_resolved_calls),
             node_function_references: node_map_from_entries(store, self.node_function_references),
             trait_method_refs: self.trait_method_refs,
@@ -1160,10 +1149,7 @@ mod tests {
             first_store.id()
         );
         assert_eq!(facts.node_array_repeat_counts.store_id(), first_store.id());
-        assert_eq!(
-            facts.node_switch_pattern_values.store_id(),
-            first_store.id()
-        );
+        assert_eq!(facts.node_pattern_values.store_id(), first_store.id());
         assert_eq!(facts.node_resolved_calls.store_id(), first_store.id());
         assert_eq!(facts.node_function_references.store_id(), first_store.id());
         assert_eq!(facts.node_expr_types.get(&key()), Some(&ty));
@@ -1223,10 +1209,7 @@ mod tests {
             first_store.id()
         );
         assert_eq!(facts.node_array_repeat_counts.store_id(), first_store.id());
-        assert_eq!(
-            facts.node_switch_pattern_values.store_id(),
-            first_store.id()
-        );
+        assert_eq!(facts.node_pattern_values.store_id(), first_store.id());
         assert_eq!(facts.node_resolved_calls.store_id(), first_store.id());
         assert_eq!(facts.node_function_references.store_id(), first_store.id());
         assert_eq!(facts.node_expr_types.get(&key_at(0)), Some(&ty));

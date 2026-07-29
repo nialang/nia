@@ -504,6 +504,18 @@ Implementation proceeds as dependency-complete compiler batches:
    generic, nested-pattern, invalid-tag-boundary, and codegen tests before std
    adopts payload enums in public contracts.
 
+Language-track status:
+
+- batch 1 is complete: AST, resolution, coverage, checked IR, const lowering and
+  evaluation, flow analysis, executable-fact traversal, and function lowering
+  use one recursive pattern model; `switch` destructures `?T` and `E!T`, copies
+  payload bindings into arm locals, rejects bindings across alternative
+  patterns, has const/IR/LLVM/resource-accounted executable equivalence guards,
+  and leaves no `SwitchPattern` compatibility representation;
+- batch 2 is next: introduce `if value is pattern`, migrate all production and
+  test source, and delete the old `if pattern = value` / `or pattern` parser,
+  AST, diagnostics, const, and lowering surface in the same batch.
+
 These batches must use the normal diagnostic and ICE boundary and the existing
 resource-accounted integration harness. They must not create parallel legacy
 and new pattern engines or run repeated unconstrained full compiler/LLVM suites.

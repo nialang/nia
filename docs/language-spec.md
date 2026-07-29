@@ -23,6 +23,8 @@ Nia provides:
 - traits implemented by `extend Type : Trait` blocks;
 - expression-oriented blocks and `if`;
 - C-style enums with namespaces and `switch` without fallthrough;
+- recursive optional/error-union and value patterns through `switch` and
+  if-pattern expressions;
 - compile-time value bindings with `const`;
 - `defer` for scope cleanup;
 - C ABI interop through `extern`;
@@ -37,7 +39,6 @@ The current core language keeps these systems outside the language surface:
 - exceptions;
 - a borrow checker;
 - algebraic data types;
-- pattern matching;
 - implicit allocation;
 - a hidden runtime startup model;
 - package management as part of the core language.
@@ -888,8 +889,8 @@ Patterns may be nested, so `?!value` matches an optional present value whose
 payload is an error-union success value, while `?err!` matches the nested error
 case. Ptr binding forms such as `let &value = ptr;` and `for &value in
 items` are binding destructuring forms too, but they are parsed on local/loop
-bindings rather than as optional/error-union match patterns. Neither form is a
-`switch` case pattern.
+bindings through the irrefutable subset of the same pattern model. `switch`
+accepts the refutable forms shown above as well as pointer patterns.
 
 ### 4.6 Structs
 
@@ -1284,7 +1285,8 @@ Integers may be explicitly cast to open enums:
 let mut flag: Flag = 3 as Flag;
 ```
 
-`switch` is an expression that may match integers and enums:
+`switch` is the canonical multi-arm matching expression. It matches scalar and
+enum values and may recursively destructure optional and error-union values:
 
 ```nia
 let mut value = switch c {
@@ -1320,39 +1322,39 @@ Open-ended switch range patterns are not supported; use `_` for the fallback
 case. Range pattern endpoints must be compile-time integer constants. Empty
 ranges and overlapping integer patterns are rejected.
 
-`switch` case patterns are value dispatch patterns only: expression patterns,
-integer ranges, and `_`. `switch` does not destructure optional or error-union
-values. Use if-pattern expressions for recursive binding patterns:
+Optional and error-union patterns use the same recursive matcher:
 
 ```nia
-if ?x = value {
-    return x;
-} or null {
-    return 0;
+switch value {
+    ?x => x,
+    null => 0,
 }
 
-if !x = result {
-    return x;
-} or err! {
-    return err;
+switch result {
+    !x => x,
+    err! => err,
 }
 
-if ?!value = nested {
-    return value;
-} or ?err! {
-    return err;
-} or null {
-    return 0;
+switch nested {
+    ?!value => value,
+    ?err! => err,
+    null => 0,
 }
 ```
 
 `?pattern` matches the payload of a present optional. `!pattern` matches the
 success payload of an error union. `pattern!` matches the error payload of an
-error union. `null` matches the empty optional case. `_` is a catch-all
-optional/error-union pattern in if-pattern expressions; in `switch`, `_` is the
-default case. These match patterns may nest across optional and error-union
-layers. Ptr destructuring forms such as `let &value = ptr;` are separate
-local/loop binding syntax, not switch case syntax.
+error union. `null` matches the empty optional case. `_` and a bare binding are
+catch-all patterns. These patterns may nest across optional and error-union
+layers, and pointer patterns such as `&value` use ordinary Nia pointer-copy
+semantics.
+
+A bare identifier in a pattern always introduces a binding. Named constant and
+enum value patterns must be syntactically explicit: use a qualified path such as
+`Color::Red`, or parenthesize an expression such as `(local_constant)`. This
+rule does not depend on capitalization or name-resolution results. An arm may
+list multiple alternatives only when none of them binds a value, because every
+entry edge to an arm body must define the same locals.
 
 Switch expression arms must produce compatible value types unless an arm exits
 through `return`, `break`, or `continue`. Switches over closed enums must cover
@@ -1591,8 +1593,8 @@ let mut &mut y: i32 = mut_ptr;
 requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
 type after destructuring, not the pointer input type. Ptr-destructuring
 local bindings require an initializer. This syntax is separate from the
-optional/error-union match patterns used by if-pattern expressions, and from the
-value/range/default patterns used by `switch`.
+refutable optional/error-union patterns accepted by `switch` and if-pattern
+expressions. Local and loop bindings accept only the irrefutable pattern subset.
 
 ## 7. Statements And Semicolons
 

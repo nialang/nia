@@ -56,7 +56,7 @@ impl<'a> BodyChecker<'a> {
         self.node_builtin_values = facts.node_builtin_values;
         self.node_associated_const_projections = facts.node_associated_const_projections;
         self.node_array_repeat_counts = facts.node_array_repeat_counts;
-        self.node_switch_pattern_values = facts.node_switch_pattern_values;
+        self.node_pattern_values = facts.node_pattern_values;
         self.node_resolved_calls = facts.node_resolved_calls;
         self.node_function_references = facts.node_function_references;
     }
@@ -205,8 +205,7 @@ impl<'a> BodyChecker<'a> {
         let previous_node_associated_const_projections =
             std::mem::take(&mut self.node_associated_const_projections);
         let previous_node_array_repeat_counts = std::mem::take(&mut self.node_array_repeat_counts);
-        let previous_node_switch_pattern_values =
-            std::mem::take(&mut self.node_switch_pattern_values);
+        let previous_node_pattern_values = std::mem::take(&mut self.node_pattern_values);
         let previous_node_resolved_calls = std::mem::take(&mut self.node_resolved_calls);
         let previous_node_function_references = std::mem::take(&mut self.node_function_references);
         let function_facts = self
@@ -231,7 +230,7 @@ impl<'a> BodyChecker<'a> {
         self.node_builtin_values = function_facts.node_builtin_values;
         self.node_associated_const_projections = function_facts.node_associated_const_projections;
         self.node_array_repeat_counts = function_facts.node_array_repeat_counts;
-        self.node_switch_pattern_values = function_facts.node_switch_pattern_values;
+        self.node_pattern_values = function_facts.node_pattern_values;
         self.node_resolved_calls = function_facts.node_resolved_calls;
         self.node_function_references = function_facts.node_function_references;
         let lowered = self.profile_stage("body_check.profile.function.lower_body", |this| {
@@ -251,7 +250,7 @@ impl<'a> BodyChecker<'a> {
         self.node_builtin_values = previous_node_builtin_values;
         self.node_associated_const_projections = previous_node_associated_const_projections;
         self.node_array_repeat_counts = previous_node_array_repeat_counts;
-        self.node_switch_pattern_values = previous_node_switch_pattern_values;
+        self.node_pattern_values = previous_node_pattern_values;
         self.node_resolved_calls = previous_node_resolved_calls;
         self.node_function_references = previous_node_function_references;
     }

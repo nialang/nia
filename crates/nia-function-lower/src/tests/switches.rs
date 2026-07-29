@@ -211,6 +211,112 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 }
 
 #[test]
+fn statement_switch_pattern_binding_stores_tagged_union_payload() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let void_ty = append.intern(TyKind::Primitive(PrimitiveTy::Void));
+    let bool_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
+    let optional_ty = append.intern(TyKind::Optional { elem: i32_ty });
+    let target_local = LocalId(0);
+    let payload_local = LocalId(1);
+    let span = Span::default();
+    let body = TypedBody {
+        span,
+        locals: vec![
+            TypedLocal {
+                id: target_local,
+                name: local_name("value"),
+                kind: TypedLocalKind::Param,
+                ty: optional_ty,
+                span,
+            },
+            TypedLocal {
+                id: payload_local,
+                name: local_name("payload"),
+                kind: TypedLocalKind::ImmutableBinding,
+                ty: i32_ty,
+                span,
+            },
+        ],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Expr(TypedExpr {
+                span,
+                ty: void_ty,
+                kind: TypedExprKind::Switch(Box::new(TypedSwitch {
+                    target: TypedExpr {
+                        span,
+                        ty: optional_ty,
+                        kind: TypedExprKind::Local(target_local),
+                    },
+                    bool_ty,
+                    arms: vec![
+                        nia_body_ir::TypedSwitchArm {
+                            patterns: vec![TypedPattern {
+                                ty: optional_ty,
+                                span,
+                                kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
+                                    ty: i32_ty,
+                                    span,
+                                    kind: TypedPatternKind::Bind {
+                                        local_id: payload_local,
+                                        name: local_name("payload"),
+                                    },
+                                })),
+                            }],
+                            body: TypedSwitchArmBody::Block(Box::new(empty_body(void_ty))),
+                            span,
+                        },
+                        nia_body_ir::TypedSwitchArm {
+                            patterns: vec![TypedPattern {
+                                ty: optional_ty,
+                                span,
+                                kind: TypedPatternKind::OptionalNull,
+                            }],
+                            body: TypedSwitchArmBody::Block(Box::new(empty_body(void_ty))),
+                            span,
+                        },
+                    ],
+                })),
+            }),
+        }],
+        tail: None,
+        ty: void_ty,
+    };
+
+    let function_body = lower_function_body(
+        module_id,
+        &body,
+        FunctionTypeContext::for_module(&type_store, module_id),
+    )
+    .expect("valid typed body")
+    .body;
+
+    assert!(
+        function_body.blocks.iter().any(|block| {
+            block.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    FunctionOp::StoreLocal {
+                        local_id,
+                        value: FunctionExpr {
+                            ty,
+                            kind: FunctionExprKind::TaggedUnionPayload { .. },
+                            ..
+                        },
+                        ..
+                    } if *local_id == payload_local && *ty == i32_ty
+                )
+            })
+        }),
+        "{function_body:#?}"
+    );
+}
+
+#[test]
 fn statement_if_error_union_pattern_binding_uses_payload_type() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

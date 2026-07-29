@@ -417,7 +417,7 @@ impl ConstModuleLowerer<'_> {
                 self.collect_expr_locals(&switch.target, out);
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        self.collect_switch_pattern_locals(pattern, out);
+                        self.collect_pattern_locals(pattern, out);
                     }
                     match &arm.body {
                         nia_ast::SwitchArmBody::Expr(expr) => self.collect_expr_locals(expr, out),
@@ -443,21 +443,6 @@ impl ConstModuleLowerer<'_> {
             | nia_ast::ExprKind::Underscore
             | nia_ast::ExprKind::TypeTarget { .. }
             | nia_ast::ExprKind::TraitTarget { .. } => {}
-        }
-    }
-
-    fn collect_switch_pattern_locals(
-        &self,
-        pattern: &nia_ast::SwitchPattern,
-        out: &mut HashSet<LocalId>,
-    ) {
-        match &pattern.kind {
-            nia_ast::SwitchPatternKind::Wildcard => {}
-            nia_ast::SwitchPatternKind::Expr(expr) => self.collect_expr_locals(expr, out),
-            nia_ast::SwitchPatternKind::Range { start, end, .. } => {
-                self.collect_expr_locals(start, out);
-                self.collect_expr_locals(end, out);
-            }
         }
     }
 

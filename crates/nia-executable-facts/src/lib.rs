@@ -682,7 +682,7 @@ fn collect_typed_expr_refs(
             collect_typed_expr_refs(module, &switch.target, refs);
             for arm in &switch.arms {
                 for pattern in &arm.patterns {
-                    collect_typed_switch_pattern_refs(module, pattern, refs);
+                    collect_typed_pattern_refs(module, pattern, refs);
                 }
                 match &arm.body {
                     TypedSwitchArmBody::Expr(expr) => collect_typed_expr_refs(module, expr, refs),
@@ -910,26 +910,9 @@ fn collect_typed_pattern_refs(
         }
         TypedPatternKind::Wildcard
         | TypedPatternKind::Bind { .. }
-        | TypedPatternKind::OptionalNull => {}
-    }
-}
-
-fn collect_typed_switch_pattern_refs(
-    module: &ReachableModuleInput<'_>,
-    pattern: &nia_body_ir::TypedSwitchPattern,
-    refs: &mut ExecutableItemRefs,
-) {
-    match &pattern.kind {
-        nia_body_ir::TypedSwitchPatternKind::Expr(expr) => {
-            collect_typed_expr_refs(module, expr, refs)
-        }
-        nia_body_ir::TypedSwitchPatternKind::Range { start, end, .. } => {
-            collect_typed_expr_refs(module, start, refs);
-            collect_typed_expr_refs(module, end, refs);
-        }
-        nia_body_ir::TypedSwitchPatternKind::Wildcard
-        | nia_body_ir::TypedSwitchPatternKind::CheckedInt { .. }
-        | nia_body_ir::TypedSwitchPatternKind::CheckedIntRange { .. } => {}
+        | TypedPatternKind::OptionalNull
+        | TypedPatternKind::CheckedInt { .. }
+        | TypedPatternKind::CheckedIntRange { .. } => {}
     }
 }
 
@@ -1048,7 +1031,7 @@ pub fn filter_semantic_facts_for_reachable_items(
     reachable_facts.node_builtin_values = facts.node_builtin_values;
     reachable_facts.node_associated_const_projections = facts.node_associated_const_projections;
     reachable_facts.node_array_repeat_counts = facts.node_array_repeat_counts;
-    reachable_facts.node_switch_pattern_values = facts.node_switch_pattern_values;
+    reachable_facts.node_pattern_values = facts.node_pattern_values;
     reachable_facts.node_resolved_calls = facts.node_resolved_calls;
     reachable_facts.node_function_references = facts.node_function_references;
     reachable_facts.function_facts = facts

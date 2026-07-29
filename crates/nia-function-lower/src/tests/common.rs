@@ -157,10 +157,10 @@ pub(super) fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedB
 
 pub(super) fn switch_expr_arm(value: i32, body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![nia_body_ir::TypedSwitchPattern {
+        patterns: vec![nia_body_ir::TypedPattern {
             ty: test_ty(),
             span: Span::default(),
-            kind: nia_body_ir::TypedSwitchPatternKind::CheckedInt {
+            kind: nia_body_ir::TypedPatternKind::CheckedInt {
                 value: value.into(),
             },
         }],
@@ -176,10 +176,10 @@ pub(super) fn switch_range_arm(
     body: TypedSwitchArmBody,
 ) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![nia_body_ir::TypedSwitchPattern {
+        patterns: vec![nia_body_ir::TypedPattern {
             ty: test_ty(),
             span: Span::default(),
-            kind: nia_body_ir::TypedSwitchPatternKind::CheckedIntRange {
+            kind: nia_body_ir::TypedPatternKind::CheckedIntRange {
                 start: start.into(),
                 end: end.into(),
                 inclusive,
@@ -192,10 +192,10 @@ pub(super) fn switch_range_arm(
 
 pub(super) fn switch_default_arm(body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![nia_body_ir::TypedSwitchPattern {
+        patterns: vec![nia_body_ir::TypedPattern {
             ty: test_ty(),
             span: Span::default(),
-            kind: nia_body_ir::TypedSwitchPatternKind::Wildcard,
+            kind: nia_body_ir::TypedPatternKind::Wildcard,
         }],
         body,
         span: Span::default(),

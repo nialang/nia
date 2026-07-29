@@ -174,7 +174,7 @@ struct BodyChecker<'a> {
     node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
     node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
-    node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
+    node_pattern_values: HashMap<VersionedNodeKey, i128>,
     node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,

@@ -109,7 +109,7 @@ impl BodyInputValidator {
                 self.validate_value_expr(&switch.target)?;
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        self.validate_switch_pattern(pattern)?;
+                        self.validate_pattern(pattern)?;
                     }
                     self.validate_switch_arm_effect_body(&arm.body)?;
                 }
@@ -166,7 +166,7 @@ impl BodyInputValidator {
                 self.validate_value_expr(&switch.target)?;
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        self.validate_switch_pattern(pattern)?;
+                        self.validate_pattern(pattern)?;
                     }
                     self.validate_switch_arm_value_body(&arm.body)?;
                 }
@@ -296,23 +296,9 @@ impl BodyInputValidator {
             }
             TypedPatternKind::Wildcard
             | TypedPatternKind::Bind { .. }
-            | TypedPatternKind::OptionalNull => Ok(()),
-        }
-    }
-
-    fn validate_switch_pattern(
-        &self,
-        pattern: &TypedSwitchPattern,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
-        match &pattern.kind {
-            TypedSwitchPatternKind::Expr(expr) => self.validate_value_expr(expr),
-            TypedSwitchPatternKind::Range { start, end, .. } => {
-                self.validate_value_expr(start)?;
-                self.validate_value_expr(end)
-            }
-            TypedSwitchPatternKind::Wildcard
-            | TypedSwitchPatternKind::CheckedInt { .. }
-            | TypedSwitchPatternKind::CheckedIntRange { .. } => Ok(()),
+            | TypedPatternKind::OptionalNull
+            | TypedPatternKind::CheckedInt { .. }
+            | TypedPatternKind::CheckedIntRange { .. } => Ok(()),
         }
     }
 

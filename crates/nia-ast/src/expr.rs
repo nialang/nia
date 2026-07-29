@@ -99,26 +99,9 @@ pub struct SwitchStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchArm {
-    pub patterns: Vec<SwitchPattern>,
+    pub patterns: Vec<Pattern>,
     pub body: SwitchArmBody,
     pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SwitchPattern {
-    pub span: Span,
-    pub kind: SwitchPatternKind,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SwitchPatternKind {
-    Wildcard,
-    Expr(Box<Expr>),
-    Range {
-        start: Box<Expr>,
-        end: Box<Expr>,
-        inclusive: bool,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

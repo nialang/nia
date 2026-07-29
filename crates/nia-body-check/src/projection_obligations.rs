@@ -126,6 +126,7 @@ impl AssociatedConstProjectionUseCollector<'_> {
             nia_ast::ExprKind::IfPattern(if_pattern) => {
                 self.visit_expr(&if_pattern.target);
                 for arm in &if_pattern.arms {
+                    self.visit_pattern(&arm.pattern);
                     self.visit_block(&arm.body);
                 }
                 if let Some(else_branch) = &if_pattern.else_branch {
@@ -136,7 +137,7 @@ impl AssociatedConstProjectionUseCollector<'_> {
                 self.visit_expr(&switch.target);
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        self.visit_switch_pattern(pattern);
+                        self.visit_pattern(pattern);
                     }
                     self.visit_switch_arm_body(&arm.body);
                 }
@@ -211,14 +212,21 @@ impl AssociatedConstProjectionUseCollector<'_> {
         }
     }
 
-    fn visit_switch_pattern(&mut self, pattern: &nia_ast::SwitchPattern) {
+    fn visit_pattern(&mut self, pattern: &nia_ast::Pattern) {
         match &pattern.kind {
-            nia_ast::SwitchPatternKind::Expr(expr) => self.visit_expr(expr),
-            nia_ast::SwitchPatternKind::Range { start, end, .. } => {
+            nia_ast::PatternKind::Pointer(inner)
+            | nia_ast::PatternKind::MutPointer(inner)
+            | nia_ast::PatternKind::OptionalSome(inner)
+            | nia_ast::PatternKind::ErrorOk(inner)
+            | nia_ast::PatternKind::ErrorErr(inner) => self.visit_pattern(inner),
+            nia_ast::PatternKind::Expr(expr) => self.visit_expr(expr),
+            nia_ast::PatternKind::Range { start, end, .. } => {
                 self.visit_expr(start);
                 self.visit_expr(end);
             }
-            nia_ast::SwitchPatternKind::Wildcard => {}
+            nia_ast::PatternKind::Wildcard
+            | nia_ast::PatternKind::Bind { .. }
+            | nia_ast::PatternKind::OptionalNull => {}
         }
     }
 

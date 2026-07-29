@@ -195,12 +195,12 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn record_switch_pattern_value(&mut self, expr: &Expr, value: i128) {
-        self.node_switch_pattern_values
+    pub(super) fn record_pattern_value(&mut self, expr: &Expr, value: i128) {
+        self.node_pattern_values
             .insert(expr.node_key.clone(), value);
         if let Some(facts) = self.current_function_facts() {
             facts
-                .node_switch_pattern_values
+                .node_pattern_values
                 .insert(expr.node_key.clone(), value);
         }
     }
