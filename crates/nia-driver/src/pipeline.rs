@@ -339,6 +339,7 @@ impl Driver {
         request: &CheckRequest,
     ) -> nia_query::QueryResult<CompilerDatabase> {
         let loader = self.loader_database(request);
+        loader.load_program()?;
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
         let database = if let Some(compiler) = &*compiler_guard

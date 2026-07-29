@@ -1,0 +1,4 @@
+mode=module-check-success
+resource=build
+contract=module-optimization
+step=default

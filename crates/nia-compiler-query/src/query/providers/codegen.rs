@@ -141,6 +141,7 @@ pub(super) fn monomorphization_for_checked_modules(
             .map(
                 |(module, semantic_instantiations)| MonomorphizeModuleInput {
                     module_id: module.id,
+                    source_identity: module.path.identity(),
                     defs: &module.defs,
                     normalization: &module.type_normalization,
                     const_eval: &module.const_eval,

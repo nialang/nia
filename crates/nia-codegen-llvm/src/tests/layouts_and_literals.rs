@@ -30,8 +30,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let mixed_ty = mangled_symbol(ir, '%', 0, "Mixed");
-    let mixed_global = mangled_symbol(ir, '@', 0, "mixed");
+    let mixed_ty = mangled_symbol(ir, '%', "Mixed");
+    let mixed_global = mangled_symbol(ir, '@', "mixed");
     assert!(
         ir.contains(&format!("{mixed_ty} = type {{ i64, i8, i8 }}")),
         "{ir}"
@@ -85,8 +85,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let id = mangled_symbol(ir, '@', 0, "id");
-    let sum = mangled_symbol(ir, '@', 0, "sum");
+    let id = mangled_symbol(ir, '@', "id");
+    let sum = mangled_symbol(ir, '@', "sum");
     assert!(
         ir.contains(&format!("define void {id}(ptr %0, ptr %1)")),
         "{ir}"
@@ -135,8 +135,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let sum_pair = mangled_symbol(ir, '@', 0, "sum_pair");
-    let sum_array = mangled_symbol(ir, '@', 0, "sum_array");
+    let sum_pair = mangled_symbol(ir, '@', "sum_pair");
+    let sum_array = mangled_symbol(ir, '@', "sum_array");
     assert!(
         ir.contains(&format!("call i32 {sum_pair}(ptr %arg.copy")),
         "{ir}"
@@ -238,8 +238,8 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(!ir.contains("call.out"), "{ir}");
-    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
-    let make_array = mangled_symbol(ir, '@', 0, "make_array");
+    let make_pair = mangled_symbol(ir, '@', "make_pair");
+    let make_array = mangled_symbol(ir, '@', "make_array");
     assert_substrings_in_order(ir, &["%pair = alloca", &format!("{make_pair}(ptr %pair")]);
     assert_substrings_in_order(
         ir,
@@ -290,8 +290,8 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("return.copy"), "{ir}");
     assert!(!ir.contains("call.out"), "{ir}");
-    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
-    let make_array = mangled_symbol(ir, '@', 0, "make_array");
+    let make_pair = mangled_symbol(ir, '@', "make_pair");
+    let make_array = mangled_symbol(ir, '@', "make_array");
     assert_substrings_in_order(
         ir,
         &["%arg.copy = alloca", &format!("{make_pair}(ptr %arg.copy)")],
@@ -347,8 +347,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let pair = mangled_symbol(ir, '%', 0, "Pair");
-    let cleanup = mangled_symbol(ir, '@', 0, "cleanup");
+    let pair = mangled_symbol(ir, '%', "Pair");
+    let cleanup = mangled_symbol(ir, '@', "cleanup");
     assert_substrings_in_order(
         ir,
         &[
@@ -397,8 +397,8 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(!ir.contains("call.out"), "{ir}");
-    let forward_pair = mangled_symbol(ir, '@', 0, "forward_pair");
-    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
+    let forward_pair = mangled_symbol(ir, '@', "forward_pair");
+    let make_pair = mangled_symbol(ir, '@', "make_pair");
     assert_substrings_in_order(
         ir,
         &[
@@ -454,10 +454,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("call.out"), "{ir}");
-    let forward_pair = mangled_symbol(ir, '@', 0, "forward_pair");
-    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
-    let pair = mangled_symbol(ir, '%', 0, "Pair");
-    let cleanup = mangled_symbol(ir, '@', 0, "cleanup");
+    let forward_pair = mangled_symbol(ir, '@', "forward_pair");
+    let make_pair = mangled_symbol(ir, '@', "make_pair");
+    let pair = mangled_symbol(ir, '%', "Pair");
+    let cleanup = mangled_symbol(ir, '@', "cleanup");
     assert_substrings_in_order(
         ir,
         &[
@@ -581,7 +581,7 @@ fn main() i32 {
         );
         let ir = &output.modules[0].ir;
 
-        let bytes = mangled_symbol(ir, '@', 0, "bytes");
+        let bytes = mangled_symbol(ir, '@', "bytes");
         assert!(
             ir.contains(&format!("{bytes} = constant [4 x i8] c\"aaaa\"")),
             "{level:?}\n{ir}"
@@ -613,8 +613,8 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
 
-    let bytes = mangled_symbol(ir, '@', 0, "bytes");
-    let text = mangled_symbol(ir, '@', 0, "text");
+    let bytes = mangled_symbol(ir, '@', "bytes");
+    let text = mangled_symbol(ir, '@', "text");
     assert!(ir.contains(&format!("{bytes} = constant [3 x i8]")), "{ir}");
     assert!(ir.contains(&format!("{text} = constant [2 x i32]")), "{ir}");
 }

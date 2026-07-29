@@ -145,13 +145,7 @@ impl LoaderDatabase {
                     | Err(_) => None,
                 }
             });
-        let provider_facts = if request.verify_frontend_cache {
-            ProviderFactStore::default()
-        } else if let Some(demands) = cached_provider_demands.as_ref() {
-            ProviderFactStore::with_initial_demands(demands.iter().cloned())
-        } else {
-            ProviderFactStore::default()
-        };
+        let provider_facts = ProviderFactStore::default();
         let db = QueryDb::new_registered_in_session(
             LoaderContext {
                 entry_path,
@@ -180,6 +174,7 @@ impl LoaderDatabase {
     }
 
     pub fn load_program(&self) -> QueryResult<LoadedProgram> {
+        self.replay_provider_demand_plan()?;
         self.db
             .get(LoadedProgramQuery)
             .map(|program| program.as_ref().clone())
@@ -243,6 +238,14 @@ impl LoaderDatabase {
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
     ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
+        self.replay_provider_demand_plan()?;
+        self.update_provider_demands_inner(demands)
+    }
+
+    fn update_provider_demands_inner(
+        &self,
+        demands: impl IntoIterator<Item = ProviderDemand>,
+    ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
         let demands = demands.into_iter().collect::<Vec<_>>();
         let all_known = self.db.context().provider_facts.contains_all(&demands);
         if all_known {
@@ -270,6 +273,29 @@ impl LoaderDatabase {
                     .any(|demand| demand.request.invalidates_resolved_body_facts()),
             })
         }
+    }
+
+    fn replay_provider_demand_plan(&self) -> QueryResult<()> {
+        if self.db.context().verify_frontend_cache {
+            return Ok(());
+        }
+        let candidate = self
+            .db
+            .context()
+            .provider_demand_plan_candidate
+            .lock()
+            .expect("provider demand plan candidate lock poisoned")
+            .clone();
+        if let Some(demands) = candidate
+            && !self
+                .db
+                .context()
+                .provider_facts
+                .contains_all(&demands.iter().cloned().collect::<Vec<_>>())
+        {
+            self.update_provider_demands_inner(demands)?;
+        }
+        Ok(())
     }
 
     fn reset_provider_facts(&self, retirement: &QueryRetirement<'_, LoaderContext>) {

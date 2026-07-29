@@ -216,7 +216,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '%', 0, "Bits");
+    assert_contains_mangled_symbol(ir, '%', "Bits");
     assert!(ir.contains("store i32 42"));
     assert!(ir.contains("ret i32"));
 }
@@ -246,7 +246,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("ret i32 42"), "{ir}");
-    assert!(ir.contains("@nia__m0__d"));
+    assert!(ir.contains("@nia__s"));
     assert!(!ir.contains("answer"), "{ir}");
     assert!(!ir.contains("local"), "{ir}");
 }

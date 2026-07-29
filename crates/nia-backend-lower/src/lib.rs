@@ -43,7 +43,7 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
-use nia_mangle::{mangle_instance_symbol_id, mangle_symbol_id};
+use nia_mangle::{MangleModuleId, MangleResolvers, mangle_instance_symbol_id, mangle_symbol_id};
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
@@ -985,14 +985,21 @@ impl PendingForeignBackendItems {
             functions.sort_unstable();
         }
         while let Some(instance) = self.function_instances.pop_front() {
-            if !self.queued_function_instances.insert(instance.key()) {
+            let key = instance.key();
+            if !self.queued_function_instances.insert(key.clone()) {
                 continue;
             }
-            let owner_index = foreign_item_owner_index(
-                module_indices,
-                instance.def_id.module_id,
-                "function instance",
-            );
+            let owner_index = module_indices
+                .get(&instance.def_id.module_id)
+                .copied()
+                .unwrap_or_else(|| {
+                    let mut planned_owners = module_indices.keys().copied().collect::<Vec<_>>();
+                    planned_owners.sort_unstable();
+                    panic!(
+                        "Nia ICE: foreign backend function instance {key:?} owner {:?} is not in module plan {planned_owners:?}",
+                        instance.def_id.module_id,
+                    )
+                });
             plan.function_instances_by_owner[owner_index].push(instance);
         }
         while let Some(instance) = self.global_instances.pop_front() {
@@ -2599,6 +2606,7 @@ impl<'a> ModuleLowerer<'a> {
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let const_array_lengths = self.input.const_array_lengths;
+        let source_identities = &self.shared.source_identities;
         let self_arg = self_arg.map(|ty| self.normalize_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
@@ -2613,34 +2621,42 @@ impl<'a> ModuleLowerer<'a> {
             &args,
             const_args,
             self.type_store,
-            |def_id| {
-                if let Some(name) = def_names.get(&def_id) {
-                    return name.clone();
-                }
-                let name = program_def(input, def_id)
-                    .or_else(|| defs.get(def_id.def_id).cloned())
-                    .map(|def| mangle_symbol_id(def.name))
-                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
-                def_names.insert(def_id, name.clone());
-                name
-            },
-            |id| {
-                let value = const_array_lengths.values.get(&id).copied();
-                if value.is_none() && missing_array_len_diagnostics.insert(id) {
-                    let span = const_expr_summaries
-                        .get(&id)
-                        .map(|summary| summary.span)
-                        .unwrap_or_default();
-                    diagnostics.push(Diagnostic::user_error_at(
-                        nia_diagnostic::codes::LLVM_CODEGEN,
-                        span,
-                        format!(
-                            "array length {id:?} was not evaluated before backend symbol generation"
-                        ),
-                    ));
-                }
-                value
-            },
+            MangleResolvers::new(
+                |module_id| {
+                    let source_identity = source_identities.get(&module_id).unwrap_or_else(|| {
+                        panic!("Nia ICE: missing source identity for mangled module {module_id:?}")
+                    });
+                    MangleModuleId::from_normalized_source_path(source_identity.normalized_path())
+                },
+                |def_id| {
+                    if let Some(name) = def_names.get(&def_id) {
+                        return name.clone();
+                    }
+                    let name = program_def(input, def_id)
+                        .or_else(|| defs.get(def_id.def_id).cloned())
+                        .map(|def| mangle_symbol_id(def.name))
+                        .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
+                    def_names.insert(def_id, name.clone());
+                    name
+                },
+                |id| {
+                    let value = const_array_lengths.values.get(&id).copied();
+                    if value.is_none() && missing_array_len_diagnostics.insert(id) {
+                        let span = const_expr_summaries
+                            .get(&id)
+                            .map(|summary| summary.span)
+                            .unwrap_or_default();
+                        diagnostics.push(Diagnostic::user_error_at(
+                            nia_diagnostic::codes::LLVM_CODEGEN,
+                            span,
+                            format!(
+                                "array length {id:?} was not evaluated before backend symbol generation"
+                            ),
+                        ));
+                    }
+                    value
+                },
+            ),
         );
         if self_arg.is_some() {
             symbol = symbol.replacen("__inst__t_", "__inst__t_self_", 1);

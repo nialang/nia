@@ -1,10 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
-use nia_symbol::SymbolId;
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_symbol::{SymbolId, stable_hash};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TraitId, TyKind,
     TypeStore,
 };
+
+pub const MANGLE_ABI_VERSION: u64 = 2;
+
+pub struct MangleResolvers<F, G, H> {
+    module_id: F,
+    nominal_name: G,
+    array_len: H,
+}
+
+impl<F, G, H> MangleResolvers<F, G, H> {
+    pub fn new(module_id: F, nominal_name: G, array_len: H) -> Self {
+        Self {
+            module_id,
+            nominal_name,
+            array_len,
+        }
+    }
+}
 
 pub fn sanitize_symbol_part(text: &str) -> String {
     let mut out: String = text
@@ -27,36 +45,48 @@ pub fn mangle_symbol_id(symbol: SymbolId) -> String {
     format!("sym_{:016x}", symbol.raw())
 }
 
-pub fn mangle_base_symbol(def_id: GlobalDefId, name: &str) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MangleModuleId(u64);
+
+impl MangleModuleId {
+    pub const fn from_normalized_source_path(path: &str) -> Self {
+        Self(stable_hash(path))
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+pub fn mangle_base_symbol(def_id: GlobalDefId, module: MangleModuleId, name: &str) -> String {
     format!(
-        "nia__m{}__d{}__{}",
-        def_id.module_id.local_index(),
+        "nia__s{:016x}__d{}__{}",
+        module.0,
         def_id.def_id.0,
         sanitize_symbol_part(name)
     )
 }
 
-pub fn mangle_base_symbol_id(def_id: GlobalDefId, name: SymbolId) -> String {
-    format!(
-        "nia__m{}__d{}__{}",
-        def_id.module_id.local_index(),
-        def_id.def_id.0,
-        mangle_symbol_id(name)
-    )
+pub fn mangle_base_symbol_id(
+    def_id: GlobalDefId,
+    module: MangleModuleId,
+    name: SymbolId,
+) -> String {
+    mangle_base_symbol(def_id, module, &mangle_symbol_id(name))
 }
 
-pub fn mangle_instance_symbol_id<F, G>(
+pub fn mangle_instance_symbol_id<F, G, H>(
     def_id: GlobalDefId,
     name: SymbolId,
     args: &[InternedTyId],
     const_args: &[ConstGenericArg],
     type_store: &TypeStore,
-    nominal_name: F,
-    array_len: G,
+    resolvers: MangleResolvers<F, G, H>,
 ) -> String
 where
-    F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> Option<u64>,
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     mangle_instance_symbol(
         def_id,
@@ -64,76 +94,101 @@ where
         args,
         const_args,
         type_store,
-        nominal_name,
-        array_len,
+        resolvers,
     )
 }
 
-pub fn mangle_instance_symbol<F, G>(
+pub fn mangle_instance_symbol<F, G, H>(
     def_id: GlobalDefId,
     name: &str,
     args: &[InternedTyId],
     const_args: &[ConstGenericArg],
     type_store: &TypeStore,
-    nominal_name: F,
-    array_len: G,
+    resolvers: MangleResolvers<F, G, H>,
 ) -> String
 where
-    F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> Option<u64>,
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
-    let mut nominal_name = nominal_name;
-    let mut array_len = array_len;
+    let MangleResolvers {
+        mut module_id,
+        mut nominal_name,
+        mut array_len,
+    } = resolvers;
     let mut parts = args
         .iter()
         .map(|arg| {
             format!(
                 "t_{}",
-                mangle_type_inner(type_store, *arg, &mut nominal_name, &mut array_len)
+                mangle_type_inner(
+                    type_store,
+                    *arg,
+                    &mut module_id,
+                    &mut nominal_name,
+                    &mut array_len,
+                )
             )
         })
         .collect::<Vec<_>>();
     parts.extend(const_args.iter().map(|arg| {
         format!(
             "c_{}",
-            mangle_const_generic_arg(type_store, arg, &mut nominal_name, &mut array_len)
+            mangle_const_generic_arg(
+                type_store,
+                arg,
+                &mut module_id,
+                &mut nominal_name,
+                &mut array_len,
+            )
         )
     }));
     if parts.is_empty() {
-        mangle_base_symbol(def_id, name)
+        mangle_base_symbol(def_id, module_id(def_id.module_id), name)
     } else {
         format!(
             "{}__inst__{}",
-            mangle_base_symbol(def_id, name),
+            mangle_base_symbol(def_id, module_id(def_id.module_id), name),
             parts.join("__")
         )
     }
 }
 
-pub fn mangle_type_with<F, G>(
+pub fn mangle_type_with<F, G, H>(
     type_store: &TypeStore,
     ty: InternedTyId,
-    nominal_name: F,
-    array_len: G,
+    resolvers: MangleResolvers<F, G, H>,
 ) -> String
 where
-    F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> Option<u64>,
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
-    let mut nominal_name = nominal_name;
-    let mut array_len = array_len;
-    mangle_type_inner(type_store, ty, &mut nominal_name, &mut array_len)
+    let MangleResolvers {
+        mut module_id,
+        mut nominal_name,
+        mut array_len,
+    } = resolvers;
+    mangle_type_inner(
+        type_store,
+        ty,
+        &mut module_id,
+        &mut nominal_name,
+        &mut array_len,
+    )
 }
 
-fn mangle_type_inner<F, G>(
+fn mangle_type_inner<F, G, H>(
     type_store: &TypeStore,
     ty: InternedTyId,
-    nominal_name: &mut F,
-    array_len: &mut G,
+    module_id: &mut F,
+    nominal_name: &mut G,
+    array_len: &mut H,
 ) -> String
 where
-    F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> Option<u64>,
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     match type_store.get(ty) {
         Some(TyKind::Primitive(primitive)) => mangle_primitive(*primitive),
@@ -141,33 +196,33 @@ where
             let prefix = if *is_readonly { "ptr_read" } else { "ptr" };
             format!(
                 "{prefix}__{}",
-                mangle_type_inner(type_store, *elem, nominal_name, array_len)
+                mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
             )
         }
         Some(TyKind::VolatilePointer { is_readonly, elem }) => {
             let prefix = if *is_readonly { "vptr_read" } else { "vptr" };
             format!(
                 "{prefix}__{}",
-                mangle_type_inner(type_store, *elem, nominal_name, array_len)
+                mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
             )
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
             let prefix = if *is_readonly { "slice_read" } else { "slice" };
             format!(
                 "{prefix}__{}",
-                mangle_type_inner(type_store, *elem, nominal_name, array_len)
+                mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
             )
         }
         Some(TyKind::SlicePointee { elem }) => {
             format!(
                 "slice_pointee__{}",
-                mangle_type_inner(type_store, *elem, nominal_name, array_len)
+                mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
             )
         }
         Some(TyKind::Array { len, elem }) => format!(
             "arr__{}__{}",
-            mangle_array_len(len, type_store, nominal_name, array_len),
-            mangle_type_inner(type_store, *elem, nominal_name, array_len)
+            mangle_array_len(len, type_store, module_id, nominal_name, array_len),
+            mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
         ),
         Some(TyKind::Vector { elem, lanes }) => {
             format!("vec__len__{lanes}__{}", mangle_primitive(*elem))
@@ -184,7 +239,7 @@ where
             match bound {
                 Some(bound) => format!(
                     "{kind}__{}",
-                    mangle_type_inner(type_store, *bound, nominal_name, array_len)
+                    mangle_type_inner(type_store, *bound, module_id, nominal_name, array_len)
                 ),
                 None => kind.to_string(),
             }
@@ -192,14 +247,14 @@ where
         Some(TyKind::Optional { elem }) => {
             format!(
                 "opt__{}",
-                mangle_type_inner(type_store, *elem, nominal_name, array_len)
+                mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
             )
         }
         Some(TyKind::ErrorUnion { error, value }) => {
             format!(
                 "erru__{}__{}",
-                mangle_type_inner(type_store, *error, nominal_name, array_len),
-                mangle_type_inner(type_store, *value, nominal_name, array_len)
+                mangle_type_inner(type_store, *error, module_id, nominal_name, array_len),
+                mangle_type_inner(type_store, *value, module_id, nominal_name, array_len)
             )
         }
         Some(TyKind::FunctionPointer {
@@ -209,14 +264,16 @@ where
         }) => {
             let params = params
                 .iter()
-                .map(|param| mangle_type_inner(type_store, *param, nominal_name, array_len))
+                .map(|param| {
+                    mangle_type_inner(type_store, *param, module_id, nominal_name, array_len)
+                })
                 .collect::<Vec<_>>()
                 .join("__");
             let mut result = format!(
                 "fnptr__pc{}__{}__ret__{}",
                 params.len(),
                 params,
-                mangle_type_inner(type_store, *return_type, nominal_name, array_len)
+                mangle_type_inner(type_store, *return_type, module_id, nominal_name, array_len)
             );
             if *is_variadic {
                 result.push_str("__variadic");
@@ -228,18 +285,28 @@ where
             args,
             const_args,
         }) => {
-            let base = nominal_name(*def_id);
+            let base = mangle_source_def(*def_id, module_id, nominal_name);
             if args.is_empty() && const_args.is_empty() {
                 format!("nom__{base}")
             } else {
                 let args = args
                     .iter()
-                    .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                    .map(|arg| {
+                        mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len)
+                    })
                     .collect::<Vec<_>>()
                     .join("__");
                 let const_arg_parts = const_args
                     .iter()
-                    .map(|arg| mangle_const_generic_arg(type_store, arg, nominal_name, array_len))
+                    .map(|arg| {
+                        mangle_const_generic_arg(
+                            type_store,
+                            arg,
+                            module_id,
+                            nominal_name,
+                            array_len,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 let const_args = const_arg_parts.join("__");
                 format!(
@@ -261,7 +328,9 @@ where
             } else {
                 let args = args
                     .iter()
-                    .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                    .map(|arg| {
+                        mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len)
+                    })
                     .collect::<Vec<_>>()
                     .join("__");
                 format!("builtin_trait__{base}__argc{}__{}", args.len(), args)
@@ -280,17 +349,19 @@ where
                 "trait_obj"
             };
             let trait_name = match trait_id {
-                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Source(def_id) => mangle_source_def(*def_id, module_id, nominal_name),
                 TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
             };
             let trait_args = trait_args
                 .iter()
-                .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
             let trait_const_arg_parts = trait_const_args
                 .iter()
-                .map(|arg| mangle_const_generic_arg(type_store, arg, nominal_name, array_len))
+                .map(|arg| {
+                    mangle_const_generic_arg(type_store, arg, module_id, nominal_name, array_len)
+                })
                 .collect::<Vec<_>>();
             let trait_const_args = trait_const_arg_parts.join("__");
             let assoc_bindings = associated_type_bindings
@@ -299,21 +370,31 @@ where
                     let trait_part = binding
                         .trait_id
                         .map(|trait_id| match trait_id {
-                            TraitId::Source(def_id) => nominal_name(def_id),
+                            TraitId::Source(def_id) => {
+                                mangle_source_def(def_id, module_id, nominal_name)
+                            }
                             TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
                         })
                         .unwrap_or_else(|| "self".to_string());
                     let trait_args = binding
                         .trait_args
                         .iter()
-                        .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                        .map(|arg| {
+                            mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len)
+                        })
                         .collect::<Vec<_>>()
                         .join("__");
                     let trait_const_arg_parts = binding
                         .trait_const_args
                         .iter()
                         .map(|arg| {
-                            mangle_const_generic_arg(type_store, arg, nominal_name, array_len)
+                            mangle_const_generic_arg(
+                                type_store,
+                                arg,
+                                module_id,
+                                nominal_name,
+                                array_len,
+                            )
                         })
                         .collect::<Vec<_>>();
                     let trait_const_args = trait_const_arg_parts.join("__");
@@ -325,7 +406,13 @@ where
                         trait_const_arg_parts.len(),
                         trait_const_args,
                         mangle_symbol_id(binding.name),
-                        mangle_type_inner(type_store, binding.ty, nominal_name, array_len)
+                        mangle_type_inner(
+                            type_store,
+                            binding.ty,
+                            module_id,
+                            nominal_name,
+                            array_len,
+                        )
                     )
                 })
                 .collect::<Vec<_>>()
@@ -348,17 +435,19 @@ where
             associated_type_bindings,
         }) => {
             let trait_name = match trait_id {
-                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Source(def_id) => mangle_source_def(*def_id, module_id, nominal_name),
                 TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
             };
             let trait_args = trait_args
                 .iter()
-                .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
             let trait_const_arg_parts = trait_const_args
                 .iter()
-                .map(|arg| mangle_const_generic_arg(type_store, arg, nominal_name, array_len))
+                .map(|arg| {
+                    mangle_const_generic_arg(type_store, arg, module_id, nominal_name, array_len)
+                })
                 .collect::<Vec<_>>();
             let trait_const_args = trait_const_arg_parts.join("__");
             let assoc_bindings = associated_type_bindings
@@ -367,21 +456,31 @@ where
                     let trait_part = binding
                         .trait_id
                         .map(|trait_id| match trait_id {
-                            TraitId::Source(def_id) => nominal_name(def_id),
+                            TraitId::Source(def_id) => {
+                                mangle_source_def(def_id, module_id, nominal_name)
+                            }
                             TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
                         })
                         .unwrap_or_else(|| "self".to_string());
                     let trait_args = binding
                         .trait_args
                         .iter()
-                        .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                        .map(|arg| {
+                            mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len)
+                        })
                         .collect::<Vec<_>>()
                         .join("__");
                     let trait_const_arg_parts = binding
                         .trait_const_args
                         .iter()
                         .map(|arg| {
-                            mangle_const_generic_arg(type_store, arg, nominal_name, array_len)
+                            mangle_const_generic_arg(
+                                type_store,
+                                arg,
+                                module_id,
+                                nominal_name,
+                                array_len,
+                            )
                         })
                         .collect::<Vec<_>>();
                     let trait_const_args = trait_const_arg_parts.join("__");
@@ -393,7 +492,13 @@ where
                         trait_const_arg_parts.len(),
                         trait_const_args,
                         mangle_symbol_id(binding.name),
-                        mangle_type_inner(type_store, binding.ty, nominal_name, array_len)
+                        mangle_type_inner(
+                            type_store,
+                            binding.ty,
+                            module_id,
+                            nominal_name,
+                            array_len,
+                        )
                     )
                 })
                 .collect::<Vec<_>>()
@@ -416,19 +521,22 @@ where
             trait_const_args,
             name,
         }) => {
-            let self_ty = mangle_type_inner(type_store, *self_ty, nominal_name, array_len);
+            let self_ty =
+                mangle_type_inner(type_store, *self_ty, module_id, nominal_name, array_len);
             let trait_name = match trait_id {
-                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Source(def_id) => mangle_source_def(*def_id, module_id, nominal_name),
                 TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
             };
             let trait_args = trait_args
                 .iter()
-                .map(|arg| mangle_type_inner(type_store, *arg, nominal_name, array_len))
+                .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
             let trait_const_arg_parts = trait_const_args
                 .iter()
-                .map(|arg| mangle_const_generic_arg(type_store, arg, nominal_name, array_len))
+                .map(|arg| {
+                    mangle_const_generic_arg(type_store, arg, module_id, nominal_name, array_len)
+                })
                 .collect::<Vec<_>>();
             let trait_const_args = trait_const_arg_parts.join("__");
             format!(
@@ -454,15 +562,30 @@ where
     }
 }
 
-fn mangle_array_len<F, G>(
+fn mangle_source_def<F, G>(def_id: GlobalDefId, module_id: &mut F, nominal_name: &mut G) -> String
+where
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+{
+    format!(
+        "s{:016x}__d{}__{}",
+        module_id(def_id.module_id).0,
+        def_id.def_id.0,
+        nominal_name(def_id)
+    )
+}
+
+fn mangle_array_len<F, G, H>(
     len: &ArrayLenTy,
     type_store: &TypeStore,
-    nominal_name: &mut F,
-    array_len: &mut G,
+    module_id: &mut F,
+    nominal_name: &mut G,
+    array_len: &mut H,
 ) -> String
 where
-    F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> Option<u64>,
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
@@ -475,38 +598,40 @@ where
             // evaluated length.
             .unwrap_or_else(|| {
                 format!(
-                    "len_unresolved__m{}__c{}",
-                    id.module_id.local_index(),
+                    "len_unresolved__s{:016x}__c{}",
+                    module_id(id.module_id).0,
                     id.const_expr_id.0
                 )
             }),
         ArrayLenTy::Builtin { builtin, ty } => format!(
             "builtin__{}__{}",
             sanitize_symbol_part(builtin.name()),
-            mangle_type_inner(type_store, *ty, nominal_name, array_len)
+            mangle_type_inner(type_store, *ty, module_id, nominal_name, array_len)
         ),
     }
 }
 
-fn mangle_const_generic_arg<F, G>(
+fn mangle_const_generic_arg<F, G, H>(
     type_store: &TypeStore,
     arg: &ConstGenericArg,
-    nominal_name: &mut F,
-    array_len: &mut G,
+    module_id: &mut F,
+    nominal_name: &mut G,
+    array_len: &mut H,
 ) -> String
 where
-    F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> Option<u64>,
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
-    let ty = mangle_type_inner(type_store, arg.ty, nominal_name, array_len);
+    let ty = mangle_type_inner(type_store, arg.ty, module_id, nominal_name, array_len);
     let value = match &arg.value {
         ConstGenericValue::GenericParam(name) => format!("g{}", mangle_symbol_id(*name)),
         ConstGenericValue::ConstExpr(id) => array_len(*id)
             .map(|value| format!("expr_len__{value}"))
             .unwrap_or_else(|| {
                 format!(
-                    "expr_unresolved__m{}__c{}",
-                    id.module_id.local_index(),
+                    "expr_unresolved__s{:016x}__c{}",
+                    module_id(id.module_id).0,
                     id.const_expr_id.0
                 )
             }),
@@ -530,7 +655,122 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{ModuleIdAllocator, TypeStoreIndex};
+    use nia_ids::{DefId, ModuleIdAllocator, TypeStoreIndex};
+
+    #[test]
+    fn base_mangling_is_stable_across_module_allocator_universes() {
+        let mut first_ids = ModuleIdAllocator::new();
+        let first_module = first_ids.allocate();
+        let mut second_ids = ModuleIdAllocator::new();
+        let _unrelated_module = second_ids.allocate();
+        let second_module = second_ids.allocate();
+        let stable_module = MangleModuleId::from_normalized_source_path("std/error.nia");
+
+        assert_eq!(
+            mangle_base_symbol(
+                GlobalDefId {
+                    module_id: first_module,
+                    def_id: DefId(7),
+                },
+                stable_module,
+                "Error",
+            ),
+            mangle_base_symbol(
+                GlobalDefId {
+                    module_id: second_module,
+                    def_id: DefId(7),
+                },
+                stable_module,
+                "Error",
+            )
+        );
+    }
+
+    #[test]
+    fn nominal_mangling_is_stable_across_module_allocator_universes() {
+        let type_store = TypeStore::new();
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_module = module_ids.allocate();
+        let _unrelated_module = module_ids.allocate();
+        let second_module = module_ids.allocate();
+        let first = type_store
+            .append_for_module(first_module)
+            .intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id: first_module,
+                    def_id: DefId(7),
+                },
+                args: Vec::new(),
+                const_args: Vec::new(),
+            });
+        let second = type_store
+            .append_for_module(second_module)
+            .intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id: second_module,
+                    def_id: DefId(7),
+                },
+                args: Vec::new(),
+                const_args: Vec::new(),
+            });
+
+        let first = mangle_type_with(
+            &type_store,
+            first,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("std/error.nia"),
+                |_| "Error".into(),
+                |_| None,
+            ),
+        );
+        let second = mangle_type_with(
+            &type_store,
+            second,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("std/error.nia"),
+                |_| "Error".into(),
+                |_| None,
+            ),
+        );
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn nominal_mangling_distinguishes_source_identities() {
+        let type_store = TypeStore::new();
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let ty = type_store
+            .append_for_module(module_id)
+            .intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(7),
+                },
+                args: Vec::new(),
+                const_args: Vec::new(),
+            });
+
+        let first = mangle_type_with(
+            &type_store,
+            ty,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("first/error.nia"),
+                |_| "Error".into(),
+                |_| None,
+            ),
+        );
+        let second = mangle_type_with(
+            &type_store,
+            ty,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("second/error.nia"),
+                |_| "Error".into(),
+                |_| None,
+            ),
+        );
+        assert_ne!(first, second);
+    }
 
     #[test]
     fn mangles_real_error_type_for_diagnostic_recovery() {
@@ -539,7 +779,15 @@ mod tests {
         let error = type_store.append_for_module(module_ids.allocate()).error();
 
         assert_eq!(
-            mangle_type_with(&type_store, error, |_| "item".into(), |_| None),
+            mangle_type_with(
+                &type_store,
+                error,
+                MangleResolvers::new(
+                    |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                    |_| "item".into(),
+                    |_| None,
+                ),
+            ),
             "ty_error"
         );
     }
@@ -550,6 +798,14 @@ mod tests {
         let type_store = TypeStore::new();
         let missing = InternedTyId::new(type_store.id(), TypeStoreIndex::from_store_index(999));
 
-        let _ = mangle_type_with(&type_store, missing, |_| "item".into(), |_| None);
+        let _ = mangle_type_with(
+            &type_store,
+            missing,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                |_| "item".into(),
+                |_| None,
+            ),
+        );
     }
 }

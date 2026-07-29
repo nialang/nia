@@ -65,7 +65,7 @@ fn main(value: Box[[N]u8]) void {}
         .expect("Box instance");
 
     assert!(
-        instance.symbol.contains("len_unresolved__m0__c0"),
+        instance.symbol.contains("len_unresolved__s") && instance.symbol.contains("__c0"),
         "{}",
         instance.symbol
     );

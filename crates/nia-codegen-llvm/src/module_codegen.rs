@@ -23,7 +23,9 @@ use nia_llvm::{
     types::{BasicTypeEnum, FunctionType, StructType},
     values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
-use nia_mangle::{mangle_base_symbol_id, mangle_symbol_id, mangle_type_with};
+use nia_mangle::{
+    MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_symbol_id, mangle_type_with,
+};
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
@@ -506,7 +508,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
-        mangle_base_symbol_id(def_id, name)
+        mangle_base_symbol_id(def_id, self.mangle_module_id(def_id.module_id), name)
+    }
+
+    fn mangle_module_id(&self, module_id: ModuleId) -> MangleModuleId {
+        let module = self.program.module(module_id).unwrap_or_else(|| {
+            panic!("Nia ICE: cannot mangle symbol for missing module {module_id:?}")
+        });
+        MangleModuleId::from_normalized_source_path(module.source_identity.normalized_path())
     }
 
     fn struct_symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
@@ -562,28 +571,31 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let mangled = mangle_type_with(
             self.program.type_store(),
             ty,
-            |def_id| {
-                self.program
-                    .struct_item(def_id)
-                    .map(|item| mangle_symbol_id(item.name))
-                    .or_else(|| {
-                        self.program
-                            .union_item(def_id)
-                            .map(|item| mangle_symbol_id(item.name))
-                    })
-                    .or_else(|| {
-                        self.program
-                            .enum_item(def_id)
-                            .map(|item| mangle_symbol_id(item.name))
-                    })
-                    .or_else(|| {
-                        self.program
-                            .function(def_id)
-                            .map(|item| mangle_symbol_id(item.name))
-                    })
-                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
-            },
-            |_| Some(0),
+            MangleResolvers::new(
+                |module_id| self.mangle_module_id(module_id),
+                |def_id| {
+                    self.program
+                        .struct_item(def_id)
+                        .map(|item| mangle_symbol_id(item.name))
+                        .or_else(|| {
+                            self.program
+                                .union_item(def_id)
+                                .map(|item| mangle_symbol_id(item.name))
+                        })
+                        .or_else(|| {
+                            self.program
+                                .enum_item(def_id)
+                                .map(|item| mangle_symbol_id(item.name))
+                        })
+                        .or_else(|| {
+                            self.program
+                                .function(def_id)
+                                .map(|item| mangle_symbol_id(item.name))
+                        })
+                        .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+                },
+                |_| Some(0),
+            ),
         );
         self.mangled_types.borrow_mut().insert(ty, mangled.clone());
         mangled

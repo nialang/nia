@@ -16,6 +16,7 @@ nia-item-signatures.workspace = true
 nia-layout.workspace = true
 nia-mangle.workspace = true
 nia-sema-ir.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true
 nia-trait-solve.workspace = true
@@ -25,7 +26,6 @@ nia-type-normalize.workspace = true
 [dev-dependencies]
 nia-node-id.workspace = true
 nia-parser.workspace = true
-nia-source.workspace = true
 
 [lib]
 path = "src/lib.rs"

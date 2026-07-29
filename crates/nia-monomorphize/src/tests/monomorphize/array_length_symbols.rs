@@ -44,7 +44,8 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
 
     assert_eq!(mono.instances.len(), 1);
     assert!(
-        mono.instances[0].symbol.contains("len_unresolved__m0__c0"),
+        mono.instances[0].symbol.contains("len_unresolved__s")
+            && mono.instances[0].symbol.contains("__c0"),
         "{}",
         mono.instances[0].symbol
     );

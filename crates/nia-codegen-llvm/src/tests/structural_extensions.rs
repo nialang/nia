@@ -32,8 +32,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let box_ty = mangled_symbol(ir, '%', 0, "Box__inst__t_i32");
-    let make = mangled_symbol(ir, '@', 0, "make__inst__t_i32");
+    let box_ty = mangled_symbol(ir, '%', "Box__inst__t_i32");
+    let make = mangled_symbol(ir, '@', "make__inst__t_i32");
     assert!(ir.contains(&box_ty), "{ir}");
     assert!(ir.contains(&make), "{ir}");
     assert!(
@@ -105,11 +105,11 @@ fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let is_zero = mangled_symbol(ir, '@', 0, "is_zero");
-    let is_null = mangled_symbol(ir, '@', 0, "is_null__inst__t_i32");
-    let size = mangled_symbol(ir, '@', 0, "size__inst__t_i32");
-    let first = mangled_symbol(ir, '@', 0, "first__inst__t_i32");
-    let apply = mangled_symbol(ir, '@', 0, "apply");
+    let is_zero = mangled_symbol(ir, '@', "is_zero");
+    let is_null = mangled_symbol(ir, '@', "is_null__inst__t_i32");
+    let size = mangled_symbol(ir, '@', "size__inst__t_i32");
+    let first = mangled_symbol(ir, '@', "first__inst__t_i32");
+    let apply = mangled_symbol(ir, '@', "apply");
     assert!(ir.contains(&format!("call i1 {is_zero}")), "{ir}");
     assert!(ir.contains(&format!("call i1 {is_null}")), "{ir}");
     assert!(ir.contains(&format!("call i64 {size}")), "{ir}");
@@ -219,8 +219,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let specialized_make = mangled_symbol(ir, '@', 0, "make");
-    let generic_make = mangled_symbol(ir, '@', 0, "make__inst__t_bool");
+    let specialized_make = mangled_symbol(ir, '@', "make");
+    let generic_make = mangled_symbol(ir, '@', "make__inst__t_bool");
     assert!(
         ir.contains(&format!("call void {specialized_make}(ptr %a, i32 41")),
         "{ir}"
@@ -266,7 +266,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '@', 0, "get");
+    assert_contains_mangled_symbol(ir, '@', "get");
     assert!(ir.contains("call i32 %"), "{ir}");
 }
 
@@ -305,7 +305,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '@', 0, "get__inst__t_i32");
+    assert_contains_mangled_symbol(ir, '@', "get__inst__t_i32");
     assert!(ir.contains("call i32 %"), "{ir}");
 }
 
@@ -341,8 +341,8 @@ fn main(p: & Point) i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let point_get = mangled_symbol(ir, '@', 0, "point_get");
-    let get = mangled_symbol(ir, '@', 0, "get");
+    let point_get = mangled_symbol(ir, '@', "point_get");
+    let get = mangled_symbol(ir, '@', "get");
     assert!(
         ir.contains(&format!("{point_get} = constant ptr {get}")),
         "{ir}"
@@ -467,7 +467,7 @@ fn main(ptr: &&&&&& &&i32) bool {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '@', 0, "is_null");
+    assert_contains_mangled_symbol(ir, '@', "is_null");
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
 }
@@ -498,7 +498,7 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let plus_one = mangled_symbol(ir, '@', 0, "plus_one");
+    let plus_one = mangled_symbol(ir, '@', "plus_one");
     assert!(ir.contains(&plus_one), "{ir}");
     assert!(ir.contains(&format!("call i64 {plus_one}(i64 10")), "{ir}");
 }

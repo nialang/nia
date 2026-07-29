@@ -580,9 +580,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let function_ty =
             self.dynamic_trait_method_type(self_ty, &value_params, item.return_type(), span)?;
         let name = format!(
-            "nia__traitobj_adapter__{}__{}__{}__{}",
+            "nia__traitobj_adapter__{}__s{:016x}__{}__{}",
             self.mangle_ty(self_ty),
-            def_id.module_id.local_index(),
+            self.mangle_module_id(def_id.module_id).raw(),
             def_id.def_id.0,
             self.trait_object_adapters.borrow().len()
         );

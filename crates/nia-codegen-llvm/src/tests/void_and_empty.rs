@@ -80,8 +80,8 @@ pub fn take(value: Empty) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
-    let take_local = mangled_symbol(&main_ir.ir, '@', 0, "take_local");
+    let take = mangled_symbol(&main_ir.ir, '@', "take");
+    let take_local = mangled_symbol(&main_ir.ir, '@', "take_local");
     assert!(
         main_ir.ir.contains(&format!("call i32 {take_local}()")),
         "{}",
@@ -146,8 +146,8 @@ pub fn take(value: Empty) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    let take_local = mangled_symbol(&main_ir.ir, '@', 0, "take_local");
-    let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
+    let take_local = mangled_symbol(&main_ir.ir, '@', "take_local");
+    let take = mangled_symbol(&main_ir.ir, '@', "take");
     assert!(
         main_ir.ir.contains(&format!("call i32 {take_local}()")),
         "{}",
@@ -240,8 +240,8 @@ pub fn take(value: Box[i32]) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    let take_local = mangled_symbol(&main_ir.ir, '@', 0, "take_local");
-    let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
+    let take_local = mangled_symbol(&main_ir.ir, '@', "take_local");
+    let take = mangled_symbol(&main_ir.ir, '@', "take");
     assert!(
         main_ir.ir.contains(&format!("call i32 {take_local}()")),
         "{}",
@@ -353,8 +353,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let effect = mangled_symbol(ir, '@', 0, "effect");
-    let value = mangled_symbol(ir, '@', 0, "value");
+    let effect = mangled_symbol(ir, '@', "effect");
+    let value = mangled_symbol(ir, '@', "value");
     assert!(ir.contains("declare void @printf"));
     assert!(ir.contains("call void (ptr, ...) @printf"));
     assert!(ir.contains(&format!("call void {effect}")), "{ir}");
@@ -462,9 +462,9 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let effect = mangled_symbol(ir, '@', 0, "effect");
-    let take = mangled_symbol(ir, '@', 0, "take");
-    let take_array = mangled_symbol(ir, '@', 0, "take_array");
+    let effect = mangled_symbol(ir, '@', "effect");
+    let take = mangled_symbol(ir, '@', "take");
+    let take_array = mangled_symbol(ir, '@', "take_array");
     for value in 1..=5 {
         assert!(
             ir.contains(&format!("call void {effect}(i32 {value})")),

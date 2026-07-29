@@ -83,13 +83,13 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
     assert!(plan_path.is_file());
 
     let warm = LoaderDatabase::new(request());
+    warm.load_program().expect("warm program load");
     assert_eq!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&warm)
             .expect("warm provider facts")
             .demands(),
         &demands
     );
-    warm.load_program().expect("warm program load");
     assert_eq!(
         warm.db.context().symbols.resolve(method).as_deref(),
         Some("cached_method")

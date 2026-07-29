@@ -1174,8 +1174,9 @@ fn main() u8 {
 #[test]
 fn lowers_monomorphized_function_instances_with_symbolic_names() {
     let root = temp_dir("lowers_monomorphized_function_instances_with_symbolic_names");
+    let main_path = root.join("main.nia");
     write(
-        &root.join("main.nia"),
+        &main_path,
         r#"
 fn id[T](value: T) T {
     value
@@ -1187,12 +1188,19 @@ fn main() i32 {
 "#,
     );
 
-    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(main_path.to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let module = &program.backend_lowering.program.modules[0];
     assert_eq!(module.function_instances.len(), 1);
     let symbol = &module.function_instances[0].symbol;
-    assert!(symbol.starts_with("nia__m0__d"), "{symbol}");
+    let source_identity = nia_source::SourceIdentity::new(main_path.to_string_lossy());
+    assert!(
+        symbol.starts_with(&format!(
+            "nia__s{:016x}__d",
+            stable_hash(source_identity.normalized_path())
+        )),
+        "{symbol}"
+    );
     assert!(
         symbol.contains(&format!(
             "{}__inst__",
