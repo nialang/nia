@@ -587,7 +587,7 @@ pub(super) fn early_program_diagnostics(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<ProgramDiagnostic>> {
     let load_diagnostics = db.get(ProgramLoadDiagnosticsQuery)?;
-    let mut diagnostics = resolve_program_diagnostics(db.context(), &load_diagnostics);
+    let mut diagnostics = load_diagnostics.to_diagnostics();
     let loaded_modules = db.get(LoadedModulesQuery)?;
     let _graph = db.get(ModuleGraphQuery)?;
     let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules)?;

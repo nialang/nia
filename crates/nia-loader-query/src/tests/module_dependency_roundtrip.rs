@@ -74,7 +74,6 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
         used_module_paths,
         explicit_imports,
         used_import_aliases,
-        diagnostics: Vec::new(),
     };
     cache
         .publish_module_dependencies(

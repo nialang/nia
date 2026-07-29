@@ -335,12 +335,14 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
         Ok(tree.clone())
     }
 
-    fn load_diagnostics(&self) -> QueryResult<Vec<ProgramDiagnostic>> {
+    fn load_diagnostics(&self) -> QueryResult<ProgramDiagnosticBundles> {
         let fact = self.fact(TestLoaderFactKey::LoadDiagnostics);
         let TestLoaderFactValue::LoadDiagnostics(diagnostics) = fact.as_ref() else {
             unreachable!()
         };
-        Ok(diagnostics.clone())
+        Ok(ProgramDiagnosticBundles::from_diagnostics(
+            diagnostics.clone(),
+        ))
     }
 
     fn symbols(&self) -> nia_symbol_table::SymbolTable {

@@ -152,6 +152,7 @@ impl LoaderDatabase {
                 module_map,
                 sources: sources.clone(),
                 node_store: nia_node_id::NodeStore::new(),
+                diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
                 symbols,
                 target: request.target,
                 entry_runtime: request.entry_runtime,
@@ -177,7 +178,7 @@ impl LoaderDatabase {
         self.replay_provider_demand_plan()?;
         self.db
             .get(LoadedProgramQuery)
-            .map(|program| program.as_ref().clone())
+            .map(|program| program.to_program())
     }
 
     pub fn sources(&self) -> &SourceDatabase {
@@ -342,6 +343,7 @@ impl LoaderDatabase {
         }
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         let source_paths = graph
+            .semantic
             .modules()
             .map(|module| module.path.clone())
             .collect::<Vec<_>>();
@@ -371,6 +373,7 @@ impl LoaderDatabase {
     ) -> QueryResult<Option<nia_source::SourceId>> {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         Ok(graph
+            .semantic
             .get(module_id)
             .map(|module| self.sources.id_for_path(&module.path)))
     }
@@ -403,13 +406,14 @@ impl LoaderFactProvider for LoaderDatabase {
     fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
         self.db
             .get(graph::ModuleGraphQuery)
-            .map(|graph| graph.as_ref().clone())
+            .map(|graph| graph.semantic.clone())
     }
 
     fn loaded_module_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {
         Ok(self
             .db
             .get(graph::ModuleGraphQuery)?
+            .semantic
             .modules()
             .map(|module| module.path.identity())
             .collect())
@@ -417,7 +421,10 @@ impl LoaderFactProvider for LoaderDatabase {
 
     fn module_path(&self, module_id: nia_imports::ModuleId) -> QueryResult<Option<SourcePath>> {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
-        Ok(graph.get(module_id).map(|module| module.path.clone()))
+        Ok(graph
+            .semantic
+            .get(module_id)
+            .map(|module| module.path.clone()))
     }
 
     fn module_source_version(
@@ -425,7 +432,7 @@ impl LoaderFactProvider for LoaderDatabase {
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_source::SourceVersion>> {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.get(module_id) else {
+        let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
         let source_id = self.sources.id_for_path(&module.path);
@@ -457,7 +464,7 @@ impl LoaderFactProvider for LoaderDatabase {
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_provider_summary::ProviderSummary>> {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.get(module_id) else {
+        let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
         let key = queries::provider_summary_query(&self.db, &module.path)?;
@@ -469,7 +476,7 @@ impl LoaderFactProvider for LoaderDatabase {
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_defs::PublicSurfaceModuleFacts>> {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.get(module_id) else {
+        let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
         let key = queries::public_surface_module_facts_query(&self.db, &module.path)?;
@@ -537,7 +544,7 @@ impl LoaderFactProvider for LoaderDatabase {
         ))
     }
 
-    fn load_diagnostics(&self) -> QueryResult<Vec<nia_compiler_query::ProgramDiagnostic>> {
+    fn load_diagnostics(&self) -> QueryResult<nia_compiler_query::ProgramDiagnosticBundles> {
         self.db
             .get(queries::LoadDiagnosticsQuery)
             .map(|diagnostics| diagnostics.as_ref().clone())
@@ -652,6 +659,7 @@ fn load_program_trace(
             module_map,
             sources: SourceDatabase::new(),
             node_store: nia_node_id::NodeStore::new(),
+            diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
             symbols: SymbolTable::new(),
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
@@ -696,6 +704,7 @@ pub(crate) struct LoaderContext {
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
     pub(crate) node_store: nia_node_id::NodeStore,
+    pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
     pub(crate) entry_runtime: EntryRuntime,

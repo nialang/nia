@@ -138,55 +138,6 @@ pub(super) struct ModuleFlowCheck {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramLoadDiagnostics {
-    pub(super) bundles: Vec<SourceDiagnosticBundle>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct SourceDiagnosticBundle {
-    pub(super) path: SourcePath,
-    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
-}
-
-pub(super) fn store_program_diagnostics(
-    store: &nia_diagnostic::DiagnosticStore,
-    diagnostics: Vec<ProgramDiagnostic>,
-) -> ProgramLoadDiagnostics {
-    let mut diagnostics = diagnostics.into_iter().peekable();
-    let mut bundles = Vec::new();
-    while let Some(ProgramDiagnostic { path, diagnostic }) = diagnostics.next() {
-        let mut source_diagnostics = vec![diagnostic];
-        while let Some(next) = diagnostics.next_if(|next| next.path == path) {
-            source_diagnostics.push(next.diagnostic);
-        }
-        bundles.push(SourceDiagnosticBundle {
-            path,
-            diagnostics: store.bundle(source_diagnostics),
-        });
-    }
-    ProgramLoadDiagnostics { bundles }
-}
-
-pub(super) fn resolve_program_diagnostics(
-    context: &CompilerContext,
-    diagnostics: &ProgramLoadDiagnostics,
-) -> Vec<ProgramDiagnostic> {
-    diagnostics
-        .bundles
-        .iter()
-        .flat_map(|bundle| {
-            resolve_diagnostic_bundle(context, &bundle.diagnostics)
-                .iter()
-                .cloned()
-                .map(|diagnostic| ProgramDiagnostic {
-                    path: bundle.path.clone(),
-                    diagnostic,
-                })
-        })
-        .collect()
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleDiagnosticBundle {
     pub(super) module_id: ModuleId,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
@@ -337,65 +288,94 @@ pub(super) fn path_for_diagnostic_span(modules: &[Arc<CheckedModule>], span: Spa
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use nia_diagnostic::{Diagnostic, DiagnosticStore, codes};
     use nia_ids::ModuleIdAllocator;
     use nia_source::SourcePath;
     use nia_span::Span;
 
-    use crate::ProgramDiagnostic;
+    use crate::{ProgramDiagnostic, ProgramDiagnosticBundles};
 
-    use super::{store_module_diagnostics, store_program_diagnostics};
+    use super::store_module_diagnostics;
 
     #[test]
     fn program_diagnostic_bundles_preserve_order_and_only_group_adjacent_sources() {
-        let store = DiagnosticStore::new();
         let first = SourcePath::new("src/first.nia");
         let second = SourcePath::new("src/second.nia");
         let diagnostic =
             |summary| Diagnostic::user_error_at(codes::NAME_RESOLUTION, Span::new(0, 1), summary);
-        let bundles = store_program_diagnostics(
-            &store,
-            vec![
-                ProgramDiagnostic {
-                    path: first.clone(),
-                    diagnostic: diagnostic("first"),
-                },
-                ProgramDiagnostic {
-                    path: first.clone(),
-                    diagnostic: diagnostic("second"),
-                },
-                ProgramDiagnostic {
-                    path: second.clone(),
-                    diagnostic: diagnostic("third"),
-                },
-                ProgramDiagnostic {
-                    path: first.clone(),
-                    diagnostic: diagnostic("fourth"),
-                },
-            ],
-        );
+        let bundles = ProgramDiagnosticBundles::from_diagnostics(vec![
+            ProgramDiagnostic {
+                path: first.clone(),
+                diagnostic: diagnostic("first"),
+            },
+            ProgramDiagnostic {
+                path: first.clone(),
+                diagnostic: diagnostic("second"),
+            },
+            ProgramDiagnostic {
+                path: second.clone(),
+                diagnostic: diagnostic("third"),
+            },
+            ProgramDiagnostic {
+                path: first.clone(),
+                diagnostic: diagnostic("fourth"),
+            },
+        ]);
 
         assert_eq!(
             bundles
-                .bundles
+                .to_diagnostics()
                 .iter()
-                .map(|bundle| {
-                    (
-                        bundle.path.clone(),
-                        store
-                            .diagnostics(&bundle.diagnostics)
-                            .unwrap()
-                            .iter()
-                            .map(|diagnostic| diagnostic.summary.as_str())
-                            .collect::<Vec<_>>(),
-                    )
-                })
+                .map(|diagnostic| (
+                    diagnostic.path.clone(),
+                    diagnostic.diagnostic.summary.as_str()
+                ))
                 .collect::<Vec<_>>(),
             vec![
-                (first.clone(), vec!["first", "second"]),
-                (second, vec!["third"]),
-                (first, vec!["fourth"]),
+                (first.clone(), "first"),
+                (first.clone(), "second"),
+                (second, "third"),
+                (first, "fourth"),
             ]
+        );
+    }
+
+    #[test]
+    fn program_diagnostic_bundle_append_reuses_session_payload_handles() {
+        let store = Arc::new(DiagnosticStore::new());
+        let first_path = SourcePath::new("src/first.nia");
+        let second_path = SourcePath::new("src/second.nia");
+        let first_bundle = store.bundle(vec![Diagnostic::user_error_at(
+            codes::NAME_RESOLUTION,
+            Span::new(0, 1),
+            "first",
+        )]);
+        let second_bundle = store.bundle(vec![Diagnostic::user_error_at(
+            codes::NAME_RESOLUTION,
+            Span::new(1, 2),
+            "second",
+        )]);
+        let first = ProgramDiagnosticBundles::from_source_bundle(
+            store.clone(),
+            first_path,
+            first_bundle.clone(),
+        );
+        let second =
+            ProgramDiagnosticBundles::from_source_bundle(store, second_path, second_bundle.clone());
+
+        let combined = first.append(&second);
+
+        assert_eq!(combined.bundles[0].diagnostics.id(), first_bundle.id());
+        assert_eq!(combined.bundles[1].diagnostics.id(), second_bundle.id());
+        assert_eq!(
+            combined
+                .to_diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
         );
     }
 
