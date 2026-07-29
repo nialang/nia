@@ -194,6 +194,11 @@ surface, migration boundary, tests, and performance evidence. Do not append
 build or standard-library feature work to an already closed compiler roadmap or
 reuse compiler completion percentages to describe it.
 
+The active project is defined by
+[build-std-roadmap.md](../build-std-roadmap.md). It starts with relocatable
+toolchain/std identity and a bounded build-host std foundation before replacing
+the experimental build executor.
+
 Any compiler changes required by that work still follow this maintenance
 contract. Ordinary build or standard-library errors must continue through the
 project's explicit diagnostic and result systems rather than introducing panic

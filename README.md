@@ -8,7 +8,8 @@ semantics, predictable compilation phases, and a compact language surface.
 
 The project is intentionally narrow: this repository contains the compiler,
 language documentation, a small standard library, and teaching examples.
-The package manager and build system are expected to live as separate projects.
+The toolchain-owned build system is developed in this repository. A future
+package manager and registry remain separate projects.
 
 ## A Small Example
 
@@ -194,6 +195,8 @@ with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output throu
   boundaries.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
   discipline, acceptance rules, and roadmap-retirement policy.
+- [build-std-roadmap.md](build-std-roadmap.md): active build-system,
+  toolchain-layout, and standard-library architecture roadmap.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
 - [docs/project-conventions.md](docs/project-conventions.md): maintenance rules
