@@ -4,22 +4,21 @@ use std::fmt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
 };
-
-static NEXT_PROVIDER_FACT_OWNER: AtomicU64 = AtomicU64::new(1);
 
 mod aggregates;
 mod bir;
 mod calls;
 mod expr;
+mod filter;
 mod helpers;
+mod inputs;
 mod literals;
 mod places;
+mod products;
 mod projection_obligations;
+mod provider;
 mod static_init;
 mod symbols;
 mod trait_objects;
@@ -73,143 +72,17 @@ use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
 
 use crate::projection_obligations::TraitObligation;
+use filter::ActiveBodyCheckFilter;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct BodyCheck {
-    pub ir: Arc<BodyIr>,
-    pub facts: Arc<SemanticFacts>,
-    pub static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
-    pub checked_functions: HashSet<GlobalDefId>,
-    pub provider_demands: Arc<HashSet<ProviderDemand>>,
-    pub provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
-    pub diagnostic_owners: Vec<Option<GlobalDefId>>,
-    pub diagnostics: Arc<Vec<Diagnostic>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ProviderDemand {
-    pub source_path: SourcePath,
-    pub request: ProviderRequest,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ProviderFactRevision {
-    owner: u64,
-    index: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderFactRevisionTransition {
-    Unchanged,
-    Advanced,
-    Replaced,
-    Stale,
-}
-
-impl ProviderFactRevision {
-    pub fn new_store() -> Self {
-        let owner = NEXT_PROVIDER_FACT_OWNER
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
-                owner.checked_add(1)
-            })
-            .expect("provider fact owner space exhausted");
-        Self { owner, index: 0 }
-    }
-
-    pub fn next(self) -> Self {
-        Self {
-            owner: self.owner,
-            index: self
-                .index
-                .checked_add(1)
-                .expect("provider fact revision overflow"),
-        }
-    }
-
-    pub fn is_newer_than(self, previous: Self) -> bool {
-        matches!(
-            self.transition_from(previous),
-            ProviderFactRevisionTransition::Advanced | ProviderFactRevisionTransition::Replaced
-        )
-    }
-
-    pub fn transition_from(self, previous: Self) -> ProviderFactRevisionTransition {
-        if self.owner != previous.owner {
-            return ProviderFactRevisionTransition::Replaced;
-        }
-        match self.index.cmp(&previous.index) {
-            std::cmp::Ordering::Less => ProviderFactRevisionTransition::Stale,
-            std::cmp::Ordering::Equal => ProviderFactRevisionTransition::Unchanged,
-            std::cmp::Ordering::Greater => ProviderFactRevisionTransition::Advanced,
-        }
-    }
-
-    #[doc(hidden)]
-    pub const fn fingerprint_parts(self) -> [u64; 2] {
-        [self.owner, self.index]
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ProviderRequest {
-    Method {
-        target_type_name: Option<SymbolId>,
-        method_name: SymbolId,
-    },
-    TraitImpl {
-        trait_name: SymbolId,
-    },
-    ModuleSemantic {
-        module_path: SourcePath,
-    },
-    ModuleBody {
-        module_path: SourcePath,
-    },
-}
-
-impl ProviderRequest {
-    pub fn invalidates_resolved_body_facts(&self) -> bool {
-        matches!(self, Self::Method { .. } | Self::TraitImpl { .. })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BodyCheckProduct {
-    Full,
-    FactsOnly,
-    BodyOnly,
-    StaticInitOnly,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PrecheckedBodyCheck {
-    pub ir: BodyIr,
-    pub facts: SemanticFacts,
-    pub checked_functions: HashSet<GlobalDefId>,
-    pub diagnostic_owners: Vec<Option<GlobalDefId>>,
-    pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct BodyConst<'a> {
-    pub values: &'a HashMap<ConstKey, ConstValue>,
-    pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
-    pub array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, u64>,
-}
-
-impl<'a> BodyConst<'a> {
-    pub fn from_phases(
-        values: &'a ConstValues,
-        array_lengths: &'a ConstArrayLengths,
-        typed_facts: &'a ConstTypedFacts,
-    ) -> Self {
-        Self {
-            values: &values.values,
-            typed_values: &typed_facts.typed_values,
-            array_lengths: &array_lengths.values,
-        }
-    }
-}
+pub use inputs::{
+    BodyCheckFilter, BodyCheckInput, BodyCheckSeed, BodyCheckWithProgramSignaturesInput, BodyConst,
+    BodyLocalSignatures, BodyProgramContext, BodyVisibleExtensions, FunctionCheckScope,
+    ProgramConstMaps,
+};
+pub use products::{BodyCheck, BodyCheckProduct, PrecheckedBodyCheck};
+pub use provider::{
+    ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SwitchInterval {
@@ -241,217 +114,6 @@ struct SwitchCoverage {
     enum_variants: HashMap<DefId, Span>,
 }
 
-#[derive(Clone, Copy)]
-pub struct ProgramConstMaps<'a> {
-    pub values: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
-    pub array_lengths: &'a dyn Fn(ModuleId) -> Option<Arc<ConstArrayLengths>>,
-    pub module: &'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>,
-}
-
-impl fmt::Debug for ProgramConstMaps<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProgramConstMaps")
-            .field("values", &true)
-            .field("array_lengths", &true)
-            .field("module", &true)
-            .finish()
-    }
-}
-
-impl ProgramConstMaps<'_> {
-    pub fn empty() -> Self {
-        Self {
-            values: &no_program_const_values,
-            array_lengths: &no_program_const_array_lengths,
-            module: &no_program_const_module,
-        }
-    }
-}
-
-fn no_program_const_values(_: ModuleId) -> Option<Arc<ConstValues>> {
-    None
-}
-
-fn no_program_const_array_lengths(_: ModuleId) -> Option<Arc<ConstArrayLengths>> {
-    None
-}
-
-fn no_program_const_module(_: ModuleId) -> Option<Arc<ResolvedConstModule>> {
-    None
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub enum BodyCheckFilter<'a> {
-    #[default]
-    All,
-    ReachableFunctions(&'a HashSet<GlobalDefId>),
-    ReachableItems {
-        functions: &'a HashSet<GlobalDefId>,
-        globals: &'a HashSet<GlobalDefId>,
-        already_checked_functions: Option<&'a HashSet<GlobalDefId>>,
-        already_checked_globals: Option<&'a HashSet<GlobalDefId>>,
-    },
-}
-
-#[derive(Debug, Clone)]
-enum ActiveBodyCheckFilter<'a> {
-    All,
-    ReachableItems {
-        functions: &'a HashSet<GlobalDefId>,
-        globals: &'a HashSet<GlobalDefId>,
-        already_checked_functions: Option<&'a HashSet<GlobalDefId>>,
-        already_checked_globals: Option<&'a HashSet<GlobalDefId>>,
-        discovered_functions: HashSet<GlobalDefId>,
-    },
-}
-
-impl<'a> ActiveBodyCheckFilter<'a> {
-    fn from_filter(filter: BodyCheckFilter<'a>) -> Self {
-        match filter {
-            BodyCheckFilter::All => Self::All,
-            BodyCheckFilter::ReachableFunctions(functions) => Self::ReachableItems {
-                functions,
-                globals: empty_global_def_ids(),
-                already_checked_functions: None,
-                already_checked_globals: None,
-                discovered_functions: HashSet::new(),
-            },
-            BodyCheckFilter::ReachableItems {
-                functions,
-                globals,
-                already_checked_functions,
-                already_checked_globals,
-            } => Self::ReachableItems {
-                functions,
-                globals,
-                already_checked_functions,
-                already_checked_globals,
-                discovered_functions: HashSet::new(),
-            },
-        }
-    }
-
-    fn includes_function(&self, def_id: GlobalDefId) -> bool {
-        match self {
-            Self::All => true,
-            Self::ReachableItems {
-                functions,
-                already_checked_functions,
-                discovered_functions,
-                ..
-            } => {
-                (functions.contains(&def_id) || discovered_functions.contains(&def_id))
-                    && already_checked_functions.is_none_or(|checked| !checked.contains(&def_id))
-            }
-        }
-    }
-
-    fn includes_global(&self, def_id: GlobalDefId) -> bool {
-        match self {
-            Self::All => true,
-            Self::ReachableItems {
-                globals,
-                already_checked_globals,
-                ..
-            } => {
-                globals.contains(&def_id)
-                    && already_checked_globals.is_none_or(|checked| !checked.contains(&def_id))
-            }
-        }
-    }
-
-    fn selects_global(&self, def_id: GlobalDefId) -> bool {
-        match self {
-            Self::All => true,
-            Self::ReachableItems { globals, .. } => globals.contains(&def_id),
-        }
-    }
-
-    fn add_function(&mut self, def_id: GlobalDefId) -> bool {
-        match self {
-            Self::All => false,
-            Self::ReachableItems {
-                functions,
-                already_checked_functions,
-                discovered_functions,
-                ..
-            } => {
-                if already_checked_functions.is_some_and(|checked| checked.contains(&def_id)) {
-                    return false;
-                }
-                if functions.contains(&def_id) {
-                    return false;
-                }
-                discovered_functions.insert(def_id)
-            }
-        }
-    }
-
-    fn initial_functions(
-        &self,
-        available: &HashMap<GlobalDefId, FunctionItemRef<'_>>,
-    ) -> Vec<GlobalDefId> {
-        match self {
-            Self::All => available.keys().copied().collect(),
-            Self::ReachableItems {
-                functions,
-                already_checked_functions,
-                ..
-            } => functions
-                .iter()
-                .copied()
-                .filter(|def_id| {
-                    already_checked_functions.is_none_or(|checked| !checked.contains(def_id))
-                })
-                .filter(|def_id| available.contains_key(def_id))
-                .collect(),
-        }
-    }
-}
-
-fn empty_global_def_ids() -> &'static HashSet<GlobalDefId> {
-    static EMPTY: std::sync::OnceLock<HashSet<GlobalDefId>> = std::sync::OnceLock::new();
-    EMPTY.get_or_init(HashSet::new)
-}
-
-type ExtensionMethodsNamed<'a> = &'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>;
-
-#[derive(Clone, Copy)]
-pub struct BodyProgramContext<'a> {
-    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
-    pub module_source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
-    pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
-    pub extension_type_normalizations:
-        Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
-    pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
-    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
-    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
-    pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
-    pub extension_methods_named: Option<ExtensionMethodsNamed<'a>>,
-}
-
-impl<'a> BodyProgramContext<'a> {
-    pub fn empty() -> Self {
-        Self {
-            defs: None,
-            module_source_path: None,
-            type_normalizations: None,
-            extension_type_normalizations: None,
-            signatures: None,
-            layouts: None,
-            visible_extensions: None,
-            extension_method_by_id: None,
-            extension_methods_named: None,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct BodyVisibleExtensions<'a> {
-    pub methods: &'a VisibleExtensionMethods,
-    pub lazy: Option<&'a dyn Fn() -> VisibleExtensionMethods>,
-}
-
 enum ModuleDefs<'a> {
     Borrowed(&'a DefCollection),
     Shared(Arc<DefCollection>),
@@ -464,128 +126,6 @@ impl ModuleDefs<'_> {
             ModuleDefs::Shared(defs) => defs,
         }
     }
-}
-
-impl fmt::Debug for BodyProgramContext<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BodyProgramContext")
-            .field("defs", &self.defs.is_some())
-            .field("module_source_path", &self.module_source_path.is_some())
-            .field("type_normalizations", &self.type_normalizations.is_some())
-            .field(
-                "extension_type_normalizations",
-                &self.extension_type_normalizations.is_some(),
-            )
-            .field("signatures", &self.signatures.is_some())
-            .field("layouts", &self.layouts.is_some())
-            .field(
-                "extension_method_by_id",
-                &self.extension_method_by_id.is_some(),
-            )
-            .field(
-                "extension_methods_named",
-                &self.extension_methods_named.is_some(),
-            )
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub struct BodyCheckInput<'a> {
-    pub type_store: &'a nia_ty::TypeStore,
-    pub source_version: Option<SourceVersion>,
-    pub source_path: &'a SourcePath,
-    pub symbols: &'a SymbolTable,
-    pub origins: &'a NodeOriginTable,
-    pub active_item_tree: &'a ActiveModuleItemTree,
-    pub defs: &'a DefCollection,
-    pub values: &'a ValueResolution,
-    pub locals: &'a LocalResolution,
-    pub semantic_uses: &'a SemanticUseTable,
-    pub lowered: &'a TypeLowering,
-    pub signatures: BodyLocalSignatures<'a>,
-    pub const_signatures: &'a ItemSignatures,
-    pub normalization: &'a TypeNormalization,
-    pub seed: Option<BodyCheckSeed<'a>>,
-    pub target: &'a TargetConfig,
-    pub const_eval: BodyConst<'a>,
-    pub const_module: &'a ResolvedConstModule,
-    pub layouts: &'a Layouts,
-    pub extensions: &'a VisibleExtensionMethods,
-    pub lazy_extensions: Option<&'a dyn Fn() -> VisibleExtensionMethods>,
-    pub program_extension_methods: &'a ExtensionMethods,
-    pub program: BodyProgramContext<'a>,
-    pub program_signatures: ProgramSignatureContext<'a>,
-    pub function_scope: FunctionCheckScope,
-    pub program_const: ProgramConstMaps<'a>,
-    pub filter: BodyCheckFilter<'a>,
-    pub product: BodyCheckProduct,
-    pub prechecked: Option<PrecheckedBodyCheck>,
-}
-
-#[derive(Clone, Copy)]
-pub struct BodyCheckSeed<'a> {
-    pub facts: &'a SemanticFacts,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct BodyLocalSignatures<'a> {
-    pub functions: &'a HashMap<DefId, FunctionSignature>,
-    pub globals: &'a HashMap<DefId, GlobalSignature>,
-    pub consts: &'a HashMap<DefId, ConstSignature>,
-    pub structs: &'a HashMap<DefId, StructSignature>,
-    pub unions: &'a HashMap<DefId, UnionSignature>,
-    pub enums: &'a HashMap<DefId, EnumSignature>,
-    pub type_aliases: &'a HashMap<DefId, TypeAliasSignature>,
-    pub traits: &'a HashMap<DefId, TraitSignature>,
-    pub trait_impls: &'a [TraitImplSignature],
-}
-
-impl<'a> BodyLocalSignatures<'a> {
-    pub fn from_item_signatures(signatures: &'a ItemSignatures) -> Self {
-        Self {
-            functions: &signatures.functions,
-            globals: &signatures.globals,
-            consts: &signatures.consts,
-            structs: &signatures.structs,
-            unions: &signatures.unions,
-            enums: &signatures.enums,
-            type_aliases: &signatures.type_aliases,
-            traits: &signatures.traits,
-            trait_impls: &signatures.trait_impls,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct BodyCheckWithProgramSignaturesInput<'a> {
-    pub type_store: &'a nia_ty::TypeStore,
-    pub source_version: Option<SourceVersion>,
-    pub source_path: &'a SourcePath,
-    pub symbols: &'a SymbolTable,
-    pub origins: &'a NodeOriginTable,
-    pub active_item_tree: &'a ActiveModuleItemTree,
-    pub defs: &'a DefCollection,
-    pub values: &'a ValueResolution,
-    pub locals: &'a LocalResolution,
-    pub semantic_uses: &'a SemanticUseTable,
-    pub lowered: &'a TypeLowering,
-    pub signatures: &'a ItemSignatures,
-    pub normalization: &'a TypeNormalization,
-    pub target: &'a TargetConfig,
-    pub const_eval: BodyConst<'a>,
-    pub const_module: &'a ResolvedConstModule,
-    pub extensions: &'a VisibleExtensionMethods,
-    pub program_extension_methods: &'a ExtensionMethods,
-    pub program: BodyProgramContext<'a>,
-    pub program_signatures: ProgramSignatureContext<'a>,
-    pub function_scope: FunctionCheckScope,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FunctionCheckScope {
-    LocalModule,
-    ProgramSignatures,
 }
 
 #[derive(Debug, Clone)]
