@@ -548,7 +548,6 @@ name = "nia-ice"
 version = "0.4.3"
 dependencies = [
  "nia-diagnostic",
- "nia-span",
 ]
 
 [[package]]

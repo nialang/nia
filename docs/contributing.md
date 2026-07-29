@@ -66,8 +66,6 @@ the tree are grouped here so their role stays explicit:
 - `NIA_LINKER`: user-facing override for the executable linker.
 - `NIA_LLD`: user-facing override for the `ld.lld` executable used by the lld
   linker flavor.
-- `NIA_DEBUG_EXEC_REACHABILITY`: developer debug output for executable
-  reachability.
 - `NO_COLOR`: standard terminal convention respected by CLI help rendering.
 - `LLVM_SYS_221_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
   installations.
