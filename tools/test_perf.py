@@ -2,6 +2,7 @@ import unittest
 
 from tools.perf import (
     large_codegen_source,
+    machine_metadata,
     require_allocation_instrumentation,
     require_codegen_bucket_instrumentation,
     require_module_finalization_instrumentation,
@@ -9,6 +10,12 @@ from tools.perf import (
 
 
 class PerfRunnerTests(unittest.TestCase):
+    def test_machine_metadata_records_explicit_runner_class(self):
+        metadata = machine_metadata("github-hosted-ubuntu-24.04-x64")
+        self.assertEqual(
+            metadata["runner_class"], "github-hosted-ubuntu-24.04-x64"
+        )
+
     def test_accepts_instrumented_timing_report(self):
         require_allocation_instrumentation(
             {

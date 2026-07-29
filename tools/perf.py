@@ -186,7 +186,7 @@ def linux_cpu_model() -> str | None:
     return None
 
 
-def machine_metadata() -> dict[str, Any]:
+def machine_metadata(runner_class: str | None = None) -> dict[str, Any]:
     affinity = None
     if hasattr(os, "sched_getaffinity"):
         affinity = len(os.sched_getaffinity(0))
@@ -195,6 +195,7 @@ def machine_metadata() -> dict[str, Any]:
     cpu_quota = linux_cpu_quota()
     cpu_limits = [value for value in (affinity, cpu_quota) if value]
     return {
+        "runner_class": runner_class,
         "system": platform.system(),
         "platform": platform.platform(),
         "architecture": platform.machine(),
@@ -346,6 +347,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument(
+        "--runner-class",
+        help=(
+            "explicit controlled-runner identity for cross-run comparison; "
+            "omit for strict physical CPU matching"
+        ),
+    )
+    parser.add_argument(
         "--workload",
         action="append",
         help="run only this workload; may be passed more than once",
@@ -357,6 +365,9 @@ def main() -> int:
     args = parse_args()
     if args.repeat < 1:
         raise SystemExit("--repeat must be at least 1")
+    runner_class = args.runner_class.strip() if args.runner_class is not None else None
+    if args.runner_class is not None and not runner_class:
+        raise SystemExit("--runner-class must not be empty")
     compiler = args.compiler.resolve()
     if not args.no_build and compiler == DEFAULT_COMPILER.resolve():
         subprocess.run(
@@ -402,7 +413,7 @@ def main() -> int:
             "revision": revision,
             "dirty": bool(dirty),
         },
-        "machine": machine_metadata(),
+        "machine": machine_metadata(runner_class),
         "repeat": args.repeat,
         "results": results,
     }

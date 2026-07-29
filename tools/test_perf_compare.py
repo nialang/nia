@@ -20,13 +20,20 @@ def result(name, wall, rss, queries, allocations):
     return value
 
 
-def baseline(results, cpu=8, memory=16_000_000_000):
+def baseline(
+    results,
+    cpu=8,
+    memory=16_000_000_000,
+    runner_class=None,
+    cpu_model="test cpu",
+):
     return {
         "schema_version": 1,
         "machine": {
+            "runner_class": runner_class,
             "system": "Linux",
             "architecture": "x86_64",
-            "cpu_model": "test cpu",
+            "cpu_model": cpu_model,
             "effective_cpu_limit": cpu,
             "effective_memory_limit_bytes": memory,
         },
@@ -103,6 +110,80 @@ class CompareBaselinesTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertFalse(report["machine_compatible"])
         self.assertEqual(report["comparisons"], [])
+
+    def test_local_samples_still_require_the_same_cpu_model(self):
+        before = baseline(
+            [result("check", 10.0, 100, 1000, 1000)], cpu_model="local cpu a"
+        )
+        after = baseline(
+            [result("check", 10.0, 100, 1000, 1000)], cpu_model="local cpu b"
+        )
+
+        report = compare_baselines(before, after, self.thresholds, False)
+
+        self.assertFalse(report["passed"])
+        self.assertIn("cpu_model differs", report["machine_mismatches"][0])
+
+    def test_controlled_runner_class_accepts_cpu_model_drift(self):
+        before = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            runner_class="github-hosted-ubuntu-24.04-x64",
+            cpu_model="host cpu a",
+        )
+        after = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            runner_class="github-hosted-ubuntu-24.04-x64",
+            cpu_model="host cpu b",
+        )
+
+        report = compare_baselines(before, after, self.thresholds, False)
+
+        self.assertTrue(report["passed"])
+        self.assertTrue(report["machine_compatible"])
+
+    def test_rejects_different_controlled_runner_classes(self):
+        before = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            runner_class="github-hosted-ubuntu-24.04-x64",
+        )
+        after = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            runner_class="self-hosted-linux-x64",
+        )
+
+        report = compare_baselines(before, after, self.thresholds, False)
+
+        self.assertFalse(report["passed"])
+        self.assertIn("runner_class differs", report["machine_mismatches"][0])
+
+    def test_controlled_runner_class_still_requires_the_same_resources(self):
+        before = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            cpu=4,
+            runner_class="github-hosted-ubuntu-24.04-x64",
+        )
+        after = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            cpu=2,
+            runner_class="github-hosted-ubuntu-24.04-x64",
+        )
+
+        report = compare_baselines(before, after, self.thresholds, False)
+
+        self.assertFalse(report["passed"])
+        self.assertIn("effective_cpu_limit differs", report["machine_mismatches"][0])
+
+    def test_rejects_controlled_runner_against_local_sample(self):
+        before = baseline([result("check", 10.0, 100, 1000, 1000)])
+        after = baseline(
+            [result("check", 10.0, 100, 1000, 1000)],
+            runner_class="github-hosted-ubuntu-24.04-x64",
+        )
+
+        report = compare_baselines(before, after, self.thresholds, False)
+
+        self.assertFalse(report["passed"])
+        self.assertFalse(report["machine_compatible"])
 
 
 if __name__ == "__main__":
