@@ -283,8 +283,8 @@ pub(in crate::query) fn provide_backend_item_plan(
     time_provider(db.context().timings(), "backend_item_plan", || {
         let inputs = db.get(BackendLoweringInputsQuery)?;
         let optimization = *db.get(CompilerOptimizationQuery)?;
-        match inputs.as_ref() {
-            Ok(inputs) => {
+        match inputs.semantic.as_ref() {
+            Some(inputs) => {
                 let module_inputs = inputs.module_inputs();
                 Ok(nia_backend_lower::plan_backend_program_with_timings(
                     &module_inputs,
@@ -293,9 +293,9 @@ pub(in crate::query) fn provide_backend_item_plan(
                     db.context().timings(),
                 ))
             }
-            Err(diagnostics) => Ok(nia_backend_lower::BackendItemPlan::from_diagnostics(
+            None => Ok(nia_backend_lower::BackendItemPlan::from_diagnostics(
                 optimization,
-                diagnostics.clone(),
+                resolve_diagnostic_bundle(db.context(), &inputs.diagnostics).to_vec(),
             )),
         }
     })
@@ -439,7 +439,7 @@ fn emit_backend_module_finalization_allocation(
 
 pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
-) -> QueryResult<Result<BackendLoweringInputs, Vec<Diagnostic>>> {
+) -> QueryResult<ProgramBackendLoweringInputs> {
     let checked_modules = checked_modules_for_codegen(db)?;
     let (
         active_item_trees,
@@ -488,26 +488,11 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             )?;
             let const_array_lengths = checked_modules
                 .iter()
-                .map(|checked_module| nia_const_check::ConstArrayLengths {
-                    values: checked_module.const_eval.array_lengths.clone(),
-                    diagnostics: resolve_diagnostic_bundle(
-                        db.context(),
-                        &checked_module.const_diagnostics,
-                    )
-                    .to_vec(),
-                })
+                .map(|checked_module| Arc::clone(&checked_module.const_eval.array_lengths))
                 .collect::<Vec<_>>();
             let const_enum_values = checked_modules
                 .iter()
-                .map(|checked_module| nia_const_check::ConstEnumValues {
-                    values: checked_module.const_eval.enum_values.clone(),
-                    typed_values: checked_module.const_eval.typed_enum_values.clone(),
-                    diagnostics: resolve_diagnostic_bundle(
-                        db.context(),
-                        &checked_module.const_diagnostics,
-                    )
-                    .to_vec(),
-                })
+                .map(|checked_module| Arc::clone(&checked_module.const_eval.enum_values))
                 .collect::<Vec<_>>();
             let visible_extensions = time_provider(
                 timings,
@@ -552,13 +537,15 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             ))
         },
     )?;
-    let function_lowering_diagnostics =
-        function_lowering_diagnostics(&checked_modules, &function_bodies);
+    let function_lowering_diagnostics = function_lowering_diagnostics(&function_bodies);
     if !function_lowering_diagnostics.is_empty() {
-        return Ok(Err(function_lowering_diagnostics
-            .into_iter()
-            .map(|program_diagnostic| program_diagnostic.diagnostic)
-            .collect()));
+        return Ok(ProgramBackendLoweringInputs {
+            semantic: None,
+            diagnostics: db
+                .context()
+                .diagnostic_store
+                .bundle(function_lowering_diagnostics),
+        });
     }
     let non_function_signatures = executable_program_non_function_signatures(db)?;
     let functions = executable_program_functions_for_modules(
@@ -590,13 +577,17 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             })
         },
     );
-    Ok(Ok(inputs))
+    Ok(ProgramBackendLoweringInputs {
+        semantic: Some(inputs),
+        diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+    })
 }
 
 pub(super) fn early_program_diagnostics(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<ProgramDiagnostic>> {
-    let mut diagnostics = db.get(ProgramLoadDiagnosticsQuery)?.as_ref().clone();
+    let load_diagnostics = db.get(ProgramLoadDiagnosticsQuery)?;
+    let mut diagnostics = resolve_program_diagnostics(db.context(), &load_diagnostics);
     let loaded_modules = db.get(LoadedModulesQuery)?;
     let _graph = db.get(ModuleGraphQuery)?;
     let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules)?;
@@ -717,29 +708,16 @@ pub(super) fn monomorphization_diagnostics(
         .collect()
 }
 
-fn function_lowering_diagnostics(
-    checked_modules: &[Arc<CheckedModule>],
-    function_bodies: &[LoweredFunctionBodyHandle],
-) -> Vec<ProgramDiagnostic> {
-    let paths = checked_modules
-        .iter()
-        .map(|module| (module.id, module.path.clone()))
-        .collect::<HashMap<_, _>>();
+fn function_lowering_diagnostics(function_bodies: &[LoweredFunctionBodyHandle]) -> Vec<Diagnostic> {
     function_bodies
         .iter()
         .filter_map(|lowered| {
             let diagnostic = lowered.value.diagnostic()?;
-            Some(ProgramDiagnostic {
-                path: paths
-                    .get(&lowered.def_id.module_id)
-                    .expect("lowered function module must have a checked module")
-                    .clone(),
-                diagnostic: Diagnostic::internal_error_at(
-                    codes::INVALID_FUNCTION_IR,
-                    diagnostic.span,
-                    diagnostic.message.clone(),
-                ),
-            })
+            Some(Diagnostic::internal_error_at(
+                codes::INVALID_FUNCTION_IR,
+                diagnostic.span,
+                diagnostic.message.clone(),
+            ))
         })
         .collect()
 }

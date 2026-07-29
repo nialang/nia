@@ -8,8 +8,8 @@ pub(super) struct BackendLoweringInputs {
     module_indices: HashMap<ModuleId, usize>,
     active_item_trees: Vec<Arc<ActiveModuleItemTree>>,
     item_signatures: Vec<ItemSignatures>,
-    const_array_lengths: Vec<nia_const_check::ConstArrayLengths>,
-    const_enum_values: Vec<nia_const_check::ConstEnumValues>,
+    const_array_lengths: Vec<Arc<HashMap<GlobalConstExprId, u64>>>,
+    const_enum_values: Vec<Arc<HashMap<DefId, nia_const_check::ConstValue>>>,
     visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     extension_methods: Arc<ExtensionMethodIndexValue>,
     function_bodies: Vec<LoweredFunctionBodyHandle>,
@@ -31,8 +31,8 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) checked_modules: Vec<Arc<CheckedModule>>,
     pub(super) active_item_trees: Vec<Arc<ActiveModuleItemTree>>,
     pub(super) item_signatures: Vec<ItemSignatures>,
-    pub(super) const_array_lengths: Vec<nia_const_check::ConstArrayLengths>,
-    pub(super) const_enum_values: Vec<nia_const_check::ConstEnumValues>,
+    pub(super) const_array_lengths: Vec<Arc<HashMap<GlobalConstExprId, u64>>>,
+    pub(super) const_enum_values: Vec<Arc<HashMap<DefId, nia_const_check::ConstValue>>>,
     pub(super) visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     pub(super) extension_methods: Arc<ExtensionMethodIndexValue>,
     pub(super) function_bodies: Vec<LoweredFunctionBodyHandle>,
@@ -150,8 +150,8 @@ impl BackendLoweringInputs {
             signatures: &self.item_signatures[index],
             type_normalization: &checked_module.type_normalization,
             semantic_facts: &checked_module.semantic_facts,
-            const_array_lengths: &self.const_array_lengths[index],
-            const_enum_values: &self.const_enum_values[index],
+            const_array_lengths: self.const_array_lengths[index].as_ref(),
+            const_enum_values: self.const_enum_values[index].as_ref(),
             layouts: &checked_module.layouts,
             roots: backend_function_roots(self.runtime, checked_module),
             reachable_functions: Some(&source_item_plan.functions),
@@ -165,13 +165,10 @@ impl BackendLoweringInputs {
 }
 
 impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
-    fn const_array_lengths(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<&nia_const_check::ConstArrayLengths> {
+    fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>> {
         self.module_indices
             .get(&module_id)
-            .map(|index| &self.const_array_lengths[*index])
+            .map(|index| self.const_array_lengths[*index].as_ref())
     }
 
     fn function_body_ids(&self) -> &[GlobalDefId] {
@@ -275,19 +272,19 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
 }
 
 pub(super) struct BackendFinalizationTaskContext {
-    inputs: Arc<Result<BackendLoweringInputs, Vec<Diagnostic>>>,
+    inputs: Arc<ProgramBackendLoweringInputs>,
     finalization: nia_backend_lower::BackendProgramFinalizationContext,
 }
 
 impl BackendFinalizationTaskContext {
     pub(super) fn new(
-        inputs: Arc<Result<BackendLoweringInputs, Vec<Diagnostic>>>,
+        inputs: Arc<ProgramBackendLoweringInputs>,
         type_store: Arc<nia_ty::TypeStore>,
         optimization: nia_opt::OptimizationPolicy,
         timings: nia_timing::TimingMode,
     ) -> Self {
         let module_inputs = inputs
-            .as_ref()
+            .semantic
             .as_ref()
             .expect("Nia ICE: backend finalization context requires valid lowering inputs")
             .module_inputs();
@@ -311,7 +308,7 @@ impl BackendFinalizationTaskContext {
     ) -> nia_backend_lower::BackendModuleFinalization {
         let inputs = self
             .inputs
-            .as_ref()
+            .semantic
             .as_ref()
             .expect("Nia ICE: backend finalization task requires valid lowering inputs");
         let input = inputs.module_input(position);

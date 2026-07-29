@@ -240,7 +240,7 @@ fn main() i32 {
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_const = HashMap::from([(module_id, &const_array_lengths)]);
+    let program_const = HashMap::from([(module_id, const_array_lengths.values.as_ref())]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let program_function_bodies = function_bodies
         .iter()
@@ -270,8 +270,8 @@ fn main() i32 {
         type_normalization: &normalization,
         semantic_facts: &body_check.facts,
         extensions: &extensions,
-        const_array_lengths: &const_array_lengths,
-        const_enum_values: &const_enum_values,
+        const_array_lengths: const_array_lengths.values.as_ref(),
+        const_enum_values: const_enum_values.values.as_ref(),
         layouts: &layouts,
         roots: BackendFunctionRoots::FunctionBodies,
         reachable_functions: None,

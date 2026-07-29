@@ -96,7 +96,6 @@ impl<'a> ModuleLowerer<'a> {
                     value: self
                         .input
                         .const_enum_values
-                        .values
                         .get(&variant.def_id)
                         .and_then(|value| match value {
                             ConstValue::Int(value) => value.as_i128(),
