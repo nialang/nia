@@ -192,6 +192,8 @@ with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output throu
 - [docs/nia-abi.md](docs/nia-abi.md): ABI and layout rules.
 - [docs/architecture.md](docs/architecture.md): compiler architecture and phase
   boundaries.
+- [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
+  discipline, acceptance rules, and roadmap-retirement policy.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
 - [docs/project-conventions.md](docs/project-conventions.md): maintenance rules

@@ -30,6 +30,9 @@ can usually be proposed directly.
 
 Compiler changes should follow the existing crate boundaries and local patterns.
 Prefer small, reviewable changes over broad rewrites.
+Architectural migrations must additionally follow the completion, ownership,
+diagnostic, incremental, and evidence rules in
+[compiler-maintenance.md](compiler-maintenance.md).
 
 Before submitting compiler changes, run:
 

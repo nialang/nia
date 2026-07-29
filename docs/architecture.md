@@ -2004,6 +2004,10 @@ Nia is pre-1.0, so temporary historical forms are not compatibility
 requirements. Once behavior is removed, tests and diagnostics should either
 delete it or treat it as ordinary invalid syntax.
 
+Cross-cutting compiler changes also follow the root-cause, ownership,
+incremental, resource, and acceptance rules in
+[compiler-maintenance.md](compiler-maintenance.md).
+
 New features should be added by extending the correct phase boundary:
 
 - syntax belongs in lexer/parser/AST;
