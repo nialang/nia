@@ -20,7 +20,7 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     let mapped_db = frontend_cache_database(&main, &sources, mapped, cache.clone(), false);
     let mapped_dependencies = mapped_db.expect_get(module_declarations_query(&mapped_db, &main));
     assert!(matches!(
-        mapped_dependencies.explicit_imports[0].path,
+        mapped_dependencies.semantic.explicit_imports[0].path,
         crate::used_paths::UsedModulePath::Package { .. }
     ));
 
@@ -29,7 +29,7 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     let unmapped_dependencies =
         unmapped_db.expect_get(module_declarations_query(&unmapped_db, &main));
     assert!(matches!(
-        unmapped_dependencies.explicit_imports[0].path,
+        unmapped_dependencies.semantic.explicit_imports[0].path,
         crate::used_paths::UsedModulePath::Local { .. }
     ));
     assert_ne!(mapped_dependencies, unmapped_dependencies);
@@ -61,7 +61,6 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
         used_module_paths: Vec::new(),
         explicit_imports: Vec::new(),
         used_import_aliases: Vec::new(),
-        diagnostics: Vec::new(),
     };
     cache
         .publish_module_dependencies(
@@ -80,8 +79,8 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
     let verifying =
         frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), true);
     let verified = verifying.expect_get(module_declarations_query(&verifying, &main));
-    assert_eq!(verified.declarations.len(), 1);
-    assert_eq!(verified.declarations[0].name, sym("child"));
+    assert_eq!(verified.semantic.declarations.len(), 1);
+    assert_eq!(verified.semantic.declarations[0].name, sym("child"));
     assert_eq!(
         query_executions(&verifying.query_trace(), "parsed_module"),
         1
@@ -116,7 +115,7 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
     let malformed =
         frontend_cache_database(&main, &sources, ModuleMap::new(), cache.clone(), false);
     let malformed_dependencies = malformed.expect_get(module_declarations_query(&malformed, &main));
-    assert!(malformed_dependencies.declarations.is_empty());
+    assert!(malformed_dependencies.semantic.declarations.is_empty());
     assert!(
         !cache
             .module_dependencies_path(malformed_identity.key)

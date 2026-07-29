@@ -1,6 +1,74 @@
 use super::*;
 
 #[test]
+fn loader_diagnostic_queries_reuse_session_payload_handles() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("missing.nia");
+    let db = registered_query_db(test_loader_context(
+        main.clone(),
+        ModuleMap::default(),
+        sources,
+    ));
+
+    let parsed = db.expect_get(parsed_module_query(&db, &main));
+    let declarations = db.expect_get(module_declarations_query(&db, &main));
+
+    assert!(!parsed.read_diagnostics.is_empty());
+    assert_eq!(declarations.diagnostics.len(), 1);
+    assert_eq!(
+        parsed.read_diagnostics.id(),
+        declarations.diagnostics[0].id()
+    );
+    assert!(
+        db.context()
+            .diagnostic_store
+            .diagnostics(&parsed.read_diagnostics)
+            .is_some_and(|diagnostics| diagnostics.len() == 1)
+    );
+    let load_diagnostics = db.expect_get(crate::queries::LoadDiagnosticsQuery);
+    assert!(
+        load_diagnostics.to_diagnostics()[0]
+            .diagnostic
+            .summary
+            .contains("failed to read")
+    );
+}
+
+#[test]
+fn retired_loader_diagnostic_handles_remain_readable() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let first_file = sources.set_source(main.clone(), "module child; module child;");
+    let db = registered_query_db(test_loader_context(
+        main.clone(),
+        ModuleMap::default(),
+        sources.clone(),
+    ));
+    let first = db.expect_get(module_declarations_query(&db, &main));
+    let retained = first.diagnostics[0].clone();
+    assert!(!retained.is_empty());
+
+    let second_file = sources.set_source(main.clone(), "");
+    db.retirement_transaction(|retirement| {
+        retirement.invalidate(SourceTextQuery(first_file.id));
+        crate::queries::retire_source_revision_queries(retirement, first_file.version());
+        db.context()
+            .node_store
+            .retire_revision(first_file.version());
+    });
+    let second = db.expect_get(module_declarations_query(&db, &main));
+
+    assert_eq!(second_file.id, first_file.id);
+    assert!(second.diagnostics.is_empty());
+    assert!(
+        db.context()
+            .diagnostic_store
+            .diagnostics(&retained)
+            .is_some_and(|diagnostics| diagnostics.len() == 1)
+    );
+}
+
+#[test]
 fn invalidates_source_dependents_after_in_memory_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
@@ -11,7 +79,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         sources.clone(),
     ));
 
-    let first = db.expect_get(LoadedProgramQuery);
+    let first = db.expect_get(LoadedProgramQuery).to_program();
     assert_no_error_diagnostics(&first);
     let first_module = first
         .modules
@@ -65,7 +133,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         "{invalidated:?}"
     );
 
-    let second = db.expect_get(LoadedProgramQuery);
+    let second = db.expect_get(LoadedProgramQuery).to_program();
     assert_no_error_diagnostics(&second);
     let second_module = second
         .modules
@@ -107,7 +175,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
         sources.clone(),
     ));
 
-    let first = db.expect_get(LoadedProgramQuery);
+    let first = db.expect_get(LoadedProgramQuery).to_program();
     assert_no_error_diagnostics(&first);
     assert_module_loaded(&first, "main.nia");
     assert_module_not_loaded(&first, "defs.nia");
@@ -117,7 +185,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     sources.set_source(main, "module defs;");
     db.invalidate(SourceTextQuery(source_id));
 
-    let second = db.expect_get(LoadedProgramQuery);
+    let second = db.expect_get(LoadedProgramQuery).to_program();
     assert_no_error_diagnostics(&second);
     assert_ne!(second.graph.entry(), first_entry);
     assert!(

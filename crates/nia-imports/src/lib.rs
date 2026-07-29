@@ -239,7 +239,6 @@ pub struct ModuleGraph {
     package_roots: SymbolMap<ModuleId>,
     active_package_facades: SymbolMap<ModuleId>,
     executable_root_subtrees: Vec<ModuleId>,
-    diagnostics: Vec<(SourcePath, Diagnostic)>,
     symbols: Arc<dyn SymbolText + Send + Sync>,
 }
 
@@ -254,7 +253,6 @@ impl fmt::Debug for ModuleGraph {
             .field("package_roots", &self.package_roots)
             .field("active_package_facades", &self.active_package_facades)
             .field("executable_root_subtrees", &self.executable_root_subtrees)
-            .field("diagnostics", &self.diagnostics)
             .finish_non_exhaustive()
     }
 }
@@ -269,7 +267,6 @@ impl PartialEq for ModuleGraph {
             && self.package_roots == other.package_roots
             && self.active_package_facades == other.active_package_facades
             && self.executable_root_subtrees == other.executable_root_subtrees
-            && self.diagnostics == other.diagnostics
     }
 }
 
@@ -339,7 +336,6 @@ impl ModuleGraph {
             package_roots,
             active_package_facades: SymbolMap::default(),
             executable_root_subtrees: Vec::new(),
-            diagnostics: Vec::new(),
             symbols,
         }
     }
@@ -473,14 +469,6 @@ impl ModuleGraph {
 
     pub fn modules(&self) -> impl Iterator<Item = &ModuleNode> {
         self.modules.iter()
-    }
-
-    pub fn diagnostics(&self) -> &[(SourcePath, Diagnostic)] {
-        &self.diagnostics
-    }
-
-    pub fn push_diagnostic(&mut self, path: SourcePath, diagnostic: Diagnostic) {
-        self.diagnostics.push((path, diagnostic));
     }
 
     pub fn mark_process_used_paths(&mut self, module_id: ModuleId) -> bool {

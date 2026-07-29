@@ -18,10 +18,13 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let first = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let first_dependencies = first.expect_get(module_declarations_query(&first, &main));
     assert!(first_dependencies.diagnostics.is_empty());
-    assert_eq!(first_dependencies.declarations.len(), 1);
-    assert_eq!(first_dependencies.declarations[0].name, sym("child"));
+    assert_eq!(first_dependencies.semantic.declarations.len(), 1);
+    assert_eq!(
+        first_dependencies.semantic.declarations[0].name,
+        sym("child")
+    );
     assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
-    let first_span = first_dependencies.declarations[0].span;
+    let first_span = first_dependencies.semantic.declarations[0].span;
 
     let second = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let second_dependencies = second.expect_get(module_declarations_query(&second, &main));
@@ -48,8 +51,14 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     assert_ne!(first_identity.key, edited_identity.key);
     let edited = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let edited_dependencies = edited.expect_get(module_declarations_query(&edited, &main));
-    assert_eq!(edited_dependencies.declarations[0].name, sym("child"));
-    assert_ne!(first_span, edited_dependencies.declarations[0].span);
+    assert_eq!(
+        edited_dependencies.semantic.declarations[0].name,
+        sym("child")
+    );
+    assert_ne!(
+        first_span,
+        edited_dependencies.semantic.declarations[0].span
+    );
     assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
@@ -79,6 +88,7 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
 
     let first_graph = first.expect_get(crate::graph::ModuleGraphQuery);
     let first_paths = first_graph
+        .semantic
         .modules()
         .map(|module| module.path.clone())
         .collect::<Vec<_>>();
@@ -101,6 +111,7 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
 
     let second_graph = second.expect_get(crate::graph::ModuleGraphQuery);
     let second_paths = second_graph
+        .semantic
         .modules()
         .map(|module| module.path.clone())
         .collect::<Vec<_>>();

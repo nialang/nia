@@ -315,12 +315,6 @@ impl PersistentFrontendCache {
         declarations: &ModuleDeclarations,
         symbols: &SymbolTable,
     ) -> io::Result<()> {
-        if !declarations.diagnostics.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "cannot cache module dependencies with diagnostics",
-            ));
-        }
         let key = FrontendModuleDependenciesCacheKey::new(
             namespace,
             module,
@@ -1294,7 +1288,6 @@ fn decode_module_dependencies_payload(
         used_module_paths,
         explicit_imports,
         used_import_aliases,
-        diagnostics: Vec::new(),
     };
     install_symbol_dictionary(
         &dictionary,

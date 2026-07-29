@@ -7,8 +7,9 @@ use nia_compiler_query::{
     ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey,
     FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
-    LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel, SourceContentFingerprint,
-    frontend_module_map_fingerprint, item_signature_fingerprint, source_content_fingerprint,
+    LoadedModule, LoadedProgram, ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeModel,
+    SourceContentFingerprint, frontend_module_map_fingerprint, item_signature_fingerprint,
+    source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -28,7 +29,7 @@ use std::sync::Arc;
 pub(crate) struct LoadedProgramQuery;
 
 impl QueryKey<LoaderContext> for LoadedProgramQuery {
-    type Value = LoadedProgram;
+    type Value = LoadedProgramValue;
 
     fn name() -> &'static str {
         "loaded_program"
@@ -37,6 +38,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
         let modules = graph
+            .semantic
             .modules()
             .map(|node| {
                 let source_id = db.context().sources.id_for_path(&node.path);
@@ -46,8 +48,8 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             .collect::<QueryResult<Vec<_>>>()?;
         let diagnostics = db.get(LoadDiagnosticsQuery)?;
         let provider_fact_revision = db.get(ProviderDemandsQuery)?.revision();
-        Ok(LoadedProgram {
-            graph: graph.as_ref().clone(),
+        Ok(LoadedProgramValue {
+            graph: graph.semantic.clone(),
             provider_fact_revision,
             symbols: db.context().symbols.clone(),
             target: db.context().target.clone(),
@@ -55,6 +57,31 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             modules,
             diagnostics: diagnostics.as_ref().clone(),
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LoadedProgramValue {
+    pub(crate) graph: nia_imports::ModuleGraphSnapshot,
+    pub(crate) provider_fact_revision: nia_compiler_query::ProviderFactRevision,
+    pub(crate) symbols: nia_symbol_table::SymbolTable,
+    pub(crate) target: nia_target_config::TargetConfig,
+    pub(crate) runtime: RuntimeModel,
+    pub(crate) modules: Vec<LoadedModule>,
+    pub(crate) diagnostics: ProgramDiagnosticBundles,
+}
+
+impl LoadedProgramValue {
+    pub(crate) fn to_program(&self) -> LoadedProgram {
+        LoadedProgram {
+            graph: self.graph.clone(),
+            provider_fact_revision: self.provider_fact_revision,
+            symbols: self.symbols.clone(),
+            target: self.target.clone(),
+            runtime: self.runtime,
+            modules: self.modules.clone(),
+            diagnostics: self.diagnostics.to_diagnostics(),
+        }
     }
 }
 
@@ -69,7 +96,7 @@ pub(crate) fn runtime_model(entry_runtime: EntryRuntime) -> RuntimeModel {
 pub(crate) struct LoadDiagnosticsQuery;
 
 impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
-    type Value = Vec<ProgramDiagnostic>;
+    type Value = ProgramDiagnosticBundles;
 
     fn name() -> &'static str {
         "load_diagnostics"
@@ -77,35 +104,48 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
-        let mut diagnostics = Vec::new();
-        for (path, diagnostic) in graph.diagnostics() {
-            diagnostics.push(ProgramDiagnostic {
-                path: path.clone(),
-                diagnostic: diagnostic.clone(),
-            });
-        }
-        for node in graph.modules() {
+        let mut diagnostics = graph.diagnostics.clone();
+        for node in graph.semantic.modules() {
             let parsed = db.get(parsed_module_query(db, &node.path)?)?;
             let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-            diagnostics.extend(module_diagnostics(
-                &node.path,
-                &parsed
+            diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_diagnostics_in(
+                db.context().diagnostic_store.clone(),
+                parsed
+                    .semantic
                     .parse_errors
                     .iter()
-                    .map(|error| {
-                        Diagnostic::user_error_at(codes::PARSE, error.span, error.message.clone())
+                    .map(|error| ProgramDiagnostic {
+                        path: node.path.clone(),
+                        diagnostic: Diagnostic::user_error_at(
+                            codes::PARSE,
+                            error.span,
+                            error.message.clone(),
+                        ),
                     })
-                    .collect::<Vec<_>>(),
+                    .collect(),
             ));
-            diagnostics.extend(module_diagnostics(&node.path, &parsed.prune_diagnostics));
-            diagnostics.extend(module_diagnostics(&node.path, &declarations.diagnostics));
+            diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_source_bundle(
+                db.context().diagnostic_store.clone(),
+                node.path.clone(),
+                parsed.prune_diagnostics.clone(),
+            ));
+            for bundle in declarations.diagnostics.iter() {
+                diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_source_bundle(
+                    db.context().diagnostic_store.clone(),
+                    node.path.clone(),
+                    bundle.clone(),
+                ));
+            }
             if node.module_path.is_entry_package() {
-                diagnostics.extend(unused_import_diagnostics(
-                    &graph,
-                    node.id,
-                    &node.path,
-                    &declarations,
-                    &db.context().symbols,
+                diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_diagnostics_in(
+                    db.context().diagnostic_store.clone(),
+                    unused_import_diagnostics(
+                        &graph.semantic,
+                        node.id,
+                        &node.path,
+                        &declarations.semantic,
+                        &db.context().symbols,
+                    ),
                 ));
             }
         }
@@ -192,6 +232,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             .ok_or_else(|| db.invalid_input(self, format!("unknown source id {:?}", self.0)))?;
         let graph = db.get(ModuleGraphQuery)?;
         let id = graph
+            .semantic
             .module_id_for_source_identity(&path.identity())
             .ok_or_else(|| {
                 db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
@@ -202,12 +243,12 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             id,
             path: path.as_ref().clone(),
             source_identity: path.identity(),
-            source_version: parsed.source_version,
-            item_tree: parsed.item_tree.clone(),
-            active_item_tree: parsed.active_item_tree.clone(),
+            source_version: parsed.semantic.source_version,
+            item_tree: parsed.semantic.item_tree.clone(),
+            active_item_tree: parsed.semantic.active_item_tree.clone(),
             provider_summary: provider_summary.as_ref().clone(),
-            origins: parsed.origins.clone(),
-            parse_errors: parsed.parse_errors.clone(),
+            origins: parsed.semantic.origins.clone(),
+            parse_errors: parsed.semantic.parse_errors.clone(),
         })
     }
 }
@@ -216,7 +257,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
 pub(crate) struct ParsedModuleQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ParsedModuleQuery {
-    type Value = ParsedModule;
+    type Value = ParsedModuleValue;
 
     fn name() -> &'static str {
         "parsed_module"
@@ -241,14 +282,19 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             &db.context().target,
             Some(&db.context().symbols),
         );
-        Ok(ParsedModule {
-            source_version: self.0,
-            item_tree,
-            active_item_tree: prune_result.active_item_tree,
-            origins,
-            parse_errors,
-            prune_diagnostics: prune_result.diagnostics,
-            read_diagnostic: source.diagnostic.clone(),
+        Ok(ParsedModuleValue {
+            semantic: ParsedModule {
+                source_version: self.0,
+                item_tree,
+                active_item_tree: prune_result.active_item_tree,
+                origins,
+                parse_errors,
+            },
+            prune_diagnostics: db
+                .context()
+                .diagnostic_store
+                .bundle(prune_result.diagnostics),
+            read_diagnostics: source.diagnostics.clone(),
         })
     }
 }
@@ -285,8 +331,13 @@ pub(crate) struct ParsedModule {
     pub(crate) active_item_tree: ActiveModuleItemTree,
     pub(crate) origins: nia_node_id::NodeOriginTable,
     pub(crate) parse_errors: Vec<nia_parser::ParseError>,
-    pub(crate) prune_diagnostics: Vec<Diagnostic>,
-    pub(crate) read_diagnostic: Option<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ParsedModuleValue {
+    pub(crate) semantic: ParsedModule,
+    pub(crate) prune_diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(crate) read_diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -308,6 +359,7 @@ impl QueryKey<LoaderContext> for ModuleItemTreeFactQuery {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
             .get(parsed_module_query_for_id(db, self.0)?)?
+            .semantic
             .item_tree
             .clone())
     }
@@ -342,6 +394,7 @@ impl QueryKey<LoaderContext> for ActiveModuleItemTreeFactQuery {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let tree = &db
             .get(parsed_module_query_for_id(db, self.0)?)?
+            .semantic
             .active_item_tree;
         Ok(match self.1 {
             ActiveModuleItemTreeFactKind::Signature(set) => tree.signature_items(set),
@@ -374,6 +427,7 @@ impl QueryKey<LoaderContext> for ModuleOriginsFactQuery {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
             .get(parsed_module_query_for_id(db, self.0)?)?
+            .semantic
             .origins
             .clone())
     }
@@ -402,6 +456,7 @@ impl QueryKey<LoaderContext> for ModuleParseErrorsFactQuery {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
             .get(parsed_module_query_for_id(db, self.0)?)?
+            .semantic
             .parse_errors
             .clone())
     }
@@ -434,18 +489,18 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
         Ok(match db.context().sources.read_source(&path) {
             Ok(file) => SourceText {
                 file: Some(file),
-                diagnostic: None,
+                diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
             },
             Err(err) => SourceText {
                 file: None,
-                diagnostic: Some(
+                diagnostics: db.context().diagnostic_store.bundle(vec![
                     Diagnostic::user_error(
                         codes::LOAD,
                         format!("failed to read `{}`: {err}", path.as_str()),
                     )
                     .debug("path", path.as_str())
                     .finish(),
-                ),
+                ]),
             },
         })
     }
@@ -454,7 +509,7 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SourceText {
     pub(crate) file: Option<SourceFile>,
-    pub(crate) diagnostic: Option<Diagnostic>,
+    pub(crate) diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -510,7 +565,7 @@ pub(crate) struct ModuleDeclarationsQuery(SourceVersion);
 pub(crate) struct PublicSurfaceModuleFactsQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
-    type Value = ModuleDeclarations;
+    type Value = ModuleDeclarationsValue;
 
     fn name() -> &'static str {
         "module_declarations"
@@ -555,26 +610,25 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
         if let Some(cached) = &cached
             && !db.context().verify_frontend_cache
         {
-            return Ok(cached.clone());
+            return Ok(ModuleDeclarationsValue {
+                semantic: cached.clone(),
+                diagnostics: Arc::from([]),
+            });
         }
 
         let parsed = db.get(ParsedModuleQuery(self.0))?;
-        let mut diagnostics = parsed
-            .read_diagnostic
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let (declarations, used_modules) = if diagnostics.is_empty()
-            && parsed.parse_errors.is_empty()
+        let mut declaration_diagnostics = Vec::new();
+        let (declarations, used_modules) = if parsed.read_diagnostics.is_empty()
+            && parsed.semantic.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
         {
             let declarations = resolve_module_declarations_from_active_item_tree_with_symbols(
-                &mut diagnostics,
-                &parsed.active_item_tree,
+                &mut declaration_diagnostics,
+                &parsed.semantic.active_item_tree,
                 &db.context().symbols,
             );
             let used_modules =
-                collect_used_modules(&parsed.active_item_tree, &db.context().module_map);
+                collect_used_modules(&parsed.semantic.active_item_tree, &db.context().module_map);
             (declarations, used_modules)
         } else {
             (
@@ -587,17 +641,30 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 },
             )
         };
-        let fresh = ModuleDeclarations {
-            declarations,
-            package_roots: used_modules.package_roots,
-            used_module_paths: used_modules.used_module_paths,
-            explicit_imports: used_modules.explicit_imports,
-            used_import_aliases: used_modules.used_aliases,
-            diagnostics,
+        let declaration_diagnostics = db
+            .context()
+            .diagnostic_store
+            .bundle(declaration_diagnostics);
+        let mut diagnostic_bundles = Vec::new();
+        if !parsed.read_diagnostics.is_empty() {
+            diagnostic_bundles.push(parsed.read_diagnostics.clone());
+        }
+        if !declaration_diagnostics.is_empty() {
+            diagnostic_bundles.push(declaration_diagnostics);
+        }
+        let fresh = ModuleDeclarationsValue {
+            semantic: ModuleDeclarations {
+                declarations,
+                package_roots: used_modules.package_roots,
+                used_module_paths: used_modules.used_module_paths,
+                explicit_imports: used_modules.explicit_imports,
+                used_import_aliases: used_modules.used_aliases,
+            },
+            diagnostics: diagnostic_bundles.into(),
         };
         if let Some(input) = cache_input
-            && parsed.read_diagnostic.is_none()
-            && parsed.parse_errors.is_empty()
+            && parsed.read_diagnostics.is_empty()
+            && parsed.semantic.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
             && fresh.diagnostics.is_empty()
             && let Some(cache) = &db.context().frontend_cache
@@ -608,7 +675,10 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 input.source,
                 module_map,
             );
-            if cached.as_ref().is_some_and(|cached| cached != &fresh) {
+            if cached
+                .as_ref()
+                .is_some_and(|cached| cached != &fresh.semantic)
+            {
                 cache.remove_module_dependencies(key);
             }
             let _ = cache.publish_module_dependencies(
@@ -619,12 +689,18 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                     input.source_len,
                 ),
                 module_map,
-                &fresh,
+                &fresh.semantic,
                 &db.context().symbols,
             );
         }
         Ok(fresh)
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ModuleDeclarationsValue {
+    pub(crate) semantic: ModuleDeclarations,
+    pub(crate) diagnostics: Arc<[nia_diagnostic::DiagnosticBundle]>,
 }
 
 impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
@@ -680,6 +756,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             .map(|file| file.path.identity())
             .ok_or_else(|| db.invalid_input(self, format!("missing source for {:?}", self.0)))?;
         let module_id = graph
+            .semantic
             .module_id_for_source_identity(&source_identity)
             .ok_or_else(|| {
                 db.invalid_input(
@@ -700,8 +777,8 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
         let fresh = nia_defs::PublicSurfaceModuleFacts::from_defs(&defs);
         let parsed = db.get(ParsedModuleQuery(self.0))?;
         if let Some(input) = cache_input
-            && parsed.read_diagnostic.is_none()
-            && parsed.parse_errors.is_empty()
+            && parsed.read_diagnostics.is_empty()
+            && parsed.semantic.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
             && defs.diagnostics.is_empty()
             && let Some(cache) = &db.context().frontend_cache
@@ -796,10 +873,10 @@ fn fresh_item_signature(
     version: SourceVersion,
     input: Option<&FrontendCacheInput>,
     cached: Option<ItemSignatureFingerprint>,
-) -> QueryResult<(Arc<ParsedModule>, ItemSignatureFingerprint)> {
+) -> QueryResult<(Arc<ParsedModuleValue>, ItemSignatureFingerprint)> {
     let syntax = db.get(SyntaxModuleQuery(version))?;
     let parsed = db.get(ParsedModuleQuery(version))?;
-    let item_signature = item_signature_fingerprint(&syntax, &parsed.item_tree);
+    let item_signature = item_signature_fingerprint(&syntax, &parsed.semantic.item_tree);
     if let Some(input) = input
         && let Some(cache) = &db.context().frontend_cache
         && cached != Some(item_signature)
@@ -898,7 +975,7 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
             }
         }
 
-        let fresh = ProviderSummary::from_active_item_tree(&parsed.active_item_tree);
+        let fresh = ProviderSummary::from_active_item_tree(&parsed.semantic.active_item_tree);
         if let Some(input) = cache_input
             && let Some(cache) = &db.context().frontend_cache
         {
@@ -1011,7 +1088,7 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
         }
 
         let fresh = ModuleFacadeFacts::from_active_item_tree(
-            &parsed.active_item_tree,
+            &parsed.semantic.active_item_tree,
             &db.context().module_map,
         );
         if let Some(input) = cache_input
@@ -1116,15 +1193,4 @@ fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> QueryResu
             revision: SourceRevision::INITIAL,
         },
     })
-}
-
-fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {
-    diagnostics
-        .iter()
-        .cloned()
-        .map(|diagnostic| ProgramDiagnostic {
-            path: path.clone(),
-            diagnostic,
-        })
-        .collect()
 }

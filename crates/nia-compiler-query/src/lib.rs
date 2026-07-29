@@ -253,7 +253,7 @@ pub trait LoaderFactProvider: Send + Sync {
         module_id: ModuleId,
         kind: ActiveModuleItemTreeFactKind,
     ) -> nia_query::QueryResult<Option<ActiveModuleItemTree>>;
-    fn load_diagnostics(&self) -> nia_query::QueryResult<Vec<ProgramDiagnostic>>;
+    fn load_diagnostics(&self) -> nia_query::QueryResult<ProgramDiagnosticBundles>;
     fn symbols(&self) -> SymbolTable;
     fn target(&self) -> TargetConfig;
     fn runtime(&self) -> RuntimeModel;
@@ -395,8 +395,10 @@ impl LoaderFactProvider for LoadedProgram {
         }))
     }
 
-    fn load_diagnostics(&self) -> nia_query::QueryResult<Vec<ProgramDiagnostic>> {
-        Ok(self.diagnostics.clone())
+    fn load_diagnostics(&self) -> nia_query::QueryResult<ProgramDiagnosticBundles> {
+        Ok(ProgramDiagnosticBundles::from_diagnostics(
+            self.diagnostics.clone(),
+        ))
     }
 
     fn symbols(&self) -> SymbolTable {
@@ -511,6 +513,120 @@ impl ProgramDiagnostic {
 
     pub fn is_warning(&self) -> bool {
         self.diagnostic.severity == Severity::Warning
+    }
+}
+
+#[derive(Clone)]
+pub struct ProgramDiagnosticBundles {
+    store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
+    bundles: std::sync::Arc<[SourceDiagnosticBundle]>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SourceDiagnosticBundle {
+    path: SourcePath,
+    diagnostics: nia_diagnostic::DiagnosticBundle,
+}
+
+impl ProgramDiagnosticBundles {
+    pub fn from_diagnostics(diagnostics: Vec<ProgramDiagnostic>) -> Self {
+        let store = std::sync::Arc::new(nia_diagnostic::DiagnosticStore::new());
+        Self::from_diagnostics_in(store, diagnostics)
+    }
+
+    pub fn from_diagnostics_in(
+        store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
+        diagnostics: Vec<ProgramDiagnostic>,
+    ) -> Self {
+        let mut diagnostics = diagnostics.into_iter().peekable();
+        let mut bundles = Vec::new();
+        while let Some(ProgramDiagnostic { path, diagnostic }) = diagnostics.next() {
+            let mut source_diagnostics = vec![diagnostic];
+            while let Some(next) = diagnostics.next_if(|next| next.path == path) {
+                source_diagnostics.push(next.diagnostic);
+            }
+            bundles.push(SourceDiagnosticBundle {
+                path,
+                diagnostics: store.bundle(source_diagnostics),
+            });
+        }
+        Self {
+            store,
+            bundles: bundles.into(),
+        }
+    }
+
+    pub fn from_source_bundle(
+        store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
+        path: SourcePath,
+        diagnostics: nia_diagnostic::DiagnosticBundle,
+    ) -> Self {
+        if store.diagnostics(&diagnostics).is_none() {
+            panic!("Nia ICE: program diagnostic bundle has a foreign store owner");
+        }
+        let bundles = if diagnostics.is_empty() {
+            Vec::new()
+        } else {
+            vec![SourceDiagnosticBundle { path, diagnostics }]
+        };
+        Self {
+            store,
+            bundles: bundles.into(),
+        }
+    }
+
+    pub fn append(&self, other: &Self) -> Self {
+        if !std::sync::Arc::ptr_eq(&self.store, &other.store) {
+            panic!("Nia ICE: cannot append program diagnostics from different stores");
+        }
+        Self {
+            store: self.store.clone(),
+            bundles: self
+                .bundles
+                .iter()
+                .chain(other.bundles.iter())
+                .cloned()
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+
+    pub fn to_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+        self.bundles
+            .iter()
+            .flat_map(|bundle| {
+                self.store
+                    .diagnostics(&bundle.diagnostics)
+                    .unwrap_or_else(|| {
+                        panic!("Nia ICE: program diagnostic bundle has a foreign store owner")
+                    })
+                    .iter()
+                    .cloned()
+                    .map(|diagnostic| ProgramDiagnostic {
+                        path: bundle.path.clone(),
+                        diagnostic,
+                    })
+            })
+            .collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bundles.is_empty()
+    }
+}
+
+impl std::fmt::Debug for ProgramDiagnosticBundles {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ProgramDiagnosticBundles")
+            .field(&self.to_diagnostics())
+            .finish()
+    }
+}
+
+impl PartialEq for ProgramDiagnosticBundles {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_diagnostics() == other.to_diagnostics()
     }
 }
 

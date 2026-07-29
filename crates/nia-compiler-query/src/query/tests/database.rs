@@ -134,6 +134,9 @@ fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProg
         target: facts.target(),
         runtime: facts.runtime(),
         modules,
-        diagnostics: facts.load_diagnostics().expect("test load diagnostics"),
+        diagnostics: facts
+            .load_diagnostics()
+            .expect("test load diagnostics")
+            .to_diagnostics(),
     }
 }

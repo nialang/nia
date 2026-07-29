@@ -723,7 +723,6 @@ pub(crate) struct ModuleDeclarations {
     pub(crate) used_module_paths: Vec<UsedModulePath>,
     pub(crate) explicit_imports: Vec<ExplicitUsingImport>,
     pub(crate) used_import_aliases: Vec<SymbolId>,
-    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

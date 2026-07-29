@@ -78,12 +78,14 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let old_parsed = database
         .db
         .expect_get(parsed_module_query(&database.db, &main));
-    let old_item_span = old_parsed.item_tree.items[0].span;
+    let old_item_span = old_parsed.semantic.item_tree.items[0].span;
     let old_item_id = old_parsed
+        .semantic
         .origins
         .node_id(nia_node_id::SyntaxKind::Item, old_item_span)
         .expect("first revision item node id");
     let old_item_locator = old_parsed
+        .semantic
         .origins
         .locator(nia_node_id::SyntaxKind::Item, old_item_span)
         .expect("first revision item locator");
@@ -145,11 +147,12 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
             queries[0].frame.key
         );
     }
-    assert_eq!(old_parsed.source_version, first_version);
-    assert_eq!(old_parsed.item_tree.items.len(), 1);
+    assert_eq!(old_parsed.semantic.source_version, first_version);
+    assert_eq!(old_parsed.semantic.item_tree.items.len(), 1);
     assert_eq!(database.db.context().node_store.locator(old_item_id), None);
     assert_eq!(
         old_parsed
+            .semantic
             .origins
             .locator(nia_node_id::SyntaxKind::Item, old_item_span),
         Some(old_item_locator)
@@ -163,7 +166,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
     sources.set_source(main.clone(), "fn main() i32 { 0 }");
     let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
     let initial_graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
-    let initial_entry = initial_graph.entry();
+    let initial_entry = initial_graph.semantic.entry();
 
     for revision in 1..=100 {
         assert_eq!(
@@ -198,7 +201,13 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
 
         database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
         let graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
-        assert_eq!(graph.get(graph.entry()).map(|node| &node.path), Some(&main));
+        assert_eq!(
+            graph
+                .semantic
+                .get(graph.semantic.entry())
+                .map(|node| &node.path),
+            Some(&main)
+        );
         assert_eq!(
             database
                 .query_trace()
@@ -210,14 +219,15 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
         );
     }
 
-    assert_eq!(initial_graph.entry(), initial_entry);
+    assert_eq!(initial_graph.semantic.entry(), initial_entry);
     assert_eq!(
         initial_graph
-            .get(initial_graph.entry())
+            .semantic
+            .get(initial_graph.semantic.entry())
             .map(|node| &node.path),
         Some(&main)
     );
-    assert_eq!(initial_graph.modules().count(), 1);
+    assert_eq!(initial_graph.semantic.modules().count(), 1);
 }
 
 #[test]

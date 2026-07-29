@@ -172,6 +172,7 @@ fn test_loader_context(
         module_map: effective_module_map(&entry_path, module_map),
         sources,
         node_store: nia_node_id::NodeStore::new(),
+        diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,

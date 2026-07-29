@@ -285,17 +285,14 @@ impl QueryKey<CompilerContext> for LoadedModulesQuery {
 pub(super) struct ProgramLoadDiagnosticsQuery;
 
 impl QueryKey<CompilerContext> for ProgramLoadDiagnosticsQuery {
-    type Value = ProgramLoadDiagnostics;
+    type Value = ProgramDiagnosticBundles;
 
     fn name() -> &'static str {
         "program_load_diagnostics"
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        Ok(store_program_diagnostics(
-            &db.context().diagnostic_store,
-            db.context().loader_facts().load_diagnostics()?,
-        ))
+        db.context().loader_facts().load_diagnostics()
     }
 }
 

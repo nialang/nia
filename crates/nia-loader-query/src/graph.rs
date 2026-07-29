@@ -12,6 +12,7 @@ use crate::provider_loading::{
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{EntryRuntime, LoaderContext, default_std_module_path};
+use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
@@ -42,8 +43,14 @@ impl From<Diagnostic> for TraversalError {
 
 pub(crate) type TraversalResult<T> = Result<T, TraversalError>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ModuleGraphValue {
+    pub(crate) semantic: ModuleGraphSnapshot,
+    pub(crate) diagnostics: ProgramDiagnosticBundles,
+}
+
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
-    type Value = ModuleGraphSnapshot;
+    type Value = ModuleGraphValue;
 
     fn name() -> &'static str {
         "module_graph"
@@ -59,7 +66,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 }
 
 impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
-    type Value = ModuleGraphSnapshot;
+    type Value = ModuleGraphValue;
 
     fn name() -> &'static str {
         "module_graph_revision"
@@ -77,7 +84,7 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
             ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),
             ProviderFactEvent::Added { previous, demands } => {
                 let seed = db.get(ModuleGraphRevisionQuery(previous))?;
-                build_module_graph(db, Some(seed.as_ref().clone()), &demands)
+                build_module_graph(db, Some(seed), &demands)
             }
         }?;
         db.context().provider_facts.compact_transition(self.0);
@@ -87,12 +94,13 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
 
 fn build_module_graph(
     db: &QueryDb<LoaderContext>,
-    seed: Option<ModuleGraphSnapshot>,
+    seed: Option<std::sync::Arc<ModuleGraphValue>>,
     new_provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
-) -> QueryResult<ModuleGraphSnapshot> {
-    let (mut graph, mut index) = match seed {
-        Some(snapshot) => {
-            let mut graph = (*snapshot).clone();
+) -> QueryResult<ModuleGraphValue> {
+    let mut fresh_diagnostics = Vec::new();
+    let (mut graph, prior_diagnostics, mut index) = match seed {
+        Some(value) => {
+            let mut graph = (*value.semantic).clone();
             let existing_modules = graph.modules().count();
             for demand in new_provider_demands {
                 match &demand.request {
@@ -103,7 +111,7 @@ fn build_module_graph(
                         if let Some(module_id) = graph.module_id_for_path(module_path.as_str()) {
                             record_traversal_diagnostic(
                                 mark_process_used_paths_and_process(db, &mut graph, module_id),
-                                &mut graph,
+                                &mut fresh_diagnostics,
                                 module_path,
                             )?;
                         }
@@ -123,19 +131,27 @@ fn build_module_graph(
                     db,
                     &mut graph,
                     &node,
-                    &declarations.explicit_imports,
+                    &declarations.semantic.explicit_imports,
                     new_provider_demands,
+                    &mut fresh_diagnostics,
                 )?;
             }
-            (graph, existing_modules)
+            (graph, value.diagnostics.clone(), existing_modules)
         }
         None => {
             let mut graph = ModuleGraph::with_symbol_text(
                 db.context().entry_path.clone(),
                 std::sync::Arc::new(db.context().symbols.clone()),
             );
-            inject_entry_runtime(db, &mut graph);
-            (graph, 0)
+            inject_entry_runtime(db, &mut graph, &mut fresh_diagnostics);
+            (
+                graph,
+                ProgramDiagnosticBundles::from_diagnostics_in(
+                    db.context().diagnostic_store.clone(),
+                    Vec::new(),
+                ),
+                0,
+            )
         }
     };
     loop {
@@ -144,7 +160,7 @@ fn build_module_graph(
             break;
         };
         let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-        for package in &declarations.package_roots {
+        for package in &declarations.semantic.package_roots {
             if graph.package_root(package).is_none()
                 && let Some(path) = db.context().module_map.get_name(package)
             {
@@ -154,15 +170,15 @@ fn build_module_graph(
         if should_eager_add_declarations(db.context(), &node) {
             record_traversal_diagnostic(
                 add_declared_module_children(db, &mut graph, node.id),
-                &mut graph,
+                &mut fresh_diagnostics,
                 &node.path,
             )?;
         }
         if should_process_used_module_paths(db.context(), &graph, &node) {
-            for path in &declarations.used_module_paths {
+            for path in &declarations.semantic.used_module_paths {
                 record_traversal_diagnostic(
                     add_used_module_path(db, &mut graph, node.id, path),
-                    &mut graph,
+                    &mut fresh_diagnostics,
                     &node.path,
                 )?;
             }
@@ -171,24 +187,35 @@ fn build_module_graph(
             db,
             &mut graph,
             &node,
-            &declarations.explicit_imports,
+            &declarations.semantic.explicit_imports,
             new_provider_demands,
+            &mut fresh_diagnostics,
         )?;
         index += 1;
     }
-    Ok(ModuleGraphSnapshot::new(graph))
+    let diagnostics = ProgramDiagnosticBundles::from_diagnostics_in(
+        db.context().diagnostic_store.clone(),
+        fresh_diagnostics
+            .into_iter()
+            .map(|(path, diagnostic)| ProgramDiagnostic { path, diagnostic })
+            .collect(),
+    );
+    Ok(ModuleGraphValue {
+        semantic: ModuleGraphSnapshot::new(graph),
+        diagnostics: prior_diagnostics.append(&diagnostics),
+    })
 }
 
 fn record_traversal_diagnostic(
     result: TraversalResult<()>,
-    graph: &mut ModuleGraph,
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
     path: &SourcePath,
 ) -> QueryResult<()> {
     match result {
         Ok(()) => Ok(()),
         Err(TraversalError::Query(error)) => Err(error),
         Err(TraversalError::Diagnostic(diagnostic)) => {
-            graph.push_diagnostic(path.clone(), diagnostic);
+            diagnostics.push((path.clone(), diagnostic));
             Ok(())
         }
     }
@@ -206,6 +233,7 @@ fn apply_provider_demands(
     node: &ModuleNode,
     imports: &[crate::used_paths::ExplicitUsingImport],
     provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
 ) -> QueryResult<()> {
     let demands = provider_demands
         .iter()
@@ -239,7 +267,7 @@ fn apply_provider_demands(
                     .with_appended_segments_with_processing_mode(&[], false, processing);
             record_traversal_diagnostic(
                 add_used_module_path(db, graph, node.id, &path),
-                graph,
+                diagnostics,
                 &node.path,
             )?;
         }
@@ -314,14 +342,14 @@ fn activate_package_facade(
         return Ok(());
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for package in &declarations.package_roots {
+    for package in &declarations.semantic.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
         {
             graph.intern_package_root(package, path.clone());
         }
     }
-    for path in &declarations.used_module_paths {
+    for path in &declarations.semantic.used_module_paths {
         add_used_module_path(db, graph, root, path)?;
     }
     Ok(())
@@ -354,14 +382,14 @@ pub(crate) fn mark_process_used_paths_and_process(
         return Ok(());
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for package in &declarations.package_roots {
+    for package in &declarations.semantic.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
         {
             graph.intern_package_root(package, path.clone());
         }
     }
-    for path in &declarations.used_module_paths {
+    for path in &declarations.semantic.used_module_paths {
         add_used_module_path(db, graph, module_id, path)?;
     }
     Ok(())
@@ -462,7 +490,7 @@ fn add_declared_module_children(
         return Ok(());
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for declaration in declarations.declarations.iter().cloned() {
+    for declaration in declarations.semantic.declarations.iter().cloned() {
         add_declared_module_child(db, graph, module_id, declaration)?;
     }
     Ok(())
@@ -490,6 +518,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
     let Some(declaration) = declarations
+        .semantic
         .declarations
         .iter()
         .find(|declaration| {
@@ -555,7 +584,11 @@ fn add_declared_module_child_with_processing(
     )?)
 }
 
-fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
+fn inject_entry_runtime(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+) {
     match db.context().entry_runtime {
         EntryRuntime::None => {}
         EntryRuntime::Freestanding => {
@@ -578,7 +611,7 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
                         .get(std_root)
                         .map(|node| node.path.clone())
                         .unwrap_or_else(default_std_module_path);
-                    graph.push_diagnostic(path, diagnostic);
+                    diagnostics.push((path, diagnostic));
                 }
             }
         }

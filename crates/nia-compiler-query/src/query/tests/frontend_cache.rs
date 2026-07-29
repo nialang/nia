@@ -102,7 +102,7 @@ impl crate::LoaderFactProvider for FingerprintedLoadedProgram {
         self.program.active_module_item_tree(module_id, kind)
     }
 
-    fn load_diagnostics(&self) -> QueryResult<Vec<ProgramDiagnostic>> {
+    fn load_diagnostics(&self) -> QueryResult<ProgramDiagnosticBundles> {
         self.program.load_diagnostics()
     }
 

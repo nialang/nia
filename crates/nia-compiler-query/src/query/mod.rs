@@ -2,7 +2,7 @@
 use crate::{
     ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
     CodegenPreparation, CodegenProgram, FrontendCheckInputFingerprint, FrontendCheckScope,
-    ProgramDiagnostic, RuntimeModel, TimingMode, module_diagnostics,
+    ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeModel, TimingMode, module_diagnostics,
 };
 #[cfg(test)]
 use crate::{LoadedModule, LoadedProgram};
