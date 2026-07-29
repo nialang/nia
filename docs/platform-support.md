@@ -30,6 +30,8 @@ Current support is intentionally narrow:
   target linker without CRT startup;
 - native object emission depends on the LLVM target configuration available to
   the local toolchain;
+- the repository defines a managed `ubuntu-24.04` x86_64 performance workflow
+  that installs LLVM 22 and exercises the complete compiler/LLVM workload suite;
 - cross compilation is not documented as a supported workflow yet.
 
 This does not mean other hosts or targets cannot work. It means the project does
@@ -72,7 +74,8 @@ The project may use these tiers as platform work becomes more formal:
 - Planned or unknown: platforms that may be desirable but have no support
   commitment yet.
 
-No platform is Tier 1 yet.
+No platform is Tier 1 yet. The managed performance workflow is an architecture
+and regression guard, not a general host/target support promise.
 
 ## Not Guaranteed Yet
 

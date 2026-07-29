@@ -17,6 +17,16 @@ python3 tools/perf.py --repeat 3 --output target/nia-perf/before.json
 python3 tools/perf.py --no-build --workload traits --workload const_eval
 ```
 
+Controlled CI runners may additionally attach an explicit comparison identity:
+
+```sh
+python3 tools/perf.py --repeat 3 \
+  --runner-class github-hosted-ubuntu-24.04-x64
+```
+
+`--runner-class` is a trust assertion about a managed runner image and resource
+class, not a way to rename a developer machine. Local runs should omit it.
+
 The suite currently fixes nine compiler paths: minimal check, strings and
 slices, ArrayList, trait-heavy code, const-eval-heavy code, multi-module backend
 lowering, small and large bounded multi-unit object codegen, and full executable
@@ -105,6 +115,14 @@ cgroup limits, and bare Linux hosts report system resources. Comparing results
 still requires comparable hardware and system load; CI guards should remain
 wide while a dedicated perf runner tracks trends.
 
+When both reports declare the same non-empty `runner_class`, the comparator
+treats that class as the controlled hardware identity and permits the provider's
+underlying CPU model string to vary. Operating system, architecture, effective
+CPU limit, and effective memory limit must still match. If either report omits
+the class, both reports must omit it and the physical CPU model remains part of
+the strict compatibility check. A controlled CI artifact therefore cannot be
+silently compared with a local sample.
+
 On Unix, process CPU time and peak RSS come from `getrusage`. Unsupported host
 metrics are encoded as JSON `null`, never inferred from a machine category.
 
@@ -121,17 +139,29 @@ python3 tools/perf_compare.py \
   target/nia-perf/before.json target/nia-perf/after.json
 ```
 
-The comparator first checks the operating system, architecture, CPU model,
-effective CPU limit, and effective memory limit. It refuses incompatible
-machines by default. The default relative guards are deliberately broad: 50%
-wall time, 30% RSS, 5% query executions, and 20% for both allocated and peak
-live Rust heap bytes. The allocation threshold also guards finalization-window
-peak growth for the `module_backend` workload. All thresholds are command-line
-options, and the result is itself machine-readable JSON.
+The comparator first checks the physical machine identity or controlled runner
+class and then the effective resource shape. It refuses incompatible machines
+by default. The default relative guards are deliberately broad: 50% wall time,
+30% RSS, 5% query executions, and 20% for both allocated and peak live Rust heap
+bytes. The allocation threshold also guards finalization-window peak growth for
+the `module_backend` workload. All thresholds are command-line options, and the
+result is itself machine-readable JSON.
 `--allow-machine-mismatch` exists for exploration, not for a release gate.
 
-The repository does not yet define a CI environment capable of building and
-running Nia's LLVM suite. When one is added, its main-branch baseline should be
-stored as a runner artifact or in a trend service and compared on the same
-resource shape. A developer-machine sample must not become a project-wide
-absolute threshold.
+## Managed CI Trend
+
+`.github/workflows/performance.yml` defines the managed Linux LLVM performance
+job. It installs LLVM 22 on `ubuntu-24.04`, runs every workload three times with
+the controlled `github-hosted-ubuntu-24.04-x64` runner class, and downloads the
+most recent successful main-branch `nia-perf-baseline` artifact. The candidate
+must pass the same broad comparator guards before the workflow succeeds.
+
+Successful main-branch and scheduled runs upload `baseline.json`, the comparison
+report when one exists, and run/revision identity with 90-day retention. Later
+runs only search successful main workflow runs, so a failed regression candidate
+cannot become the next baseline. Pull-request and failed-main candidates are
+stored separately for 14 days for diagnosis. The first main run is an explicit
+bootstrap because no earlier controlled
+artifact exists; after that, every available baseline is compared. This stores
+main-branch trends without committing machine-specific numbers to the source
+tree or treating a developer sample as a project-wide absolute threshold.

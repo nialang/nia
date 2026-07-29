@@ -74,7 +74,17 @@ def machine_mismatches(
     left = baseline.get("machine", {})
     right = candidate.get("machine", {})
     mismatches = []
-    for name in ("system", "architecture", "cpu_model"):
+    left_runner_class = left.get("runner_class")
+    right_runner_class = right.get("runner_class")
+    if left_runner_class != right_runner_class:
+        mismatches.append(
+            "runner_class differs: "
+            f"{left_runner_class!r} != {right_runner_class!r}"
+        )
+    identity_fields = ["system", "architecture"]
+    if left_runner_class is None and right_runner_class is None:
+        identity_fields.append("cpu_model")
+    for name in identity_fields:
         if left.get(name) != right.get(name):
             mismatches.append(f"{name} differs: {left.get(name)!r} != {right.get(name)!r}")
     for name, tolerance in (

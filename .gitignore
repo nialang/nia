@@ -4,3 +4,5 @@
 **/.nia-build/
 /.nia-cache/
 **/.nia-cache/
+__pycache__/
+*.pyc
