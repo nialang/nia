@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{BodyChecker, ProgramFunctionSignature, ResolvedFunctionSignature};
+use super::ResolvedFunctionSignature;
+use crate::{BodyChecker, ProgramFunctionSignature};
 use nia_ast::Expr;
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{

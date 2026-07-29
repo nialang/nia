@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::ResolvedFunctionSignature;
 use super::builtins::BuiltinCallTypeArgs;
 use super::std_builtin_function;
-use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
+use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId};
