@@ -180,7 +180,7 @@ impl EarlyConstEnv for ConfigEnv {
 }
 
 #[derive(Default)]
-struct PatternEnv {
+pub(super) struct PatternEnv {
     scopes: Vec<BTreeMap<SymbolId, ConstValue>>,
 }
 

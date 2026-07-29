@@ -366,18 +366,16 @@ fn wrap(flag: bool) i32!i32 {
 }
 
 fn read_optional(value: ?i32) i32 {
-    if ?x = value {
-        x
-    } or null {
-        0
+    switch value {
+        ?x => x,
+        null => 0,
     }
 }
 
 fn read_error(value: i32!i32) i32 {
-    if !x = value {
-        x
-    } or e! {
-        e
+    switch value {
+        !x => x,
+        e! => e,
     }
 }
 

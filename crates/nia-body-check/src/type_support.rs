@@ -1202,7 +1202,7 @@ impl<'a> BodyChecker<'a> {
             node_builtin_values: HashMap::new(),
             node_associated_const_projections: HashMap::new(),
             node_array_repeat_counts: HashMap::new(),
-            node_switch_pattern_values: HashMap::new(),
+            node_pattern_values: HashMap::new(),
             node_resolved_calls: HashMap::new(),
             node_function_references: HashMap::new(),
             generic_instantiations: Vec::new(),

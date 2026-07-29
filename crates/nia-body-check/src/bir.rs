@@ -11,7 +11,7 @@ use nia_body_ir::{
     TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
     TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
     TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedSwitchPattern, TypedSwitchPatternKind, TypedWhile,
+    TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -343,7 +343,7 @@ impl<'a> BodyChecker<'a> {
                     patterns: arm
                         .patterns
                         .iter()
-                        .map(|pattern| self.lower_switch_pattern(pattern, target_ty))
+                        .map(|pattern| self.lower_pattern(pattern, target_ty))
                         .collect(),
                     body: match &arm.body {
                         SwitchArmBody::Expr(expr) => {
@@ -359,29 +359,6 @@ impl<'a> BodyChecker<'a> {
                     span: arm.span,
                 })
                 .collect(),
-        }
-    }
-
-    fn lower_switch_pattern(
-        &mut self,
-        pattern: &nia_ast::SwitchPattern,
-        target_ty: nia_ids::InternedTyId,
-    ) -> TypedSwitchPattern {
-        let kind = match &pattern.kind {
-            nia_ast::SwitchPatternKind::Wildcard => TypedSwitchPatternKind::Wildcard,
-            nia_ast::SwitchPatternKind::Expr(expr) => {
-                self.lower_switch_pattern_expr(expr, target_ty)
-            }
-            nia_ast::SwitchPatternKind::Range {
-                start,
-                end,
-                inclusive,
-            } => self.lower_switch_pattern_range(start, end, *inclusive, target_ty),
-        };
-        TypedSwitchPattern {
-            ty: target_ty,
-            span: pattern.span,
-            kind,
         }
     }
 
@@ -437,16 +414,12 @@ impl<'a> BodyChecker<'a> {
                 };
                 TypedPatternKind::ErrorErr(Box::new(self.lower_pattern(inner, error_ty)))
             }
-            nia_ast::PatternKind::Expr(expr) => TypedPatternKind::Expr(self.lower_expr(expr)),
+            nia_ast::PatternKind::Expr(expr) => self.lower_pattern_expr(expr, target_ty),
             nia_ast::PatternKind::Range {
                 start,
                 end,
                 inclusive,
-            } => TypedPatternKind::Range {
-                start: Box::new(self.lower_expr(start)),
-                end: Box::new(self.lower_expr(end)),
-                inclusive: *inclusive,
-            },
+            } => self.lower_pattern_range(start, end, *inclusive, target_ty),
         };
         TypedPattern {
             ty: target_ty,
@@ -455,41 +428,38 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_switch_pattern_expr(
+    fn lower_pattern_expr(
         &mut self,
         expr: &Expr,
         target_ty: nia_ids::InternedTyId,
-    ) -> TypedSwitchPatternKind {
+    ) -> TypedPatternKind {
         if (self.is_integer(target_ty) || self.is_bool(target_ty))
-            && let Some(value) = self.node_switch_pattern_values.get(&expr.node_key).copied()
+            && let Some(value) = self.node_pattern_values.get(&expr.node_key).copied()
         {
-            return TypedSwitchPatternKind::CheckedInt { value };
+            return TypedPatternKind::CheckedInt { value };
         }
-        TypedSwitchPatternKind::Expr(self.lower_expr(expr))
+        TypedPatternKind::Expr(self.lower_expr(expr))
     }
 
-    fn lower_switch_pattern_range(
+    fn lower_pattern_range(
         &mut self,
         start: &Expr,
         end: &Expr,
         inclusive: bool,
         target_ty: nia_ids::InternedTyId,
-    ) -> TypedSwitchPatternKind {
+    ) -> TypedPatternKind {
         if self.is_integer(target_ty) {
-            let start_value = self
-                .node_switch_pattern_values
-                .get(&start.node_key)
-                .copied();
-            let end_value = self.node_switch_pattern_values.get(&end.node_key).copied();
+            let start_value = self.node_pattern_values.get(&start.node_key).copied();
+            let end_value = self.node_pattern_values.get(&end.node_key).copied();
             if let (Some(start), Some(end)) = (start_value, end_value) {
-                return TypedSwitchPatternKind::CheckedIntRange {
+                return TypedPatternKind::CheckedIntRange {
                     start,
                     end,
                     inclusive,
                 };
             }
         }
-        TypedSwitchPatternKind::Range {
+        TypedPatternKind::Range {
             start: Box::new(self.lower_expr(start)),
             end: Box::new(self.lower_expr(end)),
             inclusive,

@@ -328,14 +328,14 @@ fn dirent_name_len(buffer: &[u8], offset: usize, reclen: usize) usize {
 
 fn dirent_kind(value: u8) FileKind {
     switch value {
-        dirent_type_fifo => FileKind::NamedPipe,
-        dirent_type_chr => FileKind::CharacterDevice,
-        dirent_type_dir => FileKind::Directory,
-        dirent_type_blk => FileKind::BlockDevice,
-        dirent_type_reg => FileKind::File,
-        dirent_type_lnk => FileKind::Symlink,
-        dirent_type_sock => FileKind::UnixSocket,
-        dirent_type_unknown => FileKind::Unknown,
+        (dirent_type_fifo) => FileKind::NamedPipe,
+        (dirent_type_chr) => FileKind::CharacterDevice,
+        (dirent_type_dir) => FileKind::Directory,
+        (dirent_type_blk) => FileKind::BlockDevice,
+        (dirent_type_reg) => FileKind::File,
+        (dirent_type_lnk) => FileKind::Symlink,
+        (dirent_type_sock) => FileKind::UnixSocket,
+        (dirent_type_unknown) => FileKind::Unknown,
         _ => FileKind::Unknown,
     }
 }

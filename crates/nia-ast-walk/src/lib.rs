@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, ArrayLen, Attribute, AttributeKind, Block, Expr, ExprKind, FunctionItem,
-    IndexArg, Item, ItemKind, Module, Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody,
-    SwitchPattern, SwitchPatternKind, TypeArg, TypeKind, TypeRef, WhereClause,
+    IndexArg, Item, ItemKind, Module, Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg,
+    TypeKind, TypeRef, WhereClause,
 };
 
 pub trait Visitor<'ast> {
@@ -404,7 +404,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             visitor.visit_expr(&switch.target);
             for arm in &switch.arms {
                 for pattern in &arm.patterns {
-                    visit_switch_pattern(visitor, pattern);
+                    visit_pattern(visitor, pattern);
                 }
                 match &arm.body {
                     SwitchArmBody::Expr(expr) => visitor.visit_expr(expr),
@@ -412,20 +412,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                     SwitchArmBody::Block(block) => visitor.visit_block(block),
                 }
             }
-        }
-    }
-}
-
-fn visit_switch_pattern<'ast, V: Visitor<'ast> + ?Sized>(
-    visitor: &mut V,
-    pattern: &'ast SwitchPattern,
-) {
-    match &pattern.kind {
-        SwitchPatternKind::Wildcard => {}
-        SwitchPatternKind::Expr(pattern) => visitor.visit_expr(pattern),
-        SwitchPatternKind::Range { start, end, .. } => {
-            visitor.visit_expr(start);
-            visitor.visit_expr(end);
         }
     }
 }

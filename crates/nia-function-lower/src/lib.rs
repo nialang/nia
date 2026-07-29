@@ -5,8 +5,7 @@ use nia_body_ir::{
     TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee, TypedExpr,
     TypedExprKind, TypedForIn, TypedIfPattern, TypedInlineAsm, TypedLocal, TypedLocalKind,
     TypedLoop, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
-    TypedSwitchPatternKind, TypedWhile,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedWhile,
 };
 use nia_ids::{InternedTyId, LocalId, ModuleId};
 use nia_span::Span;

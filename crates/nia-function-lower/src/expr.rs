@@ -854,17 +854,24 @@ impl FunctionLowerer<'_> {
             let arm_target = self.alloc_block();
             for pattern in &arm.patterns {
                 match &pattern.kind {
-                    TypedSwitchPatternKind::Expr(pattern) => arms.push(FunctionSwitchArm {
+                    TypedPatternKind::Expr(pattern) => arms.push(FunctionSwitchArm {
                         pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
                         target: arm_target,
                     }),
-                    TypedSwitchPatternKind::CheckedInt { value } => arms.push(FunctionSwitchArm {
+                    TypedPatternKind::CheckedInt { value } => arms.push(FunctionSwitchArm {
                         pattern: self.checked_int_pattern_expr(*value, pattern.ty, pattern.span),
                         target: arm_target,
                     }),
-                    TypedSwitchPatternKind::Wildcard => default = Some(arm_target),
-                    TypedSwitchPatternKind::Range { .. }
-                    | TypedSwitchPatternKind::CheckedIntRange { .. } => {}
+                    TypedPatternKind::Wildcard => default = Some(arm_target),
+                    TypedPatternKind::Range { .. }
+                    | TypedPatternKind::CheckedIntRange { .. }
+                    | TypedPatternKind::Bind { .. }
+                    | TypedPatternKind::Pointer(_)
+                    | TypedPatternKind::MutPointer(_)
+                    | TypedPatternKind::OptionalSome(_)
+                    | TypedPatternKind::OptionalNull
+                    | TypedPatternKind::ErrorOk(_)
+                    | TypedPatternKind::ErrorErr(_) => {}
                 }
             }
             lowered_arms.push((arm_target, arm));
@@ -938,7 +945,7 @@ impl FunctionLowerer<'_> {
         for arm in &switch.arms {
             let arm_target = self.alloc_block();
             for pattern in &arm.patterns {
-                if matches!(&pattern.kind, TypedSwitchPatternKind::Wildcard) {
+                if matches!(&pattern.kind, TypedPatternKind::Wildcard) {
                     default = arm_target;
                 } else {
                     tests.push((pattern, arm_target));
@@ -972,7 +979,7 @@ impl FunctionLowerer<'_> {
                 bool_ty: switch.bool_ty,
             };
             let cond = self
-                .switch_pattern_condition(&target, pattern, &mut condition_context)
+                .pattern_condition(&target, pattern, &mut condition_context)
                 .unwrap_or(FunctionExpr {
                     span: expr.span,
                     ty: switch.bool_ty,
@@ -995,10 +1002,20 @@ impl FunctionLowerer<'_> {
         }
         for (arm_target, arm) in lowered_arms {
             let arm_scope = self.alloc_scope(Some(context.scope), arm.span);
+            let arm_entry = arm.patterns.first().map_or(arm_target, |pattern| {
+                self.lower_pattern_arm_entry(
+                    pattern,
+                    &target,
+                    arm_scope,
+                    arm_target,
+                    arm.span,
+                    context.blocks,
+                )
+            });
             let mut arm_context = SwitchValueArmContext {
                 span: arm.span,
                 scope: arm_scope,
-                entry: arm_target,
+                entry: arm_entry,
                 result_local,
                 merge_target,
                 blocks: context.blocks,

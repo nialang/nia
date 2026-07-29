@@ -107,7 +107,7 @@ pub struct TypedSwitch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSwitchArm {
-    pub patterns: Vec<TypedSwitchPattern>,
+    pub patterns: Vec<TypedPattern>,
     pub body: TypedSwitchArmBody,
     pub span: Span,
 }
@@ -147,24 +147,6 @@ pub enum TypedPatternKind {
     OptionalNull,
     ErrorOk(Box<TypedPattern>),
     ErrorErr(Box<TypedPattern>),
-    Expr(TypedExpr),
-    Range {
-        start: Box<TypedExpr>,
-        end: Box<TypedExpr>,
-        inclusive: bool,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypedSwitchPattern {
-    pub ty: InternedTyId,
-    pub span: Span,
-    pub kind: TypedSwitchPatternKind,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TypedSwitchPatternKind {
-    Wildcard,
     Expr(TypedExpr),
     CheckedInt {
         value: i128,

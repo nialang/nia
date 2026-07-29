@@ -243,12 +243,10 @@ impl Parser {
         Some(SwitchStmt { target, arms })
     }
 
-    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<SwitchPattern>> {
+    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
         let mut patterns = Vec::new();
         loop {
-            patterns.push(
-                self.parse_switch_pattern_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?,
-            );
+            patterns.push(self.parse_pattern_until(&[TokenKind::Comma, TokenKind::FatArrow])?);
             if self.at(TokenKind::FatArrow) {
                 break;
             }
@@ -262,46 +260,6 @@ impl Parser {
             }
         }
         Some(patterns)
-    }
-
-    fn parse_switch_pattern_until_tokens(&mut self, stops: &[TokenKind]) -> Option<SwitchPattern> {
-        if self.at(TokenKind::Underscore) {
-            let span = self.expect(TokenKind::Underscore, "expected `_` in switch pattern")?;
-            return Some(SwitchPattern {
-                span,
-                kind: SwitchPatternKind::Wildcard,
-            });
-        }
-
-        let expr = self.parse_expr_until_tokens(stops)?;
-        let ExprKind::Range(range) = expr.kind else {
-            return Some(SwitchPattern {
-                span: expr.span,
-                kind: SwitchPatternKind::Expr(Box::new(expr)),
-            });
-        };
-        match (&range.start, &range.end) {
-            (Some(start), Some(end)) => Some(SwitchPattern {
-                span: expr.span,
-                kind: SwitchPatternKind::Range {
-                    start: Box::new((**start).clone()),
-                    end: Box::new((**end).clone()),
-                    inclusive: range.inclusive,
-                },
-            }),
-            _ => {
-                self.error_at(
-                    expr.span,
-                    "open-ended switch range patterns are not supported; use `_` for the default arm",
-                );
-                Some(SwitchPattern {
-                    span: expr.span,
-                    kind: SwitchPatternKind::Expr(Box::new(
-                        self.make_expr(expr.span, ExprKind::Range(range)),
-                    )),
-                })
-            }
-        }
     }
 
     pub(super) fn parse_binding_pattern_until_tokens(

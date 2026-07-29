@@ -1627,8 +1627,8 @@ fn executable_static_init_semantic_facts(
             .node_array_repeat_counts
             .extend(owner_facts.node_array_repeat_counts);
         facts
-            .node_switch_pattern_values
-            .extend(owner_facts.node_switch_pattern_values);
+            .node_pattern_values
+            .extend(owner_facts.node_pattern_values);
         facts
             .node_resolved_calls
             .extend(owner_facts.node_resolved_calls);

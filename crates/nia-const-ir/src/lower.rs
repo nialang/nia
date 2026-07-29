@@ -1535,34 +1535,10 @@ fn lower_switch_arm_with_context(
         patterns: arm
             .patterns
             .iter()
-            .map(|pattern| lower_switch_pattern_with_context(pattern, context))
+            .map(|pattern| lower_pattern_with_context(pattern, context))
             .collect::<Result<Vec<_>, _>>()?,
         body: lower_switch_arm_body_with_context(&arm.body, context)?,
     })
-}
-
-fn lower_switch_pattern_with_context(
-    pattern: &nia_ast::SwitchPattern,
-    context: &dyn ConstLowerContext,
-) -> Result<EarlyConstPattern, ConstLowerError> {
-    match &pattern.kind {
-        nia_ast::SwitchPatternKind::Wildcard => {
-            Ok(EarlyConstPattern::Wildcard { span: pattern.span })
-        }
-        nia_ast::SwitchPatternKind::Expr(expr) => {
-            lower_expr_internal(expr, context).map(EarlyConstPattern::Expr)
-        }
-        nia_ast::SwitchPatternKind::Range {
-            start,
-            end,
-            inclusive,
-        } => Ok(EarlyConstPattern::Range {
-            start: lower_expr_internal(start, context)?,
-            end: lower_expr_internal(end, context)?,
-            inclusive: *inclusive,
-            span: pattern.span,
-        }),
-    }
 }
 
 fn lower_pattern_with_context(

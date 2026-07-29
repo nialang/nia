@@ -6,10 +6,10 @@ use nia_ast::{
     ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam, IfPatternArm,
     IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind, LoopStmt, Module, ModuleItem,
     Param, PathSegmentKind, Pattern, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral,
-    StructItem, SwitchArm, SwitchArmBody, SwitchPattern, SwitchPatternKind, SwitchStmt,
-    TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment,
-    TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
-    UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
+    StructItem, SwitchArm, SwitchArmBody, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
+    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
+    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
+    WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{

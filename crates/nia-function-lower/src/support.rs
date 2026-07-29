@@ -201,81 +201,12 @@ impl FunctionLowerer<'_> {
             arm.patterns.iter().any(|pattern| {
                 !matches!(
                     &pattern.kind,
-                    TypedSwitchPatternKind::Expr(_)
-                        | TypedSwitchPatternKind::CheckedInt { .. }
-                        | TypedSwitchPatternKind::Wildcard
+                    TypedPatternKind::Expr(_)
+                        | TypedPatternKind::CheckedInt { .. }
+                        | TypedPatternKind::Wildcard
                 )
             })
         })
-    }
-
-    pub(super) fn switch_pattern_condition(
-        &mut self,
-        target: &FunctionExpr,
-        pattern: &TypedSwitchPattern,
-        context: &mut PatternConditionContext<'_>,
-    ) -> Option<FunctionExpr> {
-        match &pattern.kind {
-            TypedSwitchPatternKind::Wildcard => None,
-            TypedSwitchPatternKind::Expr(pattern) => {
-                let pattern = self.lower_value_expr(
-                    pattern,
-                    context.scope,
-                    context.current,
-                    context.ops,
-                    context.blocks,
-                );
-                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
-            }
-            TypedSwitchPatternKind::CheckedInt { value } => {
-                let pattern = self.checked_int_pattern_expr(*value, pattern.ty, pattern.span);
-                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
-            }
-            TypedSwitchPatternKind::Range {
-                start,
-                end,
-                inclusive,
-            } => {
-                let start = self.lower_value_expr(
-                    start,
-                    context.scope,
-                    context.current,
-                    context.ops,
-                    context.blocks,
-                );
-                let end = self.lower_value_expr(
-                    end,
-                    context.scope,
-                    context.current,
-                    context.ops,
-                    context.blocks,
-                );
-                Some(self.switch_range_condition(
-                    target,
-                    start,
-                    end,
-                    *inclusive,
-                    pattern.span,
-                    context.bool_ty,
-                ))
-            }
-            TypedSwitchPatternKind::CheckedIntRange {
-                start,
-                end,
-                inclusive,
-            } => {
-                let start = self.checked_int_pattern_expr(*start, pattern.ty, pattern.span);
-                let end = self.checked_int_pattern_expr(*end, pattern.ty, pattern.span);
-                Some(self.switch_range_condition(
-                    target,
-                    start,
-                    end,
-                    *inclusive,
-                    pattern.span,
-                    context.bool_ty,
-                ))
-            }
-        }
     }
 
     pub(super) fn pattern_condition(
@@ -332,6 +263,10 @@ impl FunctionLowerer<'_> {
                 );
                 Some(self.switch_eq_condition(target, pattern, context.bool_ty))
             }
+            TypedPatternKind::CheckedInt { value } => {
+                let pattern = self.checked_int_pattern_expr(*value, pattern.ty, pattern.span);
+                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
+            }
             TypedPatternKind::Range {
                 start,
                 end,
@@ -351,6 +286,22 @@ impl FunctionLowerer<'_> {
                     context.ops,
                     context.blocks,
                 );
+                Some(self.switch_range_condition(
+                    target,
+                    start,
+                    end,
+                    *inclusive,
+                    pattern.span,
+                    context.bool_ty,
+                ))
+            }
+            TypedPatternKind::CheckedIntRange {
+                start,
+                end,
+                inclusive,
+            } => {
+                let start = self.checked_int_pattern_expr(*start, pattern.ty, pattern.span);
+                let end = self.checked_int_pattern_expr(*end, pattern.ty, pattern.span);
                 Some(self.switch_range_condition(
                     target,
                     start,
@@ -492,8 +443,39 @@ impl FunctionLowerer<'_> {
             TypedPatternKind::Wildcard
             | TypedPatternKind::OptionalNull
             | TypedPatternKind::Expr(_)
-            | TypedPatternKind::Range { .. } => {}
+            | TypedPatternKind::CheckedInt { .. }
+            | TypedPatternKind::Range { .. }
+            | TypedPatternKind::CheckedIntRange { .. } => {}
         }
+    }
+
+    pub(super) fn lower_pattern_arm_entry(
+        &mut self,
+        pattern: &TypedPattern,
+        target: &FunctionExpr,
+        scope: FunctionScopeId,
+        entry: FunctionBlockId,
+        span: Span,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionBlockId {
+        let mut ops = Vec::new();
+        self.lower_pattern_binding(pattern, target, &mut ops);
+        if ops.is_empty() {
+            return entry;
+        }
+        let body_entry = self.alloc_block();
+        self.finish_block(
+            blocks,
+            entry,
+            scope,
+            span,
+            ops,
+            FunctionTerminator::Branch {
+                target: body_entry,
+                span,
+            },
+        );
+        body_entry
     }
 
     pub(super) fn tagged_union_payload_expr(
@@ -812,7 +794,7 @@ impl FunctionLowerer<'_> {
                     visit_expr(&switch.target, max_id);
                     for arm in &switch.arms {
                         for pattern in &arm.patterns {
-                            visit_switch_pattern(pattern, max_id);
+                            visit_pattern(pattern, max_id);
                         }
                         match &arm.body {
                             TypedSwitchArmBody::Expr(expr) => visit_expr(expr, max_id),
@@ -925,20 +907,9 @@ impl FunctionLowerer<'_> {
                 }
                 TypedPatternKind::Wildcard
                 | TypedPatternKind::Bind { .. }
-                | TypedPatternKind::OptionalNull => {}
-            }
-        }
-
-        pub(super) fn visit_switch_pattern(pattern: &TypedSwitchPattern, max_id: &mut u32) {
-            match &pattern.kind {
-                TypedSwitchPatternKind::Expr(pattern) => visit_expr(pattern, max_id),
-                TypedSwitchPatternKind::Range { start, end, .. } => {
-                    visit_expr(start, max_id);
-                    visit_expr(end, max_id);
-                }
-                TypedSwitchPatternKind::Wildcard
-                | TypedSwitchPatternKind::CheckedInt { .. }
-                | TypedSwitchPatternKind::CheckedIntRange { .. } => {}
+                | TypedPatternKind::OptionalNull
+                | TypedPatternKind::CheckedInt { .. }
+                | TypedPatternKind::CheckedIntRange { .. } => {}
             }
         }
 

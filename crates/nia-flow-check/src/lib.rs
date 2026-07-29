@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern, PatternKind, Stmt, StmtKind,
-    SwitchArmBody, SwitchPattern, SwitchPatternKind,
+    SwitchArmBody,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalDefId, ModuleId};
@@ -49,7 +49,13 @@ struct Flow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum SwitchPatternFingerprint {
+enum PatternFingerprint {
+    Pointer(Box<PatternFingerprint>),
+    MutPointer(Box<PatternFingerprint>),
+    OptionalSome(Box<PatternFingerprint>),
+    OptionalNull,
+    ErrorOk(Box<PatternFingerprint>),
+    ErrorErr(Box<PatternFingerprint>),
     Expr(ExprFingerprint),
     Range {
         start: ExprFingerprint,
@@ -70,6 +76,45 @@ enum ExprFingerprint {
     Null,
     Ident(SymbolId),
     Qualified(Box<ExprFingerprint>, SymbolId),
+}
+
+#[derive(Default)]
+struct SyntacticPatternCoverage {
+    catch_all: bool,
+    optional_some: Option<Box<SyntacticPatternCoverage>>,
+    optional_null: bool,
+    error_ok: Option<Box<SyntacticPatternCoverage>>,
+    error_err: Option<Box<SyntacticPatternCoverage>>,
+}
+
+impl SyntacticPatternCoverage {
+    fn record(&mut self, pattern: &Pattern) {
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::Bind { .. } => self.catch_all = true,
+            PatternKind::Pointer(inner) | PatternKind::MutPointer(inner) => self.record(inner),
+            PatternKind::OptionalSome(inner) => self
+                .optional_some
+                .get_or_insert_with(Default::default)
+                .record(inner),
+            PatternKind::OptionalNull => self.optional_null = true,
+            PatternKind::ErrorOk(inner) => self
+                .error_ok
+                .get_or_insert_with(Default::default)
+                .record(inner),
+            PatternKind::ErrorErr(inner) => self
+                .error_err
+                .get_or_insert_with(Default::default)
+                .record(inner),
+            PatternKind::Expr(_) | PatternKind::Range { .. } => {}
+        }
+    }
+
+    fn covers_all(&self) -> bool {
+        self.catch_all
+            || (self.optional_null && self.optional_some.as_deref().is_some_and(Self::covers_all))
+            || (self.error_ok.as_deref().is_some_and(Self::covers_all)
+                && self.error_err.as_deref().is_some_and(Self::covers_all))
+    }
 }
 
 pub fn check_module_flow(
@@ -382,19 +427,17 @@ impl FlowChecker<'_> {
             ExprKind::Switch(switch) => {
                 self.check_switch_patterns(switch);
                 self.check_expr_flow(&switch.target);
-                let mut has_default = false;
+                let mut coverage = SyntacticPatternCoverage::default();
                 let mut all_arms_terminate = !switch.arms.is_empty();
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        if matches!(&pattern.kind, SwitchPatternKind::Wildcard) {
-                            has_default = true;
-                        }
-                        self.check_switch_pattern_flow(pattern);
+                        coverage.record(pattern);
+                        self.check_pattern_flow(pattern);
                     }
                     all_arms_terminate &= !self.check_switch_arm_flow(&arm.body).falls_through;
                 }
                 Flow {
-                    falls_through: !(has_default && all_arms_terminate),
+                    falls_through: !(coverage.covers_all() && all_arms_terminate),
                 }
             }
             ExprKind::BracketSuffix { callee, args } => {
@@ -529,19 +572,6 @@ impl FlowChecker<'_> {
         self.check_expr_flow(expr);
     }
 
-    fn check_switch_pattern_flow(&mut self, pattern: &SwitchPattern) {
-        match &pattern.kind {
-            SwitchPatternKind::Wildcard => {}
-            SwitchPatternKind::Expr(expr) => {
-                self.check_expr_flow(expr);
-            }
-            SwitchPatternKind::Range { start, end, .. } => {
-                self.check_expr_flow(start);
-                self.check_expr_flow(end);
-            }
-        }
-    }
-
     fn check_pattern_flow(&mut self, pattern: &Pattern) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
@@ -565,7 +595,7 @@ impl FlowChecker<'_> {
         let mut seen = HashSet::new();
         for arm in &switch.arms {
             for pattern in &arm.patterns {
-                if matches!(&pattern.kind, SwitchPatternKind::Wildcard) {
+                if Self::pattern_is_catch_all(pattern) {
                     if has_default {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::STATIC_CHECK,
@@ -576,7 +606,7 @@ impl FlowChecker<'_> {
                     has_default = true;
                     continue;
                 }
-                if let Some(fingerprint) = Self::switch_pattern_fingerprint(pattern)
+                if let Some(fingerprint) = Self::pattern_fingerprint(pattern)
                     && !seen.insert(fingerprint)
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -589,17 +619,48 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn switch_pattern_fingerprint(pattern: &SwitchPattern) -> Option<SwitchPatternFingerprint> {
+    fn pattern_is_catch_all(pattern: &Pattern) -> bool {
         match &pattern.kind {
-            SwitchPatternKind::Wildcard => None,
-            SwitchPatternKind::Expr(expr) => Some(SwitchPatternFingerprint::Expr(
-                Self::expr_fingerprint(expr)?,
-            )),
-            SwitchPatternKind::Range {
+            PatternKind::Wildcard | PatternKind::Bind { .. } => true,
+            PatternKind::Pointer(inner) | PatternKind::MutPointer(inner) => {
+                Self::pattern_is_catch_all(inner)
+            }
+            PatternKind::OptionalSome(_)
+            | PatternKind::OptionalNull
+            | PatternKind::ErrorOk(_)
+            | PatternKind::ErrorErr(_)
+            | PatternKind::Expr(_)
+            | PatternKind::Range { .. } => false,
+        }
+    }
+
+    fn pattern_fingerprint(pattern: &Pattern) -> Option<PatternFingerprint> {
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::Bind { .. } => None,
+            PatternKind::Pointer(inner) => Some(PatternFingerprint::Pointer(Box::new(
+                Self::pattern_fingerprint(inner)?,
+            ))),
+            PatternKind::MutPointer(inner) => Some(PatternFingerprint::MutPointer(Box::new(
+                Self::pattern_fingerprint(inner)?,
+            ))),
+            PatternKind::OptionalSome(inner) => Some(PatternFingerprint::OptionalSome(Box::new(
+                Self::pattern_fingerprint(inner)?,
+            ))),
+            PatternKind::OptionalNull => Some(PatternFingerprint::OptionalNull),
+            PatternKind::ErrorOk(inner) => Some(PatternFingerprint::ErrorOk(Box::new(
+                Self::pattern_fingerprint(inner)?,
+            ))),
+            PatternKind::ErrorErr(inner) => Some(PatternFingerprint::ErrorErr(Box::new(
+                Self::pattern_fingerprint(inner)?,
+            ))),
+            PatternKind::Expr(expr) => {
+                Some(PatternFingerprint::Expr(Self::expr_fingerprint(expr)?))
+            }
+            PatternKind::Range {
                 start,
                 end,
                 inclusive,
-            } => Some(SwitchPatternFingerprint::Range {
+            } => Some(PatternFingerprint::Range {
                 start: Self::expr_fingerprint(start)?,
                 end: Self::expr_fingerprint(end)?,
                 inclusive: *inclusive,
@@ -760,6 +821,35 @@ fn name(x: u32) &u8 {
     switch x {
         1 => return 0 as &u8,
         _ => return 1 as &u8,
+    }
+}
+"#,
+        );
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .summary
+                .contains("does not return on all reachable paths")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn destructuring_switch_returns_on_all_paths() {
+        let checked = pipeline(
+            r#"
+fn optional(value: ?i32) i32 {
+    switch value {
+        ?payload => return payload,
+        null => return 0,
+    }
+}
+
+fn nested(value: ?(i32!i32)) i32 {
+    switch value {
+        ?!payload => return payload,
+        ?error! => return error,
+        null => return 0,
     }
 }
 "#,

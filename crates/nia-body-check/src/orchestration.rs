@@ -286,7 +286,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         node_builtin_values: HashMap::new(),
         node_associated_const_projections: HashMap::new(),
         node_array_repeat_counts: HashMap::new(),
-        node_switch_pattern_values: HashMap::new(),
+        node_pattern_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
@@ -379,7 +379,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
                 .collect(),
             node_associated_const_projections: checker.node_associated_const_projections,
             node_array_repeat_counts: checker.node_array_repeat_counts,
-            node_switch_pattern_values: checker.node_switch_pattern_values,
+            node_pattern_values: checker.node_pattern_values,
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
         };

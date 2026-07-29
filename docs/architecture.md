@@ -1014,12 +1014,13 @@ const call inference: runtime Nia values agree by `TyId`, while structural
 const-only structs agree by their field type surface.
 
 Const `switch` expressions follow the same source-shaped typed surface as
-runtime source `switch`: value patterns, integer ranges, and default cases.
+runtime source `switch`: recursive patterns, value patterns, integer ranges,
+and catch-all cases.
 Value-producing arm bodies are typed and unified to one typed const value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
-do not invent a switch result type. Recursive optional and error-union payload
-patterns belong to if-pattern expressions; their payload locals are typed from the
-target type while checking those arms. The evaluator still performs
+do not invent a switch result type. Optional and error-union payload locals are
+typed from the target type while checking either switch or if-pattern arms. The
+evaluator still performs
 actual matching; the checker only records the arm and payload types needed for
 const generic inference.
 
@@ -1120,7 +1121,7 @@ It produces two explicit products:
 - `BodyFacts`, the body semantic surface: expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, generic instantiations, source-node fact keys, plus
-  checked const-derived facts such as array repeat counts and switch pattern
+  checked const-derived facts such as array repeat counts and integer pattern
   values;
 - `BodyIr`, the runtime checked body boundary: typed function bodies, static
   initializers, and no type-store snapshot. Consumers interpret its typed
@@ -1142,7 +1143,7 @@ Defines checked body data products:
   facts that later phases may consume, including expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, compile-time branch selections, source-node fact
-  keys, checked array repeat counts, checked switch pattern values, and recorded
+  keys, checked array repeat counts, checked integer pattern values, and recorded
   generic instantiations.
 - `BodyIr` is the runtime checked body product. It stores typed function
   bodies and static initializers, but does not own the type interner used by
@@ -1162,16 +1163,18 @@ the executable module aggregate and the per-function checked-body query are
 concurrent immutable owners of the same payload. Extracting an item query does
 not deep-clone the checked body.
 Facts derived from const execution during body checking, such as array repeat
-counts and switch pattern values, are recorded here so later lowering can
+counts and integer pattern values, are recorded here so later lowering can
 consume checked facts instead of re-running expression evaluation from source
 shape. If body IR lowering does not have a checked integer-pattern fact because
 the checker already rejected the pattern or the pattern is not an integer fact,
 it keeps the original expression-shaped pattern instead of re-running const
 evaluation or producing a second diagnostic.
-Integer and boolean switch patterns therefore enter `BodyIr` as checked pattern
-values or checked ranges; expression-shaped switch patterns remain only for
+Integer and boolean patterns therefore enter `BodyIr` as checked pattern values
+or checked ranges; expression-shaped patterns remain only for
 patterns whose semantics are not represented by the integer-pattern fact, such
-as enum variant references.
+as enum variant references. `switch` and if-pattern expressions share the same
+typed recursive pattern representation; only their source control-flow shape
+differs.
 
 ### 9.4 `nia-function-ir`
 

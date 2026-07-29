@@ -494,29 +494,73 @@ fn main(state: i32) i32 {
     assert_eq!(switch.arms[0].patterns.len(), 2);
     assert!(matches!(
         &switch.arms[0].patterns[0].kind,
-        SwitchPatternKind::Expr(_)
+        PatternKind::Expr(_)
     ));
     assert!(matches!(
         &switch.arms[0].patterns[1].kind,
-        SwitchPatternKind::Expr(_)
+        PatternKind::Expr(_)
     ));
     assert!(matches!(
         &switch.arms[1].patterns[0].kind,
-        SwitchPatternKind::Range {
+        PatternKind::Range {
             inclusive: false,
             ..
         }
     ));
     assert!(matches!(
         &switch.arms[2].patterns[0].kind,
-        SwitchPatternKind::Range {
+        PatternKind::Range {
             inclusive: true,
             ..
         }
     ));
     assert!(matches!(
         &switch.arms[3].patterns[0].kind,
-        SwitchPatternKind::Wildcard
+        PatternKind::Wildcard
+    ));
+}
+
+#[test]
+fn parses_switch_destructuring_bindings_and_explicit_value_patterns() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(value: ?i32, tag: i32) i32 {
+    switch value {
+        ?payload => payload,
+        null => switch tag {
+            (expected) => 1,
+            _ => 0,
+        },
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected switch tail").kind else {
+        panic!("expected switch expression");
+    };
+    assert!(matches!(
+        &switch.arms[0].patterns[0].kind,
+        PatternKind::OptionalSome(inner)
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("payload"))
+    ));
+    assert!(matches!(
+        switch.arms[1].patterns[0].kind,
+        PatternKind::OptionalNull
+    ));
+    let SwitchArmBody::Expr(nested) = &switch.arms[1].body else {
+        panic!("expected nested switch expression");
+    };
+    let ExprKind::Switch(nested) = &nested.kind else {
+        panic!("expected nested switch");
+    };
+    assert!(matches!(
+        nested.arms[0].patterns[0].kind,
+        PatternKind::Expr(_)
     ));
 }
 

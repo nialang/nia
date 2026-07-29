@@ -3,8 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{
     ArrayLen, BindingItem, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module,
-    Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, SwitchPattern, SwitchPatternKind, TypeArg,
-    TypeKind, TypeRef,
+    Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg, TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
@@ -590,7 +589,7 @@ impl LocalDefinitionAllocator {
                 self.allocate_expr(&switch.target);
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        self.allocate_switch_pattern(pattern);
+                        self.allocate_pattern(pattern, LocalKind::ImmutableBinding);
                     }
                     match &arm.body {
                         SwitchArmBody::Expr(expr) => self.allocate_expr(expr),
@@ -612,17 +611,6 @@ impl LocalDefinitionAllocator {
             nia_ast::ArrayElements::Repeat { value, count } => {
                 self.allocate_expr(value);
                 self.allocate_expr(count);
-            }
-        }
-    }
-
-    fn allocate_switch_pattern(&mut self, pattern: &SwitchPattern) {
-        match &pattern.kind {
-            SwitchPatternKind::Wildcard => {}
-            SwitchPatternKind::Expr(expr) => self.allocate_expr(expr),
-            SwitchPatternKind::Range { start, end, .. } => {
-                self.allocate_expr(start);
-                self.allocate_expr(end);
             }
         }
     }
@@ -1121,26 +1109,21 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Switch(switch) => {
                 self.resolve_expr(&switch.target);
                 for arm in &switch.arms {
+                    self.push_scope();
                     for pattern in &arm.patterns {
-                        self.resolve_switch_pattern(pattern);
+                        self.resolve_pattern(
+                            pattern,
+                            LocalKind::ImmutableBinding,
+                            "duplicate switch pattern binding",
+                        );
                     }
                     match &arm.body {
                         SwitchArmBody::Expr(expr) => self.resolve_expr(expr),
                         SwitchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
                         SwitchArmBody::Block(block) => self.resolve_block(block),
                     }
+                    self.pop_scope();
                 }
-            }
-        }
-    }
-
-    fn resolve_switch_pattern(&mut self, pattern: &SwitchPattern) {
-        match &pattern.kind {
-            SwitchPatternKind::Wildcard => {}
-            SwitchPatternKind::Expr(expr) => self.resolve_expr(expr),
-            SwitchPatternKind::Range { start, end, .. } => {
-                self.resolve_expr(start);
-                self.resolve_expr(end);
             }
         }
     }

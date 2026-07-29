@@ -418,13 +418,10 @@ fn non_constant(value: i32, start: i32) i32 {
         assert!(
             checked
                 .facts
-                .iter_node_switch_pattern_values()
+                .iter_node_pattern_values()
                 .any(|(_, value)| *value == expected),
             "missing switch pattern value {expected}: {:?}",
-            checked
-                .facts
-                .iter_node_switch_pattern_values()
-                .collect::<Vec<_>>()
+            checked.facts.iter_node_pattern_values().collect::<Vec<_>>()
         );
     }
 }
@@ -466,14 +463,14 @@ fn main() i32 {
     assert!(
         patterns.iter().any(|pattern| matches!(
             &pattern.kind,
-            nia_body_ir::TypedSwitchPatternKind::CheckedInt { value: 1 }
+            nia_body_ir::TypedPatternKind::CheckedInt { value: 1 }
         )),
         "{patterns:?}"
     );
     assert!(
         patterns.iter().any(|pattern| matches!(
             &pattern.kind,
-            nia_body_ir::TypedSwitchPatternKind::CheckedIntRange {
+            nia_body_ir::TypedPatternKind::CheckedIntRange {
                 start: 2,
                 end: 5,
                 inclusive: false,
@@ -484,8 +481,7 @@ fn main() i32 {
     assert!(
         !patterns.iter().any(|pattern| matches!(
             &pattern.kind,
-            nia_body_ir::TypedSwitchPatternKind::Expr(_)
-                | nia_body_ir::TypedSwitchPatternKind::Range { .. }
+            nia_body_ir::TypedPatternKind::Expr(_) | nia_body_ir::TypedPatternKind::Range { .. }
         )),
         "{patterns:?}"
     );
@@ -534,6 +530,74 @@ fn bind_plain(value: i32) i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_switch_destructuring_and_recursive_exhaustiveness() {
+    let checked = pipeline(
+        r#"
+fn optional(value: ?i32) i32 {
+    switch value {
+        ?payload => payload,
+        null => 0,
+    }
+}
+
+fn error_union(value: i32!i32) i32 {
+    switch value {
+        !payload => payload,
+        error! => error,
+    }
+}
+
+fn nested(value: ?(i32!i32)) i32 {
+    switch value {
+        ?!payload => payload,
+        ?error! => error,
+        null => 0,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_non_exhaustive_and_ambiguous_switch_bindings() {
+    let checked = pipeline(
+        r#"
+fn missing(value: ?i32) i32 {
+    switch value {
+        ?payload => payload,
+    }
+}
+
+fn alternatives(value: ?i32) i32 {
+    switch value {
+        ?payload, null => payload,
+        _ => 0,
+    }
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("non-exhaustive switch over destructured value")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("multiple alternative patterns cannot bind values")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
