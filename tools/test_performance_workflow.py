@@ -30,6 +30,13 @@ class PerformanceWorkflowTests(unittest.TestCase):
         self.assertIn("name: nia-perf-candidate", self.workflow)
         self.assertIn("retention-days: 14", self.workflow)
 
+    def test_publishes_baseline_provenance_in_step_summary(self):
+        self.assertIn("BASELINE_RUN_ID", self.workflow)
+        self.assertIn("steps.main_baseline.outputs.run_id", self.workflow)
+        self.assertNotIn("outputs.run-", self.workflow)
+        self.assertIn("GITHUB_STEP_SUMMARY", self.workflow)
+        self.assertIn("Comparison passed", self.workflow)
+
     def test_installs_and_selects_llvm_22(self):
         self.assertIn("LLVM_SYS_221_PREFIX: /usr/lib/llvm-22", self.workflow)
         self.assertIn("llvm-toolchain-noble-22", self.workflow)
