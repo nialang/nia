@@ -12,13 +12,14 @@ use nia_driver::{
 };
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
-use nia_timing::TimingOptions;
+use nia_timing::{TimingFormat, TimingOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
     pub root: Option<PathBuf>,
     pub step: Option<String>,
     pub timings: TimingMode,
+    pub timing_format: TimingFormat,
 }
 
 impl BuildRequest {
@@ -27,6 +28,7 @@ impl BuildRequest {
             root: None,
             step: None,
             timings: TimingMode::Off,
+            timing_format: TimingFormat::Text,
         }
     }
 
@@ -42,6 +44,11 @@ impl BuildRequest {
 
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
+        self
+    }
+
+    pub fn with_timing_format(mut self, timing_format: TimingFormat) -> Self {
+        self.timing_format = timing_format;
         self
     }
 }
@@ -63,6 +70,7 @@ pub struct BuildPlan {
     pub runner_executable: PathBuf,
     pub step: BuildStepSelection,
     pub timings: TimingMode,
+    pub timing_format: TimingFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -216,23 +224,36 @@ impl fmt::Display for BuildError {
 impl std::error::Error for BuildError {}
 
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
-    nia_timing::collect_to_stderr(TimingOptions::new(request.timings), || {
-        let timings = request.timings;
-        let plan = time_summary_stage(timings, "build_resolve_plan", || {
-            resolve_build_plan(request)
-        })?;
-        time_summary_stage(timings, "build_prepare_directories", || {
-            prepare_build_directories(&plan)
-        })?;
-        let runner_executable = time_summary_stage(timings, "build_compile_runner", || {
-            compile_build_runner(&plan)
-        })?;
-        let _lock =
-            time_summary_stage(timings, "build_acquire_lock", || BuildLock::acquire(&plan))?;
-        time_summary_stage(timings, "build_run_runner", || {
-            run_build_runner(&plan, &runner_executable)
-        })
-    })
+    nia_timing::collect_to_stderr(
+        TimingOptions::new(request.timings).with_format(request.timing_format),
+        || {
+            let timings = request.timings;
+            let plan = time_summary_stage(timings, "build_resolve_plan", || {
+                resolve_build_plan(request)
+            })?;
+            time_summary_stage(timings, "build_prepare_directories", || {
+                prepare_build_directories(&plan)
+            })?;
+            nia_timing::emit_counter("build.runner_compilations", 1);
+            let runner_executable = time_summary_stage(timings, "build_compile_runner", || {
+                compile_build_runner(&plan)
+            });
+            if runner_executable.is_err() {
+                nia_timing::emit_counter("build.runner_compile_failures", 1);
+            }
+            let runner_executable = runner_executable?;
+            let _lock =
+                time_summary_stage(timings, "build_acquire_lock", || BuildLock::acquire(&plan))?;
+            nia_timing::emit_counter("build.runner_executions", 1);
+            let result = time_summary_stage(timings, "build_run_runner", || {
+                run_build_runner(&plan, &runner_executable)
+            });
+            if result.is_err() {
+                nia_timing::emit_counter("build.runner_failures", 1);
+            }
+            result
+        },
+    )
 }
 
 pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError> {
@@ -259,6 +280,7 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
             .map(BuildStepSelection::Named)
             .unwrap_or(BuildStepSelection::Default),
         timings: request.timings,
+        timing_format: request.timing_format,
     })
 }
 
@@ -300,6 +322,19 @@ fn path_arg(
     fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()
 }
 
+fn action_report_enabled(init: process::Init) bool {
+    if ?arg = init.args().get(5usize) {
+        let bytes = arg.bytes();
+        bytes.len() == 4usize
+            and bytes[0usize] == b'j'
+            and bytes[1usize] == b's'
+            and bytes[2usize] == b'o'
+            and bytes[3usize] == b'n'
+    } or null {
+        false
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut page_allocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
@@ -329,7 +364,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build_dir,
         cache_dir,
         toolchain_executable,
-        5usize,
+        action_report_enabled(init),
+        6usize,
 "#,
     );
     source.push_str(
@@ -339,9 +375,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if !ok = build_script::build(&mut api) {
         _ = ok;
     } or error! {
+        if !reported = api.report_actions(false) {
+            _ = reported;
+        } or report_error! {
+            _ = report_error;
+        }
         return error.as_exit_code()!;
     }
-    api.run_requested_step().exit().?;
+    if !ok = api.run_requested_step() {
+        _ = ok;
+    } or error! {
+        if !reported = api.report_actions(false) {
+            _ = reported;
+        } or report_error! {
+            _ = report_error;
+        }
+        return error.as_exit_code()!;
+    }
+    if !reported = api.report_actions(true) {
+        _ = reported;
+    } or report_error! {
+        _ = report_error;
+    }
     !{}
 }
 "#,
@@ -407,6 +462,13 @@ fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), Bu
     command.arg(&plan.build_dir);
     command.arg(&plan.cache_dir);
     command.arg(&plan.toolchain_executable);
+    command.arg(
+        if plan.timings == TimingMode::Detail && plan.timing_format == TimingFormat::Json {
+            "json"
+        } else {
+            "off"
+        },
+    );
     if let Some(step) = plan.step.as_runner_arg() {
         command.arg(step);
     }
@@ -649,7 +711,10 @@ mod tests {
                 .source
                 .contains("path_arg(init, &mut allocator, 4usize")
         );
-        assert!(runner.source.contains("5usize,"));
+        assert!(runner.source.contains("action_report_enabled(init),"));
+        assert!(runner.source.contains("6usize,"));
+        assert!(runner.source.contains("api.report_actions(false)"));
+        assert!(runner.source.contains("api.report_actions(true)"));
         assert!(
             runner
                 .source
@@ -657,68 +722,6 @@ mod tests {
         );
         assert!(runner.source.contains("return error.as_exit_code()!;"));
         assert!(!runner.source.contains("const"));
-    }
-
-    #[test]
-    fn generated_runner_codegen_covers_configured_build_api_closure() {
-        let root = temp_root("generated_runner_codegen_covers_configured_build_api_closure");
-        std::fs::write(
-            root.join("build.nia"),
-            r#"
-using std::build;
-using std::fs;
-using std::fmt;
-using std::io;
-
-pub fn build(b: &mut build::Build) build::Error!void {
-    let mut buffer: [1024]u8 = [_]u8[0; 1024];
-    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
-    stdout.print(&"root={}\n", &[b.package_root().text()]).as_build_error().?;
-    stdout.flush().as_build_error().?;
-    static helper_name = "helper";
-    static helper_path = "deps/helper.nia";
-    static src_main = "src/main.nia";
-    static app_name = "app";
-    static output_name = "custom-app";
-    static build_step_name = "build";
-    static check_step_name = "check";
-    let imports = [
-        build::ModuleImport::init(&helper_name, fs::PathView::init(&helper_path)),
-    ];
-    let root_module = b.add_module(
-        build::ModuleOptions::init(fs::PathView::init(&src_main)).with_imports(&imports[..]),
-    ).?;
-    let app = b.add_executable(
-        build::ExecutableOptions::init(&app_name, root_module).with_output_name(&output_name),
-    ).?;
-    let build_step = b.add_emit_executable_step(&build_step_name, app).?;
-    _ = b.add_check_executable_step(&check_step_name, app).?;
-    b.set_default_step(build_step).?;
-    !{}
-}
-"#,
-        )
-        .expect("write configured build script");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
-        let runner = build_runner_source(&plan).expect("build runner source");
-        for session in ["cold", "warm"] {
-            let driver = Driver::with_config(DriverConfig {
-                artifact_cache_dir: Some(plan.cache_dir.clone()),
-                ..DriverConfig::default()
-            });
-            driver.set_source(runner.path.clone(), runner.source.clone());
-
-            let output = driver.codegen(
-                CheckRequest::new(runner.path.clone())
-                    .with_module_map(build_runner_module_map(&plan))
-                    .with_runtime(nia_driver::Runtime::Freestanding),
-            );
-            assert!(
-                output.result.is_ok(),
-                "{session} generated runner codegen failed: {:?}",
-                output.result.err()
-            );
-        }
     }
 
     #[test]

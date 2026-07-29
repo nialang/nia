@@ -1,0 +1,63 @@
+using std::build;
+using std::fs;
+using std::io;
+
+fn generate_source(b: &mut build::Build) build::Error!void {
+    static generated_path = ".nia-build/generated.nia";
+    let mut file = fs::File::create(
+        fs::PathView::init(&generated_path),
+        fs::CreateOptions::init(),
+    ).as_build_error().?;
+    defer file.close().as_build_error().?;
+    let mut buffer: [256]u8 = [_]u8[0; 256];
+    let mut writer = file.writer(b.io(), &mut buffer[..]).as_build_error().?;
+    writer.write_all(&b"using std::process;\npub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }\n").as_build_error().?;
+    writer.flush().as_build_error()
+}
+
+fn fail_action(b: &mut build::Build) build::Error!void {
+    _ = b;
+    build::Error::StepFailed!
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    static helper_name = "helper";
+    static helper_path = "deps/helper.nia";
+    static source_path = "src/main.nia";
+    static generated_path = ".nia-build/generated.nia";
+    static source_name = "source-app";
+    static generated_name = "generated-app";
+    static generate_name = "generate-source";
+    static emit_source_name = "emit-source";
+    static emit_generated_name = "emit-generated";
+    static all_name = "all";
+    static fail_name = "fail";
+
+    let imports = [
+        build::ModuleImport::init(&helper_name, fs::PathView::init(&helper_path)),
+    ];
+    let source_module = b.add_module(
+        build::ModuleOptions::init(fs::PathView::init(&source_path))
+            .with_imports(&imports[..]),
+    ).?;
+    let generated_module = b.add_module(
+        build::ModuleOptions::init(fs::PathView::init(&generated_path)),
+    ).?;
+    let source_app = b.add_executable(
+        build::ExecutableOptions::init(&source_name, source_module),
+    ).?;
+    let generated_app = b.add_executable(
+        build::ExecutableOptions::init(&generated_name, generated_module),
+    ).?;
+
+    let generate = b.add_step(&generate_name, &generate_source).?;
+    let emit_generated = b.add_emit_executable_step(&emit_generated_name, generated_app).?;
+    let emit_source = b.add_emit_executable_step(&emit_source_name, source_app).?;
+    let all = b.add_step(&all_name, &build::noop_step).?;
+    _ = b.add_step(&fail_name, &fail_action).?;
+    b.depend_on(emit_generated, generate).?;
+    b.depend_on(all, emit_generated).?;
+    b.depend_on(all, emit_source).?;
+    b.set_default_step(all).?;
+    !{}
+}

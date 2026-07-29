@@ -163,6 +163,23 @@ the current toolchain from the package root and emit executable artifacts to
 `set_default_step(step)` selects the step used by `nia build` when no step name
 is passed; otherwise users must request a named step explicitly.
 
+This is an experimental bootstrap API, not a compatibility promise. Its current
+callbacks, index handles, raw compiler command bridge, error enum, and fixed
+buffers are migration inputs for the immutable build-plan design. The build-host
+standard-library surface is likewise under API and layering review rather than
+being frozen because the bootstrap can run it.
+
+The bounded Phase A build baseline can be run explicitly after building a
+release compiler:
+
+```sh
+python3 tools/build_baseline.py
+```
+
+It runs sequentially in an isolated workspace, refuses to start under memory
+pressure, enforces subprocess timeouts, and writes machine-readable action and
+wall/RSS evidence under `target/nia-build-baseline/`.
+
 Module aliases can be supplied with `-M name=path` or
 `--module name=path`. Optimization options and `--timings[=summary|detail]`
 are global options and may appear before or after the command.
@@ -193,6 +210,10 @@ with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output throu
 - [docs/nia-abi.md](docs/nia-abi.md): ABI and layout rules.
 - [docs/architecture.md](docs/architecture.md): compiler architecture and phase
   boundaries.
+- [docs/build-system.md](docs/build-system.md): build ownership, plan/action
+  contracts, current-case migration, and resource discipline.
+- [docs/standard-library.md](docs/standard-library.md): std layering,
+  build-host dependency audit, and API maturity rules.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
   discipline, acceptance rules, and roadmap-retirement policy.
 - [build-std-roadmap.md](build-std-roadmap.md): active build-system,

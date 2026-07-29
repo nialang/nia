@@ -120,6 +120,13 @@ filesystem and process behavior, atomics, I/O, startup, and executable runtime
 paths. The library therefore needs dependency and contract refactoring, not a
 blind rewrite based on file size.
 
+The current public surface is also not a compatibility baseline. Much of std,
+especially the build-host slice, was designed to make the first programs run
+rather than after a deliberate API review. Phase A must classify existing APIs
+by layering, ownership/lifetime, error model, naming/surface, and bootstrap-only
+status. A working API is evidence about required capability, not evidence that
+its present signature or module placement should survive.
+
 The blocking limitations are structural:
 
 - the compiler locates `lib/std.nia` from Rust's compile-time
@@ -167,6 +174,8 @@ The blocking limitations are structural:
   or trust/signing infrastructure;
 - a complete package-manager design hidden inside the build graph;
 - source compatibility for the current experimental `std::build` API;
+- source compatibility for other experimental std APIs merely because current
+  examples or the bootstrap runner use them;
 - rewriting every standard-library module before build work begins;
 - matching the full Rust or Zig standard-library surface;
 - making every LLVM target a supported Nia runtime target;
@@ -175,6 +184,13 @@ The blocking limitations are structural:
 - PGO-driven codegen partitioning, full LTO design, or partial relinking;
 - new language syntax or semantics unless a separately justified language
   design is required for a sound build/std contract.
+
+Language/compiler proposals that may change build or std boundaries are not
+silently absorbed and are not ignored. Phase A records their impact on
+ownership, errors, host/target semantics, compile-time/runtime capability, and
+the plan protocol. A decided proposal may become an explicit dependency; an
+undecided proposal remains a named decision gate and cannot be implemented by
+accident through std API stabilization.
 
 Local package roots and explicit external module mappings are in scope because
 build actions must describe their compiler inputs. Resolving package versions
@@ -410,6 +426,9 @@ Tasks:
 - inventory current Rust `nia-build`, generated runner, `std::build`, Driver,
   cache, linker, std dependency, and test owners;
 - record a build-host std dependency/public-surface matrix;
+- classify each API in that slice as retain, layer violation,
+  ownership/lifetime issue, error-model issue, naming/surface issue, or
+  bootstrap-only/retire; current usability alone is not a retain decision;
 - define representative build workloads: runner bootstrap, no-op warm build,
   single-source edit, module-map edit, generated source, failed action, and
   multi-artifact package;
@@ -419,6 +438,11 @@ Tasks:
   diagnostic, and cache invariants in stable architecture documents;
 - resolve the public project boundary: build remains toolchain-owned in this
   repository; package registry/manager work remains separate.
+- record language/compiler proposal decision gates that can change build/std
+  contracts without making Phase A depend on unresolved proposal details;
+- keep default test execution resource-safe: complete compiler/LLVM/build
+  sessions run only through resource-accounted integration harnesses, with
+  bounded subprocess time and process-tree cleanup.
 
 Acceptance:
 
@@ -430,6 +454,10 @@ Acceptance:
   action/compiler/link executions and wall/RSS observations;
 - the target protocol and toolchain layout have one owner and no unresolved
   competing execution model;
+- no current std/build API is promoted to a stable contract without an explicit
+  maturity classification and migration disposition;
+- ordinary `cargo test` retains natural libtest concurrency without an
+  unaccounted full build session or a hidden machine-specific test mode;
 - no implementation phase is credited merely for this roadmap text.
 
 ### Phase B: Relocatable Toolchain And Std Identity
@@ -755,6 +783,15 @@ known-good compiler/toolchain path for fixture execution until the new relocated
 layout is accepted. This is a controlled stage boundary, not a permanent old-std
 fallback in production.
 
+The previous compiler roadmap recorded a real WSL OOM caused by concurrent
+full build chains. Do not reintroduce it through build baselines or std
+conformance tests. Unit tests stay cheap and deterministic; tests that spawn a
+complete compiler, LLVM, or build session belong behind the existing
+resource-accounted integration harness. External baseline commands run
+sequentially, check available memory, enforce timeouts, and terminate the whole
+subprocess group on timeout. WSL is not a separate semantic profile: the same
+tests use the effective CPU/cgroup/VM memory limits visible to Linux.
+
 ### 10.2 Configuration cannot be made reproducible by naming it so
 
 A build script is arbitrary host code. Re-running it each invocation is
@@ -795,7 +832,7 @@ validate it under the compiler maintenance contract. Do not bypass the query
 graph, expose mutable compiler global state to build scripts, or reopen removed
 identity/cache APIs for convenience.
 
-## 11. Initial Status
+## 11. Status And Progress
 
 The project is ready to execute Phase A and the first Phase B batches. No
 implementation phase is marked complete by creating this roadmap.
@@ -807,6 +844,22 @@ has explicit compatibility identity, and removes the compile-time checkout
 dependency. The second proof is a deterministic frozen plan that the runner no
 longer executes itself. Only after those two boundaries should cache,
 parallelism, and artifact breadth accelerate.
+
+Progress (2026-07-29): the Phase A owner/API audit, stable build/std contracts,
+bootstrap action telemetry, representative isolated workload, current-case
+migration matrix, and resource-safe execution rules are implemented. The
+machine-readable build-host source closure contains 92 modules and exposes the
+current facade overreach instead of treating existing std APIs as stable. A real
+five-state release sample proved clean/warm, source-edit, module-map-edit,
+generated-source, failed-action, and two-artifact behavior: warm object/link
+reuse was exact, the source edit missed one object/link, the module-map edit
+missed two objects/one link, and the failed action invoked no compiler. The
+resource-accounted 12-case build integration passed; its 588.59-second runtime
+also confirms that telemetry iteration belongs in the isolated baseline rather
+than repeated full correctness runs. Phase A is not declared closed until the
+two pending language/compiler proposals are named and classified against the
+recorded decision gates; unrelated Phase B relocation work need not wait for
+proposal details that do not affect toolchain identity.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
