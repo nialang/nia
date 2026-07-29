@@ -199,6 +199,12 @@ The active project is defined by
 toolchain/std identity and a bounded build-host std foundation before replacing
 the experimental build executor.
 
+Durable ownership and API decisions live in [build-system.md](build-system.md)
+and [standard-library.md](standard-library.md). In particular, current std APIs
+are not retained merely because they made the bootstrap run, and full build
+sessions remain resource-accounted integration work rather than ordinary unit
+tests.
+
 Any compiler changes required by that work still follow this maintenance
 contract. Ordinary build or standard-library errors must continue through the
 project's explicit diagnostic and result systems rather than introducing panic

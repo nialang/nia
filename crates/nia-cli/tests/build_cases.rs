@@ -30,7 +30,7 @@ fn build_cases_match_expectations() {
         let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
         command.arg("build");
         let command_root = if mode == "configured-build-success" {
-            command.arg("--timings");
+            command.arg("--timings=detail").arg("--timings-format=json");
             let nested = workspace.join("src/nested");
             std::fs::create_dir_all(&nested).expect("create nested build case directory");
             nested
@@ -100,7 +100,7 @@ fn assert_configured_build_success(
     assert_eq!(
         contracts,
         [
-            "timings",
+            "timings-json",
             "runner-context",
             "configured-output",
             "module-imports",
@@ -124,7 +124,32 @@ fn assert_configured_build_success(
             "missing {expected:?} in {stdout}"
         );
     }
-    assert!(stderr.contains("timing"), "{stderr}");
+    let json_lines = stderr
+        .lines()
+        .filter(|line| line.starts_with('{') && line.contains("\"schema_version\":1"))
+        .collect::<Vec<_>>();
+    assert!(json_lines.len() >= 3, "{stderr}");
+    let actions = json_lines
+        .iter()
+        .find(|line| line.contains("\"kind\":\"nia-build-actions\""))
+        .expect("build action report");
+    assert!(actions.contains("\"success\":true"), "{actions}");
+    assert!(actions.contains("\"declared_steps\":2"), "{actions}");
+    assert!(actions.contains("\"declared_modules\":1"), "{actions}");
+    assert!(actions.contains("\"declared_executables\":1"), "{actions}");
+    assert!(actions.contains("\"compiler_invocations\":1"), "{actions}");
+    assert!(
+        json_lines
+            .iter()
+            .any(|line| line.contains("\"build.runner_executions\":1")),
+        "{stderr}"
+    );
+    assert!(
+        json_lines.iter().any(|line| {
+            !line.contains("\"kind\":\"nia-build-actions\"") && line.contains("\"llvm.units\"")
+        }),
+        "{stderr}"
+    );
     assert!(
         !stderr.lines().any(|line| line.starts_with("error:")),
         "{stderr}"

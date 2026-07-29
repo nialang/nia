@@ -49,6 +49,7 @@ extend Build {
         build_dir: fs::PathView,
         cache_dir: fs::PathView,
         toolchain_executable: fs::PathView,
+        action_reporting: bool,
         step_arg_index: usize,
     ) Build {
         {
@@ -58,12 +59,20 @@ extend Build {
             build_dir: build_dir,
             cache_dir: cache_dir,
             toolchain_executable: toolchain_executable,
+            action_reporting: action_reporting,
             step_arg_index: step_arg_index,
             default_step: null,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
+            steps_started: 0usize,
+            steps_succeeded: 0usize,
+            steps_failed: 0usize,
+            custom_actions: 0usize,
+            check_actions: 0usize,
+            emit_actions: 0usize,
+            compiler_invocations: 0usize,
         }
     }
 
@@ -248,6 +257,7 @@ extend Build {
     }
 
     fn run_toolchain_args(&mut self, args: &[&u8]) Error!void {
+        self.compiler_invocations += 1usize;
         let term = command::run_path_args(
             self.toolchain_executable,
             args,
@@ -265,12 +275,18 @@ extend Build {
         imports: &[ModuleImport],
         tail: &[&u8],
     ) Error!void {
+        static timings = b"--timings=detail\0";
+        static timing_format = b"--timings-format=json\0";
         let mut import_storage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
         let mut arg_storage: [48]&u8 = [0usize as &u8; 48];
         let mut argv = ArgList::init(&mut arg_storage[..]);
         argv.push_ptrs(head).as_build_error().?;
         append_module_import_args(&mut argv, imports, &mut import_storage[..]).?;
         argv.push_ptrs(tail).as_build_error().?;
+        if self.action_reporting {
+            argv.push_ptr(&timings[0]).as_build_error().?;
+            argv.push_ptr(&timing_format[0]).as_build_error().?;
+        }
         self.run_toolchain_args(&arg_storage[0..argv.len()])
     }
 
@@ -308,6 +324,7 @@ extend Build {
         }
 
         self.set_step_state(handle, StepState::Running);
+        self.steps_started += 1usize;
 
         for &edge in self.dependencies.iter() {
             if edge.step.index() == handle.index() {
@@ -315,6 +332,7 @@ extend Build {
                     _ = ok;
                 } or err! {
                     self.set_step_state(handle, StepState::Failed);
+                    self.steps_failed += 1usize;
                     return err!;
                 }
             }
@@ -325,19 +343,56 @@ extend Build {
             _ = ok;
         } or err! {
             self.set_step_state(handle, StepState::Failed);
+            self.steps_failed += 1usize;
             return err!;
         }
 
         self.set_step_state(handle, StepState::Done);
+        self.steps_succeeded += 1usize;
         !{}
     }
 
     fn run_step_payload(&mut self, step: Step) Error!void {
         switch step.kind {
-            StepKind::Custom => (step.payload.custom.run)(self),
-            StepKind::CheckExecutable => self.check_executable(step.payload.executable.target),
-            StepKind::EmitExecutable => self.emit_executable(step.payload.executable.target),
+            StepKind::Custom => {
+                self.custom_actions += 1usize;
+                (step.payload.custom.run)(self)
+            },
+            StepKind::CheckExecutable => {
+                self.check_actions += 1usize;
+                self.check_executable(step.payload.executable.target)
+            },
+            StepKind::EmitExecutable => {
+                self.emit_actions += 1usize;
+                self.emit_executable(step.payload.executable.target)
+            },
         }
+    }
+
+    pub fn report_actions(&mut self, success: bool) Error!void {
+        if not self.action_reporting {
+            return !{};
+        }
+        let mut buffer: [1024]u8 = [_]u8[0; 1024];
+        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
+        stderr.print(
+            &"{{\"schema_version\":1,\"kind\":\"nia-build-actions\",\"success\":{},\"counters\":{{\"declared_steps\":{},\"declared_dependencies\":{},\"declared_modules\":{},\"declared_executables\":{},\"steps_started\":{},\"steps_succeeded\":{},\"steps_failed\":{},\"custom_actions\":{},\"check_actions\":{},\"emit_actions\":{},\"compiler_invocations\":{}}}}}\n",
+            &[
+                &success,
+                &self.steps.len(),
+                &self.dependencies.len(),
+                &self.modules.len(),
+                &self.executables.len(),
+                &self.steps_started,
+                &self.steps_succeeded,
+                &self.steps_failed,
+                &self.custom_actions,
+                &self.check_actions,
+                &self.emit_actions,
+                &self.compiler_invocations,
+            ],
+        ).as_build_error().?;
+        stderr.flush().as_build_error()
     }
 
     fn set_step_state(&mut self, handle: StepHandle, state: StepState) void {
