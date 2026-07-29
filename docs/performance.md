@@ -165,3 +165,6 @@ bootstrap because no earlier controlled
 artifact exists; after that, every available baseline is compared. This stores
 main-branch trends without committing machine-specific numbers to the source
 tree or treating a developer sample as a project-wide absolute threshold.
+Each run also publishes an Actions step summary containing the candidate
+revision, controlled runner class, selected main baseline run, and comparison
+result when a prior artifact was available.

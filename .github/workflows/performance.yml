@@ -110,7 +110,7 @@ jobs:
               --name nia-perf-baseline \
               --dir "${destination}"; then
               echo "path=${destination}/baseline.json" >> "${GITHUB_OUTPUT}"
-              echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
+              echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
               available=true
               break
             fi
@@ -142,6 +142,29 @@ jobs:
         run: |
           echo "No successful main-branch performance artifact is available yet."
           echo "This run bootstraps the controlled-runner baseline; later runs compare against it."
+
+      - name: Summarize performance guard
+        if: always()
+        env:
+          BASELINE_AVAILABLE: ${{ steps.main_baseline.outputs.available }}
+          BASELINE_RUN_ID: ${{ steps.main_baseline.outputs.run_id }}
+        run: |
+          {
+            echo "## Nia performance guard"
+            echo "- Candidate revision: \`${GITHUB_SHA}\`"
+            echo "- Runner class: \`github-hosted-ubuntu-24.04-x64\`"
+            if test "${BASELINE_AVAILABLE}" = true; then
+              echo "- Main baseline run: \`${BASELINE_RUN_ID}\`"
+            else
+              echo "- Main baseline: bootstrap (no prior artifact)"
+            fi
+            if test -f target/nia-perf/comparison.json; then
+              comparison_passed="$(
+                python3 -c 'import json; print(str(json.load(open("target/nia-perf/comparison.json"))["passed"]).lower())'
+              )"
+              echo "- Comparison passed: \`${comparison_passed}\`"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Prepare trend artifact
         if: always()
