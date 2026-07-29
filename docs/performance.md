@@ -168,3 +168,6 @@ tree or treating a developer sample as a project-wide absolute threshold.
 Each run also publishes an Actions step summary containing the candidate
 revision, controlled runner class, selected main baseline run, and comparison
 result when a prior artifact was available.
+
+Performance evidence is interpreted under the end-to-end acceptance and failed
+experiment rules in [compiler-maintenance.md](compiler-maintenance.md).
