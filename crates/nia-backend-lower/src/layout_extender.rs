@@ -50,12 +50,12 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         let input = self.input;
         let array_lengths = |id: GlobalConstExprId| {
             if id.module_id == input.module_id {
-                return input.const_array_lengths.values.get(&id).copied();
+                return input.const_array_lengths.get(&id).copied();
             }
             input
                 .program
                 .const_array_lengths(id.module_id)
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+                .and_then(|array_lengths| array_lengths.get(&id).copied())
         };
         let program = ProgramLayoutContext {
             symbols: Some(self.input.symbols),

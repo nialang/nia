@@ -83,7 +83,7 @@ impl QueryKey<CompilerContext> for MonomorphizationQuery {
 pub(super) struct BackendLoweringInputsQuery;
 
 impl QueryKey<CompilerContext> for BackendLoweringInputsQuery {
-    type Value = Result<BackendLoweringInputs, Vec<Diagnostic>>;
+    type Value = ProgramBackendLoweringInputs;
 
     fn name() -> &'static str {
         "backend_lowering_inputs"

@@ -2,7 +2,7 @@
 use super::*;
 
 pub(super) struct TestBackendProgramFacts<'a> {
-    const_array_lengths: HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
+    const_array_lengths: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, u64>>,
     function_body_ids: Vec<GlobalDefId>,
     function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
     static_init_ids: Vec<GlobalDefId>,
@@ -20,7 +20,7 @@ pub(super) struct TestBackendProgramFacts<'a> {
 
 impl<'a> TestBackendProgramFacts<'a> {
     pub(super) fn new(
-        const_array_lengths: HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
+        const_array_lengths: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, u64>>,
         function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
         static_inits: HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
     ) -> Self {
@@ -48,10 +48,7 @@ impl<'a> TestBackendProgramFacts<'a> {
 }
 
 impl BackendProgramFacts for TestBackendProgramFacts<'_> {
-    fn const_array_lengths(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<&nia_const_check::ConstArrayLengths> {
+    fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>> {
         self.const_array_lengths.get(&module_id).copied()
     }
 

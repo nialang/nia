@@ -331,10 +331,7 @@ pub enum BackendOptimizationChange {
 }
 
 pub trait BackendProgramFacts: Sync {
-    fn const_array_lengths(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<&nia_const_check::ConstArrayLengths>;
+    fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
     fn function_body_ids(&self) -> &[GlobalDefId];
     fn function_body(&self, def_id: GlobalDefId) -> Option<&FunctionBody>;
     fn static_init_ids(&self) -> &[GlobalDefId];
@@ -374,8 +371,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub type_normalization: &'a TypeNormalization,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
-    pub const_array_lengths: &'a nia_const_check::ConstArrayLengths,
-    pub const_enum_values: &'a nia_const_check::ConstEnumValues,
+    pub const_array_lengths: &'a HashMap<GlobalConstExprId, u64>,
+    pub const_enum_values: &'a HashMap<DefId, nia_const_check::ConstValue>,
     pub layouts: &'a Layouts,
     pub roots: BackendFunctionRoots,
     pub reachable_functions: Option<&'a [GlobalDefId]>,
@@ -1594,7 +1591,7 @@ impl<'a> ModuleLowerer<'a> {
             source_identity: self.input.source_identity.clone(),
             name: self.input.module_name.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
-                array_lengths: self.input.const_array_lengths.values.as_ref().clone(),
+                array_lengths: self.input.const_array_lengths.clone(),
             },
             layouts: BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts),
             structs,
@@ -2640,7 +2637,7 @@ impl<'a> ModuleLowerer<'a> {
                     name
                 },
                 |id| {
-                    let value = const_array_lengths.values.get(&id).copied();
+                    let value = const_array_lengths.get(&id).copied();
                     if value.is_none() && missing_array_len_diagnostics.insert(id) {
                         let span = const_expr_summaries
                             .get(&id)

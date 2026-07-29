@@ -13,7 +13,7 @@ use nia_defs::{
     PublicSurfaceModuleFacts, PublicSurfaces, UsingScopeLookup,
 };
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 #[cfg(test)]
 use nia_imports::ModuleGraph;
 use nia_imports::{ModuleGraphLookup, ModuleGraphSnapshot, StableModuleKey};
