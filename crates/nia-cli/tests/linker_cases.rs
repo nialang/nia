@@ -177,7 +177,7 @@ fn cached_link(source: &Path, cache: &Path, linker: &Path, output: &Path) -> std
         .arg(cache)
         .arg("-o")
         .arg(output)
-        .output_timeout_in_session("run typed link-result cache case")
+        .output_timeout_without_resources("run typed link-result cache case")
 }
 
 fn assert_counters(report: &str, expected: &[&str]) {
@@ -202,7 +202,7 @@ fn run_selection_errors(
         .arg("self-hosted-elf")
         .arg("-o")
         .arg(&output)
-        .output_timeout_in_session("run reserved linker flavor case");
+        .output_timeout_without_resources("run reserved linker flavor case");
     assert_error(&reserved, reserved_error);
 
     let missing = Command::new(env!("CARGO_BIN_EXE_nia"))
@@ -215,7 +215,7 @@ fn run_selection_errors(
         .arg("lld")
         .arg("-o")
         .arg(&output)
-        .output_timeout_in_session("run missing LLD case");
+        .output_timeout_without_resources("run missing LLD case");
     assert_error(&missing, missing_error);
 
     let bare = Command::new(env!("CARGO_BIN_EXE_nia"))
@@ -226,7 +226,7 @@ fn run_selection_errors(
         .arg("bare")
         .arg("-o")
         .arg(&output)
-        .output_timeout_in_session("run bare executable runtime case");
+        .output_timeout_without_resources("run bare executable runtime case");
     assert_error(&bare, bare_runtime_error);
 }
 
@@ -266,7 +266,7 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
         .arg("-Olinker")
         .arg("-o")
         .arg(&executable)
-        .output_timeout_in_session("run raw linker arguments case");
+        .output_timeout_without_resources("run raw linker arguments case");
     assert_success(&raw_output);
     assert_args(&args_log, raw);
 
@@ -289,7 +289,7 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
         .arg("$ORIGIN")
         .arg("-o")
         .arg(root.join("structured-main"))
-        .output_timeout_in_session("run structured linker arguments case");
+        .output_timeout_without_resources("run structured linker arguments case");
     assert_success(&structured_output);
     assert_args(&args_log, structured);
 }

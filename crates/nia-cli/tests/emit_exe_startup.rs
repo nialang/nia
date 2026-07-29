@@ -26,7 +26,7 @@ fn main(init: process::Init) process::ExitCode!void {
         .arg("emit")
         .arg("--exe")
         .arg(&main)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -150,7 +150,7 @@ pub fn mymain() i32 {
         .arg(format!("std={}", std_root.display()))
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe with custom std start");
+        .output_timeout_for_build("run nia emit --exe with custom std start");
 
     assert!(
         output.status.success(),
@@ -188,7 +188,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe_name)
-        .output_timeout("run nia emit --exe -o -Orunnable");
+        .output_timeout_for_build("run nia emit --exe -o -Orunnable");
 
     assert!(
         output.status.success(),
@@ -208,7 +208,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&report_name)
-        .output_timeout("run nia emit --exe -o --opt-report");
+        .output_timeout_for_build("run nia emit --exe -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -251,7 +251,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg("-o")
         .arg(&exe)
         .arg("--opt-report")
-        .output_timeout("run nia emit --exe --opt-report");
+        .output_timeout_for_build("run nia emit --exe --opt-report");
 
     assert!(
         output.status.success(),

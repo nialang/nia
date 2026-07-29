@@ -50,9 +50,9 @@ pub fn acquire_test_resources(workload: TestWorkload) -> TestResourceSession<'st
 }
 
 pub trait CommandExt {
-    fn output_timeout(&mut self, context: &str) -> Output;
-    fn output_timeout_with_workload(&mut self, context: &str, workload: TestWorkload) -> Output;
-    fn output_timeout_in_session(&mut self, context: &str) -> Output;
+    fn output_timeout_for_compiler(&mut self, context: &str) -> Output;
+    fn output_timeout_for_build(&mut self, context: &str) -> Output;
+    fn output_timeout_without_resources(&mut self, context: &str) -> Output;
 }
 
 pub trait CommandStatusExt {
@@ -60,16 +60,17 @@ pub trait CommandStatusExt {
 }
 
 impl CommandExt for Command {
-    fn output_timeout(&mut self, context: &str) -> Output {
-        self.output_timeout_with_workload(context, TestWorkload::Compiler)
+    fn output_timeout_for_compiler(&mut self, context: &str) -> Output {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        self.output_timeout_without_resources(context)
     }
 
-    fn output_timeout_with_workload(&mut self, context: &str, workload: TestWorkload) -> Output {
-        let _resources = acquire_test_resources(workload);
-        self.output_timeout_in_session(context)
+    fn output_timeout_for_build(&mut self, context: &str) -> Output {
+        let _resources = acquire_test_resources(TestWorkload::Build);
+        self.output_timeout_without_resources(context)
     }
 
-    fn output_timeout_in_session(&mut self, context: &str) -> Output {
+    fn output_timeout_without_resources(&mut self, context: &str) -> Output {
         self.stdout(Stdio::piped()).stderr(Stdio::piped());
         prepare_command(self);
 
