@@ -414,6 +414,118 @@ creating a mutable latest-result truth source.
 The initial cache is local. Its schema must not assume that paths or machine
 state can be trusted merely because remote caching is out of scope.
 
+### 5.6 Language And Public-Surface Decision Gates
+
+Phase A classified the two language/public-surface proposals that can otherwise
+force repeated churn through the build-host standard library. They are explicit
+dependencies, not incidental syntax changes hidden inside Phase C. Implementing
+them does not count as build-roadmap progress by itself, and Phase B toolchain
+relocation does not wait for them.
+
+#### Unified patterns and payload enums
+
+Nia will use one pattern semantic model with context-specific legal subsets:
+
+- `let` and `for` accept only patterns that cannot fail for their input type;
+- ordinary `if condition` continues to require `bool`;
+- `if value is pattern` performs one refutable match and scopes bindings to the
+  successful branch;
+- `switch value` is the canonical multi-arm matcher and owns overlap,
+  reachability, and exhaustiveness diagnostics;
+- the current `if pattern = value` and `or pattern` surface is removed after
+  migration rather than retained as a compatibility spelling;
+- optional and error-union patterns use the same matcher as enum, scalar, and
+  range patterns while keeping their dedicated construction and propagation
+  semantics.
+
+The implementation must have one checked pattern representation and one
+coverage/exhaustiveness owner. A shared AST enum with separate checker,
+const-evaluator, and lowering semantics is not sufficient. Before changing the
+parser, a focused syntax audit must settle the one remaining lexical ambiguity:
+a bare identifier in binding position versus a named constant value pattern.
+The rule must be explicit and independent of identifier capitalization; the
+parser must not preserve two meanings by heuristic lookahead.
+
+User-defined payload-carrying algebraic data uses the existing `enum`
+declaration rather than a new `sum` keyword. The language supports all four
+variant shapes:
+
+```nia
+enum Event {
+    Closed,
+    Data(Bytes),
+    Move(i32, i32),
+    Resize { width: i32, height: i32 },
+}
+```
+
+All ordinary enums use a fixed `u8` backing tag when the backing type is
+omitted. An explicitly written integer backing type controls tag size,
+alignment, range, and discriminants. The compiler never silently widens a tag;
+an enum with too many or out-of-range variants requires a wider explicit
+backing type. Fieldless enums contain only the tag. If any variant has payload,
+the representation is a tag at offset zero followed by padding and union
+storage aligned for the largest variant payload. Size and alignment are fully
+specified by the Nia ABI. Initial payload enums are closed, perform no niche
+optimization or implicit allocation, and do not use the open-enum `_` form.
+
+Enum values retain ordinary Nia value and pointer semantics:
+
+- matching does not consume the scrutinee or create a moved state;
+- payload bindings copy ordinary values into new locals, and `mut` changes only
+  the local copy;
+- pointer payloads copy pointers; Nia does not infer a borrow or lifetime;
+- changing a variant is whole-value assignment and performs no automatic drop
+  or cleanup;
+- large or mutable shared payloads use explicit pointer types until a separate
+  interior-payload pointer design is accepted.
+
+`?T` and `E!T` remain language-defined optional and error-union types with
+their existing constructors and propagation behavior. Their matcher and tagged
+layout machinery may be generalized, but ordinary payload enums do not acquire
+implicit propagation or a user-extensible `Try` protocol.
+
+The initial feature does not expose a tag-extraction operation. If later build,
+serialization, or ABI work justifies one, it must enter Nia's existing typed
+builtin function/trait contract. It must not add a new `@tag` expression merely
+because historical layout and low-level intrinsics use `@...` spellings.
+
+Implementation proceeds as dependency-complete compiler batches:
+
+1. consolidate pattern representation, resolution, coverage, const behavior,
+   flow checking, and lowering, then let `switch` destructure current optional
+   and error-union values;
+2. introduce `if value is pattern`, migrate production/tests/std, and physically
+   remove `if pattern = value`, `or pattern`, and their diagnostics/lowering;
+3. extend enum signatures, constructors, patterns, type identity, layout,
+   mangling, const evaluation, backend IR, codegen, and ABI validation for unit,
+   tuple, and named payload variants;
+4. add focused compile-fail, exhaustiveness, layout, const/runtime equivalence,
+   generic, nested-pattern, invalid-tag-boundary, and codegen tests before std
+   adopts payload enums in public contracts.
+
+These batches must use the normal diagnostic and ICE boundary and the existing
+resource-accounted integration harness. They must not create parallel legacy
+and new pattern engines or run repeated unconstrained full compiler/LLVM suites.
+
+#### Nia public naming
+
+Reviewed Nia source APIs will use `lowerCamelCase` for functions, methods,
+fields, parameters, and ordinary values. Types, traits, enums, and variants use
+`UpperCamelCase`. Acronyms are word-cased, for example `readUtf8`, not
+`readUTF8`. Rust compiler internals retain Rust `snake_case`; external schemas
+and protocols retain their explicitly versioned field spellings. Module and
+file naming remains a separate decision rather than changing mechanically with
+function names.
+
+Phase C first samples redesigned target APIs across allocation, collections,
+text, path, filesystem, I/O, process, and build. It then migrates surviving
+public contracts by subsystem together with compiler-known symbol references and
+tests. Existing APIs are simplified or deleted before renaming: changing
+`add_emit_executable_step` into `addEmitExecutableStep` is not a substitute for
+designing a smaller `addExecutable` contract. A permanently mixed public std
+surface or compatibility aliases for experimental spellings are not accepted.
+
 ## 6. Execution Phases
 
 ### Phase A: Baseline And Architecture Contract
@@ -456,6 +568,8 @@ Acceptance:
   competing execution model;
 - no current std/build API is promoted to a stable contract without an explicit
   maturity classification and migration disposition;
+- the pattern/payload-enum and public-naming proposals have recorded semantic,
+  migration, std/build-impact, and deletion dispositions;
 - ordinary `cargo test` retains natural libtest concurrency without an
   unaccounted full build session or a hidden machine-specific test mode;
 - no implementation phase is credited merely for this roadmap text.
@@ -506,6 +620,11 @@ Tasks:
   collections and codecs;
 - keep ordinary fs/process/format/allocation failure as typed values with enough
   context for build diagnostics;
+- apply the accepted `lowerCamelCase` convention to reviewed surviving public
+  contracts without retaining experimental spelling aliases;
+- use payload enums for structured errors or build-plan state only after the
+  unified matcher and payload-enum compiler gates pass their own acceptance
+  matrix; do not freeze temporary enum-plus-union emulation into public APIs;
 - add direct std conformance fixtures for the exact path, I/O, process,
   allocator, Unicode, collection, and formatting operations used by build;
 - ensure ordinary programs do not load `std::build` implementation modules.
@@ -519,6 +638,8 @@ Acceptance:
   distinct target without using target runtime APIs in the host process;
 - plan-owned text/path values survive the builder call stack and allocator
   cleanup according to an explicit ownership contract;
+- the reviewed public build-host surface follows one naming convention and its
+  structured errors do not depend on a language compatibility shim;
 - std public facade/provider tests prove unused build/OS/container modules are
   not loaded;
 - no unrelated std-wide API redesign is used to inflate phase completion.
@@ -709,6 +830,16 @@ Phase A
   -> Phase H closure
 ```
 
+The accepted language track proceeds beside Phase B but must settle before
+Phase C freezes affected public contracts:
+
+```text
+unified matcher
+  -> `if value is pattern` migration and old-surface deletion
+  -> payload enum representation and codegen
+  -> payload-enum use in reviewed Phase C APIs
+```
+
 Allowed parallel work is evidence-driven:
 
 - Phase A workload/test inventory may proceed beside the stable architecture
@@ -834,8 +965,9 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-The project is ready to execute Phase A and the first Phase B batches. No
-implementation phase is marked complete by creating this roadmap.
+Phase A is complete. The project is ready to execute Phase B and the independent
+language batches that must settle before affected Phase C APIs freeze. Later
+implementation phases are not marked complete by roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
 product maturity remains early. The first proof of progress is not a new build
@@ -856,10 +988,12 @@ reuse was exact, the source edit missed one object/link, the module-map edit
 missed two objects/one link, and the failed action invoked no compiler. The
 resource-accounted 12-case build integration passed; its 588.59-second runtime
 also confirms that telemetry iteration belongs in the isolated baseline rather
-than repeated full correctness runs. Phase A is not declared closed until the
-two pending language/compiler proposals are named and classified against the
-recorded decision gates; unrelated Phase B relocation work need not wait for
-proposal details that do not affect toolchain identity.
+than repeated full correctness runs. The unified matcher/payload-enum proposal
+and the `lowerCamelCase` public naming proposal are now classified in Section
+5.6 with explicit compiler, std/build, migration, and deletion boundaries. This
+closes the final Phase A decision gates. Phase B relocation remains independent;
+the language track must settle only before Phase C freezes APIs that depend on
+its enum, error, or naming surface.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
