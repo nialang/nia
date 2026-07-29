@@ -177,7 +177,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -236,7 +236,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1065,7 +1065,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1119,7 +1119,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1127,7 +1127,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let output = Command::new(&exe).output_timeout("run emitted executable");
+    let output = Command::new(&exe).output_timeout_without_resources("run emitted executable");
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("hash_map={"), "{stderr}");
@@ -1299,7 +1299,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1418,7 +1418,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1503,7 +1503,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe");
+        .output_timeout_for_build("run nia emit --exe");
 
     assert!(
         output.status.success(),

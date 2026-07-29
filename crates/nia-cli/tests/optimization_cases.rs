@@ -65,7 +65,7 @@ fn run_check_report(source: &Path, levels: &[String]) {
             .arg("check")
             .arg(source)
             .arg("--opt-report")
-            .output_timeout_in_session(&format!("run nia {level} check --opt-report"));
+            .output_timeout_without_resources(&format!("run nia {level} check --opt-report"));
         assert_success(level, &output);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_contains(&stdout, "backend optimization report:", level);
@@ -120,7 +120,7 @@ fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object
         .arg("--backend")
         .arg(source)
         .arg("--opt-report")
-        .output_timeout_in_session("run nia emit --backend --opt-report");
+        .output_timeout_without_resources("run nia emit --backend --opt-report");
     assert_success(backend_level, &backend);
     assert_contains(
         &String::from_utf8_lossy(&backend.stdout),
@@ -146,7 +146,7 @@ fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object
         .arg("--llvm")
         .arg(source)
         .arg("--opt-report")
-        .output_timeout_in_session("run nia emit --llvm --opt-report");
+        .output_timeout_without_resources("run nia emit --llvm --opt-report");
     assert_success(llvm_level, &llvm);
     assert_contains(
         &String::from_utf8_lossy(&llvm.stdout),
@@ -202,8 +202,9 @@ fn run_object_reports(source: &Path, level: &str) {
             }
             _ => unreachable!(),
         }
-        let output = command
-            .output_timeout_in_session(&format!("run nia emit --obj --opt-report ({placement})"));
+        let output = command.output_timeout_without_resources(&format!(
+            "run nia emit --obj --opt-report ({placement})"
+        ));
         assert_success(placement, &output);
         assert_report_on_stderr(
             &output,
@@ -264,7 +265,7 @@ fn run_emit_execute(source: &Path, levels: &[String], exit_code: i32) {
             .arg(source)
             .arg("-o")
             .arg(&executable)
-            .output_timeout_in_session(&context);
+            .output_timeout_without_resources(&context);
         assert!(
             output.status.success(),
             "{level} stderr:\n{}",
@@ -289,7 +290,7 @@ fn run_emit_object(source: &Path, levels: &[String], minimum_bytes: usize) {
             .arg(source)
             .arg("-o")
             .arg(&object)
-            .output_timeout_in_session(&context);
+            .output_timeout_without_resources(&context);
         assert!(
             output.status.success(),
             "{level} stderr:\n{}",

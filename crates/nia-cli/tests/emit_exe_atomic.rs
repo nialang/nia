@@ -51,7 +51,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("--runtime")
         .arg("freestanding")
-        .output_timeout("run nia check --runtime freestanding atomic");
+        .output_timeout_for_compiler("run nia check --runtime freestanding atomic");
     assert!(
         check.status.success(),
         "stderr:\n{}",
@@ -62,7 +62,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg("emit")
         .arg("--llvm")
         .arg(&main)
-        .output_timeout("run nia emit --llvm atomic");
+        .output_timeout_for_build("run nia emit --llvm atomic");
     assert!(
         llvm.status.success(),
         "stderr:\n{}",
@@ -83,7 +83,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe atomic");
+        .output_timeout_for_build("run nia emit --exe atomic");
     assert!(
         emit.status.success(),
         "stderr:\n{}",

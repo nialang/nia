@@ -81,7 +81,7 @@ fn run_check_configuration(
         .arg(cache_source)
         .arg("--cache-dir")
         .arg(&cache)
-        .output_timeout_in_session("run first persistent cache check");
+        .output_timeout_without_resources("run first persistent cache check");
     assert_success(&first);
     assert!(
         std::fs::read_dir(cache.join("artifacts/frontend/v3/public-surface-facts"))
@@ -94,7 +94,7 @@ fn run_check_configuration(
         .arg("check")
         .arg(format!("--cache-dir={}", cache.display()))
         .arg(cache_source)
-        .output_timeout_in_session("run warm persistent cache check");
+        .output_timeout_without_resources("run warm persistent cache check");
     assert_success(&second);
 
     assert_success(&command(["check"], private_source));
@@ -104,7 +104,7 @@ fn run_check_configuration(
         .arg(private_source)
         .arg("--runtime")
         .arg("freestanding")
-        .output_timeout_in_session("run private freestanding entry check");
+        .output_timeout_without_resources("run private freestanding entry check");
     assert_failure(private_runtime, &["private", "entry::main"]);
 
     for _ in 0..2 {
@@ -114,7 +114,7 @@ fn run_check_configuration(
             .arg(public_source)
             .arg("--runtime")
             .arg("freestanding")
-            .output_timeout_in_session("run public freestanding entry check");
+            .output_timeout_without_resources("run public freestanding entry check");
         assert_success(&public_runtime);
     }
     let mut repeated = Command::new(env!("CARGO_BIN_EXE_nia"));
@@ -124,7 +124,7 @@ fn run_check_configuration(
         .arg("--runtime")
         .arg("freestanding")
         .arg("--runtime=bare")
-        .output_timeout_in_session("run repeated runtime option check");
+        .output_timeout_without_resources("run repeated runtime option check");
     assert_success(&repeated);
 
     let mut removed_alias = Command::new(env!("CARGO_BIN_EXE_nia"));
@@ -132,7 +132,7 @@ fn run_check_configuration(
         .arg("check")
         .arg("--exe")
         .arg(public_source)
-        .output_timeout_in_session("run removed check --exe alias");
+        .output_timeout_without_resources("run removed check --exe alias");
     assert_failure(removed_alias, &["unknown `nia check` option `--exe`"]);
 }
 
@@ -163,7 +163,7 @@ fn run_option_errors(source: &Path) {
             .arg(source)
             .arg("-M")
             .arg(format!("{reserved}={}", source.display()))
-            .output_timeout_in_session("run reserved module-map root case");
+            .output_timeout_without_resources("run reserved module-map root case");
         assert_failure(
             output,
             &[&format!("`{reserved}` is a compiler-reserved module root")],
@@ -182,7 +182,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
         .arg(source)
         .arg("-Oz")
         .arg("--opt-report")
-        .output_timeout_in_session("run trailing optimization option case");
+        .output_timeout_without_resources("run trailing optimization option case");
     assert_success(&trailing);
     assert_contains(
         &trailing.stdout,
@@ -208,7 +208,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
         .arg(mapped_entry)
         .arg("-M")
         .arg(format!("share={}", mapped.display()))
-        .output_timeout_in_session("run trailing module-map option case");
+        .output_timeout_without_resources("run trailing module-map option case");
     assert_success(&module_map);
 }
 
@@ -250,7 +250,7 @@ fn command<const N: usize>(args: [&str; N], source: &Path) -> std::process::Outp
     command
         .args(args)
         .arg(source)
-        .output_timeout_in_session("run command metadata case")
+        .output_timeout_without_resources("run command metadata case")
 }
 
 fn assert_success(output: &std::process::Output) {

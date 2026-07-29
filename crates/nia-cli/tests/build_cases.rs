@@ -43,7 +43,7 @@ fn build_cases_match_expectations() {
         let output = command
             .arg("--root")
             .arg(&command_root)
-            .output_timeout_in_session("run build metadata case");
+            .output_timeout_without_resources("run build metadata case");
 
         match mode.as_str() {
             "dependency-success" => {
@@ -145,7 +145,7 @@ fn assert_configured_build_success(
         .arg("check")
         .arg("--root")
         .arg(workspace)
-        .output_timeout_in_session("run configured build check step");
+        .output_timeout_without_resources("run configured build check step");
     assert!(
         check.status.success(),
         "stderr:\n{}",

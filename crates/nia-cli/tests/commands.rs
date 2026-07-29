@@ -31,7 +31,9 @@ fn readme_nia_examples_check_as_freestanding_programs() {
             .arg("--runtime")
             .arg("freestanding")
             .arg(&main)
-            .output_timeout("run nia check --runtime freestanding on README nia example");
+            .output_timeout_for_compiler(
+                "run nia check --runtime freestanding on README nia example",
+            );
 
         assert!(
             output.status.success(),
@@ -69,7 +71,7 @@ fn repository_examples_parse_and_representative_examples_check() {
             .arg("emit")
             .arg("--ast")
             .arg(&path)
-            .output_timeout(&format!("run nia emit --ast on {example}"));
+            .output_timeout_for_compiler(&format!("run nia emit --ast on {example}"));
 
         assert!(
             output.status.success(),
@@ -85,7 +87,7 @@ fn repository_examples_parse_and_representative_examples_check() {
             .arg("--runtime")
             .arg("freestanding")
             .arg(&path)
-            .output_timeout(&format!(
+            .output_timeout_for_compiler(&format!(
                 "run nia check --runtime freestanding on {example}"
             ));
 
@@ -114,7 +116,7 @@ fn main() void {}
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
         .arg(&main)
-        .output_timeout("run nia check with unused import warning");
+        .output_timeout_for_compiler("run nia check with unused import warning");
 
     assert!(
         output.status.success(),
@@ -147,7 +149,7 @@ pub fn main() void {}
         .arg(&main)
         .arg("-o")
         .arg(&object)
-        .output_timeout("emit object with unused import warning");
+        .output_timeout_for_build("emit object with unused import warning");
 
     assert!(
         output.status.success(),
@@ -191,7 +193,7 @@ fn nia_code_blocks(markdown: &str) -> Vec<(usize, String)> {
 fn help_and_version_use_nia_command_name() {
     let help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--help")
-        .output_timeout("run nia --help");
+        .output_timeout_without_resources("run nia --help");
     assert!(
         help.status.success(),
         "stderr:\n{}",
@@ -220,7 +222,7 @@ fn help_and_version_use_nia_command_name() {
     let check_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("check")
-        .output_timeout("run nia help check");
+        .output_timeout_without_resources("run nia help check");
     assert!(
         check_help.status.success(),
         "stderr:\n{}",
@@ -256,7 +258,7 @@ fn help_and_version_use_nia_command_name() {
     let build_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("build")
-        .output_timeout("run nia help build");
+        .output_timeout_without_resources("run nia help build");
     assert!(
         build_help.status.success(),
         "stderr:\n{}",
@@ -277,7 +279,7 @@ fn help_and_version_use_nia_command_name() {
     let emit_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
-        .output_timeout("run nia help emit");
+        .output_timeout_without_resources("run nia help emit");
     assert!(
         emit_help.status.success(),
         "stderr:\n{}",
@@ -324,7 +326,7 @@ fn help_and_version_use_nia_command_name() {
 
     let version = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--version")
-        .output_timeout("run nia --version");
+        .output_timeout_without_resources("run nia --version");
     assert!(
         version.status.success(),
         "stderr:\n{}",
@@ -357,7 +359,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--timings")
-        .output_timeout("run nia check --timings");
+        .output_timeout_for_compiler("run nia check --timings");
     assert!(
         check.status.success(),
         "stderr:\n{}",
@@ -375,7 +377,7 @@ fn main() i32 {
         .arg("--tokens")
         .arg(&main)
         .arg("--timings")
-        .output_timeout("run nia emit --tokens --timings");
+        .output_timeout_for_compiler("run nia emit --tokens --timings");
     assert!(
         tokens.status.success(),
         "stderr:\n{}",
@@ -392,7 +394,7 @@ fn main() i32 {
         .arg("emit")
         .arg("--llvm")
         .arg(&main)
-        .output_timeout("run nia --timings=detail emit --llvm");
+        .output_timeout_for_build("run nia --timings=detail emit --llvm");
     assert!(
         llvm.status.success(),
         "stderr:\n{}",
@@ -432,7 +434,7 @@ fn main() i32 {
         .arg("--timing-trace=events")
         .arg("check")
         .arg(&main)
-        .output_timeout("run nia check --timing-trace=events");
+        .output_timeout_for_compiler("run nia check --timing-trace=events");
     assert!(
         traced.status.success(),
         "stderr:\n{}",
@@ -447,7 +449,7 @@ fn main() i32 {
         .arg("--timings-format=json")
         .arg("check")
         .arg(&main)
-        .output_timeout("run nia check with JSON timings");
+        .output_timeout_for_compiler("run nia check with JSON timings");
     assert!(
         json.status.success(),
         "stderr:\n{}",
@@ -520,7 +522,7 @@ fn main() i32 {
         .arg("emit")
         .arg("--llvm")
         .arg(&main)
-        .output_timeout("run nia emit --llvm invalid atomic");
+        .output_timeout_for_build("run nia emit --llvm invalid atomic");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("unsupported atomic value type"), "{stderr}");
@@ -547,7 +549,7 @@ fn main() i32 {
         .arg(&main)
         .arg("-o")
         .arg(&object)
-        .output_timeout("run nia emit --obj");
+        .output_timeout_for_build("run nia emit --obj");
 
     assert!(
         output.status.success(),
@@ -584,7 +586,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("--out-dir")
         .arg(&bare_dir)
-        .output_timeout("run nia emit --obj bare runtime");
+        .output_timeout_for_build("run nia emit --obj bare runtime");
 
     assert!(
         bare.status.success(),
@@ -603,7 +605,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg("--runtime=freestanding")
         .arg("--out-dir")
         .arg(&freestanding_dir)
-        .output_timeout("run nia emit --obj --runtime=freestanding");
+        .output_timeout_for_build("run nia emit --obj --runtime=freestanding");
 
     assert!(
         freestanding.status.success(),
@@ -629,7 +631,7 @@ fn object_dir_defines_symbol(dir: &std::path::Path, symbol: &str) -> bool {
         let output = Command::new("nm")
             .arg("--defined-only")
             .arg(&path)
-            .output_timeout("run nm on emitted object");
+            .output_timeout_without_resources("run nm on emitted object");
         assert!(
             output.status.success(),
             "nm stderr:\n{}",
