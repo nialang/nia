@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
-use std::{env, fs, path::PathBuf, process::ExitCode};
+use std::{env, fs, path::PathBuf, process::ExitCode, sync::Arc};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
 use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
@@ -65,6 +65,7 @@ fn run_with_ice_boundary(
 
 #[derive(Debug)]
 struct Cli {
+    resource_root: Option<PathBuf>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
@@ -150,9 +151,18 @@ impl CliError {
 }
 
 fn run_cli(cli: Cli) -> ExitCode {
+    let toolchain = match resolve_toolchain_layout(cli.resource_root) {
+        Ok(toolchain) => toolchain,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
     let timing_format = cli.timing_format;
     match cli.command {
-        CliCommand::Build { root, step } => run_build(root, step, cli.timings, timing_format),
+        CliCommand::Build { root, step } => {
+            run_build(root, step, cli.timings, timing_format, toolchain)
+        }
         CliCommand::Check {
             path,
             opt_report,
@@ -177,6 +187,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                     runtime,
                     cache_dir,
                 },
+                toolchain,
             )
         }
         CliCommand::Emit {
@@ -195,13 +206,32 @@ fn run_cli(cli: Cli) -> ExitCode {
                 &path,
                 &source,
                 target,
-                cli.module_map,
-                cli.optimization,
-                cli.timings,
-                opt_report,
+                EmitContext {
+                    module_map: cli.module_map,
+                    optimization: cli.optimization,
+                    timings: cli.timings,
+                    opt_report,
+                    toolchain,
+                },
             )
         }
     }
+}
+
+fn resolve_toolchain_layout(
+    resource_root: Option<PathBuf>,
+) -> Result<Arc<nia_toolchain::ToolchainLayout>, String> {
+    let executable = env::current_exe()
+        .map_err(|error| format!("failed to resolve compiler executable: {error}"))?;
+    let request = match resource_root {
+        Some(resource_root) => {
+            nia_toolchain::ToolchainLayoutRequest::explicit(executable, resource_root)
+        }
+        None => nia_toolchain::ToolchainLayoutRequest::installed(executable),
+    };
+    nia_toolchain::ToolchainLayout::resolve(request)
+        .map(Arc::new)
+        .map_err(|error| format!("invalid toolchain layout: {error}"))
 }
 
 fn read_source(path: &str) -> Result<String, String> {
@@ -233,6 +263,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
     match parse_command(remaining)? {
         ParsedCommand::Help(topic) => Ok(CliAction::Help(topic)),
         ParsedCommand::Run(command) => Ok(CliAction::Run(Cli {
+            resource_root: global_options.resource_root,
             module_map: global_options.module_map,
             optimization: global_options.optimization,
             timings: global_options.timings,
@@ -244,6 +275,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
 }
 
 struct GlobalOptions {
+    resource_root: Option<PathBuf>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
@@ -256,6 +288,7 @@ fn extract_global_options(
     help: HelpTopic,
 ) -> Result<(Vec<String>, GlobalOptions), CliError> {
     let mut map = ModuleMap::new();
+    let mut resource_root = None;
     let mut optimization = NiaOptimizationLevel::default();
     let mut timings = nia_driver::TimingMode::Off;
     let mut timing_trace = TimingTrace::Off;
@@ -293,6 +326,17 @@ fn extract_global_options(
                 .map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if arg == "--resource-root" {
+            let path = iter
+                .next()
+                .ok_or_else(|| CliError::new("missing path after `--resource-root`", help))?;
+            set_resource_root(&mut resource_root, path, help)?;
+            continue;
+        }
+        if let Some(path) = arg.strip_prefix("--resource-root=") {
+            set_resource_root(&mut resource_root, path.to_string(), help)?;
+            continue;
+        }
         if emit_target_option_takes_value(&arg) {
             preserve_next = true;
             remaining.push(arg);
@@ -319,6 +363,7 @@ fn extract_global_options(
     Ok((
         remaining,
         GlobalOptions {
+            resource_root,
             module_map: map,
             optimization,
             timings,
@@ -326,6 +371,23 @@ fn extract_global_options(
             timing_format,
         },
     ))
+}
+
+fn set_resource_root(
+    slot: &mut Option<PathBuf>,
+    path: String,
+    help: HelpTopic,
+) -> Result<(), CliError> {
+    if path.is_empty() {
+        return Err(CliError::new("`--resource-root` cannot be empty", help));
+    }
+    if slot.replace(PathBuf::from(path)).is_some() {
+        return Err(CliError::new(
+            "`--resource-root` may be specified only once",
+            help,
+        ));
+    }
+    Ok(())
 }
 
 fn emit_target_option_takes_value(arg: &str) -> bool {
@@ -834,10 +896,11 @@ fn run_check(
     source: &str,
     module_map: ModuleMap,
     options: CheckRunOptions,
+    toolchain: Arc<nia_toolchain::ToolchainLayout>,
 ) -> ExitCode {
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
-        ..nia_driver::DriverConfig::default()
+        ..nia_driver::DriverConfig::new(toolchain)
     });
     let output = time_summary_stage(options.timings, "check", || {
         driver.check_entry(
@@ -878,8 +941,9 @@ fn check_with_driver(
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
+    toolchain: Arc<nia_toolchain::ToolchainLayout>,
 ) -> nia_driver::DriverOutput<nia_driver::CheckedProgram> {
-    nia_driver::Driver::new().check_entry(
+    nia_driver::Driver::new(toolchain).check_entry(
         nia_driver::CheckRequest::new(path)
             .with_module_map(module_map)
             .with_optimization(optimization)
@@ -971,57 +1035,23 @@ fn print_codegen_warnings(program: &nia_driver::CodegenProgram, path: &str, sour
     }
 }
 
-fn run_emit(
-    path: &str,
-    source: &str,
-    target: EmitTarget,
+struct EmitContext {
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     opt_report: bool,
-) -> ExitCode {
+    toolchain: Arc<nia_toolchain::ToolchainLayout>,
+}
+
+fn run_emit(path: &str, source: &str, target: EmitTarget, context: EmitContext) -> ExitCode {
     match target {
-        EmitTarget::Tokens => time_summary_stage(timings, "lex", || run_lex(source)),
-        EmitTarget::Ast => time_summary_stage(timings, "parse", || run_parse(path, source)),
-        EmitTarget::Checked { runtime } => {
-            run_emit_checked(path, source, module_map, optimization, timings, runtime)
-        }
-        EmitTarget::Backend { runtime } => run_emit_backend(
-            path,
-            source,
-            module_map,
-            optimization,
-            timings,
-            opt_report,
-            runtime,
-        ),
-        EmitTarget::Llvm { runtime } => run_emit_llvm(
-            path,
-            source,
-            module_map,
-            optimization,
-            timings,
-            opt_report,
-            runtime,
-        ),
-        EmitTarget::Obj { args } => run_emit_obj(
-            path,
-            source,
-            args,
-            module_map,
-            optimization,
-            timings,
-            opt_report,
-        ),
-        EmitTarget::Exe { args } => run_emit_exe(
-            path,
-            source,
-            args,
-            module_map,
-            optimization,
-            timings,
-            opt_report,
-        ),
+        EmitTarget::Tokens => time_summary_stage(context.timings, "lex", || run_lex(source)),
+        EmitTarget::Ast => time_summary_stage(context.timings, "parse", || run_parse(path, source)),
+        EmitTarget::Checked { runtime } => run_emit_checked(path, source, runtime, context),
+        EmitTarget::Backend { runtime } => run_emit_backend(path, source, runtime, context),
+        EmitTarget::Llvm { runtime } => run_emit_llvm(path, source, runtime, context),
+        EmitTarget::Obj { args } => run_emit_obj(path, source, args, context),
+        EmitTarget::Exe { args } => run_emit_exe(path, source, args, context),
     }
 }
 
@@ -1030,8 +1060,9 @@ fn run_build(
     step: Option<String>,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
+    toolchain: Arc<nia_toolchain::ToolchainLayout>,
 ) -> ExitCode {
-    let mut request = nia_build::BuildRequest::new();
+    let mut request = nia_build::BuildRequest::new(toolchain);
     if let Some(root) = root {
         request = request.with_root(root);
     }
@@ -1054,16 +1085,16 @@ fn time_summary_stage<T>(timings: nia_driver::TimingMode, name: &str, f: impl Fn
     nia_timing::time_stage(timings, nia_timing::TimingLevel::Summary, name, f)
 }
 
-fn run_emit_checked(
-    path: &str,
-    source: &str,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: nia_driver::TimingMode,
-    runtime: Runtime,
-) -> ExitCode {
-    let output = time_summary_stage(timings, "check", || {
-        check_with_driver(path, module_map, optimization, timings, runtime)
+fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
+    let output = time_summary_stage(context.timings, "check", || {
+        check_with_driver(
+            path,
+            context.module_map,
+            context.optimization,
+            context.timings,
+            runtime,
+            context.toolchain,
+        )
     });
     let program = match checked_program_from_output(output, path, source) {
         Ok(program) => program,
@@ -1073,46 +1104,37 @@ fn run_emit_checked(
     ExitCode::SUCCESS
 }
 
-fn run_emit_backend(
-    path: &str,
-    source: &str,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: nia_driver::TimingMode,
-    opt_report: bool,
-    runtime: Runtime,
-) -> ExitCode {
-    let driver = nia_driver::Driver::new();
-    let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(&driver, path, module_map, optimization, timings, runtime)
+fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
+    let driver = nia_driver::Driver::new(context.toolchain);
+    let output = time_summary_stage(context.timings, "codegen", || {
+        codegen_with_driver(
+            &driver,
+            path,
+            context.module_map,
+            context.optimization,
+            context.timings,
+            runtime,
+        )
     });
     let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
         Err(code) => return code,
     };
-    if opt_report {
+    if context.opt_report {
         print_optimization_report_to_stderr(&program);
     }
     println!("{:#?}", program.backend_lowering.program);
     ExitCode::SUCCESS
 }
 
-fn run_emit_llvm(
-    path: &str,
-    source: &str,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: nia_driver::TimingMode,
-    opt_report: bool,
-    runtime: Runtime,
-) -> ExitCode {
-    let driver = nia_driver::Driver::new();
-    let output = time_summary_stage(timings, "emit_llvm_ir", || {
+fn run_emit_llvm(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
+    let driver = nia_driver::Driver::new(context.toolchain);
+    let output = time_summary_stage(context.timings, "emit_llvm_ir", || {
         driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(
             nia_driver::CheckRequest::new(path)
-                .with_module_map(module_map)
-                .with_optimization(optimization)
-                .with_timings(timings)
+                .with_module_map(context.module_map)
+                .with_optimization(context.optimization)
+                .with_timings(context.timings)
                 .with_runtime(runtime),
         ))
     });
@@ -1122,7 +1144,7 @@ fn run_emit_llvm(
                 "{}",
                 nia_driver::render_llvm_ir_warnings(&artifact, Some(path), Some(source))
             );
-            if opt_report {
+            if context.opt_report {
                 eprint!("{}", nia_driver::llvm_ir_optimization_report(&artifact));
             }
             for module in artifact.modules {
@@ -1140,15 +1162,7 @@ fn run_emit_llvm(
     }
 }
 
-fn run_emit_obj(
-    path: &str,
-    source: &str,
-    args: Vec<String>,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: nia_driver::TimingMode,
-    opt_report: bool,
-) -> ExitCode {
+fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContext) -> ExitCode {
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
         Err(message) => {
@@ -1158,14 +1172,14 @@ fn run_emit_obj(
     };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir.clone(),
-        ..nia_driver::DriverConfig::default()
+        ..nia_driver::DriverConfig::new(context.toolchain)
     });
-    let output = time_summary_stage(timings, "emit_native_objects", || {
+    let output = time_summary_stage(context.timings, "emit_native_objects", || {
         driver.emit_native_objects(nia_driver::EmitObjectRequest::new(
             nia_driver::CheckRequest::new(path)
-                .with_module_map(module_map)
-                .with_optimization(optimization)
-                .with_timings(timings)
+                .with_module_map(context.module_map)
+                .with_optimization(context.optimization)
+                .with_timings(context.timings)
                 .with_runtime(options.runtime),
         ))
     });
@@ -1185,7 +1199,7 @@ fn run_emit_obj(
             nia_driver::render_object_warnings(&objects, Some(path), Some(source))
         );
     }
-    if opt_report {
+    if context.opt_report {
         eprint!("{}", nia_driver::object_optimization_report(&objects));
     }
     let output =
@@ -1202,15 +1216,7 @@ fn run_emit_obj(
     }
 }
 
-fn run_emit_exe(
-    path: &str,
-    source: &str,
-    args: Vec<String>,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: nia_driver::TimingMode,
-    opt_report: bool,
-) -> ExitCode {
+fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContext) -> ExitCode {
     let options = match parse_emit_exe_options(path, args) {
         Ok(options) => options,
         Err(message) => {
@@ -1220,14 +1226,14 @@ fn run_emit_exe(
     };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir.clone(),
-        ..nia_driver::DriverConfig::default()
+        ..nia_driver::DriverConfig::new(context.toolchain)
     });
-    let output = time_summary_stage(timings, "link_executable", || {
+    let output = time_summary_stage(context.timings, "link_executable", || {
         driver.link_executable(nia_driver::LinkExecutableRequest {
             check: nia_driver::CheckRequest::new(path)
-                .with_module_map(module_map)
-                .with_optimization(optimization)
-                .with_timings(timings)
+                .with_module_map(context.module_map)
+                .with_optimization(context.optimization)
+                .with_timings(context.timings)
                 .with_runtime(Runtime::Freestanding),
             output: options.output.clone(),
             link_options: options.link_options.clone(),
@@ -1249,7 +1255,7 @@ fn run_emit_exe(
             nia_driver::render_executable_warnings(&executable, Some(path), Some(source))
         );
     }
-    if opt_report {
+    if context.opt_report {
         eprint!(
             "{}",
             nia_driver::optimization_report_from_parts(

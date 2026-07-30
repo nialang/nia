@@ -20,6 +20,7 @@ nia-query.workspace = true
 nia-source.workspace = true
 nia-symbol.workspace = true
 nia-target-config.workspace = true
+nia-toolchain.workspace = true
 nia-timing.workspace = true
 
 [dev-dependencies]

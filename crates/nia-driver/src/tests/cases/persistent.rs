@@ -36,7 +36,7 @@ fn run_case(case_root: &Path) {
         let driver = crate::Driver::with_config(crate::DriverConfig {
             artifact_cache_dir: Some(cache.clone()),
             verify_frontend_cache,
-            ..crate::DriverConfig::default()
+            ..crate::DriverConfig::new(crate::tests::common::test_toolchain_layout())
         });
         checked_program_from_output(driver.check_entry(crate::CheckRequest::new(
             source.to_string_lossy().into_owned(),

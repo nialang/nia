@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{path::Path, process::Command};
 
+#[allow(dead_code, unused_imports)]
+mod support;
+
 use nia_test_support::{
     CaseManifest, CommandExt, CommandStatusExt, TestWorkload, case_directories, copy_case_tree,
     fixture_relative_path,
@@ -27,7 +30,7 @@ fn build_cases_match_expectations() {
         );
         copy_case_tree(&case_root, &workspace);
 
-        let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
+        let mut command = support::nia_command();
         command.arg("build");
         let command_root = if mode == "configured-build-success" {
             command.arg("--timings=detail").arg("--timings-format=json");
@@ -165,7 +168,7 @@ fn assert_configured_build_success(
         Some(0)
     );
 
-    let check = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let check = support::nia_command()
         .arg("build")
         .arg("check")
         .arg("--root")

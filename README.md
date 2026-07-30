@@ -97,7 +97,7 @@ LLVM_SYS_221_PREFIX=/path/to/llvm-22.1 cargo build --workspace
 Run the compiler from the workspace with:
 
 ```sh
-cargo run -p nia-cli -- --help
+cargo run -p nia-cli -- --resource-root lib --help
 ```
 
 For everyday use, build the release binary and create a symlink in
@@ -112,13 +112,14 @@ ln -sf "$PWD/target/release/nia" "$HOME/.local/bin/nia"
 Make sure `~/.local/bin` is on `PATH`, then verify the command:
 
 ```sh
-nia --version
-nia check examples/00_minimal.nia --runtime freestanding
+nia --resource-root "$PWD/lib" --version
+nia --resource-root "$PWD/lib" check examples/00_minimal.nia --runtime freestanding
 ```
 
-This source-tree workflow is the recommended pre-1.0 installation path. The
-compiler's default standard-library path is tied to the checkout used to build
-it, so keep the repository in place after creating the symlink. To update:
+This explicit source-tree workflow is the recommended pre-1.0 installation
+path. The compiler never infers a checkout path; `--resource-root lib` selects
+the versioned resource tree deliberately. Keep the repository in place after
+creating the symlink. To update:
 
 ```sh
 git pull
@@ -126,8 +127,10 @@ cargo build --release -p nia-cli
 ```
 
 `cargo install` is not the recommended workflow yet because it installs only the
-compiler binary and does not install Nia's standard-library source tree.
-Relocatable toolchain installation is planned for a later release.
+compiler binary and does not create the required installed tree. An installed
+toolchain resolves resources as `../lib/nia` relative to `bin/nia`; that tree
+must contain `toolchain.meta`, `std.nia`, and the std/runtime sources. Packaging
+and installation automation remains future work.
 
 The compiler binary is named `nia`. Its core pipeline commands are:
 
@@ -189,8 +192,8 @@ are global options and may appear before or after the command.
 Check every top-level example from the repository root with:
 
 ```sh
-for file in examples/*.nia; do cargo run -p nia-cli -- check "$file" --runtime freestanding; done
-cargo run -p nia-cli -- check examples/modules/main.nia --runtime freestanding
+for file in examples/*.nia; do cargo run -p nia-cli -- --resource-root lib check "$file" --runtime freestanding; done
+cargo run -p nia-cli -- --resource-root lib check examples/modules/main.nia --runtime freestanding
 ```
 
 See [examples/README.md](examples/README.md) for the reading order. The example

@@ -114,6 +114,7 @@ pub struct Build {
     build_dir: fs::PathView,
     cache_dir: fs::PathView,
     toolchain_executable: fs::PathView,
+    toolchain_resource_root: fs::PathView,
     action_reporting: bool,
     step_arg_index: usize,
     default_step: ?StepHandle,

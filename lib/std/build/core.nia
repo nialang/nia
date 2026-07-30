@@ -49,6 +49,7 @@ extend Build {
         build_dir: fs::PathView,
         cache_dir: fs::PathView,
         toolchain_executable: fs::PathView,
+        toolchain_resource_root: fs::PathView,
         action_reporting: bool,
         step_arg_index: usize,
     ) Build {
@@ -59,6 +60,7 @@ extend Build {
             build_dir: build_dir,
             cache_dir: cache_dir,
             toolchain_executable: toolchain_executable,
+            toolchain_resource_root: toolchain_resource_root,
             action_reporting: action_reporting,
             step_arg_index: step_arg_index,
             default_step: null,
@@ -104,6 +106,10 @@ extend Build {
 
     pub fn toolchain_executable(&self) fs::PathView {
         self.toolchain_executable
+    }
+
+    pub fn toolchain_resource_root(&self) fs::PathView {
+        self.toolchain_resource_root
     }
 
     pub fn add_step(&mut self, name: &[char], run: StepFn) Error!StepHandle {
@@ -280,12 +286,17 @@ extend Build {
     ) Error!void {
         static timings = b"--timings=detail\0";
         static timing_format = b"--timings-format=json\0";
+        static resource_root_flag = b"--resource-root\0";
+        let mut resource_root_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let resource_root_arg = self.toolchain_resource_root.encode(&mut resource_root_storage[..]).as_build_error().?;
         let mut import_storage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
         let mut arg_storage: [48]&u8 = [0usize as &u8; 48];
         let mut argv = ArgList::init(&mut arg_storage[..]);
         argv.push_ptrs(head).as_build_error().?;
         append_module_import_args(&mut argv, imports, &mut import_storage[..]).?;
         argv.push_ptrs(tail).as_build_error().?;
+        argv.push_ptr(&resource_root_flag[0]).as_build_error().?;
+        argv.push_ptr(resource_root_arg.ptr()).as_build_error().?;
         if self.action_reporting {
             argv.push_ptr(&timings[0]).as_build_error().?;
             argv.push_ptr(&timing_format[0]).as_build_error().?;

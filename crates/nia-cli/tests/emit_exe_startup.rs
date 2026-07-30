@@ -22,7 +22,7 @@ fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)
@@ -142,7 +142,7 @@ pub fn mymain() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)
@@ -181,7 +181,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .current_dir(&root)
         .arg("emit")
         .arg("--exe")
@@ -201,7 +201,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let report_name = format!("--opt-report{}", std::env::consts::EXE_SUFFIX);
     let report_path = root.join(&report_name);
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .current_dir(&root)
         .arg("emit")
         .arg("--exe")
@@ -243,7 +243,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("-Oz")
         .arg("emit")
         .arg("--exe")

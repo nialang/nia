@@ -29,7 +29,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -49,12 +49,34 @@ impl<C> QueryDbTestExt<C> for QueryDb<C> {
     }
 }
 
+pub(super) fn test_toolchain_layout() -> Arc<nia_toolchain::ToolchainLayout> {
+    static LAYOUT: OnceLock<Arc<nia_toolchain::ToolchainLayout>> = OnceLock::new();
+    Arc::clone(LAYOUT.get_or_init(|| {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .expect("nia-loader-query lives under crates/");
+        Arc::new(
+            nia_toolchain::ToolchainLayout::resolve(
+                nia_toolchain::ToolchainLayoutRequest::explicit(
+                    std::env::current_exe().expect("test executable path"),
+                    workspace_root.join("lib"),
+                ),
+            )
+            .expect("development toolchain layout"),
+        )
+    }))
+}
+
 fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
-    super::load_program(entry_path).expect("test program load must succeed")
+    super::load_program(entry_path, test_toolchain_layout())
+        .expect("test program load must succeed")
 }
 
 fn load_program_with_map(entry_path: impl Into<String>, module_map: ModuleMap) -> LoadedProgram {
-    super::load_program_with_map(entry_path, module_map).expect("test program load must succeed")
+    super::load_program_with_map(entry_path, module_map, test_toolchain_layout())
+        .expect("test program load must succeed")
 }
 
 fn load_program_with_map_and_entry_runtime(
@@ -62,8 +84,13 @@ fn load_program_with_map_and_entry_runtime(
     module_map: ModuleMap,
     entry_runtime: EntryRuntime,
 ) -> LoadedProgram {
-    super::load_program_with_map_and_entry_runtime(entry_path, module_map, entry_runtime)
-        .expect("test program load must succeed")
+    super::load_program_with_map_and_entry_runtime(
+        entry_path,
+        module_map,
+        entry_runtime,
+        test_toolchain_layout(),
+    )
+    .expect("test program load must succeed")
 }
 
 fn parsed_module_query(db: &QueryDb<LoaderContext>, path: &SourcePath) -> ParsedModuleQuery {
@@ -169,7 +196,11 @@ fn test_loader_context(
 ) -> LoaderContext {
     LoaderContext {
         entry_path: entry_path.clone(),
-        module_map: effective_module_map(&entry_path, module_map),
+        module_map: effective_module_map(
+            &entry_path,
+            module_map,
+            Some(test_toolchain_layout().as_ref()),
+        ),
         sources,
         node_store: nia_node_id::NodeStore::new(),
         diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
@@ -354,7 +385,11 @@ fn facade_cache_identity(
     module_map: &ModuleMap,
 ) -> FacadeCacheIdentity {
     let provider = provider_cache_identity(file);
-    let effective_module_map = effective_module_map(entry_path, module_map.clone());
+    let effective_module_map = effective_module_map(
+        entry_path,
+        module_map.clone(),
+        Some(test_toolchain_layout().as_ref()),
+    );
     let module_map = frontend_module_map_fingerprint(&effective_module_map);
     let facade_key = FrontendFacadeFactsCacheKey::new(
         provider.namespace,
@@ -382,7 +417,11 @@ fn module_dependencies_cache_identity(
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_len = file.text.len();
-    let effective_module_map = effective_module_map(entry_path, module_map.clone());
+    let effective_module_map = effective_module_map(
+        entry_path,
+        module_map.clone(),
+        Some(test_toolchain_layout().as_ref()),
+    );
     let module_map = frontend_module_map_fingerprint(&effective_module_map);
     let key = FrontendModuleDependenciesCacheKey::new(namespace, &module, source, module_map);
     ModuleDependenciesCacheIdentity {
@@ -422,7 +461,9 @@ fn load_program_with_provider_demand(
 ) -> LoadedProgram {
     let source_path = SourcePath::new(entry_path.to_string_lossy());
     let database = LoaderDatabase::new(
-        LoadRequest::new(entry_path.to_string_lossy().into_owned()).with_module_map(module_map),
+        LoadRequest::new(entry_path.to_string_lossy().into_owned())
+            .with_module_map(module_map)
+            .with_toolchain_layout(test_toolchain_layout()),
     );
     let update = database
         .update_provider_demands([ProviderDemand {

@@ -40,7 +40,7 @@ fn writing_native_object_preserves_incremental_link_identity() {
         diagnostics: Vec::new(),
     };
 
-    let written = crate::Driver::new()
+    let written = crate::Driver::new(common::test_toolchain_layout())
         .write_native_objects_from_artifact(&artifact, crate::ObjectOutput::Single(path.clone()))
         .result
         .expect("write native object");
@@ -86,7 +86,7 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
     std::fs::set_permissions(&linker, permissions).expect("make mock linker executable");
     let driver = crate::Driver::with_config(crate::DriverConfig {
         artifact_cache_dir: Some(root.join("cache")),
-        ..crate::DriverConfig::default()
+        ..crate::DriverConfig::new(common::test_toolchain_layout())
     });
     let options = LinkOptions {
         linker: ExecutableLinker::with_program(linker.to_string_lossy()),
