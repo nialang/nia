@@ -2406,10 +2406,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             .as_ref()
             .and_then(|program_sources| {
                 let source = program_sources.by_module.get(&owner.module_id)?;
-                let namespace = crate::FrontendCacheNamespace::new(
-                    &db.context().loader_facts.target(),
-                    db.context().loader_facts.runtime(),
-                );
+                let namespace = db.context().frontend_cache_namespace();
                 let key = crate::FrontendExecutableValueRefEdgesCacheKey::new(
                     namespace,
                     &source.module,

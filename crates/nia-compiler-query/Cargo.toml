@@ -47,6 +47,7 @@ nia-symbol-table.workspace = true
 nia-syntax.workspace = true
 nia-target-config.workspace = true
 nia-timing.workspace = true
+nia-toolchain.workspace = true
 nia-ty.workspace = true
 nia-trait-solve.workspace = true
 nia-type-lower.workspace = true

@@ -60,15 +60,13 @@ pub struct MonomorphizeModuleInput<'a> {
 
 pub fn collect_monomorphizations(
     inputs: &[MonomorphizeModuleInput<'_>],
+    source_identities: impl IntoIterator<Item = (ModuleId, SourceIdentity)>,
     type_store: &TypeStore,
 ) -> Monomorphization {
     let empty_trait_impl_index = ProgramTraitImplIndex::default();
     let mut collector = MonoCollector {
         type_store,
-        source_identities: inputs
-            .iter()
-            .map(|input| (input.module_id, input.source_identity.clone()))
-            .collect(),
+        source_identities: source_identities.into_iter().collect(),
         defs_by_module: inputs
             .iter()
             .map(|input| (input.module_id, input.defs))

@@ -54,6 +54,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             symbols: db.context().symbols.clone(),
             target: db.context().target.clone(),
             runtime: runtime_model(db.context().entry_runtime),
+            toolchain_identity: db.context().toolchain_identity,
             modules,
             diagnostics: diagnostics.as_ref().clone(),
         })
@@ -67,6 +68,7 @@ pub(crate) struct LoadedProgramValue {
     pub(crate) symbols: nia_symbol_table::SymbolTable,
     pub(crate) target: nia_target_config::TargetConfig,
     pub(crate) runtime: RuntimeModel,
+    pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) modules: Vec<LoadedModule>,
     pub(crate) diagnostics: ProgramDiagnosticBundles,
 }
@@ -79,6 +81,7 @@ impl LoadedProgramValue {
             symbols: self.symbols.clone(),
             target: self.target.clone(),
             runtime: self.runtime,
+            toolchain_identity: self.toolchain_identity,
             modules: self.modules.clone(),
             diagnostics: self.diagnostics.to_diagnostics(),
         }
@@ -827,10 +830,7 @@ fn frontend_cache_input(
         .as_ref()
         .filter(|file| file.version() == version)
         .map(|file| {
-            let namespace = FrontendCacheNamespace::new(
-                &db.context().target,
-                runtime_model(db.context().entry_runtime),
-            );
+            let namespace = db.context().frontend_cache_namespace();
             let module = StableModuleKey::from_source_identity(file.path.identity());
             let source = source_content_fingerprint(&file.text);
             let source_len = file.text.len();

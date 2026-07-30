@@ -4,6 +4,7 @@ use nia_item_signatures::ItemSignatures;
 
 pub(super) struct BackendLoweringInputs {
     symbols: nia_symbol_table::SymbolTable,
+    source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
     checked_modules: Vec<Arc<CheckedModule>>,
     module_indices: HashMap<ModuleId, usize>,
     active_item_trees: Vec<Arc<ActiveModuleItemTree>>,
@@ -28,6 +29,7 @@ pub(super) struct BackendLoweringInputs {
 
 pub(super) struct BackendLoweringInputsParts {
     pub(super) symbols: nia_symbol_table::SymbolTable,
+    pub(super) source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
     pub(super) checked_modules: Vec<Arc<CheckedModule>>,
     pub(super) active_item_trees: Vec<Arc<ActiveModuleItemTree>>,
     pub(super) item_signatures: Vec<ItemSignatures>,
@@ -103,6 +105,7 @@ impl BackendLoweringInputs {
             .collect();
         Self {
             symbols: parts.symbols,
+            source_identities: parts.source_identities,
             checked_modules: parts.checked_modules,
             module_indices,
             active_item_trees: parts.active_item_trees,
@@ -165,6 +168,10 @@ impl BackendLoweringInputs {
 }
 
 impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
+    fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity> {
+        &self.source_identities
+    }
+
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>> {
         self.module_indices
             .get(&module_id)
@@ -379,6 +386,7 @@ mod tests {
 
         let inputs = BackendLoweringInputs {
             symbols: nia_symbol_table::SymbolTable::new(),
+            source_identities: HashMap::new(),
             checked_modules: Vec::new(),
             module_indices: HashMap::new(),
             active_item_trees: Vec::new(),

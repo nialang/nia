@@ -10,7 +10,7 @@ use nia_target_config::TargetConfig;
 
 use crate::RuntimeModel;
 
-const FRONTEND_CACHE_SCHEMA_VERSION: u64 = 1;
+const FRONTEND_CACHE_SCHEMA_VERSION: u64 = 2;
 
 macro_rules! frontend_fingerprint {
     ($name:ident) => {
@@ -365,9 +365,23 @@ impl FrontendProviderDemandPlanCacheKey {
 
 impl FrontendCacheNamespace {
     pub fn new(target: &TargetConfig, runtime: RuntimeModel) -> Self {
-        let mut builder = QueryFingerprintBuilder::new("nia.frontend.cache-namespace.v1");
+        Self::for_toolchain(
+            target,
+            runtime,
+            nia_toolchain::ToolchainIdentityFingerprint::current(),
+        )
+    }
+
+    pub fn for_toolchain(
+        target: &TargetConfig,
+        runtime: RuntimeModel,
+        toolchain: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Self {
+        let mut builder = QueryFingerprintBuilder::new("nia.frontend.cache-namespace.v2");
         builder.write_u64(FRONTEND_CACHE_SCHEMA_VERSION);
-        builder.write_str(env!("CARGO_PKG_VERSION"));
+        for part in toolchain.parts() {
+            builder.write_u64(part);
+        }
         for field in [
             target.arch.as_str(),
             target.vendor.as_str(),
@@ -607,7 +621,7 @@ extend Value {
     }
 
     #[test]
-    fn frontend_cache_namespace_covers_target_and_runtime() {
+    fn frontend_cache_namespace_covers_toolchain_target_and_runtime() {
         let target = TargetConfig {
             arch: "x86_64".to_string(),
             vendor: "unknown".to_string(),
@@ -638,6 +652,14 @@ extend Value {
         assert_ne!(
             baseline,
             FrontendCacheNamespace::new(&target, RuntimeModel::FreestandingExecutable)
+        );
+        assert_ne!(
+            baseline,
+            FrontendCacheNamespace::for_toolchain(
+                &target,
+                RuntimeModel::Bare,
+                nia_toolchain::ToolchainIdentityFingerprint::from_parts([9, 11]),
+            )
         );
         assert_eq!(
             baseline,

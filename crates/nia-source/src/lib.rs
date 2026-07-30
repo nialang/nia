@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    fs, io,
+    fs,
+    hash::{Hash, Hasher},
+    io,
     sync::{Arc, Mutex},
 };
 
@@ -37,9 +39,7 @@ impl SourceIdentity {
     }
 
     pub fn from_path(path: &SourcePath) -> Self {
-        Self {
-            normalized_path: path.as_str().to_string(),
-        }
+        path.identity.clone()
     }
 
     pub fn normalized_path(&self) -> &str {
@@ -47,21 +47,56 @@ impl SourceIdentity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SourcePath(String);
+#[derive(Debug, Clone)]
+pub struct SourcePath {
+    physical_path: String,
+    identity: SourceIdentity,
+}
+
+impl PartialEq for SourcePath {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity == other.identity
+    }
+}
+
+impl Eq for SourcePath {}
+
+impl Hash for SourcePath {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.identity.hash(state);
+    }
+}
 
 impl SourcePath {
     pub fn new(path: impl Into<String>) -> Self {
-        Self(normalize_path(&path.into()))
+        let physical_path = normalize_path(&path.into());
+        Self {
+            identity: SourceIdentity::new(&physical_path),
+            physical_path,
+        }
     }
 
     /// Builds a source path from text that already satisfies `normalize_path`.
     pub fn from_normalized_unchecked(path: impl Into<String>) -> Self {
-        Self(path.into())
+        let physical_path = path.into();
+        Self {
+            identity: SourceIdentity::new(&physical_path),
+            physical_path,
+        }
+    }
+
+    pub fn with_identity(
+        physical_path: impl Into<String>,
+        logical_identity: impl AsRef<str>,
+    ) -> Self {
+        Self {
+            physical_path: normalize_path(&physical_path.into()),
+            identity: SourceIdentity::new(logical_identity),
+        }
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.physical_path
     }
 
     pub fn identity(&self) -> SourceIdentity {
@@ -285,6 +320,28 @@ mod tests {
 
         assert_eq!(identity.normalized_path(), "src/root.nia");
         assert_eq!(identity, SourceIdentity::from_path(&path));
+    }
+
+    #[test]
+    fn source_path_can_separate_physical_location_from_logical_identity() {
+        let path = SourcePath::with_identity(
+            "/opt/nia/lib/nia/std/collections.nia",
+            "toolchain:/std/collections.nia",
+        );
+
+        assert_eq!(path.as_str(), "/opt/nia/lib/nia/std/collections.nia");
+        assert_eq!(
+            path.identity().normalized_path(),
+            "toolchain:/std/collections.nia"
+        );
+        assert_ne!(path, SourcePath::new(path.as_str()));
+        assert_eq!(
+            path,
+            SourcePath::with_identity(
+                "/relocated/lib/nia/std/collections.nia",
+                "toolchain:/std/collections.nia",
+            )
+        );
     }
 
     #[test]

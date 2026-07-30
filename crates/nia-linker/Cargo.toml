@@ -9,6 +9,7 @@ license.workspace = true
 nia-backend-ir.workspace = true
 nia-query.workspace = true
 nia-target-config.workspace = true
+nia-toolchain.workspace = true
 
 [dev-dependencies]
 nia-source.workspace = true

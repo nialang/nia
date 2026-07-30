@@ -28,6 +28,16 @@ pub(super) struct CompilerContext {
     pub(super) provider_demand_rounds: std::sync::atomic::AtomicU64,
 }
 
+impl CompilerContext {
+    pub(super) fn frontend_cache_namespace(&self) -> crate::FrontendCacheNamespace {
+        crate::FrontendCacheNamespace::for_toolchain(
+            &self.loader_facts.target(),
+            self.loader_facts.runtime(),
+            self.loader_facts.toolchain_identity(),
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct FrontendProgramSource {
     pub(super) module: StableModuleKey,

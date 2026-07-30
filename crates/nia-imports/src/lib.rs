@@ -961,19 +961,31 @@ pub fn declared_child_source_path_for_with_symbols(
     parent_module_path: &ModulePath,
     child: SymbolId,
 ) -> SourcePath {
-    let parent_path = parent_path.as_str();
     let child = resolved_module_symbol_text(symbols, child);
+    let physical = declared_child_path_text(parent_path.as_str(), parent_module_path, &child);
+    let logical = declared_child_path_text(
+        parent_path.identity().normalized_path(),
+        parent_module_path,
+        &child,
+    );
+    SourcePath::with_identity(physical, logical)
+}
+
+fn declared_child_path_text(
+    parent_path: &str,
+    parent_module_path: &ModulePath,
+    child: &str,
+) -> String {
     let base = if parent_module_path.is_entry_package() && parent_module_path.is_package_root() {
         parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
     } else {
         parent_path.strip_suffix(".nia").unwrap_or(parent_path)
     };
-    let joined = if base.is_empty() {
+    if base.is_empty() {
         format!("{child}.nia")
     } else {
         format!("{base}/{child}.nia")
-    };
-    SourcePath::from_normalized_unchecked(joined)
+    }
 }
 
 #[cfg(test)]

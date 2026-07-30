@@ -26,6 +26,7 @@ nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true
 nia-timing.workspace = true
+nia-toolchain.workspace = true
 nia-ty.workspace = true
 
 [dev-dependencies]

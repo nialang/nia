@@ -257,6 +257,9 @@ pub trait LoaderFactProvider: Send + Sync {
     fn symbols(&self) -> SymbolTable;
     fn target(&self) -> TargetConfig;
     fn runtime(&self) -> RuntimeModel;
+    fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
+        nia_toolchain::ToolchainIdentityFingerprint::current()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -266,6 +269,7 @@ pub struct LoadedProgram {
     pub symbols: SymbolTable,
     pub target: TargetConfig,
     pub runtime: RuntimeModel,
+    pub toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub modules: Vec<LoadedModule>,
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
@@ -411,6 +415,10 @@ impl LoaderFactProvider for LoadedProgram {
 
     fn runtime(&self) -> RuntimeModel {
         self.runtime
+    }
+
+    fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
+        self.toolchain_identity
     }
 }
 

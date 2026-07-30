@@ -290,10 +290,7 @@ impl CompilerDatabase {
             &provider_facts,
         );
         Ok(Some(CheckCertificateContext {
-            namespace: crate::FrontendCacheNamespace::new(
-                &self.db.context().loader_facts().target(),
-                self.db.context().loader_facts().runtime(),
-            ),
+            namespace: self.db.context().frontend_cache_namespace(),
             entry,
             input,
             scope,
@@ -692,7 +689,7 @@ fn provider_fact_revision_fingerprint(revision: crate::ProviderFactRevision) -> 
 
 fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-demand.v1");
-    builder.write_str(demand.source_path.as_str());
+    builder.write_str(demand.source_path.identity().normalized_path());
     match &demand.request {
         crate::ProviderRequest::Method {
             target_type_name,
@@ -713,11 +710,11 @@ fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerpri
         }
         crate::ProviderRequest::ModuleSemantic { module_path } => {
             builder.write_u8(2);
-            builder.write_str(module_path.as_str());
+            builder.write_str(module_path.identity().normalized_path());
         }
         crate::ProviderRequest::ModuleBody { module_path } => {
             builder.write_u8(3);
-            builder.write_str(module_path.as_str());
+            builder.write_str(module_path.identity().normalized_path());
         }
     }
     builder.finish()

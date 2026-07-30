@@ -33,8 +33,19 @@ pub struct NativeObject {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LlvmCodegenOptions {
     pub optimization: OptimizationPolicy,
     pub timings: nia_timing::TimingMode,
+    pub toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+}
+
+impl Default for LlvmCodegenOptions {
+    fn default() -> Self {
+        Self {
+            optimization: OptimizationPolicy::default(),
+            timings: nia_timing::TimingMode::Off,
+            toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
+        }
+    }
 }

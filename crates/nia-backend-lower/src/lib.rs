@@ -331,6 +331,7 @@ pub enum BackendOptimizationChange {
 }
 
 pub trait BackendProgramFacts: Sync {
+    fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity>;
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
     fn function_body_ids(&self) -> &[GlobalDefId];
     fn function_body(&self, def_id: GlobalDefId) -> Option<&FunctionBody>;
@@ -883,10 +884,9 @@ impl BackendLowerShared {
     fn new(modules: &[BackendLowerModuleInput<'_>]) -> Self {
         let first = modules.first();
         Self {
-            source_identities: modules
-                .iter()
-                .map(|input| (input.module_id, input.source_identity.clone()))
-                .collect(),
+            source_identities: first
+                .map(|input| input.program.source_identities().clone())
+                .unwrap_or_default(),
             program_extension_generics_by_method: first
                 .map(|input| index_extension_generics_by_method(input.program.extension_methods()))
                 .unwrap_or_default(),
