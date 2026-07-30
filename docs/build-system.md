@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phase C build-host standard-library migration in progress
+Status: Phase D immutable build-plan migration in progress
 
 This document owns the durable build-system boundary. The active migration and
 acceptance sequence remains in `../build-std-roadmap.md`.
@@ -75,6 +75,12 @@ validatable. It contains no function pointer, borrowed runner memory, raw
 allocator, process handle, or opaque command callback. Local builder handles
 include an owner identity; serialized identities derive from canonical plan
 content rather than allocation order.
+
+Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
+carry a private process-local owner id beside their index. Every API receiving a
+handle rejects a different live builder before indexing its collections. The
+owner id comes from a monotonic atomic counter and is deliberately absent from
+serialization, diagnostics, fingerprints, and future stable plan keys.
 
 Every action has a typed kind, declared inputs, declared outputs, environment
 policy, working directory policy, target/host role, cache policy, and resource

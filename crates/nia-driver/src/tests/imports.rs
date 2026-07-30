@@ -914,6 +914,19 @@ fn consume(values: ArrayList[i32]) usize {
     assert!(!broad_work.0.is_empty(), "missing semantic std work");
     assert!(!broad_work.1.is_empty(), "missing body std work");
     assert!(!broad_work.2.is_empty(), "missing backend std work");
+    for module in broad_work
+        .0
+        .iter()
+        .chain(&broad_work.1)
+        .chain(&broad_work.2)
+    {
+        assert!(
+            !module.starts_with("toolchain:/std/build")
+                && !module.starts_with("toolchain:/std/collections/hash_map")
+                && !module.starts_with("toolchain:/std/os"),
+            "ArrayList::len must not select unrelated build, hash-map, or OS work: {module}"
+        );
+    }
     assert_eq!(
         broad_work,
         toolchain_compiler_work(&narrow),

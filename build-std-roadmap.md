@@ -1011,7 +1011,7 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phases A and B are complete. The project is ready to execute Phase C. Later
+Phases A, B, and C are complete. The project is ready to execute Phase D. Later
 implementation phases are not marked complete by roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
@@ -1186,6 +1186,34 @@ definition module, while selected implementations keep the actual use-module
 context; the full 12-case runner integration passes. Phase C remains open for
 the unavailable-file and partial-I/O conformance cases plus facade/provider
 isolation of ordinary programs.
+
+Phase C completion (2026-07-30): the final conformance/isolation batch adds
+explicit unavailable-file coverage beside embedded-NUL path rejection and
+confirms the existing partial-read, partial-write, process spawn, and repeated
+failed-spawn cleanup fixtures. Loader coverage proves ordinary and freestanding
+programs keep build and unrelated process providers shallow or absent. Driver
+coverage now proves equivalent broad/narrow `ArrayList::len` imports select the
+same semantic, body, and backend work and that none of those closures contains
+`std::build`, hash-map, or OS provider modules. The 92-module source-declared
+snapshot remains a deliberate conceptual layering alarm, not a compiler-work
+metric. Together with owned retained values, host/artifact separation, dynamic
+argv, contextual failures, reviewed `lowerCamelCase` APIs, and generic loader
+activation, this satisfies every Phase C acceptance gate. Phase D immutable
+plan ownership and handoff is now the critical path.
+
+Phase D progress (2026-07-30): the first builder-identity batch replaces
+index-only `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values with
+private `(ownerId, index)` handles. Each successfully initialized `Build`
+receives a process-local owner from a monotonic atomic counter; the id is never
+serialized and is not a stable plan key. Every public handle consumer validates
+the owner before the index, including module-to-executable references,
+executable-to-step references, dependencies, and default-step selection. A
+two-builder runtime probe gives both builders index-zero values and proves all
+four cross-builder paths return the exact contextual invalid-handle error. The
+new atomic dependency deliberately moves the conservative build-host source
+closure from 92 to 93 modules; observed ordinary `ArrayList` semantic/body/backend
+work remains isolated. Phase D remains open for stable keys, typed plan values,
+deterministic freeze/codec, validation, and handoff.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

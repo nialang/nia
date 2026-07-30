@@ -80,6 +80,54 @@ fn textIs(actual: string::StringView, expected: &[char]) bool {
     mem::equal[char](actual.text(), expected)
 }
 
+fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Module(0usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Executable(0usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsForeignStep(result: build::Error!void) bool {
+    switch result {
+        !ok => {
+            _ = ok;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Step(0usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
@@ -116,6 +164,30 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ).exit().?;
     let emit = api.addEmitExecutableStep(&"emit", executable).exit().?;
     api.setDefaultStep(emit).exit().?;
+
+    let mut other = initBuild(init, &mut allocator).exit().?;
+    defer other.deinit().exit().?;
+    let otherModule = other.addModule(
+        build::ModuleOptions::init(fs::PathView::init(&"other.nia")),
+    ).exit().?;
+    let otherExecutable = other.addExecutable(
+        build::ExecutableOptions::init(&"other-app", otherModule),
+    ).exit().?;
+    let otherStep = other.addEmitExecutableStep(&"other-emit", otherExecutable).exit().?;
+    if not rejectsForeignModule(api.addExecutable(
+        build::ExecutableOptions::init(&"foreign-module", otherModule),
+    )) {
+        return (4 as process::ExitCode)!;
+    }
+    if not rejectsForeignExecutable(api.addEmitExecutableStep(&"foreign-executable", otherExecutable)) {
+        return (5 as process::ExitCode)!;
+    }
+    if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
+        return (6 as process::ExitCode)!;
+    }
+    if not rejectsForeignStep(api.setDefaultStep(otherStep)) {
+        return (7 as process::ExitCode)!;
+    }
     switch api.runRequestedStep() {
         !ok => {
             _ = ok;
