@@ -4,11 +4,11 @@ fn first(b: &mut build::Build) build::Error!void { _ = b; !{} }
 fn second(b: &mut build::Build) build::Error!void { _ = b; !{} }
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    static first_name = "first";
-    static second_name = "second";
-    let first_step = b.add_step(&first_name, &first).?;
-    let second_step = b.add_step(&second_name, &second).?;
-    b.depend_on(first_step, second_step).?;
-    b.depend_on(second_step, first_step).?;
+    static firstName = "first";
+    static secondName = "second";
+    let firstStep = b.addStep(&firstName, &first).?;
+    let secondStep = b.addStep(&secondName, &second).?;
+    b.dependOn(firstStep, secondStep).?;
+    b.dependOn(secondStep, firstStep).?;
     !{}
 }

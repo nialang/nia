@@ -4,7 +4,7 @@ pub(pkg) module types;
 
 using pkg::build::core;
 
-pub using core::noop_step;
+pub using core::noopStep;
 pub using error::Error;
 pub using types::{
     Build,

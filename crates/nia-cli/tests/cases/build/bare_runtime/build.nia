@@ -2,11 +2,11 @@ using std::build;
 using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    static src_main = "src/main.nia";
-    static app_name = "app";
-    let root_module = b.add_module(build::ModuleOptions::init(fs::PathView::init(&src_main))).?;
-    _ = b.add_executable(
-        build::ExecutableOptions::init(&app_name, root_module).with_runtime(build::Runtime::Bare),
+    static srcMain = "src/main.nia";
+    static appName = "app";
+    let rootModule = b.addModule(build::ModuleOptions::init(fs::PathView::init(&srcMain))).?;
+    _ = b.addExecutable(
+        build::ExecutableOptions::init(&appName, rootModule).withRuntime(build::Runtime::Bare),
     ).?;
     !{}
 }

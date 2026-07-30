@@ -153,18 +153,20 @@ runner, and reserves `.nia-build/` for build output and `.nia-cache/` for
 reusable package or compiler cache entries. Those directories are created before
 the build script runs. `build.nia` is ordinary Nia code and can use the standard
 library. The `std::build::Build` value passed to
-`build.nia` exposes `package_root()`, `build_dir()`, `cache_dir()`, and
-`toolchain_executable()` so build scripts use toolchain-owned paths explicitly.
-The initial build API includes `add_module(ModuleOptions::init(root_source))`
-for declaring a root source module, `with_optimization(mode)` for overriding
-the default optimization mode, and `add_executable(ExecutableOptions::init(name,
-root_module))` for declaring an executable artifact. `with_output_name(name)`
-and `with_runtime(runtime)` customize the artifact. `add_check_executable_step`
-and `add_emit_executable_step` add compiler-backed graph steps. Those steps use
+`build.nia` exposes `packageRoot()`, `buildDir()`, `cacheDir()`, and
+`toolchainExecutable()` so build scripts use toolchain-owned paths explicitly.
+The initial build API includes `addModule(ModuleOptions::init(rootSource))`
+for declaring a root source module, `withOptimization(mode)` for overriding
+the default optimization mode, and `addExecutable(ExecutableOptions::init(name,
+rootModule))` for declaring an executable artifact. `withOutputName(name)`
+and `withRuntime(runtime)` customize the artifact. `addCheckExecutableStep`
+and `addEmitExecutableStep` add compiler-backed graph steps. Those steps use
 the current toolchain from the package root and emit executable artifacts to
 `.nia-build/<output-name-or-target-name>` without hand-written subprocess setup.
-`set_default_step(step)` selects the step used by `nia build` when no step name
-is passed; otherwise users must request a named step explicitly.
+Builder calls copy retained text, paths, and imports, so local input arrays may
+leave scope before execution. `setDefaultStep(step)` selects the step used by
+`nia build` when no step name is passed; otherwise users must request a named
+step explicitly.
 
 This is an experimental bootstrap API, not a compatibility promise. Its current
 callbacks, index handles, raw compiler command bridge, error enum, and fixed

@@ -3036,22 +3036,25 @@ outputs under `.nia-build/` separate from reusable `.nia-cache/` entries.
 Both directories are created before the build script runs. `build.nia` is
 compiled and run as ordinary Nia code through a generated toolchain-owned
 runner, so it can use the standard library. The runner passes a `std::build::Build`
-value with explicit `package_root()`, `build_dir()`, `cache_dir()`, and
-`toolchain_executable()` accessors instead of requiring scripts to infer those
+value with explicit `packageRoot()`, `buildDir()`, `cacheDir()`, and
+`toolchainExecutable()` accessors instead of requiring scripts to infer those
 paths.
-`Build::add_module(ModuleOptions::init(root_source))` declares a root source
-module and returns a module handle. `ModuleOptions::with_optimization(mode)`
-overrides the default optimization mode. `Build::add_executable(
-ExecutableOptions::init(name, root_module))` declares an executable artifact and
-returns an executable handle; `ExecutableOptions::with_output_name(name)` and
-`ExecutableOptions::with_runtime(runtime)` customize it.
-`Build::add_check_executable_step(name, target)` adds a graph step that checks
+`Build::addModule(ModuleOptions::init(rootSource))` declares a root source
+module and returns a module handle. `ModuleOptions::withOptimization(mode)`
+overrides the default optimization mode. `Build::addExecutable(
+ExecutableOptions::init(name, rootModule))` declares an executable artifact and
+returns an executable handle; `ExecutableOptions::withOutputName(name)` and
+`ExecutableOptions::withRuntime(runtime)` customize it.
+`Build::addCheckExecutableStep(name, target)` adds a graph step that checks
 that artifact through the freestanding executable runtime with the package root
-as the working directory. `Build::add_emit_executable_step(name, target)` adds
+as the working directory. `Build::addEmitExecutableStep(name, target)` adds
 a graph step that emits the artifact to
 `.nia-build/<output-name-or-target-name>` through the same toolchain as
 `nia emit --exe <path> -o ...`.
-`Build::set_default_step(step)` selects the graph step used by `nia build` when
+Names, paths, imports, and options passed to these methods are borrowed only for
+the duration of the call. `Build` copies retained values into allocator-owned
+storage, so local arrays may leave scope before a selected step executes.
+`Build::setDefaultStep(step)` selects the graph step used by `nia build` when
 no step name is passed. If a script registers steps but does not set a default,
 `nia build` without an explicit step exits with an invalid build-script error.
 

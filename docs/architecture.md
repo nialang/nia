@@ -1867,22 +1867,27 @@ ABI bridge.
 owns package-root discovery, runner generation, and compiler invocation; build
 logic stays in the Nia build script and can use `std`, including
 `std::process`. The generated runner injects package-root context into
-`std::build::Build`: `package_root()` is the directory containing `build.nia`,
-`build_dir()` is `.nia-build/`, `cache_dir()` is `.nia-cache/`, and
-`toolchain_executable()` is the `nia` executable that launched the build. The
+`std::build::Build`: `packageRoot()` is the directory containing `build.nia`,
+`buildDir()` is `.nia-build/`, `cacheDir()` is `.nia-cache/`, and
+`toolchainExecutable()` is the `nia` executable that launched the build. The
 toolchain creates the build and cache directories before executing the runner.
 The current `std::build` surface is intentionally small:
-`add_module(ModuleOptions::init(root_source))` records a root source module and
-`add_executable(ExecutableOptions::init(name, root_module))` records a
-script-owned executable artifact. `ModuleOptions::with_optimization`,
-`ExecutableOptions::with_output_name`, and `ExecutableOptions::with_runtime`
+`addModule(ModuleOptions::init(rootSource))` records a root source module and
+`addExecutable(ExecutableOptions::init(name, rootModule))` records a
+script-owned executable artifact. `ModuleOptions::withOptimization`,
+`ExecutableOptions::withOutputName`, and `ExecutableOptions::withRuntime`
 customize those records without exposing raw compiler argv assembly.
-`add_check_executable_step(name, target)` and
-`add_emit_executable_step(name, target)` register graph steps that route that
+`addCheckExecutableStep(name, target)` and
+`addEmitExecutableStep(name, target)` register graph steps that route that
 artifact through the current toolchain. Emitted executables currently land at
 `.nia-build/<output-name-or-target-name>`, with target names validated so
 artifact paths cannot escape the build directory.
-`set_default_step(step)` makes the no-argument build entry explicit; the runner
+The options and `ModuleImport` values are borrowed call descriptors. Every value
+retained by `Build` is copied into `StringBuf`, `PathBuf`, or an owned import
+record before the call returns. Fallible ownership transfer uses conditional
+`defer` rollback; deep records are released in reverse order, all cleanup is
+attempted, and the first cleanup error is returned. `setDefaultStep(step)` makes
+the no-argument build entry explicit; the runner
 does not infer a default from step registration order.
 This surface grows the build system through explicit step and artifact APIs
 rather than a Rust-side manifest parser.
