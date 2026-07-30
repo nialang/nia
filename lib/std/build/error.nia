@@ -92,6 +92,7 @@ extend[T] fs::Error!T {
 extend process::Error : error::IntoError[Error] {
     fn into_error(self) Error {
         switch self {
+            process::Error::OutOfMemory => Error::OutOfMemory,
             process::Error::Invalid => Error::InvalidStep,
             process::Error::SpawnSetup => Error::Report,
             process::Error::SpawnStdio => Error::Report,

@@ -176,8 +176,8 @@ executing it until the typed coordinator can pass that target directly to the
 compiler. It never silently emits a host artifact for a distinct target.
 
 This is an experimental bootstrap API, not a compatibility promise. Its current
-callbacks, index handles, raw compiler command bridge, error enum, and fixed
-buffers are migration inputs for the immutable build-plan design. The build-host
+callbacks, index handles, raw compiler command bridge, and coarse error enum are
+migration inputs for the immutable build-plan design. The build-host
 standard-library surface is likewise under API and layering review rather than
 being frozen because the bootstrap can run it.
 

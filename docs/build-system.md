@@ -140,9 +140,11 @@ bootstrap before the bootstrap is deleted.
 | duplicate target | duplicate stable artifact identity diagnostic |
 | invalid output | path/output policy diagnostic; no partial directory or artifact |
 
-Opaque custom callbacks, raw compiler arguments, fixed 16-import/48-argument
-buffers, index-only handles, recursive `run_step`, and the package-wide executor
-lock are explicitly deleted rather than mapped as supported target behavior.
+Opaque custom callbacks, raw compiler arguments, index-only handles, recursive
+`run_step`, and the package-wide executor lock are explicitly deleted rather
+than mapped as supported target behavior. The former fixed 16-import,
+48-build-argument, and 64-process-argument buffers are already gone: bootstrap
+argv assembly is allocator-backed and ordinary allocation failure is typed.
 
 ## 6. Representative Workloads
 

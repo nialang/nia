@@ -1,12 +1,13 @@
+using pkg::collections;
 using pkg::cstring;
 using pkg::error;
 using pkg::fs;
+using pkg::mem;
 using pkg::os;
-using pkg::process::args;
 using pkg::process::child;
 using pkg::process::types;
 
-using types::{ArgList, Child, Command, Error, StdIo, Term};
+using types::{Child, Command, Error, StdIo, Term};
 
 extend Command {
     pub fn init(path: cstring::CStringView, argv: &&u8, envp: &&u8) Command {
@@ -120,14 +121,20 @@ pub fn run(command: &Command) Error!Term {
     command.run()
 }
 
-pub(pkg) fn run_path_args(path: fs::PathView, args: &[&u8], envp: &&u8) Error!Term {
+pub(pkg) fn run_path_args(
+    allocator: &mut mem::Allocator,
+    path: fs::PathView,
+    args: &[&u8],
+    envp: &&u8,
+) Error!Term {
     let mut path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-    let mut arg_storage: [64]&u8 = [0usize as &u8; 64];
     let encoded_path = path.encode(&mut path_storage[..]).as_process_setup_error().?;
-    let mut argv = ArgList::init(&mut arg_storage[..]);
-    argv.push_ptr(encoded_path.ptr()).?;
-    argv.push_ptrs(args).?;
-    let raw_argv = argv.finish().?;
+    let mut argv = collections::ArrayList[&u8]::init();
+    defer argv.deinit(allocator).as_process_setup_error().?;
+    argv.push(allocator, encoded_path.ptr()).as_process_setup_error().?;
+    argv.append_slice(allocator, args).as_process_setup_error().?;
+    argv.push(allocator, 0usize as &u8).as_process_setup_error().?;
+    let raw_argv = argv.as_slice().ptr();
     let command = Command::init(cstring::CStringView::from_ptr(encoded_path.ptr()), raw_argv, envp);
     command.run()
 }
@@ -197,6 +204,22 @@ extend fs::Error {
 }
 
 extend[T] fs::Error!T {
+    fn as_process_setup_error(self) Error!T {
+        self.cast_error()
+    }
+}
+
+extend mem::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
+        switch self {
+            mem::Error::OutOfMemory => Error::OutOfMemory,
+            mem::Error::Invalid => Error::Invalid,
+            _ => Error::System,
+        }
+    }
+}
+
+extend[T] mem::Error!T {
     fn as_process_setup_error(self) Error!T {
         self.cast_error()
     }

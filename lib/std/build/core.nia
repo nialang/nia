@@ -2,7 +2,6 @@ using pkg::collections;
 using pkg::process;
 using pkg::process::command;
 using pkg::process::term;
-using pkg::process::types::ArgList;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
@@ -40,6 +39,11 @@ using types::{
     BuildPaths,
     StepPayload,
 };
+
+struct EncodedModuleImports {
+    bytes: collections::ArrayList[u8],
+    offsets: collections::ArrayList[usize],
+}
 
 pub fn noopStep(b: &mut Build) Error!void {
     _ = b;
@@ -379,6 +383,7 @@ extend Build {
     fn runToolchainArgs(&mut self, args: &[&u8]) Error!void {
         self.compilerInvocations += 1usize;
         let term = command::run_path_args(
+            self.allocator,
             self.paths.toolchainExecutable.view(),
             args,
             self.init.raw_envp(),
@@ -400,19 +405,20 @@ extend Build {
         static resourceRootFlag = b"--resource-root\0";
         let mut resourceRootStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let resourceRootArg = self.paths.toolchainResourceRoot.encode(&mut resourceRootStorage[..]).asBuildError().?;
-        let mut importStorage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
-        let mut argStorage: [48]&u8 = [0usize as &u8; 48];
-        let mut argv = ArgList::init(&mut argStorage[..]);
-        argv.push_ptrs(head).asBuildError().?;
-        appendModuleImportArgs(&mut argv, imports, &mut importStorage[..]).?;
-        argv.push_ptrs(tail).asBuildError().?;
-        argv.push_ptr(&resourceRootFlag[0]).asBuildError().?;
-        argv.push_ptr(resourceRootArg.ptr()).asBuildError().?;
+        let mut encodedImports = EncodedModuleImports::init(self.allocator, imports).?;
+        defer encodedImports.deinit(self.allocator).?;
+        let mut argv = collections::ArrayList[&u8]::init();
+        defer argv.deinit(self.allocator).asBuildError().?;
+        argv.append_slice(self.allocator, head).asBuildError().?;
+        appendModuleImportArgs(self.allocator, &mut argv, &encodedImports).?;
+        argv.append_slice(self.allocator, tail).asBuildError().?;
+        argv.push(self.allocator, &resourceRootFlag[0]).asBuildError().?;
+        argv.push(self.allocator, resourceRootArg.ptr()).asBuildError().?;
         if self.actionReporting {
-            argv.push_ptr(&timings[0]).asBuildError().?;
-            argv.push_ptr(&timingFormat[0]).asBuildError().?;
+            argv.push(self.allocator, &timings[0]).asBuildError().?;
+            argv.push(self.allocator, &timingFormat[0]).asBuildError().?;
         }
-        self.runToolchainArgs(&argStorage[0..argv.len()])
+        self.runToolchainArgs(argv.as_slice())
     }
 
     pub fn requestedStep(&self) ?process::Arg {
@@ -1075,57 +1081,74 @@ fn isValidModuleImportName(name: string::StringView) bool {
 }
 
 fn appendModuleImportArgs(
-    argv: &mut ArgList,
-    imports: &[OwnedModuleImport],
-    storage: &mut [[os::max_path_bytes]u8],
+    allocator: &mut mem::Allocator,
+    argv: &mut collections::ArrayList[&u8],
+    imports: &EncodedModuleImports,
 ) Error!void {
-    if imports.len() > 16usize {
-        return Error::InvalidTarget!;
-    }
     static moduleFlag = b"--module\0";
     let mut index = 0usize;
-    for &import in imports.iter() {
-        argv.push_ptr(&moduleFlag[0]).asBuildError().?;
-        let arg = encodeModuleImport(import, &mut storage[index][..]).?;
-        argv.push_ptr(arg.ptr()).asBuildError().?;
+    while index < imports.len() {
+        argv.push(allocator, &moduleFlag[0]).asBuildError().?;
+        argv.push(allocator, imports.arg(index)).asBuildError().?;
         index += 1usize;
     }
     !{}
 }
 
-fn encodeModuleImport(import: OwnedModuleImport, storage: &mut [u8]) Error!fs::EncodedPath {
-    let mut out = 0usize;
-    out = appendCharsToBytes(import.name.text(), storage, out).?;
-    if out >= storage.len() {
-        return Error::InvalidTarget!;
-    }
-    storage[out] = b'=';
-    out += 1usize;
-    out = appendCharsToBytes(import.path.text(), storage, out).?;
-    if out >= storage.len() {
-        return Error::InvalidTarget!;
-    }
-    storage[out] = 0u8;
-    !fs::EncodedPath::init(storage.ptr(), out)
-}
-
-fn appendCharsToBytes(text: &[char], storage: &mut [u8], start: usize) Error!usize {
-    let mut out = start;
+fn appendCharsToBytes(
+    allocator: &mut mem::Allocator,
+    text: &[char],
+    storage: &mut collections::ArrayList[u8],
+) Error!void {
     for &ch in text.iter() {
         if ch as u32 == 0u32 {
             return Error::InvalidTarget!;
         }
         let encoded = ch.encode_utf8();
-        let bytes = encoded.bytes();
-        for &byte in bytes.iter() {
-            if out >= storage.len() {
-                return Error::InvalidTarget!;
-            }
-            storage[out] = byte;
-            out += 1usize;
-        }
+        storage.append_slice(allocator, encoded.bytes()).asBuildError().?;
     }
-    !out
+    !{}
+}
+
+extend EncodedModuleImports {
+    fn init(
+        allocator: &mut mem::Allocator,
+        imports: &[OwnedModuleImport],
+    ) Error!EncodedModuleImports {
+        let mut encoded: EncodedModuleImports = {
+            bytes: collections::ArrayList[u8]::init(),
+            offsets: collections::ArrayList[usize]::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            encoded.deinit(allocator).?;
+        };
+        for &import in imports.iter() {
+            encoded.offsets.push(allocator, encoded.bytes.len()).asBuildError().?;
+            appendCharsToBytes(allocator, import.name.text(), &mut encoded.bytes).?;
+            encoded.bytes.push(allocator, b'=').asBuildError().?;
+            appendCharsToBytes(allocator, import.path.text(), &mut encoded.bytes).?;
+            encoded.bytes.push(allocator, 0u8).asBuildError().?;
+        }
+        transferred = true;
+        !encoded
+    }
+
+    fn len(&self) usize {
+        self.offsets.len()
+    }
+
+    fn arg(&self, index: usize) &u8 {
+        let offset = self.offsets.as_slice()[index];
+        &self.bytes.as_slice()[offset]
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.bytes.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.offsets.deinit(allocator).asBuildError());
+        cleanupResult(firstError)
+    }
 }
 
 fn argMatchesText(arg: process::Arg, text: &[char]) bool {

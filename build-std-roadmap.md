@@ -1148,6 +1148,21 @@ and real configured runner execution now have focused evidence. Phase C remains
 open for contextual errors, fixed-buffer removal from build argv assembly, and
 the remaining build-host failure/conformance matrix.
 
+Phase C progress (2026-07-30): the fourth batch removes the bootstrap's nested
+argv capacity traps instead of moving them between layers. The fixed 16-import
+encoding matrix and 48-entry build argv are replaced by allocator-owned
+contiguous import bytes plus offsets and a dynamic pointer list. Import pointers
+are created only after byte encoding is complete, so list growth cannot
+invalidate retained addresses. The package-private process bridge likewise
+replaces its 64-entry `ArgList` with an allocator-backed argv including argv[0]
+and the null terminator; `ArgList` is physically deleted. Process allocation
+failure now has a typed `OutOfMemory` category that maps through build without
+panic or `InvalidTarget`. Conditional cleanup restores the active-allocation
+count after a mid-import encoding failure. A real build with 32 module imports
+crosses all three former limits, compiles, links, and launches its artifact.
+Phase C remains open for contextual errors and the remaining invalid UTF-8/path,
+unavailable file, process failure, partial-I/O, and cleanup conformance matrix.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

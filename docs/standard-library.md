@@ -48,7 +48,7 @@ providers.
 | `io` | stdout/stderr/files | public runtime type exposes `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade, hide OS provider and test partial writes |
 | `process` args/env/command | runner context and compiler subprocess | raw argv/envp and coarse spawn/wait errors leak bootstrap mechanics | retire from BuildPlan boundary; expose typed process action/service |
 | `os` Linux facade | path capacity, descriptors, process and I/O providers | broad public low-level facade is a layer violation for build scripts | keep package-private platform provider; review intentional unsafe API separately |
-| `build` | graph declaration and execution | callback executor, raw argv, fixed buffers, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
+| `build` | graph declaration and execution | callback executor, raw argv, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
 
 Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
@@ -155,6 +155,15 @@ selection surface. It therefore rejects execution when host and artifact target
 differ instead of silently producing a host artifact. Phase D/E typed compiler
 actions replace that bootstrap boundary; no temporary arbitrary-target setter
 is exposed from `ExecutableOptions`.
+
+Build command assembly has no import-count or argv-count sentinel. Module-map
+arguments are UTF-8 encoded into allocator-owned contiguous storage; offsets are
+collected while the buffer may grow, and raw pointers are created only after
+encoding is complete. Both the build argument list and the process-level
+`argv`/null terminator list are allocator-backed and use conditional cleanup.
+Allocation failure is `OutOfMemory` through the process/build error path, while
+embedded NUL remains an invalid target input. The OS path byte limit remains a
+separate explicit filesystem boundary, not an argv capacity limit.
 
 ## 7. Proposal Decision Gates
 
