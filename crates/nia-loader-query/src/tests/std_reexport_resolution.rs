@@ -34,7 +34,10 @@ fn query_loader_resolves_std_qualified_root_reexport_shallowly() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        r#"fn main() void { if ?text = std::CStringView::from_bytes(b"nia\0") { _ = text; } or null {} }"#,
+        r#"fn main() void { switch std::CStringView::from_bytes(b"nia\0") {
+    ?text => { _ = text; },
+    null => {},
+} }"#,
     );
 
     let program = load_program(main_path.to_string_lossy().into_owned());

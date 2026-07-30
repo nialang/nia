@@ -169,10 +169,13 @@ extend Build {
         if not is_valid_target_name(output_name) {
             return Error::InvalidTarget!;
         }
-        if ?old = self.find_executable(options.name) {
-            _ = old;
-            return Error::InvalidTarget!;
-        } or null {}
+        switch self.find_executable(options.name) {
+            ?old => {
+                _ = old;
+                return Error::InvalidTarget!;
+            },
+            null => {},
+        }
         let handle = ExecutableHandle::init(self.executables.len());
         self.executables.push(
             self.allocator,
@@ -295,16 +298,25 @@ extend Build {
     }
 
     pub fn run_requested_step(&mut self) Error!void {
-        if ?step = self.requested_step() {
-            if ?handle = self.find_step_arg(step) {
+        switch self.requested_step() {
+            ?step => {
+                switch self.find_step_arg(step) {
+                    ?handle => {
+                        return self.run_step(handle);
+                    },
+                    null => {},
+                }
+                self.report_unknown_step(step).?;
+                return Error::UnknownStep!;
+            },
+            null => {},
+        }
+        switch self.default_step {
+            ?handle => {
                 return self.run_step(handle);
-            } or null {}
-            self.report_unknown_step(step).?;
-            return Error::UnknownStep!;
-        } or null {}
-        if ?handle = self.default_step {
-            return self.run_step(handle);
-        } or null {}
+            },
+            null => {},
+        }
         if self.steps.len() != 0usize {
             return Error::MissingDefaultStep!;
         }
@@ -328,23 +340,29 @@ extend Build {
 
         for &edge in self.dependencies.iter() {
             if edge.step.index() == handle.index() {
-                if !ok = self.run_step(edge.dependency) {
-                    _ = ok;
-                } or err! {
-                    self.set_step_state(handle, StepState::Failed);
-                    self.steps_failed += 1usize;
-                    return err!;
+                switch self.run_step(edge.dependency) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    err! => {
+                        self.set_step_state(handle, StepState::Failed);
+                        self.steps_failed += 1usize;
+                        return err!;
+                    },
                 }
             }
         }
 
         let step = self.steps.as_slice()[handle.index()];
-        if !ok = self.run_step_payload(step) {
-            _ = ok;
-        } or err! {
-            self.set_step_state(handle, StepState::Failed);
-            self.steps_failed += 1usize;
-            return err!;
+        switch self.run_step_payload(step) {
+            !ok => {
+                _ = ok;
+            },
+            err! => {
+                self.set_step_state(handle, StepState::Failed);
+                self.steps_failed += 1usize;
+                return err!;
+            },
         }
 
         self.set_step_state(handle, StepState::Done);
@@ -454,10 +472,13 @@ extend Build {
         if step.name.len() == 0usize {
             return Error::InvalidStep!;
         }
-        if ?old = self.find_step(step.name) {
-            _ = old;
-            return Error::InvalidStep!;
-        } or null {}
+        switch self.find_step(step.name) {
+            ?old => {
+                _ = old;
+                return Error::InvalidStep!;
+            },
+            null => {},
+        }
         let handle = StepHandle::init(self.steps.len());
         self.steps.push(self.allocator, step).as_build_error().?;
         !handle
@@ -626,7 +647,7 @@ extend ExecutableOptions {
 }
 
 fn executable_output_name(options: ExecutableOptions) string::StringView {
-    if ?name = options.output_name {
+    if options.output_name is ?name {
         name
     } else {
         options.name
@@ -680,13 +701,16 @@ fn is_valid_target_name(name: string::StringView) bool {
 }
 
 fn validate_module_imports(imports: ?&[ModuleImport]) Error!void {
-    if ?items = imports {
-        for &import in items.iter() {
-            if not is_valid_module_import_name(import.name) {
-                return Error::InvalidTarget!;
+    switch imports {
+        ?items => {
+            for &import in items.iter() {
+                if not is_valid_module_import_name(import.name) {
+                    return Error::InvalidTarget!;
+                }
             }
-        }
-    } or null {}
+        },
+        null => {},
+    }
     !{}
 }
 
@@ -694,17 +718,20 @@ fn clone_module_imports(
     allocator: &mut mem::Allocator,
     imports: ?&[ModuleImport],
 ) Error!&mut [ModuleImport] {
-    if ?items = imports {
-        if items.len() == 0usize {
+    switch imports {
+        ?items => {
+            if items.len() == 0usize {
+                let mut empty = 1usize as &mut ModuleImport;
+                return !&mut empty[0..0];
+            }
+            let mut owned = allocator.alloc_slice[ModuleImport](items.len()).as_build_error().?;
+            mem::copy_forwards[ModuleImport](owned, items);
+            !owned
+        },
+        null => {
             let mut empty = 1usize as &mut ModuleImport;
-            return !&mut empty[0..0];
-        }
-        let mut owned = allocator.alloc_slice[ModuleImport](items.len()).as_build_error().?;
-        mem::copy_forwards[ModuleImport](owned, items);
-        !owned
-    } or null {
-        let mut empty = 1usize as &mut ModuleImport;
-        !&mut empty[0..0]
+            !&mut empty[0..0]
+        },
     }
 }
 

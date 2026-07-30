@@ -212,6 +212,7 @@ impl<'a> Tokenizer<'a> {
             "for" => TokenKind::For,
             "if" => TokenKind::If,
             "in" => TokenKind::In,
+            "is" => TokenKind::Is,
             "let" => TokenKind::Let,
             "loop" => TokenKind::Loop,
             "module" => TokenKind::Module,

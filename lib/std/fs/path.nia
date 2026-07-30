@@ -24,10 +24,13 @@ extend PathView {
         out.clear_retaining_capacity();
         let mut index = 0usize;
         while index < bytes.len() {
-            let decoded = if ?value = unicode::utf8_decode_first(&bytes[index..]) {
-                value
-            } or null {
-                return Error::Invalid!;
+            let decoded = switch unicode::utf8_decode_first(&bytes[index..]) {
+                ?value => {
+                    value
+                },
+                null => {
+                    return Error::Invalid!;
+                },
             };
             out.push(allocator, decoded.char()).as_fs_error().?;
             index += decoded.len();

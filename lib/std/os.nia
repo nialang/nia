@@ -255,10 +255,13 @@ pub fn wait(pid: ProcessId) Error!WaitStatus {
 
 pub fn try_wait(pid: ProcessId) Error! ?WaitStatus {
     let status = platform::try_wait(pid.platform()).as_os_error().?;
-    if ?value = status {
-        !(?WaitStatus::from_platform(value))
-    } or null {
-        !null
+    switch status {
+        ?value => {
+            !(?WaitStatus::from_platform(value))
+        },
+        null => {
+            !null
+        },
     }
 }
 
@@ -406,9 +409,12 @@ extend platform::Timestamp {
 extend platform::FileMetadata {
     fn as_os_metadata(&self) FileMetadata {
         let mut accessed: ?Timestamp = null;
-        if ?value = self.atime() {
-            accessed = ?value.as_os_timestamp();
-        } or null {}
+        switch self.atime() {
+            ?value => {
+                accessed = ?value.as_os_timestamp();
+            },
+            null => {},
+        }
         FileMetadata::init(
             self.kind().as_os_file_kind(),
             ?self.inode(),
@@ -468,10 +474,13 @@ extend DirectoryReader {
         }
         if self.start >= self.end {
             self.start = 0;
-            if !value = self.handle.read_dir_entries(self.buffer) {
-                self.end = value;
-            } or err! {
-                return ?(err!);
+            switch self.handle.read_dir_entries(self.buffer) {
+                !value => {
+                    self.end = value;
+                },
+                err! => {
+                    return ?(err!);
+                },
             }
             if self.end == 0 {
                 self.done = true;
@@ -479,15 +488,21 @@ extend DirectoryReader {
             }
         }
 
-        let entry = if ?value = platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
-            value.as_os_directory_entry()
-        } or null {
-            return ?(Error::Invalid!);
+        let entry = switch platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
+            ?value => {
+                value.as_os_directory_entry()
+            },
+            null => {
+                return ?(Error::Invalid!);
+            },
         };
-        self.start = if ?value = platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
-            value
-        } or null {
-            return ?(Error::Invalid!);
+        self.start = switch platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
+            ?value => {
+                value
+            },
+            null => {
+                return ?(Error::Invalid!);
+            },
         };
         ?(!entry)
     }
@@ -688,26 +703,35 @@ extend SpawnResult {
     }
 
     pub fn stdin(&self) ?FileHandle {
-        if ?handle = self.platform().stdin() {
-            ?FileHandle::from_platform(handle)
-        } or null {
-            null
+        switch self.platform().stdin() {
+            ?handle => {
+                ?FileHandle::from_platform(handle)
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn stdout(&self) ?FileHandle {
-        if ?handle = self.platform().stdout() {
-            ?FileHandle::from_platform(handle)
-        } or null {
-            null
+        switch self.platform().stdout() {
+            ?handle => {
+                ?FileHandle::from_platform(handle)
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn stderr(&self) ?FileHandle {
-        if ?handle = self.platform().stderr() {
-            ?FileHandle::from_platform(handle)
-        } or null {
-            null
+        switch self.platform().stderr() {
+            ?handle => {
+                ?FileHandle::from_platform(handle)
+            },
+            null => {
+                null
+            },
         }
     }
 }

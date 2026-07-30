@@ -144,10 +144,13 @@ const fn some[T](value: T) ?T {
 }
 
 const fn unwrap(value: ?usize) usize {
-    if ?payload = value {
-        payload
-    } or null {
-        0usize
+    switch value {
+        ?payload => {
+            payload
+        },
+        null => {
+            0usize
+        },
     }
 }
 
@@ -207,10 +210,13 @@ const fn use_try(value: usize!usize) usize!usize {
 }
 
 const got: usize!usize = use_try(!7usize);
-const n: usize = if !payload = got {
-    payload
-} or err! {
-    err
+const n: usize = switch got {
+    !payload => {
+        payload
+    },
+    err! => {
+        err
+    },
 };
 
 fn main() i32 {
@@ -285,10 +291,13 @@ const fn id[T](value: T) T {
 }
 
 const fn unwrap(value: ?usize) usize {
-    if ?payload = value {
-        payload
-    } or null {
-        0usize
+    switch value {
+        ?payload => {
+            payload
+        },
+        null => {
+            0usize
+        },
     }
 }
 
@@ -317,10 +326,13 @@ const fn id[T](value: usize!T) usize!T {
 }
 
 const fn unwrap(value: usize!usize) usize {
-    if !payload = value {
-        payload
-    } or err! {
-        err
+    switch value {
+        !payload => {
+            payload
+        },
+        err! => {
+            err
+        },
     }
 }
 
@@ -349,10 +361,13 @@ const fn id[T](value: T!usize) T!usize {
 }
 
 const fn unwrap(value: usize!usize) usize {
-    if !payload = value {
-        payload
-    } or err! {
-        err
+    switch value {
+        !payload => {
+            payload
+        },
+        err! => {
+            err
+        },
     }
 }
 

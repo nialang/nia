@@ -125,57 +125,78 @@ where T: Char {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    let ascii = if ?ch = 65u32.char() {
-        ch
-    } or null {
-        return (1 as process::ExitCode)!;
+    let ascii = switch 65u32.char() {
+        ?ch => {
+            ch
+        },
+        null => {
+            return (1 as process::ExitCode)!;
+        },
     };
     if ascii.codepoint() != 65u32 {
         return (2 as process::ExitCode)!;
     }
 
-    let generic_ascii = if ?ch = generic_char(66u32) {
-        ch
-    } or null {
-        return (10 as process::ExitCode)!;
+    let generic_ascii = switch generic_char(66u32) {
+        ?ch => {
+            ch
+        },
+        null => {
+            return (10 as process::ExitCode)!;
+        },
     };
     if generic_ascii.codepoint() != 66u32 {
         return (11 as process::ExitCode)!;
     }
 
-    let max = if ?ch = [char]::from_u32(0x10ffffu32) {
-        ch
-    } or null {
-        return (3 as process::ExitCode)!;
+    let max = switch [char]::from_u32(0x10ffffu32) {
+        ?ch => {
+            ch
+        },
+        null => {
+            return (3 as process::ExitCode)!;
+        },
     };
     if max.codepoint() != 0x10ffffu32 {
         return (4 as process::ExitCode)!;
     }
 
-    if ?ch = 0xd800u32.char() {
-        _ = ch;
-        return (5 as process::ExitCode)!;
-    } or null {}
-    if ?ch = 0x110000u32.char() {
-        _ = ch;
-        return (6 as process::ExitCode)!;
-    } or null {}
+    switch 0xd800u32.char() {
+        ?ch => {
+            _ = ch;
+            return (5 as process::ExitCode)!;
+        },
+        null => {},
+    }
+    switch 0x110000u32.char() {
+        ?ch => {
+            _ = ch;
+            return (6 as process::ExitCode)!;
+        },
+        null => {},
+    }
 
     let euro_bytes: [3]u8 = [0xe2u8, 0x82u8, 0xacu8];
-    let euro = if ?decoded = unicode::utf8_decode_first(&euro_bytes) {
-        decoded
-    } or null {
-        return (7 as process::ExitCode)!;
+    let euro = switch unicode::utf8_decode_first(&euro_bytes) {
+        ?decoded => {
+            decoded
+        },
+        null => {
+            return (7 as process::ExitCode)!;
+        },
     };
     if euro.len() != 3usize or euro.char().codepoint() != 0x20acu32 {
         return (8 as process::ExitCode)!;
     }
 
     let overlong: [2]u8 = [0xc0u8, 0x80u8];
-    if ?decoded = unicode::utf8_decode_first(&overlong) {
-        _ = decoded;
-        return (9 as process::ExitCode)!;
-    } or null {}
+    switch unicode::utf8_decode_first(&overlong) {
+        ?decoded => {
+            _ = decoded;
+            return (9 as process::ExitCode)!;
+        },
+        null => {},
+    }
 
     !{}
 }

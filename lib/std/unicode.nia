@@ -121,10 +121,13 @@ pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
     if not is_valid_utf8_scalar_for_width(code, width) {
         return null;
     }
-    if ?ch = code.char() {
-        ?Utf8Decode::init(ch, width)
-    } or null {
-        null
+    switch code.char() {
+        ?ch => {
+            ?Utf8Decode::init(ch, width)
+        },
+        null => {
+            null
+        },
     }
 }
 

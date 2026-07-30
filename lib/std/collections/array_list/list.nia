@@ -138,23 +138,32 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](len).?;
-        if ?block = allocator.remap(old_block, layout) {
-            self.items = raw::dangling_slice[T](0);
-            self.capacity = 0;
-            return !raw::block_items[T](block, len);
-        } or null {
+        switch allocator.remap(old_block, layout) {
+            ?block => {
+                self.items = raw::dangling_slice[T](0);
+                self.capacity = 0;
+                return !raw::block_items[T](block, len);
+            },
+            null => {
+            },
         }
 
         let new_block = allocator.alloc(layout).?;
         let mut new_items = raw::block_items[T](new_block, len);
         mem::copy_forwards[T](new_items, self.as_slice());
-        if !ok = allocator.free(old_block) {
-            _ = ok;
-        } or err! {
-            if !ok = allocator.free(new_block) {
+        switch allocator.free(old_block) {
+            !ok => {
                 _ = ok;
-            } or error! {}
-            return err!;
+            },
+            err! => {
+                switch allocator.free(new_block) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    error! => {},
+                }
+                return err!;
+            },
         }
         self.items = raw::dangling_slice[T](0);
         self.capacity = 0;
@@ -240,10 +249,13 @@ where T: Sized
         if start > len {
             return mem::Error::Invalid!;
         }
-        let end = if ?value = start.checked_add(count) {
-            value
-        } or null {
-            return mem::Error::Invalid!;
+        let end = switch start.checked_add(count) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::Invalid!;
+            },
         };
         if end > len {
             return mem::Error::Invalid!;
@@ -275,13 +287,19 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             let mut copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, values);
-            if !ok = self.insert_stable_slice(allocator, index, copy) {
-                _ = ok;
-            } or err! {
-                if !ok = allocator.free(copy_block) {
+            switch self.insert_stable_slice(allocator, index, copy) {
+                !ok => {
                     _ = ok;
-                } or error! {}
-                return err!;
+                },
+                err! => {
+                    switch allocator.free(copy_block) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        error! => {},
+                    }
+                    return err!;
+                },
             }
             allocator.free(copy_block).?;
             return !{};
@@ -300,10 +318,13 @@ where T: Sized
         if start > self.len() {
             return mem::Error::Invalid!;
         }
-        let end = if ?value = start.checked_add(count) {
-            value
-        } or null {
-            return mem::Error::Invalid!;
+        let end = switch start.checked_add(count) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::Invalid!;
+            },
         };
         if end > self.len() {
             return mem::Error::Invalid!;
@@ -314,13 +335,19 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             let mut copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, values);
-            if !ok = self.replace_range_stable(allocator, start, count, copy) {
-                _ = ok;
-            } or err! {
-                if !ok = allocator.free(copy_block) {
+            switch self.replace_range_stable(allocator, start, count, copy) {
+                !ok => {
                     _ = ok;
-                } or error! {}
-                return err!;
+                },
+                err! => {
+                    switch allocator.free(copy_block) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        error! => {},
+                    }
+                    return err!;
+                },
             }
             allocator.free(copy_block).?;
             return !{};
@@ -369,10 +396,13 @@ where T: Sized
         }
 
         let added = replacement_len - count;
-        let new_len = if ?value = len.checked_add(added) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let new_len = switch len.checked_add(added) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
         self.ensure_total_capacity(allocator, new_len).?;
         let mut items = self.allocated_items();
@@ -390,20 +420,26 @@ where T: Sized
 
     pub fn reserve_exact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
-        let needed = if ?value = len.checked_add(additional) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let needed = switch len.checked_add(additional) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
         self.ensure_total_capacity_precise(allocator, needed)
     }
 
     pub fn ensure_unused_capacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
-        let needed = if ?value = len.checked_add(additional) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let needed = switch len.checked_add(additional) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
         self.ensure_total_capacity(allocator, needed)
     }
@@ -430,13 +466,19 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             let mut copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, items);
-            if !ok = self.append_stable_slice(allocator, copy) {
-                _ = ok;
-            } or err! {
-                if !ok = allocator.free(copy_block) {
+            switch self.append_stable_slice(allocator, copy) {
+                !ok => {
                     _ = ok;
-                } or error! {}
-                return err!;
+                },
+                err! => {
+                    switch allocator.free(copy_block) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        error! => {},
+                    }
+                    return err!;
+                },
             }
             allocator.free(copy_block).?;
             return !{};
@@ -477,10 +519,13 @@ where T: Sized
 
     pub fn add_many_as_slice(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
         let old_len = self.len();
-        let new_len = if ?value = old_len.checked_add(count) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let new_len = switch old_len.checked_add(count) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
         self.resize(allocator, new_len).?;
         let mut items = self.allocated_items();
@@ -489,10 +534,13 @@ where T: Sized
 
     pub fn add_many_as_slice_assume_capacity(&mut self, count: usize) &mut [T] {
         let old_len = self.len();
-        let new_len = if ?value = old_len.checked_add(count) {
-            value
-        } or null {
-            std::builtin::trap()
+        let new_len = switch old_len.checked_add(count) {
+            ?value => {
+                value
+            },
+            null => {
+                std::builtin::trap()
+            },
         };
         if new_len > self.capacity() {
             std::builtin::trap()
@@ -506,10 +554,13 @@ where T: Sized
         if index > self.len() {
             return mem::Error::Invalid!;
         }
-        let new_len = if ?value = self.len().checked_add(count) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let new_len = switch self.len().checked_add(count) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
         if self.capacity() < new_len {
             let better_capacity = self.grown_capacity(new_len).?;
@@ -523,10 +574,13 @@ where T: Sized
         if index > len {
             std::builtin::trap()
         }
-        let new_len = if ?value = len.checked_add(count) {
-            value
-        } or null {
-            std::builtin::trap()
+        let new_len = switch len.checked_add(count) {
+            ?value => {
+                value
+            },
+            null => {
+                std::builtin::trap()
+            },
         };
         if new_len > self.capacity() {
             std::builtin::trap()
@@ -587,22 +641,31 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](new_capacity).?;
-        if ?block = allocator.remap(old_block, layout) {
-            self.set_allocated_block(block, new_capacity);
-            return !{};
-        } or null {
+        switch allocator.remap(old_block, layout) {
+            ?block => {
+                self.set_allocated_block(block, new_capacity);
+                return !{};
+            },
+            null => {
+            },
         }
 
         let new_block = allocator.alloc(layout).?;
         let mut new_items = raw::block_items[T](new_block, new_capacity);
         mem::copy_forwards[T](&mut new_items[0..self.len()], self.as_slice());
-        if !ok = allocator.free(old_block) {
-            _ = ok;
-        } or err! {
-            if !ok = allocator.free(new_block) {
+        switch allocator.free(old_block) {
+            !ok => {
                 _ = ok;
-            } or error! {}
-            return err!;
+            },
+            err! => {
+                switch allocator.free(new_block) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    error! => {},
+                }
+                return err!;
+            },
         }
         self.set_allocated_block(new_block, new_capacity);
         !{}
@@ -633,15 +696,21 @@ where T: Sized
             init_capacity = 1usize;
         }
         let half = needed / 2usize;
-        let extra = if ?value = half.checked_add(init_capacity) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let extra = switch half.checked_add(init_capacity) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
-        if ?capacity = needed.checked_add(extra) {
-            !capacity
-        } or null {
-            mem::Error::OutOfMemory!
+        switch needed.checked_add(extra) {
+            ?capacity => {
+                !capacity
+            },
+            null => {
+                mem::Error::OutOfMemory!
+            },
         }
     }
 
@@ -652,22 +721,31 @@ where T: Sized
         }
         let old_block = self.allocated_block().?;
         let layout = mem::Layout::array[T](capacity).?;
-        if ?block = allocator.remap(old_block, layout) {
-            self.set_allocated_block(block, capacity);
-            return !{};
-        } or null {
+        switch allocator.remap(old_block, layout) {
+            ?block => {
+                self.set_allocated_block(block, capacity);
+                return !{};
+            },
+            null => {
+            },
         }
 
         let new_block = allocator.alloc(layout).?;
         let mut new_items = raw::block_items[T](new_block, capacity);
         mem::copy_forwards[T](new_items, self.as_slice());
-        if !ok = allocator.free(old_block) {
-            _ = ok;
-        } or err! {
-            if !ok = allocator.free(new_block) {
+        switch allocator.free(old_block) {
+            !ok => {
                 _ = ok;
-            } or error! {}
-            return err!;
+            },
+            err! => {
+                switch allocator.free(new_block) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    error! => {},
+                }
+                return err!;
+            },
         }
         self.set_allocated_block(new_block, capacity);
         !{}
@@ -711,15 +789,21 @@ where T: Sized
         }
 
         let byte_offset = ptr - base;
-        let alloc_bytes = if ?value = self.capacity.checked_mul(item_size) {
-            value
-        } or null {
-            return false;
+        let alloc_bytes = switch self.capacity.checked_mul(item_size) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
-        let item_bytes = if ?value = items.len().checked_mul(item_size) {
-            value
-        } or null {
-            return false;
+        let item_bytes = switch items.len().checked_mul(item_size) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
         if byte_offset > alloc_bytes {
             return false;

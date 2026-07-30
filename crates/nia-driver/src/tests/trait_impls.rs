@@ -457,9 +457,12 @@ extend File : io::Writer {
 
 fn main() void {
     let mut stdout: File = { raw: 1 };
-    if !ok = io::write_fully_with[File](& stdout, &b"nia\n") {
-        _ = ok;
-    } or error! {
+    switch io::write_fully_with[File](& stdout, &b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+        },
     }
 }
 "#,
@@ -562,9 +565,12 @@ using entry::io;
 
 fn main() void {
     let mut stdout = fs::File::standard_output();
-    if !ok = io::write_fully_with[fs::File](& stdout, &b"nia\n") {
-        _ = ok;
-    } or error! {
+    switch io::write_fully_with[fs::File](& stdout, &b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+        },
     }
 }
 "#,
@@ -610,11 +616,14 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !ok = forward[Sink](&mut sink, &b"ok") {
-        _ = ok;
-        0
-    } or error! {
-        1
+    switch forward[Sink](&mut sink, &b"ok") {
+        !ok => {
+            _ = ok;
+            0
+        },
+        error! => {
+            1
+        },
     }
 }
 "#,
@@ -664,11 +673,14 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !ok = forward[Sink](&mut sink, &b"ok") {
-        _ = ok;
-        0
-    } or error! {
-        1
+    switch forward[Sink](&mut sink, &b"ok") {
+        !ok => {
+            _ = ok;
+            0
+        },
+        error! => {
+            1
+        },
     }
 }
 "#,
@@ -717,11 +729,14 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !ok = sink.write_fmt_bytes() {
-        _ = ok;
-        0
-    } or error! {
-        1
+    switch sink.write_fmt_bytes() {
+        !ok => {
+            _ = ok;
+            0
+        },
+        error! => {
+            1
+        },
     }
 }
 "#,

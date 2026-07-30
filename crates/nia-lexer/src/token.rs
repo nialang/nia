@@ -46,6 +46,7 @@ pub enum TokenKind {
     For,
     If,
     In,
+    Is,
     Let,
     Loop,
     Module,

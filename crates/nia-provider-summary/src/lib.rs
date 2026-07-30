@@ -521,10 +521,13 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     pub fn cast_error(self) Target!T {
-        if !ok = self {
-            !ok
-        } or error! {
-            error.into_error()!
+        switch self {
+            !ok => {
+                !ok
+            },
+            error! => {
+                error.into_error()!
+            },
         }
     }
 }

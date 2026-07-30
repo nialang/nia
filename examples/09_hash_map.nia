@@ -27,30 +27,39 @@ fn run(init: Init) mem::Error!void {
     // value, so .* reads or writes through that pointer.
     let mut answer_slot = scores.get_or_put(allocator, 42).?;
     answer_slot.value().* = answer_slot.value().* + 1;
-    if mut ?entry = scores.get_entry_mut(&42) {
-        entry.value_mut().* = entry.value().* + 9;
-    } or null {
-        return mem::Error::Invalid!;
+    switch scores.get_entry_mut(&42) {
+        mut ?entry => {
+            entry.value_mut().* = entry.value().* + 9;
+        },
+        null => {
+            return mem::Error::Invalid!;
+        },
     }
     for value in scores.values_mut() {
         value.* = value.* / 10;
     }
 
     let mut answer = 0;
-    if ?value = scores.get(&42) {
-        answer = value.*;
-    } or null {
-        return mem::Error::Invalid!;
+    switch scores.get(&42) {
+        ?value => {
+            answer = value.*;
+        },
+        null => {
+            return mem::Error::Invalid!;
+        },
     }
 
     let mut removed_key = 0;
     let mut removed_value = 0;
     // remove_entry transfers the removed key and value out of the map.
-    if ?entry = scores.remove_entry(&7) {
-        removed_key = entry.key().*;
-        removed_value = entry.value().*;
-    } or null {
-        return mem::Error::Invalid!;
+    switch scores.remove_entry(&7) {
+        ?entry => {
+            removed_key = entry.key().*;
+            removed_value = entry.value().*;
+        },
+        null => {
+            return mem::Error::Invalid!;
+        },
     }
 
     let mut total = 0;

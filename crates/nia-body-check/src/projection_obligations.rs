@@ -125,10 +125,8 @@ impl AssociatedConstProjectionUseCollector<'_> {
             }
             nia_ast::ExprKind::IfPattern(if_pattern) => {
                 self.visit_expr(&if_pattern.target);
-                for arm in &if_pattern.arms {
-                    self.visit_pattern(&arm.pattern);
-                    self.visit_block(&arm.body);
-                }
+                self.visit_pattern(&if_pattern.pattern);
+                self.visit_block(&if_pattern.then_branch);
                 if let Some(else_branch) = &if_pattern.else_branch {
                     self.visit_expr(else_branch);
                 }

@@ -874,23 +874,32 @@ where T: Char {
 }
 
 fn main() i32 {
-    let a = if ?ch = convert(65u32) {
-        ch
-    } or null {
-        return 1;
+    let a = switch convert(65u32) {
+        ?ch => {
+            ch
+        },
+        null => {
+            return 1;
+        },
     };
-    let b = if ?ch = associated_convert(0x10ffffu32) {
-        ch
-    } or null {
-        return 2;
+    let b = switch associated_convert(0x10ffffu32) {
+        ?ch => {
+            ch
+        },
+        null => {
+            return 2;
+        },
     };
     if a.codepoint() != 65u32 or b.codepoint() != 0x10ffffu32 {
         return 3;
     }
-    if ?ch = [char]::from_u32(0xd800u32) {
-        _ = ch;
-        return 4;
-    } or null {}
+    switch [char]::from_u32(0xd800u32) {
+        ?ch => {
+            _ = ch;
+            return 4;
+        },
+        null => {},
+    }
     0
 }
 "#,

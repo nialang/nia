@@ -12,10 +12,13 @@ using entry::writer;
 
 fn main() i32 {
 let mut sink = writer::Sink::init();
-if !value = sink.write(b"ok") {
-    value as i32
-} or error! {
-    0
+switch sink.write(b"ok") {
+    !value => {
+        value as i32
+    },
+    error! => {
+        0
+    },
 }
 }
 "#,
@@ -295,10 +298,13 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 fn cast_error(self) Target!T {
-    if !ok = self {
-        !ok
-    } or error! {
-        error.into_error()!
+    switch self {
+        !ok => {
+            !ok
+        },
+        error! => {
+            error.into_error()!
+        },
     }
 }
 }

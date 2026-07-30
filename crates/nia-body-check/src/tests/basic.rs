@@ -267,18 +267,24 @@ fn checks_optional_and_error_union_if_patterns() {
     let checked = pipeline(
         r#"
 fn unwrap_optional(value: ?i32) i32 {
-    if ?x = value {
-        x
-    } or null {
-        0
+    switch value {
+        ?x => {
+            x
+        },
+        null => {
+            0
+        },
     }
 }
 
 fn unwrap_error(value: i32!i32) i32 {
-    if !x = value {
-        x
-    } or e! {
-        e
+    switch value {
+        !x => {
+            x
+        },
+        e! => {
+            e
+        },
     }
 }
 "#,
@@ -289,7 +295,7 @@ fn unwrap_error(value: i32!i32) i32 {
     let missing = pipeline(
         r#"
 fn bad(value: ?i32) i32 {
-    let unwrapped: i32 = if ?x = value {
+    let unwrapped: i32 = if value is ?x {
         x
     };
     unwrapped
@@ -308,10 +314,13 @@ fn bad(value: ?i32) i32 {
     let wrong_target = pipeline(
         r#"
 fn bad(value: i32) i32 {
-    if ?x = value {
-        x
-    } or _ {
-        0
+    switch value {
+        ?x => {
+            x
+        },
+        _ => {
+            0
+        },
     }
 }
 "#,

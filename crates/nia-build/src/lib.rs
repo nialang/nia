@@ -314,24 +314,30 @@ fn path_arg(
     index: usize,
     storage: &mut collections::ArrayList[char],
 ) build::Error!fs::PathView {
-    let arg = if ?value = init.args().get(index) {
-        value
-    } or null {
-        return build::Error::Internal!;
+    let arg = switch init.args().get(index) {
+        ?value => {
+            value
+        },
+        null => {
+            return build::Error::Internal!;
+        },
     };
     fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()
 }
 
 fn action_report_enabled(init: process::Init) bool {
-    if ?arg = init.args().get(5usize) {
-        let bytes = arg.bytes();
-        bytes.len() == 4usize
-            and bytes[0usize] == b'j'
-            and bytes[1usize] == b's'
-            and bytes[2usize] == b'o'
-            and bytes[3usize] == b'n'
-    } or null {
-        false
+    switch init.args().get(5usize) {
+        ?arg => {
+            let bytes = arg.bytes();
+            bytes.len() == 4usize
+                and bytes[0usize] == b'j'
+                and bytes[1usize] == b's'
+                and bytes[2usize] == b'o'
+                and bytes[3usize] == b'n'
+        },
+        null => {
+            false
+        },
     }
 }
 
@@ -372,30 +378,45 @@ pub fn main(init: process::Init) process::ExitCode!void {
         r#"    );
     defer api.deinit().exit().?;
 
-    if !ok = build_script::build(&mut api) {
-        _ = ok;
-    } or error! {
-        if !reported = api.report_actions(false) {
-            _ = reported;
-        } or report_error! {
-            _ = report_error;
-        }
-        return error.as_exit_code()!;
+    switch build_script::build(&mut api) {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            switch api.report_actions(false) {
+                !reported => {
+                    _ = reported;
+                },
+                report_error! => {
+                    _ = report_error;
+                },
+            }
+            return error.as_exit_code()!;
+        },
     }
-    if !ok = api.run_requested_step() {
-        _ = ok;
-    } or error! {
-        if !reported = api.report_actions(false) {
-            _ = reported;
-        } or report_error! {
-            _ = report_error;
-        }
-        return error.as_exit_code()!;
+    switch api.run_requested_step() {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            switch api.report_actions(false) {
+                !reported => {
+                    _ = reported;
+                },
+                report_error! => {
+                    _ = report_error;
+                },
+            }
+            return error.as_exit_code()!;
+        },
     }
-    if !reported = api.report_actions(true) {
-        _ = reported;
-    } or report_error! {
-        _ = report_error;
+    switch api.report_actions(true) {
+        !reported => {
+            _ = reported;
+        },
+        report_error! => {
+            _ = report_error;
+        },
     }
     !{}
 }
@@ -718,7 +739,7 @@ mod tests {
         assert!(
             runner
                 .source
-                .contains("if !ok = build_script::build(&mut api)")
+                .contains("switch build_script::build(&mut api)")
         );
         assert!(runner.source.contains("return error.as_exit_code()!;"));
         assert!(!runner.source.contains("const"));

@@ -193,7 +193,7 @@ fn tail_after_if(bytes: &[u8], start: usize) &[u8] {
 }
 
 fn tail_after_if_let(bytes: &[u8], maybe: ?usize) &[u8] {
-    if ?start = maybe {
+    if maybe is ?start {
         _ = start;
     }
     &bytes[..]
@@ -368,28 +368,36 @@ fn main(state: i32) i32 {
 }
 
 #[test]
-fn parses_if_pattern_arms_and_recursive_payload_patterns() {
+fn parses_if_is_and_recursive_switch_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
-    let a = if !ok = result {
-        ok
-    } or err! {
-        err
+    let a = switch result {
+        !ok => {
+            ok
+        },
+        err! => {
+            err
+        },
     };
-    let b = if mut x = value {
+    let b = if value is mut x {
         x
     } else {
         0
     };
-    if ?5! = nested {
-        5
-    } or ?err! {
-        err
-    } or ?!ok {
-        ok
-    } or null {
-        a + b
+    switch nested {
+        ?5! => {
+            5
+        },
+        ?err! => {
+            err
+        },
+        ?!ok => {
+            ok
+        },
+        null => {
+            a + b
+        },
     }
 }
 "#,
@@ -403,18 +411,17 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     let StmtKind::Binding(first) = &body.stmts[0].kind else {
         panic!("expected first binding");
     };
-    let ExprKind::IfPattern(if_pattern) = &first.value.as_ref().expect("expected value").kind
-    else {
-        panic!("expected if-pattern expression");
+    let ExprKind::Switch(switch) = &first.value.as_ref().expect("expected value").kind else {
+        panic!("expected switch expression");
     };
-    assert_eq!(if_pattern.arms.len(), 2);
+    assert_eq!(switch.arms.len(), 2);
     assert!(matches!(
-        &if_pattern.arms[0].pattern.kind,
+        &switch.arms[0].patterns[0].kind,
         PatternKind::ErrorOk(inner)
             if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("ok"))
     ));
     assert!(matches!(
-        &if_pattern.arms[1].pattern.kind,
+        &switch.arms[1].patterns[0].kind,
         PatternKind::ErrorErr(inner)
             if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("err"))
     ));
@@ -427,7 +434,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
         panic!("expected if-pattern expression");
     };
     assert!(matches!(
-        &if_pattern.arms[0].pattern.kind,
+        &if_pattern.pattern.kind,
         PatternKind::Bind {
             name,
             is_mutable: true,
@@ -436,11 +443,11 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     ));
     assert!(if_pattern.else_branch.is_some());
 
-    let ExprKind::IfPattern(if_pattern) = &body.tail.as_ref().expect("expected tail").kind else {
-        panic!("expected if-pattern tail");
+    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected tail").kind else {
+        panic!("expected switch tail");
     };
     assert!(matches!(
-        &if_pattern.arms[0].pattern.kind,
+        &switch.arms[0].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -449,7 +456,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             )
     ));
     assert!(matches!(
-        &if_pattern.arms[1].pattern.kind,
+        &switch.arms[1].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -458,7 +465,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             )
     ));
     assert!(matches!(
-        &if_pattern.arms[2].pattern.kind,
+        &switch.arms[2].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,

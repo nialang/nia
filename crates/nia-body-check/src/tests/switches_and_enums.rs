@@ -88,9 +88,9 @@ fn imported_range() i32 {
 }
 
 fn value(input: ?S) ?i32 {
-    if ?range = input {
+    if input is ?range {
         ?range.start
-    } or null {
+    } else {
         null
     }
 }
@@ -138,7 +138,7 @@ fn if_pattern_payload_field_lhs_key(module: &nia_ast::Module) -> VersionedNodeKe
                 let ExprKind::IfPattern(if_pattern) = &tail.kind else {
                     return None;
                 };
-                let expr = if_pattern.arms.first()?.body.tail.as_ref()?;
+                let expr = if_pattern.then_branch.tail.as_ref()?;
                 let ExprKind::OptionalSome { expr } = &expr.kind else {
                     return None;
                 };
@@ -160,10 +160,7 @@ fn if_pattern_payload_field_lhs_is_local(ir: &nia_body_ir::BodyIr, field_span: S
         let TypedExprKind::IfPattern(if_pattern) = &tail.kind else {
             return false;
         };
-        let Some(arm) = if_pattern.arms.first() else {
-            return false;
-        };
-        let Some(expr) = &arm.body.tail else {
+        let Some(expr) = &if_pattern.then_branch.tail else {
             return false;
         };
         let TypedExprKind::OptionalSome { expr } = &expr.kind else {
@@ -492,37 +489,49 @@ fn checks_recursive_optional_error_union_patterns_and_if_patterns() {
     let checked = pipeline(
         r#"
 fn unwrap_result(result: i32!i32) i32 {
-    if !value = result {
-        value
-    } or err! {
-        err
+    switch result {
+        !value => {
+            value
+        },
+        err! => {
+            err
+        },
     }
 }
 
 fn unwrap_nested(value: ?(i32!i32)) i32 {
-    if ?!ok = value {
-        ok
-    } or ?err! {
-        err
-    } or null {
-        0
+    switch value {
+        ?!ok => {
+            ok
+        },
+        ?err! => {
+            err
+        },
+        null => {
+            0
+        },
     }
 }
 
 fn match_error_literal(value: ?(i32!i32)) i32 {
-    if ?5! = value {
-        5
-    } or ?!ok {
-        ok
-    } or null {
-        0
-    } else {
-        9
+    switch value {
+        ?5! => {
+            5
+        },
+        ?!ok => {
+            ok
+        },
+        null => {
+            0
+        },
+        _ => {
+            9
+        },
     }
 }
 
 fn bind_plain(value: i32) i32 {
-    if mut current = value {
+    if value is mut current {
         current += 1;
         current
     }
@@ -605,20 +614,26 @@ fn checks_if_pattern_binding_mutability() {
     let checked = pipeline(
         r#"
 fn mutable(value: ?i32) i32 {
-    if mut ?current = value {
-        current += 1;
-        current
-    } or null {
-        0
+    switch value {
+        mut ?current => {
+            current += 1;
+            current
+        },
+        null => {
+            0
+        },
     }
 }
 
 fn immutable(value: ?i32) i32 {
-    if ?current = value {
-        current += 1;
-        current
-    } or null {
-        0
+    switch value {
+        ?current => {
+            current += 1;
+            current
+        },
+        null => {
+            0
+        },
     }
 }
 "#,

@@ -8,10 +8,9 @@ use nia_body_ir::{
     AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, LocalName,
     MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding,
     TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedIfPattern,
-    TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedWhile,
+    TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
+    TypedPattern, TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
+    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -997,18 +996,11 @@ impl<'a> BodyChecker<'a> {
                 TypedExprKind::IfPattern(Box::new(TypedIfPattern {
                     target,
                     bool_ty: self.bool(),
-                    arms: if_pattern
-                        .arms
-                        .iter()
-                        .map(|arm| TypedIfPatternArm {
-                            pattern: self.lower_pattern(&arm.pattern, target_ty),
-                            body: self.lower_body_with_expected_tail(
-                                &arm.body,
-                                if self.is_never(ty) { None } else { Some(ty) },
-                            ),
-                            span: arm.span,
-                        })
-                        .collect(),
+                    pattern: self.lower_pattern(&if_pattern.pattern, target_ty),
+                    then_branch: self.lower_body_with_expected_tail(
+                        &if_pattern.then_branch,
+                        if self.is_never(ty) { None } else { Some(ty) },
+                    ),
                     else_branch: if_pattern.else_branch.as_ref().map(|else_branch| {
                         Box::new(self.lower_expr_with_ty(
                             else_branch,

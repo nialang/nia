@@ -114,10 +114,13 @@ fn add_two(flag: bool) errors::Error!i32 {
 }
 
 fn main() i32 {
-    if !value = add_two(true) {
-        value
-    } or error! {
-        error as i32
+    switch add_two(true) {
+        !value => {
+            value
+        },
+        error! => {
+            error as i32
+        },
     }
 }
 "#,

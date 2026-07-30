@@ -512,9 +512,15 @@ Language-track status:
   payload bindings into arm locals, rejects bindings across alternative
   patterns, has const/IR/LLVM/resource-accounted executable equivalence guards,
   and leaves no `SwitchPattern` compatibility representation;
-- batch 2 is next: introduce `if value is pattern`, migrate all production and
-  test source, and delete the old `if pattern = value` / `or pattern` parser,
-  AST, diagnostics, const, and lowering surface in the same batch.
+- batch 2 is complete: `if value is pattern` is the only single-match syntax;
+  production, std, examples, documentation, and embedded test source use it or
+  `switch`; the AST and checked IR own one pattern and one successful branch;
+  const and function lowering emit one test with then/else edges; and the old
+  `if pattern = value`, `or pattern`, multi-arm AST/IR, parser lookahead, and CFG
+  chain have been physically removed;
+- batch 3 is next: extend enum signatures, constructors, patterns, type
+  identity, layout, mangling, const evaluation, backend IR, codegen, and ABI
+  validation for unit, tuple, and named payload variants.
 
 These batches must use the normal diagnostic and ICE boundary and the existing
 resource-accounted integration harness. They must not create parallel legacy

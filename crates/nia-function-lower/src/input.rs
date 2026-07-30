@@ -96,10 +96,8 @@ impl BodyInputValidator {
             }
             TypedExprKind::IfPattern(if_pattern) => {
                 self.validate_value_expr(&if_pattern.target)?;
-                for arm in &if_pattern.arms {
-                    self.validate_pattern(&arm.pattern)?;
-                    self.validate_effect_body(&arm.body)?;
-                }
+                self.validate_pattern(&if_pattern.pattern)?;
+                self.validate_effect_body(&if_pattern.then_branch)?;
                 if let Some(else_branch) = &if_pattern.else_branch {
                     self.validate_effect_expr(else_branch)?;
                 }
@@ -153,10 +151,8 @@ impl BodyInputValidator {
             }
             TypedExprKind::IfPattern(if_pattern) => {
                 self.validate_value_expr(&if_pattern.target)?;
-                for arm in &if_pattern.arms {
-                    self.validate_pattern(&arm.pattern)?;
-                    self.validate_value_body(&arm.body)?;
-                }
+                self.validate_pattern(&if_pattern.pattern)?;
+                self.validate_value_body(&if_pattern.then_branch)?;
                 if let Some(else_branch) = &if_pattern.else_branch {
                     self.validate_tail_value_result(else_branch)?;
                 }

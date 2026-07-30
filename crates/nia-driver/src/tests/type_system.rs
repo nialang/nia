@@ -34,10 +34,13 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     fn as_b(self) B!T {
-        if !value = self {
-            !value
-        } or err! {
-            to_b(err)!
+        switch self {
+            !value => {
+                !value
+            },
+            err! => {
+                to_b(err)!
+            },
         }
     }
 }
@@ -47,10 +50,13 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    if !value = fail().as_b() {
-        value
-    } or err! {
-        err as i32
+    switch fail().as_b() {
+        !value => {
+            value
+        },
+        err! => {
+            err as i32
+        },
     }
 }
 "#,
@@ -158,10 +164,13 @@ extend[T, Source] Source!T
 where Source: IntoB
 {
     fn as_b(self) B!T {
-        if !value = self {
-            !value
-        } or err! {
-            err.into_b()!
+        switch self {
+            !value => {
+                !value
+            },
+            err! => {
+                err.into_b()!
+            },
         }
     }
 }
@@ -171,10 +180,13 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    if !value = fail().as_b() {
-        value
-    } or err! {
-        err as i32
+    switch fail().as_b() {
+        !value => {
+            value
+        },
+        err! => {
+            err as i32
+        },
     }
 }
 "#,
@@ -217,10 +229,13 @@ extend[T, Source, Target] Source!T
 where Source: Convert[Target]
 {
     fn convert_error(self) Target!T {
-        if !value = self {
-            !value
-        } or err! {
-            err.convert()!
+        switch self {
+            !value => {
+                !value
+            },
+            err! => {
+                err.convert()!
+            },
         }
     }
 }
@@ -234,10 +249,13 @@ fn wrap() B!i32 {
 }
 
 fn main() i32 {
-    if !value = wrap() {
-        value
-    } or err! {
-        err as i32
+    switch wrap() {
+        !value => {
+            value
+        },
+        err! => {
+            err as i32
+        },
     }
 }
 "#,

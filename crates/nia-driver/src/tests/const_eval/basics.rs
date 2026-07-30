@@ -277,10 +277,13 @@ fn const_function_if_pattern_optional_payload_drives_array_lengths() {
         &root.join("main.nia"),
         r#"
 const fn unwrap(value: ?usize) usize {
-    if ?payload = value {
-        payload
-    } or null {
-        1
+    switch value {
+        ?payload => {
+            payload
+        },
+        null => {
+            1
+        },
     }
 }
 
@@ -305,10 +308,13 @@ fn const_function_if_pattern_error_payload_drives_array_lengths() {
         &root.join("main.nia"),
         r#"
 const fn unwrap(value: usize!usize) usize {
-    if !payload = value {
-        payload
-    } or err! {
-        err
+    switch value {
+        !payload => {
+            payload
+        },
+        err! => {
+            err
+        },
     }
 }
 
@@ -589,15 +595,21 @@ const fn add_one(value: ?usize) ?usize {
 
 const some: ?usize = add_one(?7usize);
 const none: ?usize = add_one(null);
-const width: usize = if ?payload = some {
-    payload
-} or null {
-    1
+const width: usize = switch some {
+    ?payload => {
+        payload
+    },
+    null => {
+        1
+    },
 };
-const fallback: usize = if ?payload = none {
-    payload
-} or null {
-    2
+const fallback: usize = switch none {
+    ?payload => {
+        payload
+    },
+    null => {
+        2
+    },
 };
 
 fn main() i32 {
@@ -623,15 +635,21 @@ const fn add_one(value: usize!usize) usize!usize {
 
 const ok: usize!usize = add_one(!7usize);
 const err: usize!usize = add_one(3usize!);
-const width: usize = if !payload = ok {
-    payload
-} or err! {
-    0
+const width: usize = switch ok {
+    !payload => {
+        payload
+    },
+    err! => {
+        0
+    },
 };
-const fallback: usize = if !payload = err {
-    payload
-} or err_payload! {
-    2
+const fallback: usize = switch err {
+    !payload => {
+        payload
+    },
+    err_payload! => {
+        2
+    },
 };
 
 fn main() i32 {

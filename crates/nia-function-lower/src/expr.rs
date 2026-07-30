@@ -684,113 +684,69 @@ impl FunctionLowerer<'_> {
         };
         let result_local = self.alloc_temp_local(expr.span, expr.ty);
         let merge_target = self.alloc_block();
+        let then_target = self.alloc_block();
         let else_target = if if_pattern.else_branch.is_some() {
             self.alloc_block()
         } else {
             merge_target
         };
-        let arm_targets = if_pattern
-            .arms
-            .iter()
-            .map(|_| self.alloc_block())
-            .collect::<Vec<_>>();
-        let check_blocks = if_pattern
-            .arms
-            .iter()
-            .map(|_| self.alloc_block())
-            .collect::<Vec<_>>();
-        let first_target = check_blocks.first().copied().unwrap_or(else_target);
+        let mut condition_context = PatternConditionContext {
+            scope: context.scope,
+            current: context.current,
+            ops: context.ops,
+            blocks: context.blocks,
+            bool_ty: if_pattern.bool_ty,
+        };
+        let cond = self
+            .pattern_condition(&target, &if_pattern.pattern, &mut condition_context)
+            .unwrap_or(FunctionExpr {
+                span: if_pattern.pattern.span,
+                ty: if_pattern.bool_ty,
+                kind: FunctionExprKind::Bool(true),
+            });
         self.finish_block(
             context.blocks,
             *context.current,
             context.scope,
-            expr.span,
+            if_pattern.pattern.span,
             std::mem::take(context.ops),
-            FunctionTerminator::Branch {
-                target: first_target,
-                span: expr.span,
+            FunctionTerminator::If {
+                cond,
+                then_target,
+                else_target,
+                span: if_pattern.pattern.span,
             },
         );
-
-        for (index, ((arm, arm_target), check_block)) in if_pattern
-            .arms
-            .iter()
-            .zip(arm_targets.iter())
-            .zip(check_blocks.iter())
-            .enumerate()
-        {
-            let mut check_ops = Vec::new();
-            let mut check_current = *check_block;
-            let mut condition_context = PatternConditionContext {
-                scope: context.scope,
-                current: &mut check_current,
-                ops: &mut check_ops,
-                blocks: context.blocks,
-                bool_ty: if_pattern.bool_ty,
-            };
-            let cond = self
-                .pattern_condition(&target, &arm.pattern, &mut condition_context)
-                .unwrap_or(FunctionExpr {
-                    span: arm.pattern.span,
-                    ty: if_pattern.bool_ty,
-                    kind: FunctionExprKind::Bool(true),
-                });
-            let next_target = check_blocks.get(index + 1).copied().unwrap_or(else_target);
+        let then_scope = self.alloc_scope(Some(context.scope), if_pattern.then_branch.span);
+        let mut then_ops = Vec::new();
+        self.lower_pattern_binding(&if_pattern.pattern, &target, &mut then_ops);
+        let body_entry = if then_ops.is_empty() {
+            then_target
+        } else {
+            let body_entry = self.alloc_block();
             self.finish_block(
                 context.blocks,
-                check_current,
-                context.scope,
-                arm.pattern.span,
-                check_ops,
-                FunctionTerminator::If {
-                    cond,
-                    then_target: *arm_target,
-                    else_target: next_target,
-                    span: arm.pattern.span,
+                then_target,
+                then_scope,
+                if_pattern.then_branch.span,
+                then_ops,
+                FunctionTerminator::Branch {
+                    target: body_entry,
+                    span: if_pattern.then_branch.span,
                 },
             );
-        }
-
-        for (arm, arm_target) in if_pattern.arms.iter().zip(arm_targets) {
-            let arm_scope = self.alloc_scope(Some(context.scope), arm.span);
-            let mut ops = Vec::new();
-            self.lower_pattern_binding(&arm.pattern, &target, &mut ops);
-            if ops.is_empty() {
-                self.lower_body_into(
-                    &arm.body,
-                    arm_target,
-                    arm_scope,
-                    context.blocks,
-                    Fallthrough::StoreThenBranch {
-                        local_id: result_local,
-                        target: merge_target,
-                    },
-                );
-            } else {
-                let body_entry = self.alloc_block();
-                self.finish_block(
-                    context.blocks,
-                    arm_target,
-                    arm_scope,
-                    arm.span,
-                    ops,
-                    FunctionTerminator::Branch {
-                        target: body_entry,
-                        span: arm.span,
-                    },
-                );
-                self.lower_body_into(
-                    &arm.body,
-                    body_entry,
-                    arm_scope,
-                    context.blocks,
-                    Fallthrough::StoreThenBranch {
-                        local_id: result_local,
-                        target: merge_target,
-                    },
-                );
-            }
-        }
+            body_entry
+        };
+        self.lower_body_into(
+            &if_pattern.then_branch,
+            body_entry,
+            then_scope,
+            context.blocks,
+            Fallthrough::StoreThenBranch {
+                local_id: result_local,
+                target: merge_target,
+            },
+        );
 
         if let Some(else_branch) = &if_pattern.else_branch {
             let mut else_current = else_target;

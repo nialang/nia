@@ -13,12 +13,15 @@ fn at(values: &[i32], index: usize) ?i32 {
 }
 
 fn require_at(values: &[i32], index: usize) i32!i32 {
-    if ?value = at(values, index) {
-        // !value constructs the success side of an error union.
-        !value
-    } or null {
-        // error! constructs the error side; here the error type is i32.
-        1i32!
+    switch at(values, index) {
+        ?value => {
+            // !value constructs the success side of an error union.
+            !value
+        },
+        null => {
+            // error! constructs the error side; here the error type is i32.
+            1i32!
+        },
     }
 }
 
@@ -35,20 +38,26 @@ pub fn main(init: Init) ExitCode!void {
     let mut values: [3]i32 = [10, 20, 32];
     let mut pair_sum = 0;
     // if destructures success and error-union cases explicitly.
-    if !sum = checked_pair(&values) {
-        pair_sum = sum;
-        if sum != 42 {
-            return exit(1)!;
-        }
-    } or error! {
-        return exit(2)!;
+    switch checked_pair(&values) {
+        !sum => {
+            pair_sum = sum;
+            if sum != 42 {
+                return exit(1)!;
+            }
+        },
+        error! => {
+            return exit(2)!;
+        },
     }
 
-    if !value = require_at(&values, 9usize) {
-        _ = value;
-        return exit(3)!;
-    } or error! {
-        _ = error;
+    switch require_at(&values, 9usize) {
+        !value => {
+            _ = value;
+            return exit(3)!;
+        },
+        error! => {
+            _ = error;
+        },
     }
 
     debug::print(&"optional/error pair_sum={} missing=error\n", &[&pair_sum]);

@@ -21,11 +21,11 @@ extend Term {
     }
 
     pub fn from_wait_status(status: os::WaitStatus) Term {
-        if ?code = status.exit_code() {
+        if status.exit_code() is ?code {
             Term::exited(code)
-        } else if ?signal = status.signal() {
+        } else if status.signal() is ?signal {
             Term::signal(signal)
-        } else if ?signal = status.stop_signal() {
+        } else if status.stop_signal() is ?signal {
             Term::stopped(signal)
         } else {
             Term::unknown(status.raw())

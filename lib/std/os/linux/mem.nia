@@ -39,10 +39,13 @@ pub fn page_size() usize {
 }
 
 pub fn page_aligned_len(len: usize) Errno!usize {
-    if ?value = len.align_forward(page_size()) {
-        !value
-    } or null {
-        Errno::OutOfRange!
+    switch len.align_forward(page_size()) {
+        ?value => {
+            !value
+        },
+        null => {
+            Errno::OutOfRange!
+        },
     }
 }
 
@@ -59,21 +62,30 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     if align > page_size() {
         extra = align - page_size();
     }
-    let map_len = if ?value = aligned_len.checked_add(extra) {
-        value
-    } or null {
-        return Errno::OutOfRange!;
+    let map_len = switch aligned_len.checked_add(extra) {
+        ?value => {
+            value
+        },
+        null => {
+            return Errno::OutOfRange!;
+        },
     };
     let mapped = raw_map_pages(map_len).?;
     let mapped_addr = mapped as usize;
     let mut result_addr: usize;
-    if ?value = mapped_addr.align_forward(align) {
-        result_addr = value;
-    } or null {
-            if !ok = raw_unmap_pages(mapped, map_len) {
-                _ = ok;
-            } or error! {}
-            return Errno::OutOfRange!;
+    switch mapped_addr.align_forward(align) {
+        ?value => {
+            result_addr = value;
+        },
+        null => {
+                switch raw_unmap_pages(mapped, map_len) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    error! => {},
+                }
+                return Errno::OutOfRange!;
+        },
     }
 
     let drop_len = result_addr - mapped_addr;

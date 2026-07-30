@@ -212,10 +212,13 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    if !ok = stdout.write_all(&b"nia\n") {
-        _ = ok;
-    } or error! {
-        return (1 as process::ExitCode)!;
+    switch stdout.write_all(&b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (1 as process::ExitCode)!;
+        },
     }
     !{}
 }
@@ -243,15 +246,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    if !ok = stdout.write_all(&b"nia\n") {
-        _ = ok;
-    } or error! {
-        return (1 as process::ExitCode)!;
+    switch stdout.write_all(&b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (1 as process::ExitCode)!;
+        },
     }
-    if !ok = stdout.flush() {
-        _ = ok;
-    } or error! {
-        return (2 as process::ExitCode)!;
+    switch stdout.flush() {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (2 as process::ExitCode)!;
+        },
     }
     !{}
 }
@@ -275,10 +284,13 @@ using std::fs;
 using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
-    if !ok = file.write_all(&b"nia\n") {
-        _ = ok;
-    } or error! {
-        return (1 as process::ExitCode)!;
+    switch file.write_all(&b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (1 as process::ExitCode)!;
+        },
     }
     !{}
 }
@@ -317,10 +329,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [64]u8 = [0; 64];
     let mut reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
     let mut bytes: [1]u8 = [0];
-    if !ok = reader.read(&mut bytes[..]) {
-        _ = ok;
-    } or error! {
-        return (1 as process::ExitCode)!;
+    switch reader.read(&mut bytes[..]) {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (1 as process::ExitCode)!;
+        },
     }
     !{}
 }
@@ -1070,9 +1085,12 @@ fn std_facade_type_can_be_imported_directly() {
 using std::CStringView;
 
 fn main() void {
-    if ?text = CStringView::from_bytes(&b"nia\0") {
-        _ = text;
-    } or null {}
+    switch CStringView::from_bytes(&b"nia\0") {
+        ?text => {
+            _ = text;
+        },
+        null => {},
+    }
 }
 "#,
     );
@@ -1088,9 +1106,12 @@ fn std_facade_type_can_be_named_by_package_root_path() {
         &root.join("main.nia"),
         r#"
 fn main() void {
-    if ?text = std::CStringView::from_bytes(&b"nia\0") {
-        _ = text;
-    } or null {}
+    switch std::CStringView::from_bytes(&b"nia\0") {
+        ?text => {
+            _ = text;
+        },
+        null => {},
+    }
 }
 "#,
     );
@@ -1565,10 +1586,13 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.current;
-            self.current = if ?next = self.current.next() {
-                next
-            } or null {
-                self.end
+            self.current = switch self.current.next() {
+                ?next => {
+                    next
+                },
+                null => {
+                    self.end
+                },
             };
             ?value
         }

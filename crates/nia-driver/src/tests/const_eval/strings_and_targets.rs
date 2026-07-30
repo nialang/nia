@@ -244,10 +244,13 @@ const fn sample_os() ?[5]char {
     ?"linux"
 }
 
-const n: usize = if ?os = sample_os() {
-    os.len()
-} or null {
-    0usize
+const n: usize = switch sample_os() {
+    ?os => {
+        os.len()
+    },
+    null => {
+        0usize
+    },
 };
 
 fn main() i32 {
@@ -268,10 +271,13 @@ fn const_optional_constructor_projects_char_array_payload() {
         &root.join("main.nia"),
         r#"
 const os = ?"linux";
-const n: usize = if ?payload = os {
-    payload.len()
-} or null {
-    0usize
+const n: usize = switch os {
+    ?payload => {
+        payload.len()
+    },
+    null => {
+        0usize
+    },
 };
 
 fn main() i32 {

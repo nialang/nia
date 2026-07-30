@@ -861,24 +861,21 @@ fn read(value: i32!i32) i32!i32 {
 Patterns can destructure optional and error-union values:
 
 ```nia
-if ?x = maybe {
+if maybe is ?x {
     x
-} or null {
+} else {
     0
 }
 
-if !x = result {
-    x
-} or err! {
-    err
+switch result {
+    !x => x,
+    err! => err,
 }
 
-if ?!value = nested {
-    value
-} or ?err! {
-    err
-} or null {
-    0
+switch nested {
+    ?!value => value,
+    ?err! => err,
+    null => 0,
 }
 ```
 
@@ -1651,26 +1648,32 @@ When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
 `else` may be omitted and the expression type is `void`.
 
-An if-pattern expression matches a value with the binding/destructuring pattern
-language:
+An if-pattern expression performs one refutable match with the
+binding/destructuring pattern language:
 
 ```nia
-if !value = result {
+if result is !value {
     use(value);
-} or err! {
-    return map_error(err)!;
+} else {
+    recover();
 }
 ```
 
-The first arm writes `if pattern = expr`; use `mut` inside the pattern when the
-payload binding should be mutable, for example `if mut ?value = maybe { ... }`.
-Additional pattern arms write `or pattern { ... }`. A final `else { ... }`
-block may be used as a fallback. The matched expression is evaluated once and
-then tested against each pattern arm in order.
+The matched expression is evaluated once. Bindings are scoped to the successful
+branch, and `mut` belongs inside the pattern, for example
+`if maybe is mut ?value { ... }`. A non-exhaustive value-producing if-pattern
+requires `else`; an effect-only if-pattern may omit it.
 
-When all pattern arms cover the matched type, an if-pattern expression
-may produce a value without a final `else` block. Otherwise, omitting the final
-`else` makes the expression type `void`, like an ordinary `if` without `else`.
+Use `switch` for multiple refutable alternatives:
+
+```nia
+switch result {
+    !value => use(value),
+    err! => {
+        return map_error(err)!;
+    },
+}
+```
 
 ### 8.3 Loops
 

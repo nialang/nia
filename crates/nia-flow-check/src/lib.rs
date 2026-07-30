@@ -414,11 +414,9 @@ impl FlowChecker<'_> {
             }
             ExprKind::IfPattern(if_pattern) => {
                 self.check_expr_flow(&if_pattern.target);
-                let mut falls_through = if_pattern.else_branch.is_none();
-                for arm in &if_pattern.arms {
-                    self.check_pattern_flow(&arm.pattern);
-                    falls_through |= self.check_block(&arm.body).falls_through;
-                }
+                self.check_pattern_flow(&if_pattern.pattern);
+                let then_falls_through = self.check_block(&if_pattern.then_branch).falls_through;
+                let mut falls_through = if_pattern.else_branch.is_none() || then_falls_through;
                 if let Some(else_branch) = &if_pattern.else_branch {
                     falls_through |= self.check_expr_flow(else_branch).falls_through;
                 }

@@ -695,10 +695,8 @@ fn collect_typed_expr_refs(
         }
         TypedExprKind::IfPattern(if_pattern) => {
             collect_typed_expr_refs(module, &if_pattern.target, refs);
-            for arm in &if_pattern.arms {
-                collect_typed_pattern_refs(module, &arm.pattern, refs);
-                collect_typed_executable_refs(module, &arm.body, refs);
-            }
+            collect_typed_pattern_refs(module, &if_pattern.pattern, refs);
+            collect_typed_executable_refs(module, &if_pattern.then_branch, refs);
             if let Some(else_branch) = if_pattern.else_branch.as_deref() {
                 collect_typed_expr_refs(module, else_branch, refs);
             }

@@ -116,15 +116,9 @@ pub struct TypedSwitchArm {
 pub struct TypedIfPattern {
     pub target: TypedExpr,
     pub bool_ty: InternedTyId,
-    pub arms: Vec<TypedIfPatternArm>,
-    pub else_branch: Option<Box<TypedExpr>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypedIfPatternArm {
     pub pattern: TypedPattern,
-    pub body: TypedBody,
-    pub span: Span,
+    pub then_branch: TypedBody,
+    pub else_branch: Option<Box<TypedExpr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

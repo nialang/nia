@@ -871,11 +871,14 @@ where W: FormatWriter
 
 fn main() i32 {
     let mut sink: Sink = { count: 0 };
-    if !ok = use_format[Sink](&mut sink, &b"ok") {
-        _ = ok;
-        sink.count as i32
-    } or error! {
-        1
+    switch use_format[Sink](&mut sink, &b"ok") {
+        !ok => {
+            _ = ok;
+            sink.count as i32
+        },
+        error! => {
+            1
+        },
     }
 }
 "#,
@@ -977,10 +980,13 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !value = sink.write(&b"ok") {
-        value as i32
-    } or error! {
-        0
+    switch sink.write(&b"ok") {
+        !value => {
+            value as i32
+        },
+        error! => {
+            0
+        },
     }
 }
 "#,

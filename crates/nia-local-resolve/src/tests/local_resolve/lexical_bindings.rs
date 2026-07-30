@@ -69,10 +69,13 @@ start: i32,
 }
 
 fn value(input: ?S) ?i32 {
-if ?range = input {
-    ?range.start
-} or null {
-    null
+switch input {
+    ?range => {
+        ?range.start
+    },
+    null => {
+        null
+    },
 }
 }
 "#;
@@ -87,8 +90,7 @@ if ?range = input {
             && let Some(body) = &function.body
             && let Some(expr) = &body.tail
             && let ExprKind::IfPattern(if_pattern) = &expr.kind
-            && let Some(arm) = if_pattern.arms.first()
-            && let Some(arm_expr) = arm.body.tail.as_deref()
+            && let Some(arm_expr) = if_pattern.then_branch.tail.as_deref()
             && let ExprKind::OptionalSome { expr: some_expr } = &arm_expr.kind
             && let ExprKind::Field { lhs, .. } = &some_expr.kind
             && let ExprKind::Ident(name) = &lhs.kind
