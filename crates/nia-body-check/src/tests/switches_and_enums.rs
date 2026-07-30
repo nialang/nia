@@ -49,6 +49,156 @@ fn sum(event: Event) i32 {
 }
 
 #[test]
+fn rejects_invalid_payload_enum_constructors_and_patterns() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+    Resize { width: i32, height: i32 },
+}
+
+fn invalid_constructors() {
+    _ = Event::Closed(1);
+    _ = Event::Data;
+    _ = Event::Data(1, 2);
+    _ = Event::Resize { width: 1 };
+    _ = Event::Resize { width: 1, height: 2, depth: 3 };
+}
+
+fn invalid_patterns(event: Event) i32 {
+    switch event {
+        Event::Closed(value) => value,
+        Event::Data() => 0,
+        Event::Data { value } => value,
+        Event::Resize { width, width: other } => width + other,
+        _ => 0,
+    }
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "expects no payload",
+        "requires a payload",
+        "expects 1 payload values, found 2",
+        "missing payload field `height`",
+        "unknown payload field `depth`",
+        "unit enum variant `Closed` has no payload",
+        "expects 1 pattern fields, found 0",
+        "payload pattern has the wrong shape",
+        "duplicate payload pattern field `width`",
+    ] {
+        assert!(
+            summaries.iter().any(|summary| summary.contains(expected)),
+            "missing {expected:?} in {:#?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn payload_enum_coverage_merges_recursive_single_field_patterns() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(?i32),
+    Result(i32!i32),
+}
+
+enum PairEvent {
+    Bits(bool, bool),
+}
+
+enum Envelope {
+    Event(Event),
+}
+
+fn complete(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(?value) => value,
+        Event::Data(null) => 1,
+        Event::Result(!value) => value,
+        Event::Result(error!) => error,
+    }
+}
+
+fn nested_complete(envelope: Envelope) i32 {
+    switch envelope {
+        Envelope::Event(Event::Closed) => 0,
+        Envelope::Event(Event::Data(?value)) => value,
+        Envelope::Event(Event::Data(null)) => 1,
+        Envelope::Event(Event::Result(!value)) => value,
+        Envelope::Event(Event::Result(error!)) => error,
+    }
+}
+
+fn missing_null(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(?value) => value,
+        Event::Result(!value) => value,
+        Event::Result(error!) => error,
+    }
+}
+
+fn diagonal_is_not_complete(event: PairEvent) i32 {
+    switch event {
+        PairEvent::Bits(true, true) => 1,
+        PairEvent::Bits(false, false) => 0,
+    }
+}
+
+fn binding_covers_product(event: PairEvent) i32 {
+    switch event {
+        PairEvent::Bits(left, right) => if left == right { 1 } else { 0 },
+    }
+}
+"#,
+    );
+    assert_eq!(checked.diagnostics.len(), 2, "{:?}", checked.diagnostics);
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum switch"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn payload_enums_flow_through_generic_functions() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+}
+
+fn id[T](value: T) T { value }
+
+fn main() i32 {
+    let event = id[Event](Event::Data(7));
+    switch event {
+        Event::Closed => 0,
+        Event::Data(value) => value,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_enum_variants_and_switch_exhaustiveness() {
     let checked = pipeline(
         r#"

@@ -131,3 +131,27 @@ fail = 2,
         ));
     }
 }
+
+#[test]
+fn rejects_payload_enum_tags_outside_the_backing_range() {
+    let fixture = check_source(
+        r#"
+enum Packet {
+    Data(i32) = 255,
+    Next(i32),
+    Negative { value: i32 } = -1,
+}
+"#,
+    );
+    assert_eq!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("out of range for backing type"))
+            .count(),
+        2,
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}

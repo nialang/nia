@@ -8,6 +8,15 @@ enum Event {
     Resize { width: i32, height: i32 },
 }
 
+const fn const_score(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(value) => value,
+        Event::Move(x, y) => x + y,
+        Event::Resize { width, height: h } => width + h,
+    }
+}
+
 fn score(event: Event) i32 {
     switch event {
         Event::Closed => 0,
@@ -17,18 +26,23 @@ fn score(event: Event) i32 {
     }
 }
 
+const closed_score: i32 = const_score(Event::Closed);
+const data_score: i32 = const_score(Event::Data(2));
+const move_score: i32 = const_score(Event::Move(3, 4));
+const resize_score: i32 = const_score(Event::Resize { height: 5, width: 6 });
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    if score(Event::Closed) != 0 {
+    if score(Event::Closed) != closed_score or closed_score != 0 {
         return process::exit(10)!;
     }
-    if score(Event::Data(2)) != 2 {
+    if score(helper::id[Event](Event::Data(2))) != data_score or data_score != 2 {
         return process::exit(11)!;
     }
-    if score(Event::Move(3, 4)) != 7 {
+    if score(Event::Move(3, 4)) != move_score or move_score != 7 {
         return process::exit(12)!;
     }
-    if score(Event::Resize { height: 5, width: 6 }) != 11 {
+    if score(Event::Resize { height: 5, width: 6 }) != resize_score or resize_score != 11 {
         return process::exit(13)!;
     }
     if helper::marker() != 1 {

@@ -24,6 +24,7 @@ struct PatternCoverage {
     error_err: Option<Box<PatternCoverage>>,
     intervals: Vec<SwitchInterval>,
     enum_variants: HashMap<DefId, Span>,
+    single_field_enum_payloads: HashMap<DefId, (InternedTyId, Box<PatternCoverage>)>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -393,6 +394,20 @@ impl<'a> BodyChecker<'a> {
                         ),
                     ));
                 }
+                if expected.len() == 1
+                    && actual.len() == 1
+                    && let Some(coverage) = coverage
+                {
+                    self.check_single_field_enum_payload_coverage(
+                        variant_def,
+                        span,
+                        expected[0],
+                        &actual[0],
+                        coverage,
+                        context,
+                    );
+                    return;
+                }
                 for (index, pattern) in actual.iter().enumerate() {
                     let ty = expected.get(index).copied().unwrap_or_else(|| self.error());
                     let mut child = PatternCoverage::default();
@@ -410,6 +425,21 @@ impl<'a> BodyChecker<'a> {
                         .map(|field| nia_sema::NamedField::new(field.span, field.name)),
                     expected.iter().map(|field| field.name),
                 );
+                if expected.len() == 1
+                    && actual.len() == 1
+                    && actual[0].name == expected[0].name
+                    && let Some(coverage) = coverage
+                {
+                    self.check_single_field_enum_payload_coverage(
+                        variant_def,
+                        span,
+                        expected[0].ty,
+                        &actual[0].pattern,
+                        coverage,
+                        context,
+                    );
+                    return;
+                }
                 for field in actual {
                     let ty = expected
                         .iter()
@@ -491,6 +521,30 @@ impl<'a> BodyChecker<'a> {
             && let Some(previous) = coverage.enum_variants.insert(variant_def, span)
         {
             self.report_pattern_overlap(span, previous);
+        }
+    }
+
+    fn check_single_field_enum_payload_coverage(
+        &mut self,
+        variant_def: DefId,
+        span: Span,
+        field_ty: InternedTyId,
+        pattern: &nia_ast::Pattern,
+        coverage: &mut PatternCoverage,
+        context: &str,
+    ) {
+        let mut field_coverage = coverage
+            .single_field_enum_payloads
+            .remove(&variant_def)
+            .map(|(_, coverage)| coverage)
+            .unwrap_or_default();
+        self.check_pattern(pattern, field_ty, Some(&mut field_coverage), context);
+        let complete = self.pattern_coverage_covers_type(field_ty, &field_coverage);
+        coverage
+            .single_field_enum_payloads
+            .insert(variant_def, (field_ty, field_coverage));
+        if complete {
+            coverage.enum_variants.entry(variant_def).or_insert(span);
         }
     }
 
