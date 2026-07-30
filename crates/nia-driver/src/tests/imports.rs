@@ -50,8 +50,11 @@ fn loads_entry_and_imported_modules_once() {
         r#"fn add(a: i32, b: i32) i32 { a + b }"#,
     );
 
-    let program = load_program(root.join("main.nia").to_string_lossy().into_owned())
-        .expect("test program load");
+    let program = load_program(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        test_toolchain_layout(),
+    )
+    .expect("test program load");
     assert_no_error_diagnostics(&program.diagnostics);
     assert_eq!(modules_under(&program.modules, &root), 2);
     assert!(
@@ -93,8 +96,11 @@ fn reports_missing_imported_modules() {
 using entry::missing; fn main() {}"#,
     );
 
-    let program = load_program(root.join("main.nia").to_string_lossy().into_owned())
-        .expect("test program load");
+    let program = load_program(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        test_toolchain_layout(),
+    )
+    .expect("test program load");
     assert!(
         program
             .diagnostics
@@ -384,8 +390,11 @@ using entry::a; fn main() {}"#,
     write(&root.join("a.nia"), r#"using entry::b;"#);
     write(&root.join("b.nia"), r#"using entry::a;"#);
 
-    let program = load_program(root.join("main.nia").to_string_lossy().into_owned())
-        .expect("test program load");
+    let program = load_program(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        test_toolchain_layout(),
+    )
+    .expect("test program load");
     assert_no_error_diagnostics(&program.diagnostics);
 }
 
@@ -617,8 +626,11 @@ fn main() {}
         r#"fn add(a: i32, b: i32) i32 { a + b }"#,
     );
 
-    let program = load_program(root.join("main.nia").to_string_lossy().into_owned())
-        .expect("test program load");
+    let program = load_program(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        test_toolchain_layout(),
+    )
+    .expect("test program load");
     assert_no_error_diagnostics(&program.diagnostics);
     assert_eq!(modules_under(&program.modules, &root), 2);
 }

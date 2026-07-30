@@ -16,6 +16,7 @@ use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
+use nia_toolchain::ToolchainLayout;
 
 use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
 
@@ -37,15 +38,15 @@ pub struct CheckRequest {
 
 #[derive(Debug, Clone)]
 pub struct DriverConfig {
-    pub target: TargetConfig,
+    pub toolchain: std::sync::Arc<ToolchainLayout>,
     pub artifact_cache_dir: Option<PathBuf>,
     pub verify_frontend_cache: bool,
 }
 
-impl Default for DriverConfig {
-    fn default() -> Self {
+impl DriverConfig {
+    pub fn new(toolchain: std::sync::Arc<ToolchainLayout>) -> Self {
         Self {
-            target: TargetConfig::host(),
+            toolchain,
             artifact_cache_dir: None,
             verify_frontend_cache: false,
         }
@@ -135,15 +136,9 @@ fn emit_link_result_reuse(timings: TimingMode, reuse: LinkResultReuse) {
     );
 }
 
-impl Default for Driver {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Driver {
-    pub fn new() -> Self {
-        Self::with_config(DriverConfig::default())
+    pub fn new(toolchain: std::sync::Arc<ToolchainLayout>) -> Self {
+        Self::with_config(DriverConfig::new(toolchain))
     }
 
     pub fn with_config(config: DriverConfig) -> Self {
@@ -743,7 +738,8 @@ impl Driver {
     ) -> DriverOutput<ExecutableArtifact> {
         DriverOutput::catch_ice(|| {
             let mut request = request;
-            request.link_options.target = LinkTarget::from_target_config(&self.config.target);
+            request.link_options.target =
+                LinkTarget::from_target_config(self.config.toolchain.artifact_target());
             let timings = request.check.timings;
             let output = nia_timing::time_stage(
                 timings,
@@ -776,7 +772,8 @@ impl Driver {
         timings: TimingMode,
     ) -> DriverOutput<ExecutableArtifact> {
         DriverOutput::catch_ice(|| {
-            link_options.target = LinkTarget::from_target_config(&self.config.target);
+            link_options.target =
+                LinkTarget::from_target_config(self.config.toolchain.artifact_target());
             let link_fingerprint = match link_options.result_fingerprint(&objects.link_inputs) {
                 Ok(fingerprint) => fingerprint,
                 Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
@@ -886,7 +883,7 @@ impl Driver {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             module_map: request.module_map.clone(),
-            target: self.config.target.clone(),
+            target: self.config.toolchain.artifact_target().clone(),
             entry_runtime: entry_runtime(request.runtime),
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
@@ -899,6 +896,7 @@ impl Driver {
                         .with_sources(self.sources.clone())
                         .with_target(key.target.clone())
                         .with_entry_runtime(key.entry_runtime)
+                        .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                         .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                         .with_frontend_cache_verification(self.config.verify_frontend_cache),
                 );

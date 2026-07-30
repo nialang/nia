@@ -15,6 +15,7 @@ nia-ice.workspace = true
 nia-loader-query.workspace = true
 nia-linker.workspace = true
 nia-timing.workspace = true
+nia-toolchain.workspace = true
 
 [dev-dependencies]
 nia-test-support.workspace = true

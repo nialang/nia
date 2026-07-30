@@ -1038,6 +1038,20 @@ temporary language track is closed; Phase B relocation is the next critical
 path, and Phase C may rely on the accepted enum and pattern surface when it
 reviews build-host standard-library contracts.
 
+Phase B progress (2026-07-30): the first relocation batch establishes
+`nia-toolchain::ToolchainLayout` as the single owner of the compiler executable,
+versioned resource root, std/runtime modules, host/artifact targets, and
+path-independent compatibility identity. CLI, Driver, loader, `nia-build`, the
+generated build runner, and `std::build` now carry that layout explicitly;
+source development uses `--resource-root`, while installed discovery follows
+`bin/nia -> ../lib/nia`. The production `default_std_module_path()` and its
+`CARGO_MANIFEST_DIR` checkout inference were physically deleted. Focused
+toolchain, loader relocation, CLI layout-failure, build, Driver, and
+resource-accounted build acceptance passed. The next batch must place semantic
+toolchain identity in frontend/object/link/build cache domains and prove copied
+installed-tree `check`, object, executable, build, and relocation reuse before
+Phase B can close.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

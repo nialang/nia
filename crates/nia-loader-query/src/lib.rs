@@ -19,11 +19,12 @@ use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
+use nia_toolchain::ToolchainLayout;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::HashSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -57,26 +58,32 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
     registry
 }
 
-pub fn load_program(entry_path: impl Into<String>) -> QueryResult<LoadedProgram> {
-    load_program_with_map(entry_path, ModuleMap::default())
+pub fn load_program(
+    entry_path: impl Into<String>,
+    toolchain: Arc<ToolchainLayout>,
+) -> QueryResult<LoadedProgram> {
+    load_program_with_map(entry_path, ModuleMap::default(), toolchain)
 }
 
 pub fn load_program_with_map(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
+    toolchain: Arc<ToolchainLayout>,
 ) -> QueryResult<LoadedProgram> {
-    load_program_with_map_and_entry_runtime(entry_path, module_map, EntryRuntime::None)
+    load_program_with_map_and_entry_runtime(entry_path, module_map, EntryRuntime::None, toolchain)
 }
 
 pub fn load_program_with_map_and_entry_runtime(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
     entry_runtime: EntryRuntime,
+    toolchain: Arc<ToolchainLayout>,
 ) -> QueryResult<LoadedProgram> {
     load_program_request(
         LoadRequest::new(entry_path)
             .with_module_map(module_map)
-            .with_entry_runtime(entry_runtime),
+            .with_entry_runtime(entry_runtime)
+            .with_toolchain_layout(toolchain),
     )
 }
 
@@ -102,7 +109,11 @@ impl LoaderDatabase {
         } else {
             HashSet::new()
         };
-        let module_map = effective_module_map(&entry_path, request.module_map);
+        let module_map = effective_module_map(
+            &entry_path,
+            request.module_map,
+            request.toolchain.as_deref(),
+        );
         let sources = request.sources;
         let symbols = SymbolTable::new();
         let frontend_cache = request
@@ -573,6 +584,7 @@ pub struct LoadRequest {
     pub package_root_used_paths: bool,
     pub frontend_cache_dir: Option<PathBuf>,
     pub verify_frontend_cache: bool,
+    pub toolchain: Option<Arc<ToolchainLayout>>,
 }
 
 impl LoadRequest {
@@ -586,6 +598,7 @@ impl LoadRequest {
             package_root_used_paths: false,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
+            toolchain: None,
         }
     }
 
@@ -623,6 +636,11 @@ impl LoadRequest {
         self.verify_frontend_cache = verify;
         self
     }
+
+    pub fn with_toolchain_layout(mut self, toolchain: Arc<ToolchainLayout>) -> Self {
+        self.toolchain = Some(toolchain);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -641,7 +659,8 @@ fn load_program_from_sources(
     load_program_request(
         LoadRequest::new(entry_path)
             .with_module_map(module_map)
-            .with_sources(sources),
+            .with_sources(sources)
+            .with_toolchain_layout(tests::test_toolchain_layout()),
     )
     .expect("test program load must succeed")
 }
@@ -652,7 +671,11 @@ fn load_program_trace(
     module_map: ModuleMap,
 ) -> nia_query::QueryTrace {
     let entry_path = SourcePath::new(entry_path.into());
-    let module_map = effective_module_map(&entry_path, module_map);
+    let module_map = effective_module_map(
+        &entry_path,
+        module_map,
+        Some(tests::test_toolchain_layout().as_ref()),
+    );
     let db = QueryDb::new_registered(
         LoaderContext {
             entry_path,
@@ -679,24 +702,18 @@ fn load_program_trace(
     db.query_trace()
 }
 
-fn effective_module_map(entry_path: &SourcePath, module_map: ModuleMap) -> ModuleMap {
-    module_map
-        .with_entry(entry_path.clone())
-        .with_default_std(default_std_module_path())
-}
-
-fn default_std_module_path() -> SourcePath {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir
-        .parent()
-        .and_then(Path::parent)
-        .unwrap_or(manifest_dir);
-    SourcePath::new(
-        workspace_root
-            .join("lib/std.nia")
-            .to_string_lossy()
-            .into_owned(),
-    )
+fn effective_module_map(
+    entry_path: &SourcePath,
+    module_map: ModuleMap,
+    toolchain: Option<&ToolchainLayout>,
+) -> ModuleMap {
+    let module_map = module_map.with_entry(entry_path.clone());
+    let Some(toolchain) = toolchain else {
+        return module_map;
+    };
+    module_map.with_default_std(SourcePath::new(
+        toolchain.std_module().to_string_lossy().into_owned(),
+    ))
 }
 
 pub(crate) struct LoaderContext {

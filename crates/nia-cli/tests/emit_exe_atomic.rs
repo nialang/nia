@@ -52,7 +52,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let check = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let check = support::nia_command()
         .arg("check")
         .arg(&main)
         .arg("--runtime")
@@ -64,7 +64,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&check.stderr)
     );
 
-    let llvm = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let llvm = support::nia_command()
         .arg("emit")
         .arg("--llvm")
         .arg(&main)
@@ -83,7 +83,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(stdout.contains("cmpxchg"), "{stdout}");
     assert!(stdout.contains("fence seq_cst"), "{stdout}");
 
-    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let emit = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)

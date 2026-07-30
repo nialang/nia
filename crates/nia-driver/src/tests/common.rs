@@ -11,7 +11,10 @@ use nia_symbol::{SymbolId, stable_hash};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -42,6 +45,28 @@ pub(super) fn assert_no_error_diagnostics(diagnostics: &[crate::ProgramDiagnosti
     );
 }
 
+pub(super) fn test_toolchain_layout() -> Arc<crate::ToolchainLayout> {
+    static LAYOUT: OnceLock<Arc<crate::ToolchainLayout>> = OnceLock::new();
+    Arc::clone(LAYOUT.get_or_init(|| {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .expect("nia-driver lives under crates/");
+        Arc::new(
+            crate::ToolchainLayout::resolve(crate::ToolchainLayoutRequest::explicit(
+                std::env::current_exe().expect("test executable path"),
+                workspace_root.join("lib"),
+            ))
+            .expect("development toolchain layout"),
+        )
+    }))
+}
+
+pub(super) fn test_driver() -> crate::Driver {
+    crate::Driver::new(test_toolchain_layout())
+}
+
 pub(super) fn check_program(
     entry_path: impl Into<String>,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
@@ -52,14 +77,14 @@ pub(super) fn check_program_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
-    crate::Driver::new()
+    test_driver()
         .analyze_all_modules(crate::CheckRequest::new(entry_path).with_optimization(optimization))
 }
 
 pub(super) fn check_entry_program(
     entry_path: impl Into<String>,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
-    crate::Driver::new().analyze_entry_program(crate::CheckRequest::new(entry_path))
+    test_driver().analyze_entry_program(crate::CheckRequest::new(entry_path))
 }
 
 pub(super) fn codegen_program(entry_path: impl Into<String>) -> crate::CodegenProgram {
@@ -71,8 +96,7 @@ pub(super) fn codegen_program_with_options(
     optimization: NiaOptimizationLevel,
 ) -> crate::CodegenProgram {
     codegen_program_from_output(
-        crate::Driver::new()
-            .codegen(crate::CheckRequest::new(entry_path).with_optimization(optimization)),
+        test_driver().codegen(crate::CheckRequest::new(entry_path).with_optimization(optimization)),
     )
 }
 
@@ -80,7 +104,7 @@ pub(super) fn check_program_with_map(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
-    crate::Driver::new()
+    test_driver()
         .analyze_all_modules(crate::CheckRequest::new(entry_path).with_module_map(module_map))
 }
 
@@ -88,7 +112,7 @@ pub(super) fn check_freestanding_executable_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
-    crate::Driver::new().analyze_all_modules(
+    test_driver().analyze_all_modules(
         crate::CheckRequest::new(entry_path)
             .with_optimization(optimization)
             .with_runtime(crate::Runtime::Freestanding),
@@ -100,7 +124,7 @@ pub(super) fn check_freestanding_executable_with_map_and_options(
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
-    crate::Driver::new().analyze_all_modules(
+    test_driver().analyze_all_modules(
         crate::CheckRequest::new(entry_path)
             .with_module_map(module_map)
             .with_optimization(optimization)

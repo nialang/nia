@@ -80,7 +80,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)
@@ -167,7 +167,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)
@@ -243,7 +243,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)
@@ -298,7 +298,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)
@@ -392,7 +392,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)

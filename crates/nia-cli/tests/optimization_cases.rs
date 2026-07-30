@@ -60,7 +60,7 @@ fn run_case(case_root: &Path) {
 
 fn run_check_report(source: &Path, levels: &[String]) {
     for level in levels {
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        let output = support::nia_command()
             .arg(level)
             .arg("check")
             .arg(source)
@@ -114,7 +114,7 @@ fn run_check_report(source: &Path, levels: &[String]) {
 }
 
 fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object_level: &str) {
-    let backend = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let backend = support::nia_command()
         .arg(backend_level)
         .arg("emit")
         .arg("--backend")
@@ -140,7 +140,7 @@ fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object
         ],
     );
 
-    let llvm = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let llvm = support::nia_command()
         .arg(llvm_level)
         .arg("emit")
         .arg("--llvm")
@@ -176,7 +176,7 @@ fn run_object_reports(source: &Path, level: &str) {
     let placements = ["after-output", "before-source", "before-output"];
     for placement in placements {
         let object = output_root.join(format!("{placement}.o"));
-        let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
+        let mut command = support::nia_command();
         command.arg(level).arg("emit").arg("--obj");
         match placement {
             "after-output" => {
@@ -258,7 +258,7 @@ fn run_emit_execute(source: &Path, levels: &[String], exit_code: i32) {
             std::env::consts::EXE_SUFFIX
         ));
         let context = format!("run nia {level} emit --exe");
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        let output = support::nia_command()
             .arg(level)
             .arg("emit")
             .arg("--exe")
@@ -283,7 +283,7 @@ fn run_emit_object(source: &Path, levels: &[String], minimum_bytes: usize) {
     for level in levels {
         let object = output_root.join(format!("main_{}.o", level.trim_start_matches('-')));
         let context = format!("run nia {level} emit --obj");
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        let output = support::nia_command()
             .arg(level)
             .arg("emit")
             .arg("--obj")

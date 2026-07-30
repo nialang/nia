@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::{CheckRequest, Driver, DriverError, DriverOutput, NiaOptimizationLevel};
+use crate::{CheckRequest, DriverError, DriverOutput, NiaOptimizationLevel};
 use nia_symbol::{SymbolId, known, stable_hash};
 
 fn test_symbol(text: &str) -> SymbolId {
@@ -1079,7 +1079,7 @@ fn driver_facade_formats_inspection_outputs() {
 
 #[test]
 fn driver_checks_in_memory_sources() {
-    let driver = Driver::new();
+    let driver = test_driver();
     driver.set_source(
         "main.nia",
         r#"
@@ -1105,7 +1105,7 @@ fn main() i32 {
 
 #[test]
 fn driver_invalidates_reused_loader_sources() {
-    let driver = Driver::new();
+    let driver = test_driver();
     driver.set_source("main.nia", "fn main() i32 { 1 }");
 
     let first =
@@ -1121,7 +1121,7 @@ fn driver_invalidates_reused_loader_sources() {
 
 #[test]
 fn driver_replaces_compiler_with_loader_query_session() {
-    let driver = Driver::new();
+    let driver = test_driver();
     driver.set_source("main.nia", "fn main() i32 { 1 }");
     let first =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
@@ -1140,7 +1140,7 @@ fn driver_replaces_compiler_with_loader_query_session() {
 
 #[test]
 fn compiler_session_settles_providers_before_single_executable_finalization() {
-    let driver = Driver::new();
+    let driver = test_driver();
     driver.set_source(
         "main.nia",
         r#"
@@ -1172,7 +1172,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
 #[test]
 fn incremental_executable_body_check_reuses_inferred_global_types() {
-    let driver = Driver::new();
+    let driver = test_driver();
     driver.set_source(
         "main.nia",
         r#"

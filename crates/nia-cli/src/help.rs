@@ -304,6 +304,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
 
 const GLOBAL_OPTIONS: &[HelpRow] = &[
     HelpRow {
+        left: "--resource-root <path>",
+        right: "use an explicit versioned toolchain resource tree instead of the installed executable-relative layout",
+    },
+    HelpRow {
         left: OPTIMIZATION_OPTION_HELP,
         right: "set optimization level; -O means -O2",
     },

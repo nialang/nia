@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{path::Path, process::Command};
+use std::path::Path;
+
+#[allow(dead_code, unused_imports)]
+mod support;
 
 use nia_test_support::{
     CaseManifest, CommandExt, TestWorkload, case_directories, fixture_relative_path,
@@ -75,7 +78,7 @@ fn run_check_configuration(
     let _ = std::fs::remove_dir_all(&cache_root);
     std::fs::create_dir_all(&cache_root).expect("create command cache root");
     let cache = cache_root.join("cache");
-    let mut first = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut first = support::nia_command();
     let first = first
         .arg("check")
         .arg(cache_source)
@@ -89,7 +92,7 @@ fn run_check_configuration(
             .next()
             .is_some()
     );
-    let mut second = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut second = support::nia_command();
     let second = second
         .arg("check")
         .arg(format!("--cache-dir={}", cache.display()))
@@ -98,7 +101,7 @@ fn run_check_configuration(
     assert_success(&second);
 
     assert_success(&command(["check"], private_source));
-    let mut private_runtime = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut private_runtime = support::nia_command();
     let private_runtime = private_runtime
         .arg("check")
         .arg(private_source)
@@ -108,7 +111,7 @@ fn run_check_configuration(
     assert_failure(private_runtime, &["private", "entry::main"]);
 
     for _ in 0..2 {
-        let mut public_runtime = Command::new(env!("CARGO_BIN_EXE_nia"));
+        let mut public_runtime = support::nia_command();
         let public_runtime = public_runtime
             .arg("check")
             .arg(public_source)
@@ -117,7 +120,7 @@ fn run_check_configuration(
             .output_timeout_without_resources("run public freestanding entry check");
         assert_success(&public_runtime);
     }
-    let mut repeated = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut repeated = support::nia_command();
     let repeated = repeated
         .arg("check")
         .arg(public_source)
@@ -127,7 +130,7 @@ fn run_check_configuration(
         .output_timeout_without_resources("run repeated runtime option check");
     assert_success(&repeated);
 
-    let mut removed_alias = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut removed_alias = support::nia_command();
     let removed_alias = removed_alias
         .arg("check")
         .arg("--exe")
@@ -157,7 +160,7 @@ fn run_option_errors(source: &Path) {
         &["unknown optimization level `-O9`", "-Oz"],
     );
     for reserved in ["entry", "pkg", "builtin"] {
-        let mut process = Command::new(env!("CARGO_BIN_EXE_nia"));
+        let mut process = support::nia_command();
         let output = process
             .arg("check")
             .arg(source)
@@ -176,7 +179,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
     assert_success(&before);
     assert_contains(&before.stdout, &["define i32 @"]);
 
-    let mut trailing = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut trailing = support::nia_command();
     let trailing = trailing
         .arg("check")
         .arg(source)
@@ -202,7 +205,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
         ],
     );
 
-    let mut module_map = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut module_map = support::nia_command();
     let module_map = module_map
         .arg("check")
         .arg(mapped_entry)
@@ -246,7 +249,7 @@ fn run_inspection_contracts(source: &Path) {
 }
 
 fn command<const N: usize>(args: [&str; N], source: &Path) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
+    let mut command = support::nia_command();
     command
         .args(args)
         .arg(source)

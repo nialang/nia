@@ -233,6 +233,7 @@ dependencies = [
  "nia-loader-query",
  "nia-source",
  "nia-timing",
+ "nia-toolchain",
 ]
 
 [[package]]
@@ -246,6 +247,7 @@ dependencies = [
  "nia-loader-query",
  "nia-test-support",
  "nia-timing",
+ "nia-toolchain",
 ]
 
 [[package]]
@@ -444,6 +446,7 @@ dependencies = [
  "nia-target-config",
  "nia-test-support",
  "nia-timing",
+ "nia-toolchain",
  "nia-ty",
 ]
 
@@ -686,6 +689,7 @@ dependencies = [
  "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",
+ "nia-toolchain",
 ]
 
 [[package]]
@@ -944,6 +948,13 @@ name = "nia-timing"
 version = "0.4.3"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "nia-toolchain"
+version = "0.4.3"
+dependencies = [
+ "nia-target-config",
 ]
 
 [[package]]

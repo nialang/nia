@@ -3,6 +3,7 @@ use std::{
     env, fmt, fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
@@ -16,6 +17,7 @@ use nia_timing::{TimingFormat, TimingOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
+    pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
     pub root: Option<PathBuf>,
     pub step: Option<String>,
     pub timings: TimingMode,
@@ -23,8 +25,9 @@ pub struct BuildRequest {
 }
 
 impl BuildRequest {
-    pub fn new() -> Self {
+    pub fn new(toolchain: Arc<nia_toolchain::ToolchainLayout>) -> Self {
         Self {
+            toolchain,
             root: None,
             step: None,
             timings: TimingMode::Off,
@@ -53,17 +56,11 @@ impl BuildRequest {
     }
 }
 
-impl Default for BuildRequest {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlan {
+    pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
     pub package_root: PathBuf,
     pub build_script: PathBuf,
-    pub toolchain_executable: PathBuf,
     pub build_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub runner_dir: PathBuf,
@@ -97,9 +94,6 @@ pub struct BuildRunnerSource {
 #[derive(Debug)]
 pub enum BuildError {
     CurrentDirectory {
-        error: io::Error,
-    },
-    CurrentExecutable {
         error: io::Error,
     },
     CreateBuildDirectory {
@@ -145,12 +139,6 @@ impl fmt::Display for BuildError {
         match self {
             Self::CurrentDirectory { error } => {
                 write!(f, "failed to read current directory: {error}")
-            }
-            Self::CurrentExecutable { error } => {
-                write!(
-                    f,
-                    "failed to read current toolchain executable path: {error}"
-                )
             }
             Self::CreateBuildDirectory { path, error } => {
                 write!(
@@ -261,18 +249,16 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
         Some(root) => root,
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
-    let toolchain_executable =
-        env::current_exe().map_err(|error| BuildError::CurrentExecutable { error })?;
     let package_root = find_package_root(&start)?;
     let build_script = package_root.join("build.nia");
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
     Ok(BuildPlan {
+        toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
         runner_executable: runner_dir.join("nia-build-runner"),
         runner_dir,
         build_dir,
-        toolchain_executable,
         package_root,
         build_script,
         step: request
@@ -326,7 +312,7 @@ fn path_arg(
 }
 
 fn action_report_enabled(init: process::Init) bool {
-    switch init.args().get(5usize) {
+    switch init.args().get(6usize) {
         ?arg => {
             let bytes = arg.bytes();
             bytes.len() == 4usize
@@ -354,11 +340,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     defer cache_dir_text.deinit(&mut allocator).exit().?;
     let mut toolchain_text = collections::ArrayList[char]::init();
     defer toolchain_text.deinit(&mut allocator).exit().?;
+    let mut resource_root_text = collections::ArrayList[char]::init();
+    defer resource_root_text.deinit(&mut allocator).exit().?;
 
     let package_root = path_arg(init, &mut allocator, 1usize, &mut package_root_text).exit().?;
     let build_dir = path_arg(init, &mut allocator, 2usize, &mut build_dir_text).exit().?;
     let cache_dir = path_arg(init, &mut allocator, 3usize, &mut cache_dir_text).exit().?;
     let toolchain_executable = path_arg(init, &mut allocator, 4usize, &mut toolchain_text).exit().?;
+    let toolchain_resource_root = path_arg(init, &mut allocator, 5usize, &mut resource_root_text).exit().?;
 
     let mut api = build::Build::init(
         init,
@@ -370,8 +359,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build_dir,
         cache_dir,
         toolchain_executable,
+        toolchain_resource_root,
         action_report_enabled(init),
-        6usize,
+        7usize,
 "#,
     );
     source.push_str(
@@ -439,7 +429,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
     }
     let driver = Driver::with_config(DriverConfig {
         artifact_cache_dir: Some(plan.cache_dir.clone()),
-        ..DriverConfig::default()
+        ..DriverConfig::new(Arc::clone(&plan.toolchain))
     });
     driver.set_source(runner.path.clone(), runner.source.clone());
     let output = driver.link_executable(LinkExecutableRequest::new(
@@ -482,7 +472,8 @@ fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), Bu
     command.arg(&plan.package_root);
     command.arg(&plan.build_dir);
     command.arg(&plan.cache_dir);
-    command.arg(&plan.toolchain_executable);
+    command.arg(plan.toolchain.compiler_executable());
+    command.arg(plan.toolchain.resource_root());
     command.arg(
         if plan.timings == TimingMode::Detail && plan.timing_format == TimingFormat::Json {
             "json"
@@ -670,6 +661,27 @@ fn time_summary_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+
+    fn test_toolchain_layout() -> Arc<nia_toolchain::ToolchainLayout> {
+        static LAYOUT: OnceLock<Arc<nia_toolchain::ToolchainLayout>> = OnceLock::new();
+        Arc::clone(LAYOUT.get_or_init(|| {
+            let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+            let workspace_root = manifest_dir
+                .parent()
+                .and_then(Path::parent)
+                .expect("nia-build lives under crates/");
+            Arc::new(
+                nia_toolchain::ToolchainLayout::resolve(
+                    nia_toolchain::ToolchainLayoutRequest::explicit(
+                        std::env::current_exe().expect("test executable path"),
+                        workspace_root.join("lib"),
+                    ),
+                )
+                .expect("development toolchain layout"),
+            )
+        }))
+    }
 
     #[test]
     fn resolves_package_root_from_child_directory() {
@@ -678,11 +690,13 @@ mod tests {
         std::fs::create_dir_all(&child).expect("create child");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
 
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&child)).expect("build plan");
+        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&child))
+            .expect("build plan");
 
         assert_eq!(plan.package_root, root);
         assert_eq!(plan.build_script, plan.package_root.join("build.nia"));
-        assert!(plan.toolchain_executable.is_file());
+        assert!(plan.toolchain.compiler_executable().is_file());
+        assert!(plan.toolchain.resource_root().is_dir());
         assert_eq!(plan.build_dir, plan.package_root.join(".nia-build"));
         assert_eq!(plan.cache_dir, plan.package_root.join(".nia-cache"));
         assert_eq!(plan.runner_dir, plan.package_root.join(".nia-build/runner"));
@@ -697,7 +711,8 @@ mod tests {
     fn generated_runner_invokes_build_script_as_normal_nia_module() {
         let root = temp_root("generated_runner_invokes_build_script_as_normal_nia_module");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+            .expect("build plan");
 
         let runner = build_runner_source(&plan).expect("build runner source");
 
@@ -732,8 +747,13 @@ mod tests {
                 .source
                 .contains("path_arg(init, &mut allocator, 4usize")
         );
+        assert!(
+            runner
+                .source
+                .contains("path_arg(init, &mut allocator, 5usize")
+        );
         assert!(runner.source.contains("action_report_enabled(init),"));
-        assert!(runner.source.contains("6usize,"));
+        assert!(runner.source.contains("7usize,"));
         assert!(runner.source.contains("api.report_actions(false)"));
         assert!(runner.source.contains("api.report_actions(true)"));
         assert!(
@@ -750,8 +770,12 @@ mod tests {
         let root = temp_root("preserves_named_step");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
 
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root).with_step("install"))
-            .expect("build plan");
+        let plan = resolve_build_plan(
+            BuildRequest::new(test_toolchain_layout())
+                .with_root(&root)
+                .with_step("install"),
+        )
+        .expect("build plan");
 
         assert_eq!(plan.step, BuildStepSelection::Named("install".to_string()));
         assert_eq!(plan.step.as_runner_arg(), Some("install"));
@@ -761,7 +785,7 @@ mod tests {
     fn reports_missing_build_script_from_start_directory() {
         let root = temp_root("reports_missing_build_script_from_start_directory");
 
-        let error = resolve_build_plan(BuildRequest::new().with_root(&root))
+        let error = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
             .expect_err("missing build script");
 
         assert!(matches!(error, BuildError::MissingBuildScript { start } if start == root));
@@ -771,7 +795,8 @@ mod tests {
     fn prepares_build_and_cache_directories() {
         let root = temp_root("prepares_build_and_cache_directories");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+            .expect("build plan");
 
         prepare_build_directories(&plan).expect("prepare build directories");
 
@@ -783,7 +808,8 @@ mod tests {
     fn build_lock_serializes_same_package_root() {
         let root = temp_root("build_lock_serializes_same_package_root");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+            .expect("build plan");
         let first = BuildLock::acquire(&plan).expect("first build lock");
         let second_plan = plan.clone();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -851,7 +877,8 @@ mod tests {
         std::fs::write(package_root.join("build.nia"), "").expect("write build script");
 
         let plan =
-            resolve_build_plan(BuildRequest::new().with_root(&package_root)).expect("build plan");
+            resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&package_root))
+                .expect("build plan");
         let runner = build_runner_source(&plan).expect("build runner source");
 
         assert!(

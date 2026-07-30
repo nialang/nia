@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phase A architecture contract
+Status: Phase B toolchain-layout migration in progress
 
 This document owns the durable build-system boundary. The active migration and
 acceptance sequence remains in `../build-std-roadmap.md`.
@@ -51,6 +51,24 @@ execution model that remains after migration.
 standard-library root, compatibility identity, supported host, and target
 runtime resources. Development and installed layouts are explicit selections.
 No production code reads a Rust compile-time workspace path.
+
+The installed layout is versioned and relocatable as one directory:
+
+```text
+<toolchain>/
+  bin/nia
+  lib/nia/toolchain.meta
+  lib/nia/std.nia
+  lib/nia/std/...
+```
+
+With no override, `nia` resolves `lib/nia` relative to its executable. Source
+development passes `--resource-root <checkout>/lib` explicitly. The manifest
+owns the resource-layout, compiler, std, and build-protocol compatibility
+identity; absolute installation paths are deliberately excluded. Layout
+validation happens before user source is read, and the resolved layout is
+threaded through CLI, Driver, loader, build coordinator, generated runner, and
+`std::build`. There is no checkout-derived std fallback.
 
 `BuildPlan` is immutable, versioned, deterministic to encode, and independently
 validatable. It contains no function pointer, borrowed runner memory, raw

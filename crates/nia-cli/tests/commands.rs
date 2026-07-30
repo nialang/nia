@@ -26,7 +26,7 @@ fn readme_nia_examples_check_as_freestanding_programs() {
         let main = root.join(format!("example_{index}.nia"));
         std::fs::write(&main, source).expect("write README example source");
 
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        let output = support::nia_command()
             .arg("check")
             .arg("--runtime")
             .arg("freestanding")
@@ -67,7 +67,7 @@ fn repository_examples_parse_and_representative_examples_check() {
 
     for example in examples {
         let path = examples_dir.join(example);
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        let output = support::nia_command()
             .arg("emit")
             .arg("--ast")
             .arg(&path)
@@ -82,7 +82,7 @@ fn repository_examples_parse_and_representative_examples_check() {
 
     for example in ["00_minimal.nia", "09_hash_map.nia", "modules/main.nia"] {
         let path = examples_dir.join(example);
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        let output = support::nia_command()
             .arg("check")
             .arg("--runtime")
             .arg("freestanding")
@@ -113,7 +113,7 @@ fn main() void {}
     )
     .expect("write source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("check")
         .arg(&main)
         .output_timeout_for_compiler("run nia check with unused import warning");
@@ -143,7 +143,7 @@ pub fn main() void {}
     )
     .expect("write source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--obj")
         .arg(&main)
@@ -190,8 +190,48 @@ fn nia_code_blocks(markdown: &str) -> Vec<(usize, String)> {
 }
 
 #[test]
+fn invalid_toolchain_layout_fails_before_source_loading() {
+    let root = temp_dir("invalid_toolchain_layout_fails_before_source_loading");
+    let missing_source = root.join("missing-source.nia");
+    let missing_resources = root.join("missing-resources");
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--resource-root")
+        .arg(&missing_resources)
+        .arg("check")
+        .arg(&missing_source)
+        .output_timeout_for_compiler("reject missing toolchain layout");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid toolchain layout"), "{stderr}");
+    assert!(stderr.contains("resource root"), "{stderr}");
+    assert!(!stderr.contains("failed to read source"), "{stderr}");
+
+    let incompatible = root.join("incompatible");
+    std::fs::create_dir_all(&incompatible).expect("create incompatible resource root");
+    std::fs::write(
+        incompatible.join("toolchain.meta"),
+        "resource-layout-schema=1\ncompiler-version=0.0.0\nstd-schema=1\nbuild-protocol-schema=1\n",
+    )
+    .expect("write incompatible resource manifest");
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--resource-root")
+        .arg(&incompatible)
+        .arg("check")
+        .arg(&missing_source)
+        .output_timeout_for_compiler("reject incompatible toolchain layout");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("incompatible toolchain resource manifest"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("`compiler-version`"), "{stderr}");
+    assert!(!stderr.contains("failed to read source"), "{stderr}");
+}
+
+#[test]
 fn help_and_version_use_nia_command_name() {
-    let help = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let help = support::nia_command()
         .arg("--help")
         .output_timeout_without_resources("run nia --help");
     assert!(
@@ -219,7 +259,7 @@ fn help_and_version_use_nia_command_name() {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
 
-    let check_help = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let check_help = support::nia_command()
         .arg("help")
         .arg("check")
         .output_timeout_without_resources("run nia help check");
@@ -255,7 +295,7 @@ fn help_and_version_use_nia_command_name() {
         "{check_stdout}"
     );
 
-    let build_help = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let build_help = support::nia_command()
         .arg("help")
         .arg("build")
         .output_timeout_without_resources("run nia help build");
@@ -276,7 +316,7 @@ fn help_and_version_use_nia_command_name() {
     assert!(build_stdout.contains(".nia-build/"), "{build_stdout}");
     assert!(build_stdout.contains(".nia-cache/"), "{build_stdout}");
 
-    let emit_help = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let emit_help = support::nia_command()
         .arg("help")
         .arg("emit")
         .output_timeout_without_resources("run nia help emit");
@@ -324,7 +364,7 @@ fn help_and_version_use_nia_command_name() {
         "{emit_stdout}"
     );
 
-    let version = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let version = support::nia_command()
         .arg("--version")
         .output_timeout_without_resources("run nia --version");
     assert!(
@@ -335,7 +375,7 @@ fn help_and_version_use_nia_command_name() {
     let version_stdout = String::from_utf8_lossy(&version.stdout);
     assert!(version_stdout.starts_with("nia "), "{version_stdout}");
 
-    let version_status = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let version_status = support::nia_command()
         .arg("--version")
         .status_timeout("run nia --version status");
     assert!(version_status.success());
@@ -355,7 +395,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let check = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let check = support::nia_command()
         .arg("check")
         .arg(&main)
         .arg("--timings")
@@ -372,7 +412,7 @@ fn main() i32 {
     assert!(!stderr.contains("query timing"), "{stderr}");
     assert!(!stderr.contains("allocator."), "{stderr}");
 
-    let tokens = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let tokens = support::nia_command()
         .arg("emit")
         .arg("--tokens")
         .arg(&main)
@@ -389,7 +429,7 @@ fn main() i32 {
     assert!(!stdout.contains("timing "), "{stdout}");
     assert!(stderr.contains("timing summary stage lex:"), "{stderr}");
 
-    let llvm = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let llvm = support::nia_command()
         .arg("--timings=detail")
         .arg("emit")
         .arg("--llvm")
@@ -429,7 +469,7 @@ fn main() i32 {
         "{stderr}"
     );
 
-    let traced = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let traced = support::nia_command()
         .arg("--timings")
         .arg("--timing-trace=events")
         .arg("check")
@@ -444,7 +484,7 @@ fn main() i32 {
     assert!(stderr.contains("timing check:"), "{stderr}");
     assert!(stderr.contains("timing summary stage check:"), "{stderr}");
 
-    let json = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let json = support::nia_command()
         .arg("--timings=detail")
         .arg("--timings-format=json")
         .arg("check")
@@ -518,7 +558,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--llvm")
         .arg(&main)
@@ -543,7 +583,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--obj")
         .arg(&main)
@@ -580,7 +620,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let bare = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let bare = support::nia_command()
         .arg("emit")
         .arg("--obj")
         .arg(&main)
@@ -598,7 +638,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         "bare object output unexpectedly defines _start"
     );
 
-    let freestanding = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let freestanding = support::nia_command()
         .arg("emit")
         .arg("--obj")
         .arg(&main)

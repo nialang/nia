@@ -48,7 +48,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write switch destructuring source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let output = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(&main)

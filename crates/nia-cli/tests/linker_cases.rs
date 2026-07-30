@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{path::Path, process::Command};
 
+#[allow(dead_code, unused_imports)]
+mod support;
+
 use nia_test_support::{
     CaseManifest, CommandExt, CommandStatusExt, TestWorkload, case_directories,
     fixture_relative_path,
@@ -167,7 +170,7 @@ fn run_typed_link_cache(_initial: &Path, _edit: &Path) {}
 
 #[cfg(unix)]
 fn cached_link(source: &Path, cache: &Path, linker: &Path, output: &Path) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_nia"))
+    support::nia_command()
         .arg("--timings")
         .env("NIA_LINKER", linker)
         .arg("emit")
@@ -194,7 +197,7 @@ fn run_selection_errors(
     bare_runtime_error: &str,
 ) {
     let output = std::env::temp_dir().join(format!("nia-linker-case-{}", std::process::id()));
-    let reserved = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let reserved = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(source)
@@ -205,7 +208,7 @@ fn run_selection_errors(
         .output_timeout_without_resources("run reserved linker flavor case");
     assert_error(&reserved, reserved_error);
 
-    let missing = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let missing = support::nia_command()
         .env("PATH", "")
         .env_remove("NIA_LLD")
         .arg("emit")
@@ -218,7 +221,7 @@ fn run_selection_errors(
         .output_timeout_without_resources("run missing LLD case");
     assert_error(&missing, missing_error);
 
-    let bare = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let bare = support::nia_command()
         .arg("emit")
         .arg("--exe")
         .arg(source)
@@ -254,7 +257,7 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
     std::fs::set_permissions(&linker, permissions).expect("make mock linker executable");
 
     let executable = root.join("raw-main");
-    let raw_output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let raw_output = support::nia_command()
         .env("NIA_LINKER", &linker)
         .arg("emit")
         .arg("--exe")
@@ -270,7 +273,7 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
     assert_success(&raw_output);
     assert_args(&args_log, raw);
 
-    let structured_output = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let structured_output = support::nia_command()
         .env("NIA_LINKER", &linker)
         .arg("emit")
         .arg("--exe")

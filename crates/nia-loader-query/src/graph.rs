@@ -11,7 +11,7 @@ use crate::provider_loading::{
 };
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
-use crate::{EntryRuntime, LoaderContext, default_std_module_path};
+use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
@@ -610,7 +610,8 @@ fn inject_entry_runtime(
                     let path = graph
                         .get(std_root)
                         .map(|node| node.path.clone())
-                        .unwrap_or_else(default_std_module_path);
+                        .or_else(|| db.context().module_map.std_path().cloned())
+                        .unwrap_or_else(|| SourcePath::new("std"));
                     diagnostics.push((path, diagnostic));
                 }
             }

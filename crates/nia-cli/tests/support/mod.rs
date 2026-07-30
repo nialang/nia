@@ -1,9 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
+
+pub(crate) fn nia_command() -> Command {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("nia-cli lives under crates/");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
+    command
+        .arg("--resource-root")
+        .arg(workspace_root.join("lib"));
+    command
+}
 
 pub(crate) use nia_test_support::{CommandExt, CommandStatusExt};
 
