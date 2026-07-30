@@ -65,14 +65,17 @@ pub(pkg) struct TargetStorage {
 }
 
 pub struct StepHandle {
+    ownerId: usize,
     index: usize,
 }
 
 pub struct ExecutableHandle {
+    ownerId: usize,
     index: usize,
 }
 
 pub struct ModuleHandle {
+    ownerId: usize,
     index: usize,
 }
 
@@ -151,6 +154,7 @@ pub struct BuildPaths {
 }
 
 pub struct Build {
+    ownerId: usize,
     init: process::Init,
     allocator: &mut mem::Allocator,
     paths: BuildPaths,

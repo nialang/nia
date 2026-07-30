@@ -1036,8 +1036,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_fs_rejects_nul_in_text_path() {
-    let root = temp_dir("emit_exe_std_fs_rejects_nul_in_text_path");
+fn emit_exe_std_fs_reports_invalid_and_missing_paths() {
+    let root = temp_dir("emit_exe_std_fs_reports_invalid_and_missing_paths");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -1072,13 +1072,25 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (1 as process::ExitCode)!;
         },
         err! => {
-            if err == fs::Error::Invalid {
-                !{}
-            } else {
+            if err != fs::Error::Invalid {
                 return (2 as process::ExitCode)!;
             }
         },
     }
+    let missing = fs::PathView::init(&"definitely-missing.nia-test-file");
+    switch cwd.open_file(missing, fs::OpenOptions::read_only()) {
+        !value => {
+            let mut file = value;
+            file.close().exit().?;
+            return (3 as process::ExitCode)!;
+        },
+        err! => {
+            if err != fs::Error::NotFound {
+                return (4 as process::ExitCode)!;
+            }
+        },
+    }
+    !{}
 }
 "#,
     )

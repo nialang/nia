@@ -1,6 +1,6 @@
 # Nia Standard Library Architecture
 
-Status: Phase A dependency and API-maturity contract
+Status: Phase C build-host foundation complete
 
 The current standard library demonstrates usable capabilities, but most of its
 public APIs predate a deliberate stability review. Existing code is therefore
@@ -54,13 +54,18 @@ Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
 also pulls Unicode behavior. The conservative source-declared facade/provider
 closure is recorded in `std-build-host-dependencies.json` and checked by
-`tools/std_build_host_audit.py`. It currently contains 92 modules: broad facade
+`tools/std_build_host_audit.py`. It currently contains 93 modules: broad facade
 declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
 conceptually require. This is not a claim that loader demand executes every
 module and is not a module-count optimization target. It exists to expose
 forbidden conceptual layer edges. Phase C performance and isolation decisions
 use the loader's observed semantic, body, and backend closures instead.
+
+The Phase D builder-owner identity adds the reviewed `atomic` facade to this
+source closure. It supplies a process-local monotonic owner id for live handles;
+it is neither stable plan identity nor evidence that ordinary collection users
+execute atomic or build code.
 
 Public facade imports remain written for humans. Equivalent broad and narrow
 public `using` forms must select the same provider, semantic, body, and backend
@@ -198,9 +203,17 @@ relocation, or conformance work.
 
 ## 8. Conformance Boundary
 
-Phase C adds direct fixtures for the exact allocation, collection, string,
+Phase C maintains direct fixtures for the exact allocation, collection, string,
 Unicode, path, fs, I/O, process, and formatting operations needed by build.
 Tests cover success, invalid input, unavailable resources, partial I/O/process
 failure, allocation failure, rollback, and cleanup. Full compiler/build
 executions remain in the resource-accounted integration harness; small library
 semantics stay cheap and deterministic.
+
+The accepted matrix includes invalid and missing filesystem paths, partial
+buffered writes, partial exact reads, process exit/spawn-stage errors, repeated
+failed-spawn handle cleanup, allocator failure and rollback, owned string/path
+retention, formatting failures, and host/artifact target separation. Loader and
+Driver tests separately prove that ordinary public imports do not select build,
+hash-map, or OS provider work merely because those modules appear in the
+conservative source-declared build-host closure.
