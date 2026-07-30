@@ -273,12 +273,72 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     !{}
 }
 
+fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
+    let mut allocator = FaultAllocator::init();
+    let empty = "";
+    let emptyPath = fs::PathView::init(&empty);
+    let target = testTarget(&empty);
+    let mut api = build::Build::init(
+        init,
+        &mut allocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        false,
+        1usize,
+    ).exit().?;
+    let mut cleaned = false;
+    defer if not cleaned {
+        api.deinit().exit().?;
+    };
+    let importName = "dependency";
+    let importPath = "dependency.nia";
+    let imports = [
+        build::ModuleImport::init(&importName, fs::PathView::init(&importPath)),
+    ];
+    let moduleHandle = api.addModule(
+        build::ModuleOptions::init(fs::PathView::init(&"main.nia"))
+            .withImports(&imports[..]),
+    ).exit().?;
+    let executable = api.addExecutable(
+        build::ExecutableOptions::init(&"app", moduleHandle),
+    ).exit().?;
+    let emit = api.addEmitExecutableStep(&"emit", executable).exit().?;
+    api.setDefaultStep(emit).exit().?;
+    let beforeRun = allocator.activeAllocations;
+    allocator.failAfter(1usize);
+    switch api.runRequestedStep() {
+        !ok => {
+            _ = ok;
+            return (17 as process::ExitCode)!;
+        },
+        err! => if err != build::Error::OutOfMemory {
+            return (18 as process::ExitCode)!;
+        },
+    }
+    if allocator.activeAllocations != beforeRun {
+        return (19 as process::ExitCode)!;
+    }
+    allocator.disableFailure();
+    cleaned = true;
+    api.deinit().exit().?;
+    if allocator.activeAllocations != 0usize {
+        return (20 as process::ExitCode)!;
+    }
+    !{}
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     checkInitRollback(init).?;
     checkTargetInitRollback(init, 7usize).?;
     checkTargetInitRollback(init, 13usize).?;
     checkCleanupFailureOverridesExit(init).?;
     checkRecordRollback(init).?;
+    checkArgAssemblyRollback(init).?;
     !{}
 }
 "#,

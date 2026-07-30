@@ -3061,6 +3061,9 @@ a graph step that emits the artifact to
 Names, paths, imports, and options passed to these methods are borrowed only for
 the duration of the call. `Build` copies retained values into allocator-owned
 storage, so local arrays may leave scope before a selected step executes.
+Module imports and compiler arguments have no fixed-count limit. Their encoded
+bytes and pointer lists use the build allocator; allocation failure is reported
+as `build::Error::OutOfMemory`, not as an invalid target or panic.
 `Build::setDefaultStep(step)` selects the graph step used by `nia build` when
 no step name is passed. If a script registers steps but does not set a default,
 `nia build` without an explicit step exits with an invalid build-script error.

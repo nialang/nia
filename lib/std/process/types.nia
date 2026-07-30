@@ -21,6 +21,7 @@ pub enum StdIo: i32 {
 }
 
 pub enum Error: i32 {
+    OutOfMemory = 12,
     Invalid = 22,
     SpawnSetup = 101,
     SpawnStdio = 102,
@@ -69,11 +70,6 @@ pub struct ArgsIter {
 
 pub struct Arg {
     text: cstring::CStringView,
-}
-
-pub(pkg) struct ArgList {
-    args: &mut [&u8],
-    arg_len: usize,
 }
 
 pub struct Env {

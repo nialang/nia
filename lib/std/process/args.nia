@@ -3,7 +3,7 @@ using pkg::fmt;
 using pkg::process::types;
 using pkg::slice;
 
-using types::{Arg, ArgList, Args, ArgsIter, Error};
+using types::{Arg, Args, ArgsIter};
 
 extend Arg {
     fn init(ptr: &u8) Arg {
@@ -102,40 +102,6 @@ extend ArgsIter {
 
     pub fn remaining(&self) usize {
         self.args.len() - self.index
-    }
-}
-
-extend ArgList {
-    pub(pkg) fn init(args: &mut [&u8]) ArgList {
-        {
-            args: args,
-            arg_len: 0usize,
-        }
-    }
-
-    pub(pkg) fn len(&self) usize {
-        self.arg_len
-    }
-
-    pub(pkg) fn push_ptr(&mut self, arg: &u8) Error!void {
-        if self.arg_len >= self.args.len() {
-            return Error::Invalid!;
-        }
-        self.args[self.arg_len] = arg;
-        self.arg_len += 1usize;
-        !{}
-    }
-
-    pub(pkg) fn push_ptrs(&mut self, args: &[&u8]) Error!void {
-        for &arg in args.iter() {
-            self.push_ptr(arg).?;
-        }
-        !{}
-    }
-
-    pub(pkg) fn finish(&mut self) Error!&&u8 {
-        self.push_ptr(0usize as &u8).?;
-        !self.args.ptr()
     }
 }
 
