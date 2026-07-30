@@ -65,7 +65,7 @@ pub union StepPayload {
 }
 
 pub struct Step {
-    name: string::StringView,
+    name: string::StringBuf,
     kind: StepKind,
     payload: StepPayload,
     state: StepState,
@@ -77,15 +77,15 @@ pub struct StepDependency {
 }
 
 pub struct ModuleOptions {
-    root_source: fs::PathView,
+    rootSource: fs::PathView,
     optimization: OptimizationMode,
     imports: ?&[ModuleImport],
 }
 
 pub struct Module {
-    root_source: fs::PathView,
+    rootSource: fs::PathBuf,
     optimization: OptimizationMode,
-    imports: &mut [ModuleImport],
+    imports: collections::ArrayList[OwnedModuleImport],
 }
 
 pub struct ModuleImport {
@@ -93,40 +93,49 @@ pub struct ModuleImport {
     path: fs::PathView,
 }
 
+pub struct OwnedModuleImport {
+    name: string::StringBuf,
+    path: fs::PathBuf,
+}
+
 pub struct ExecutableOptions {
     name: string::StringView,
-    root_module: ModuleHandle,
-    output_name: ?string::StringView,
+    rootModule: ModuleHandle,
+    outputName: ?string::StringView,
     runtime: Runtime,
 }
 
 pub struct ExecutableTarget {
-    name: string::StringView,
-    root_module: ModuleHandle,
-    output_name: string::StringView,
+    name: string::StringBuf,
+    rootModule: ModuleHandle,
+    outputName: string::StringBuf,
     runtime: Runtime,
+}
+
+pub struct BuildPaths {
+    packageRoot: fs::PathBuf,
+    buildDir: fs::PathBuf,
+    cacheDir: fs::PathBuf,
+    toolchainExecutable: fs::PathBuf,
+    toolchainResourceRoot: fs::PathBuf,
 }
 
 pub struct Build {
     init: process::Init,
     allocator: &mut mem::Allocator,
-    package_root: fs::PathView,
-    build_dir: fs::PathView,
-    cache_dir: fs::PathView,
-    toolchain_executable: fs::PathView,
-    toolchain_resource_root: fs::PathView,
-    action_reporting: bool,
-    step_arg_index: usize,
-    default_step: ?StepHandle,
+    paths: BuildPaths,
+    actionReporting: bool,
+    stepArgIndex: usize,
+    defaultStep: ?StepHandle,
     steps: collections::ArrayList[Step],
     dependencies: collections::ArrayList[StepDependency],
     modules: collections::ArrayList[Module],
     executables: collections::ArrayList[ExecutableTarget],
-    steps_started: usize,
-    steps_succeeded: usize,
-    steps_failed: usize,
-    custom_actions: usize,
-    check_actions: usize,
-    emit_actions: usize,
-    compiler_invocations: usize,
+    stepsStarted: usize,
+    stepsSucceeded: usize,
+    stepsFailed: usize,
+    customActions: usize,
+    checkActions: usize,
+    emitActions: usize,
+    compilerInvocations: usize,
 }

@@ -292,9 +292,9 @@ using std::collections;
 using std::fs;
 using std::mem;
 using std::process;
-using build_script;
+using buildScript;
 
-fn path_arg(
+fn pathArg(
     init: process::Init,
     allocator: &mut mem::Allocator,
     index: usize,
@@ -308,10 +308,10 @@ fn path_arg(
             return build::Error::Internal!;
         },
     };
-    fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()
+    fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).asBuildError()
 }
 
-fn action_report_enabled(init: process::Init) bool {
+fn actionReportEnabled(init: process::Init) bool {
     switch init.args().get(6usize) {
         ?arg => {
             let bytes = arg.bytes();
@@ -328,26 +328,26 @@ fn action_report_enabled(init: process::Init) bool {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let mut page_allocator = mem::PageAllocator::init();
-    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
+    let mut pageAllocator = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().ok().exit().?;
 
-    let mut package_root_text = collections::ArrayList[char]::init();
-    defer package_root_text.deinit(&mut allocator).exit().?;
-    let mut build_dir_text = collections::ArrayList[char]::init();
-    defer build_dir_text.deinit(&mut allocator).exit().?;
-    let mut cache_dir_text = collections::ArrayList[char]::init();
-    defer cache_dir_text.deinit(&mut allocator).exit().?;
-    let mut toolchain_text = collections::ArrayList[char]::init();
-    defer toolchain_text.deinit(&mut allocator).exit().?;
-    let mut resource_root_text = collections::ArrayList[char]::init();
-    defer resource_root_text.deinit(&mut allocator).exit().?;
+    let mut packageRootText = collections::ArrayList[char]::init();
+    defer packageRootText.deinit(&mut allocator).exit().?;
+    let mut buildDirText = collections::ArrayList[char]::init();
+    defer buildDirText.deinit(&mut allocator).exit().?;
+    let mut cacheDirText = collections::ArrayList[char]::init();
+    defer cacheDirText.deinit(&mut allocator).exit().?;
+    let mut toolchainText = collections::ArrayList[char]::init();
+    defer toolchainText.deinit(&mut allocator).exit().?;
+    let mut resourceRootText = collections::ArrayList[char]::init();
+    defer resourceRootText.deinit(&mut allocator).exit().?;
 
-    let package_root = path_arg(init, &mut allocator, 1usize, &mut package_root_text).exit().?;
-    let build_dir = path_arg(init, &mut allocator, 2usize, &mut build_dir_text).exit().?;
-    let cache_dir = path_arg(init, &mut allocator, 3usize, &mut cache_dir_text).exit().?;
-    let toolchain_executable = path_arg(init, &mut allocator, 4usize, &mut toolchain_text).exit().?;
-    let toolchain_resource_root = path_arg(init, &mut allocator, 5usize, &mut resource_root_text).exit().?;
+    let packageRoot = pathArg(init, &mut allocator, 1usize, &mut packageRootText).exit().?;
+    let buildDir = pathArg(init, &mut allocator, 2usize, &mut buildDirText).exit().?;
+    let cacheDir = pathArg(init, &mut allocator, 3usize, &mut cacheDirText).exit().?;
+    let toolchainExecutable = pathArg(init, &mut allocator, 4usize, &mut toolchainText).exit().?;
+    let toolchainResourceRoot = pathArg(init, &mut allocator, 5usize, &mut resourceRootText).exit().?;
 
     let mut api = build::Build::init(
         init,
@@ -355,57 +355,57 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
     source.push_str(
-        r#"        package_root,
-        build_dir,
-        cache_dir,
-        toolchain_executable,
-        toolchain_resource_root,
-        action_report_enabled(init),
+        r#"        packageRoot,
+        buildDir,
+        cacheDir,
+        toolchainExecutable,
+        toolchainResourceRoot,
+        actionReportEnabled(init),
         7usize,
 "#,
     );
     source.push_str(
-        r#"    );
+        r#"    ).exit().?;
     defer api.deinit().exit().?;
 
-    switch build_script::build(&mut api) {
+    switch buildScript::build(&mut api) {
         !ok => {
             _ = ok;
         },
         error! => {
-            switch api.report_actions(false) {
+            switch api.reportActions(false) {
                 !reported => {
                     _ = reported;
                 },
-                report_error! => {
-                    _ = report_error;
+                reportError! => {
+                    _ = reportError;
                 },
             }
-            return error.as_exit_code()!;
+            return error.asExitCode()!;
         },
     }
-    switch api.run_requested_step() {
+    switch api.runRequestedStep() {
         !ok => {
             _ = ok;
         },
         error! => {
-            switch api.report_actions(false) {
+            switch api.reportActions(false) {
                 !reported => {
                     _ = reported;
                 },
-                report_error! => {
-                    _ = report_error;
+                reportError! => {
+                    _ = reportError;
                 },
             }
-            return error.as_exit_code()!;
+            return error.asExitCode()!;
         },
     }
-    switch api.report_actions(true) {
+    switch api.reportActions(true) {
         !reported => {
             _ = reported;
         },
-        report_error! => {
-            _ = report_error;
+        reportError! => {
+            _ = reportError;
         },
     }
     !{}
@@ -449,7 +449,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
 fn build_runner_module_map(plan: &BuildPlan) -> ModuleMap {
     let mut module_map = ModuleMap::new();
     module_map.insert(
-        "build_script",
+        "buildScript",
         SourcePath::new(plan.build_script.to_string_lossy().into_owned()),
     );
     module_map
@@ -723,45 +723,45 @@ mod tests {
         assert!(runner.source.contains("using std::build;"));
         assert!(runner.source.contains("using std::fs;"));
         assert!(runner.source.contains("using std::mem;"));
-        assert!(runner.source.contains("using build_script;"));
-        assert!(runner.source.contains("fn path_arg("));
+        assert!(runner.source.contains("using buildScript;"));
+        assert!(runner.source.contains("fn pathArg("));
         assert!(runner.source.contains("fs::PathView::from_utf8_into("));
         assert!(runner.source.contains("let mut api = build::Build::init("));
         assert!(
             runner
                 .source
-                .contains("path_arg(init, &mut allocator, 1usize")
+                .contains("pathArg(init, &mut allocator, 1usize")
         );
         assert!(
             runner
                 .source
-                .contains("path_arg(init, &mut allocator, 2usize")
+                .contains("pathArg(init, &mut allocator, 2usize")
         );
         assert!(
             runner
                 .source
-                .contains("path_arg(init, &mut allocator, 3usize")
+                .contains("pathArg(init, &mut allocator, 3usize")
         );
         assert!(
             runner
                 .source
-                .contains("path_arg(init, &mut allocator, 4usize")
+                .contains("pathArg(init, &mut allocator, 4usize")
         );
         assert!(
             runner
                 .source
-                .contains("path_arg(init, &mut allocator, 5usize")
+                .contains("pathArg(init, &mut allocator, 5usize")
         );
-        assert!(runner.source.contains("action_report_enabled(init),"));
+        assert!(runner.source.contains("actionReportEnabled(init),"));
         assert!(runner.source.contains("7usize,"));
-        assert!(runner.source.contains("api.report_actions(false)"));
-        assert!(runner.source.contains("api.report_actions(true)"));
+        assert!(runner.source.contains("api.reportActions(false)"));
+        assert!(runner.source.contains("api.reportActions(true)"));
         assert!(
             runner
                 .source
-                .contains("switch build_script::build(&mut api)")
+                .contains("switch buildScript::build(&mut api)")
         );
-        assert!(runner.source.contains("return error.as_exit_code()!;"));
+        assert!(runner.source.contains("return error.asExitCode()!;"));
         assert!(!runner.source.contains("const"));
     }
 

@@ -100,6 +100,28 @@ the serialized plan. A `StringView`, `PathView`, module import, or target name
 cannot survive plan freeze merely because its current build-script stack frame
 happens to remain alive during recursive execution.
 
+The bootstrap builder now enforces this boundary directly. Public
+`ModuleOptions`, `ExecutableOptions`, and `ModuleImport` values are borrowed
+call descriptors; `Build` copies every retained root, step name, module path,
+import name/path, target name, and output name into owned buffers. Multi-stage
+construction registers conditional `defer` rollback before allocation and marks
+ownership transferred only after collection insertion succeeds. Deep cleanup
+runs in reverse order, attempts all releases, and returns its first error. The
+rollback defer propagates cleanup failure, which deliberately overrides the
+original exit path under Nia's defer semantics rather than hiding a failed
+release. The
+reviewed build methods, fields, parameters, and examples use `lowerCamelCase`;
+the former spellings have no aliases.
+
+Cleanup conformance distinguishes ownership release from allocator cursor
+rewind. A fixed-buffer allocator may successfully free every live block yet
+retain alignment padding because `Block` does not encode the pre-allocation
+cursor. Code that needs transactional rewind must use a separately specified
+checkpoint/restore operation; it must not infer an old cursor from the aligned
+block address. Builder failure tests therefore inject allocation failures into
+an allocator that counts active blocks, while exact fixed/arena checkpoint
+semantics remain a separate reviewed API decision.
+
 Allocator failure, invalid UTF-8, invalid path encoding, unavailable files,
 partial I/O, spawn setup, process exit, cleanup, and formatting output are
 ordinary typed failures. Errors retain operation, subject/path/action, and

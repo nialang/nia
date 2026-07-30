@@ -19,7 +19,7 @@ pub enum Error: i32 {
 }
 
 extend Error {
-    pub fn as_exit_code(self) process::ExitCode {
+    pub fn asExitCode(self) process::ExitCode {
         switch self {
             Error::UnknownStep => process::exit(2),
             Error::InvalidStep => process::exit(22),
@@ -44,7 +44,7 @@ extend[T] Error!T {
 
 extend Error : error::IntoError[process::ExitCode] {
     fn into_error(self) process::ExitCode {
-        self.as_exit_code()
+        self.asExitCode()
     }
 }
 
@@ -61,7 +61,7 @@ extend fmt::Error : error::IntoError[Error] {
 }
 
 extend[T] fmt::Error!T {
-    pub fn as_build_error(self) Error!T {
+    pub fn asBuildError(self) Error!T {
         self.cast_error()
     }
 }
@@ -84,7 +84,7 @@ extend fs::Error : error::IntoError[Error] {
 }
 
 extend[T] fs::Error!T {
-    pub fn as_build_error(self) Error!T {
+    pub fn asBuildError(self) Error!T {
         self.cast_error()
     }
 }
@@ -110,7 +110,7 @@ extend process::Error : error::IntoError[Error] {
 }
 
 extend[T] process::Error!T {
-    pub fn as_build_error(self) Error!T {
+    pub fn asBuildError(self) Error!T {
         self.cast_error()
     }
 }
@@ -125,7 +125,7 @@ extend mem::Error : error::IntoError[Error] {
 }
 
 extend[T] mem::Error!T {
-    pub fn as_build_error(self) Error!T {
+    pub fn asBuildError(self) Error!T {
         self.cast_error()
     }
 }

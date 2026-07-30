@@ -2,15 +2,15 @@ using std::build;
 using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    static src_main = "src/main.nia";
-    static app_name = "app";
-    static check_name = "check";
-    let root_module = b.add_module(
-        build::ModuleOptions::init(fs::PathView::init(&src_main))
-            .with_optimization(build::OptimizationMode::O0),
+    static srcMain = "src/main.nia";
+    static appName = "app";
+    static checkName = "check";
+    let rootModule = b.addModule(
+        build::ModuleOptions::init(fs::PathView::init(&srcMain))
+            .withOptimization(build::OptimizationMode::O0),
     ).?;
-    let app = b.add_executable(build::ExecutableOptions::init(&app_name, root_module)).?;
-    let check = b.add_check_executable_step(&check_name, app).?;
-    b.set_default_step(check).?;
+    let app = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;
+    let check = b.addCheckExecutableStep(&checkName, app).?;
+    b.setDefaultStep(check).?;
     !{}
 }

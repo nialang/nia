@@ -652,6 +652,9 @@ Tasks:
 - audit owned/borrowed path and string lifetimes retained by a frozen plan;
 - audit allocator rollback and deinitialization for all plan-construction
   collections and codecs;
+- distinguish releasing every owned allocation from transactionally restoring
+  allocator cursor state; fixed/arena allocators need an explicit
+  checkpoint/restore contract if plan construction relies on exact rewind;
 - keep ordinary fs/process/format/allocation failure as typed values with enough
   context for build diagnostics;
 - apply the accepted `lowerCamelCase` convention to reviewed surviving public
@@ -1098,6 +1101,33 @@ the `ArrayList` raw implementation remains semantic-only when compiling a
 `len` call. Loader and Driver regressions preserve both spelling independence
 and the semantic/body boundary. Phase C remains open: its public build-host API
 review and conformance matrix still have to be completed.
+
+Phase C progress (2026-07-30): the second batch replaces the bootstrap build
+graph's borrowed retained state with explicit builder ownership. Public
+`ModuleOptions`, `ExecutableOptions`, and `ModuleImport` values remain cheap
+borrowed call descriptors, but `Build::init`, `addStep`, `addModule`, and
+`addExecutable` copy every retained root, name, path, import, and output into
+`PathBuf`/`StringBuf`-backed internal records. `Build::init` is now fallible;
+multi-stage construction registers conditional `defer` rollback before the
+first allocation, marks transfer only after collection insertion, and deep
+deinitialization runs in reverse order while attempting every release and
+returning the first cleanup error. Rollback defers propagate cleanup errors, so
+Nia's specified defer control-flow override exposes a failed release instead of
+silently preserving only the initiating allocation error. The reviewed build API, generated runner,
+fixtures, benchmark, help, and user documentation use `lowerCamelCase`; old
+spellings and aliases are physically absent. A configured build constructs all
+records from non-static arrays in a helper frame, returns, then successfully
+emits and launches the custom executable. A fault-injecting allocator proves
+partial BuildPaths, second-import, and target-output allocation failures return
+`OutOfMemory`, preserve the builder's active allocation count, and finish with
+zero active allocations; an injected rollback-free failure also proves the
+defer cleanup error overrides the initiating `OutOfMemory` instead of being
+discarded. This probe also records that successful `free` calls
+do not imply exact cursor rewind for a fixed-buffer allocator when alignment
+padding exists; exact transactional rewind requires the explicit checkpoint
+contract above rather than an unsafe inferred offset. Phase C remains open for
+host/target API separation, contextual errors, fixed-buffer removal from build
+argv assembly, and the rest of the build-host conformance matrix.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

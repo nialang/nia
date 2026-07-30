@@ -12,9 +12,9 @@ using std::fs;
 using std::mem;
 using std::process;
 
-fn main(init: process::Init, allocator: &mut mem::Allocator) build::Build {
+fn main(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
 let path = fs::PathView::init(&"");
-build::Build::init(init, allocator, path, path, path, path, false, 1usize)
+build::Build::init(init, allocator, path, path, path, path, path, false, 1usize)
 }
 "#,
     );

@@ -28,105 +28,166 @@ using types::{
     Module,
     ModuleHandle,
     ModuleImport,
+    OwnedModuleImport,
     ModuleOptions,
     OptimizationMode,
     Runtime,
     ExecutableOptions,
     ExecutableTarget,
+    BuildPaths,
     StepPayload,
 };
 
-pub fn noop_step(b: &mut Build) Error!void {
+pub fn noopStep(b: &mut Build) Error!void {
     _ = b;
     !{}
+}
+
+extend BuildPaths {
+    fn init(
+        allocator: &mut mem::Allocator,
+        packageRoot: fs::PathView,
+        buildDir: fs::PathView,
+        cacheDir: fs::PathView,
+        toolchainExecutable: fs::PathView,
+        toolchainResourceRoot: fs::PathView,
+    ) Error!BuildPaths {
+        let mut paths: BuildPaths = {
+            packageRoot: fs::PathBuf::init(),
+            buildDir: fs::PathBuf::init(),
+            cacheDir: fs::PathBuf::init(),
+            toolchainExecutable: fs::PathBuf::init(),
+            toolchainResourceRoot: fs::PathBuf::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            paths.deinit(allocator).?;
+        };
+        paths.packageRoot = fs::PathBuf::from_path(allocator, packageRoot).asBuildError().?;
+        paths.buildDir = fs::PathBuf::from_path(allocator, buildDir).asBuildError().?;
+        paths.cacheDir = fs::PathBuf::from_path(allocator, cacheDir).asBuildError().?;
+        paths.toolchainExecutable = fs::PathBuf::from_path(allocator, toolchainExecutable).asBuildError().?;
+        paths.toolchainResourceRoot = fs::PathBuf::from_path(allocator, toolchainResourceRoot).asBuildError().?;
+        transferred = true;
+        !paths
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.toolchainResourceRoot.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.toolchainExecutable.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.cacheDir.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.buildDir.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.packageRoot.deinit(allocator).asBuildError());
+        cleanupResult(firstError)
+    }
 }
 
 extend Build {
     pub fn init(
         init: process::Init,
         allocator: &mut mem::Allocator,
-        package_root: fs::PathView,
-        build_dir: fs::PathView,
-        cache_dir: fs::PathView,
-        toolchain_executable: fs::PathView,
-        toolchain_resource_root: fs::PathView,
-        action_reporting: bool,
-        step_arg_index: usize,
-    ) Build {
-        {
+        packageRoot: fs::PathView,
+        buildDir: fs::PathView,
+        cacheDir: fs::PathView,
+        toolchainExecutable: fs::PathView,
+        toolchainResourceRoot: fs::PathView,
+        actionReporting: bool,
+        stepArgIndex: usize,
+    ) Error!Build {
+        let paths = BuildPaths::init(
+            allocator,
+            packageRoot,
+            buildDir,
+            cacheDir,
+            toolchainExecutable,
+            toolchainResourceRoot,
+        ).?;
+        !{
             init: init,
             allocator: allocator,
-            package_root: package_root,
-            build_dir: build_dir,
-            cache_dir: cache_dir,
-            toolchain_executable: toolchain_executable,
-            toolchain_resource_root: toolchain_resource_root,
-            action_reporting: action_reporting,
-            step_arg_index: step_arg_index,
-            default_step: null,
+            paths: paths,
+            actionReporting: actionReporting,
+            stepArgIndex: stepArgIndex,
+            defaultStep: null,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
-            steps_started: 0usize,
-            steps_succeeded: 0usize,
-            steps_failed: 0usize,
-            custom_actions: 0usize,
-            check_actions: 0usize,
-            emit_actions: 0usize,
-            compiler_invocations: 0usize,
+            stepsStarted: 0usize,
+            stepsSucceeded: 0usize,
+            stepsFailed: 0usize,
+            customActions: 0usize,
+            checkActions: 0usize,
+            emitActions: 0usize,
+            compilerInvocations: 0usize,
         }
     }
 
     pub fn deinit(&mut self) Error!void {
-        self.executables.deinit(self.allocator).as_build_error().?;
-        for module_record in self.modules.as_mut_slice().iter_mut() {
-            module_record.deinit(self.allocator).?;
+        let mut firstError: ?Error = null;
+        let mut index = self.steps.len();
+        while index != 0usize {
+            index -= 1usize;
+            rememberCleanupError(&mut firstError, self.steps.as_mut_slice()[index].deinit(self.allocator));
         }
-        self.modules.deinit(self.allocator).as_build_error().?;
-        self.dependencies.deinit(self.allocator).as_build_error().?;
-        self.steps.deinit(self.allocator).as_build_error()
+        rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).asBuildError());
+        index = self.executables.len();
+        while index != 0usize {
+            index -= 1usize;
+            rememberCleanupError(&mut firstError, self.executables.as_mut_slice()[index].deinit(self.allocator));
+        }
+        rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError());
+        index = self.modules.len();
+        while index != 0usize {
+            index -= 1usize;
+            rememberCleanupError(&mut firstError, self.modules.as_mut_slice()[index].deinit(self.allocator));
+        }
+        rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.paths.deinit(self.allocator));
+        cleanupResult(firstError)
     }
 
     pub fn io(&self) &mut io::Io[Error = os::Error] {
         self.init.io()
     }
 
-    pub fn package_root(&self) fs::PathView {
-        self.package_root
+    pub fn packageRoot(&self) fs::PathView {
+        self.paths.packageRoot.view()
     }
 
-    pub fn build_dir(&self) fs::PathView {
-        self.build_dir
+    pub fn buildDir(&self) fs::PathView {
+        self.paths.buildDir.view()
     }
 
-    pub fn cache_dir(&self) fs::PathView {
-        self.cache_dir
+    pub fn cacheDir(&self) fs::PathView {
+        self.paths.cacheDir.view()
     }
 
-    pub fn toolchain_executable(&self) fs::PathView {
-        self.toolchain_executable
+    pub fn toolchainExecutable(&self) fs::PathView {
+        self.paths.toolchainExecutable.view()
     }
 
-    pub fn toolchain_resource_root(&self) fs::PathView {
-        self.toolchain_resource_root
+    pub fn toolchainResourceRoot(&self) fs::PathView {
+        self.paths.toolchainResourceRoot.view()
     }
 
-    pub fn add_step(&mut self, name: &[char], run: StepFn) Error!StepHandle {
-        self.add_step_record(Step::custom(string::StringView::init(name), run))
+    pub fn addStep(&mut self, name: &[char], run: StepFn) Error!StepHandle {
+        self.addStepRecord(string::StringView::init(name), StepKind::Custom, { custom: CustomStep::init(run) })
     }
 
-    pub fn add_check_executable_step(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
-        self.validate_executable_handle(target).?;
-        self.add_step_record(Step::check_executable(string::StringView::init(name), target))
+    pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+        self.validateExecutableHandle(target).?;
+        self.addStepRecord(string::StringView::init(name), StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
     }
 
-    pub fn add_emit_executable_step(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
-        self.validate_executable_handle(target).?;
-        self.add_step_record(Step::emit_executable(string::StringView::init(name), target))
+    pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+        self.validateExecutableHandle(target).?;
+        self.addStepRecord(string::StringView::init(name), StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
     }
 
-    pub fn depend_on(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
+    pub fn dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
         if step.index() >= self.steps.len() or dependency.index() >= self.steps.len() {
             return Error::InvalidStep!;
         }
@@ -141,41 +202,43 @@ extend Build {
         self.dependencies.push(
             self.allocator,
             StepDependency::init(step, dependency),
-        ).as_build_error()
+        ).asBuildError()
     }
 
-    pub fn set_default_step(&mut self, step: StepHandle) Error!void {
+    pub fn setDefaultStep(&mut self, step: StepHandle) Error!void {
         if step.index() >= self.steps.len() {
             return Error::InvalidStep!;
         }
-        self.default_step = ?step;
+        self.defaultStep = ?step;
         !{}
     }
 
-    pub fn add_module(&mut self, options: ModuleOptions) Error!ModuleHandle {
-        validate_module_imports(options.imports).?;
+    pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
+        validateModuleImports(options.imports).?;
         let handle = ModuleHandle::init(self.modules.len());
-        let module_record = Module::init(self.allocator, options).?;
-        self.modules.push(
-            self.allocator,
-            module_record,
-        ).as_build_error().?;
+        let mut moduleRecord = Module::init(self.allocator, options).?;
+        let mut transferred = false;
+        defer if not transferred {
+            moduleRecord.deinit(self.allocator).?;
+        };
+        self.modules.push(self.allocator, moduleRecord).asBuildError().?;
+        transferred = true;
         !handle
     }
 
-    pub fn add_executable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
-        if not is_valid_target_name(options.name) {
+    pub fn addExecutable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
+        if not isValidTargetName(options.name) {
             return Error::InvalidTarget!;
         }
-        self.validate_module_handle(options.root_module).?;
+        self.validateModuleHandle(options.rootModule).?;
         if options.runtime != Runtime::Freestanding {
             return Error::InvalidTarget!;
         }
-        let output_name = executable_output_name(options);
-        if not is_valid_target_name(output_name) {
+        let outputName = executableOutputName(options);
+        if not isValidTargetName(outputName) {
             return Error::InvalidTarget!;
         }
-        switch self.find_executable(options.name) {
+        switch self.findExecutable(options.name) {
             ?old => {
                 _ = old;
                 return Error::InvalidTarget!;
@@ -183,148 +246,151 @@ extend Build {
             null => {},
         }
         let handle = ExecutableHandle::init(self.executables.len());
-        self.executables.push(
-            self.allocator,
-            ExecutableTarget::init(options, output_name),
-        ).as_build_error().?;
+        let mut target = ExecutableTarget::init(self.allocator, options, outputName).?;
+        let mut transferred = false;
+        defer if not transferred {
+            target.deinit(self.allocator).?;
+        };
+        self.executables.push(self.allocator, target).asBuildError().?;
+        transferred = true;
         !handle
     }
 
-    fn check_executable(&mut self, handle: ExecutableHandle) Error!void {
-        let target = self.executable_target(handle).?;
-        let mod_record = self.build_module(target.root_module).?;
-        self.check_exe(mod_record, target.runtime)
+    fn checkExecutable(&mut self, handle: ExecutableHandle) Error!void {
+        let target = self.executableTarget(handle).?;
+        let moduleRecord = self.buildModule(target.rootModule).?;
+        self.checkExe(moduleRecord, target.runtime)
     }
 
-    fn emit_executable(&mut self, handle: ExecutableHandle) Error!void {
-        let target = self.executable_target(handle).?;
-        let mod_record = self.build_module(target.root_module).?;
-        let mut output_path = fs::PathBuf::from_path(self.allocator, self.build_dir).as_build_error().?;
-        defer output_path.deinit(self.allocator).as_build_error().?;
-        output_path.join_component(self.allocator, target.output_name.text()).as_build_error().?;
-        let mut output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let output = output_path.encode(&mut output_path_storage[..]).as_build_error().?;
-        self.emit_exe(mod_record, output, target.runtime)
+    fn emitExecutable(&mut self, handle: ExecutableHandle) Error!void {
+        let target = self.executableTarget(handle).?;
+        let moduleRecord = self.buildModule(target.rootModule).?;
+        let mut outputPath = fs::PathBuf::from_path(self.allocator, self.paths.buildDir.view()).asBuildError().?;
+        defer outputPath.deinit(self.allocator).asBuildError().?;
+        outputPath.join_component(self.allocator, target.outputName.text()).asBuildError().?;
+        let mut outputPathStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let output = outputPath.encode(&mut outputPathStorage[..]).asBuildError().?;
+        self.emitExe(moduleRecord, output, target.runtime)
     }
 
-    fn check_exe(&mut self, mod_record: Module, runtime: Runtime) Error!void {
-        let mut source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
-        let check_arg = b"check\0";
-        let runtime_arg = runtime.argv();
-        let optimization_arg = mod_record.optimization.argv();
-        self.run_toolchain_module_args(&[
-            &check_arg[0],
-            source_arg.ptr(),
-            runtime_arg,
-            optimization_arg,
-        ], mod_record.imports, &[])
+    fn checkExe(&mut self, moduleRecord: Module, runtime: Runtime) Error!void {
+        let mut sourceStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let sourceArg = moduleRecord.rootSource.encode(&mut sourceStorage[..]).asBuildError().?;
+        let checkArg = b"check\0";
+        let runtimeArg = runtime.argv();
+        let optimizationArg = moduleRecord.optimization.argv();
+        self.runToolchainModuleArgs(&[
+            &checkArg[0],
+            sourceArg.ptr(),
+            runtimeArg,
+            optimizationArg,
+        ], moduleRecord.imports.as_slice(), &[])
     }
 
-    fn emit_exe(
+    fn emitExe(
         &mut self,
-        mod_record: Module,
+        moduleRecord: Module,
         output: fs::EncodedPath,
         runtime: Runtime,
     ) Error!void {
-        let mut source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let mut cache_dir_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
-        let cache_dir_arg = self.cache_dir.encode(&mut cache_dir_storage[..]).as_build_error().?;
-        let emit_arg = b"emit\0";
-        let exe_arg = b"--exe\0";
-        let output_arg = b"-o\0";
-        let cache_dir_flag = b"--cache-dir\0";
-        let runtime_arg = runtime.argv();
-        let optimization_arg = mod_record.optimization.argv();
-        self.run_toolchain_module_args(&[
-            &emit_arg[0],
-            &exe_arg[0],
-            source_arg.ptr(),
-            runtime_arg,
-            optimization_arg,
-        ], mod_record.imports, &[
-            &output_arg[0],
+        let mut sourceStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let mut cacheDirStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let sourceArg = moduleRecord.rootSource.encode(&mut sourceStorage[..]).asBuildError().?;
+        let cacheDirArg = self.paths.cacheDir.encode(&mut cacheDirStorage[..]).asBuildError().?;
+        let emitArg = b"emit\0";
+        let exeArg = b"--exe\0";
+        let outputArg = b"-o\0";
+        let cacheDirFlag = b"--cache-dir\0";
+        let runtimeArg = runtime.argv();
+        let optimizationArg = moduleRecord.optimization.argv();
+        self.runToolchainModuleArgs(&[
+            &emitArg[0],
+            &exeArg[0],
+            sourceArg.ptr(),
+            runtimeArg,
+            optimizationArg,
+        ], moduleRecord.imports.as_slice(), &[
+            &outputArg[0],
             output.ptr(),
-            &cache_dir_flag[0],
-            cache_dir_arg.ptr(),
+            &cacheDirFlag[0],
+            cacheDirArg.ptr(),
         ])
     }
 
-    fn executable_target(&self, handle: ExecutableHandle) Error!ExecutableTarget {
+    fn executableTarget(&self, handle: ExecutableHandle) Error!ExecutableTarget {
         if handle.index() >= self.executables.len() {
             return Error::InvalidTarget!;
         }
         !self.executables.as_slice()[handle.index()]
     }
 
-    fn build_module(&self, handle: ModuleHandle) Error!Module {
+    fn buildModule(&self, handle: ModuleHandle) Error!Module {
         if handle.index() >= self.modules.len() {
             return Error::InvalidTarget!;
         }
         !self.modules.as_slice()[handle.index()]
     }
 
-    fn run_toolchain_args(&mut self, args: &[&u8]) Error!void {
-        self.compiler_invocations += 1usize;
+    fn runToolchainArgs(&mut self, args: &[&u8]) Error!void {
+        self.compilerInvocations += 1usize;
         let term = command::run_path_args(
-            self.toolchain_executable,
+            self.paths.toolchainExecutable.view(),
             args,
             self.init.raw_envp(),
-        ).as_build_error().?;
+        ).asBuildError().?;
         if not term.exited_success() {
             return Error::CommandFailed!;
         }
         !{}
     }
 
-    fn run_toolchain_module_args(
+    fn runToolchainModuleArgs(
         &mut self,
         head: &[&u8],
-        imports: &[ModuleImport],
+        imports: &[OwnedModuleImport],
         tail: &[&u8],
     ) Error!void {
         static timings = b"--timings=detail\0";
-        static timing_format = b"--timings-format=json\0";
-        static resource_root_flag = b"--resource-root\0";
-        let mut resource_root_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let resource_root_arg = self.toolchain_resource_root.encode(&mut resource_root_storage[..]).as_build_error().?;
-        let mut import_storage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
-        let mut arg_storage: [48]&u8 = [0usize as &u8; 48];
-        let mut argv = ArgList::init(&mut arg_storage[..]);
-        argv.push_ptrs(head).as_build_error().?;
-        append_module_import_args(&mut argv, imports, &mut import_storage[..]).?;
-        argv.push_ptrs(tail).as_build_error().?;
-        argv.push_ptr(&resource_root_flag[0]).as_build_error().?;
-        argv.push_ptr(resource_root_arg.ptr()).as_build_error().?;
-        if self.action_reporting {
-            argv.push_ptr(&timings[0]).as_build_error().?;
-            argv.push_ptr(&timing_format[0]).as_build_error().?;
+        static timingFormat = b"--timings-format=json\0";
+        static resourceRootFlag = b"--resource-root\0";
+        let mut resourceRootStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let resourceRootArg = self.paths.toolchainResourceRoot.encode(&mut resourceRootStorage[..]).asBuildError().?;
+        let mut importStorage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
+        let mut argStorage: [48]&u8 = [0usize as &u8; 48];
+        let mut argv = ArgList::init(&mut argStorage[..]);
+        argv.push_ptrs(head).asBuildError().?;
+        appendModuleImportArgs(&mut argv, imports, &mut importStorage[..]).?;
+        argv.push_ptrs(tail).asBuildError().?;
+        argv.push_ptr(&resourceRootFlag[0]).asBuildError().?;
+        argv.push_ptr(resourceRootArg.ptr()).asBuildError().?;
+        if self.actionReporting {
+            argv.push_ptr(&timings[0]).asBuildError().?;
+            argv.push_ptr(&timingFormat[0]).asBuildError().?;
         }
-        self.run_toolchain_args(&arg_storage[0..argv.len()])
+        self.runToolchainArgs(&argStorage[0..argv.len()])
     }
 
-    pub fn requested_step(&self) ?process::Arg {
-        self.init.args().get(self.step_arg_index)
+    pub fn requestedStep(&self) ?process::Arg {
+        self.init.args().get(self.stepArgIndex)
     }
 
-    pub fn run_requested_step(&mut self) Error!void {
-        switch self.requested_step() {
+    pub fn runRequestedStep(&mut self) Error!void {
+        switch self.requestedStep() {
             ?step => {
-                switch self.find_step_arg(step) {
+                switch self.findStepArg(step) {
                     ?handle => {
-                        return self.run_step(handle);
+                        return self.runStep(handle);
                     },
                     null => {},
                 }
-                self.report_unknown_step(step).?;
+                self.reportUnknownStep(step).?;
                 return Error::UnknownStep!;
             },
             null => {},
         }
-        switch self.default_step {
+        switch self.defaultStep {
             ?handle => {
-                return self.run_step(handle);
+                return self.runStep(handle);
             },
             null => {},
         }
@@ -334,7 +400,7 @@ extend Build {
         !{}
     }
 
-    fn run_step(&mut self, handle: StepHandle) Error!void {
+    fn runStep(&mut self, handle: StepHandle) Error!void {
         if handle.index() >= self.steps.len() {
             return Error::InvalidStep!;
         }
@@ -346,18 +412,18 @@ extend Build {
             _ => {}
         }
 
-        self.set_step_state(handle, StepState::Running);
-        self.steps_started += 1usize;
+        self.setStepState(handle, StepState::Running);
+        self.stepsStarted += 1usize;
 
         for &edge in self.dependencies.iter() {
             if edge.step.index() == handle.index() {
-                switch self.run_step(edge.dependency) {
+                switch self.runStep(edge.dependency) {
                     !ok => {
                         _ = ok;
                     },
                     err! => {
-                        self.set_step_state(handle, StepState::Failed);
-                        self.steps_failed += 1usize;
+                        self.setStepState(handle, StepState::Failed);
+                        self.stepsFailed += 1usize;
                         return err!;
                     },
                 }
@@ -365,41 +431,41 @@ extend Build {
         }
 
         let step = self.steps.as_slice()[handle.index()];
-        switch self.run_step_payload(step) {
+        switch self.runStepPayload(step) {
             !ok => {
                 _ = ok;
             },
             err! => {
-                self.set_step_state(handle, StepState::Failed);
-                self.steps_failed += 1usize;
+                self.setStepState(handle, StepState::Failed);
+                self.stepsFailed += 1usize;
                 return err!;
             },
         }
 
-        self.set_step_state(handle, StepState::Done);
-        self.steps_succeeded += 1usize;
+        self.setStepState(handle, StepState::Done);
+        self.stepsSucceeded += 1usize;
         !{}
     }
 
-    fn run_step_payload(&mut self, step: Step) Error!void {
+    fn runStepPayload(&mut self, step: Step) Error!void {
         switch step.kind {
             StepKind::Custom => {
-                self.custom_actions += 1usize;
+                self.customActions += 1usize;
                 (step.payload.custom.run)(self)
             },
             StepKind::CheckExecutable => {
-                self.check_actions += 1usize;
-                self.check_executable(step.payload.executable.target)
+                self.checkActions += 1usize;
+                self.checkExecutable(step.payload.executable.target)
             },
             StepKind::EmitExecutable => {
-                self.emit_actions += 1usize;
-                self.emit_executable(step.payload.executable.target)
+                self.emitActions += 1usize;
+                self.emitExecutable(step.payload.executable.target)
             },
         }
     }
 
-    pub fn report_actions(&mut self, success: bool) Error!void {
-        if not self.action_reporting {
+    pub fn reportActions(&mut self, success: bool) Error!void {
+        if not self.actionReporting {
             return !{};
         }
         let mut buffer: [1024]u8 = [_]u8[0; 1024];
@@ -412,24 +478,24 @@ extend Build {
                 &self.dependencies.len(),
                 &self.modules.len(),
                 &self.executables.len(),
-                &self.steps_started,
-                &self.steps_succeeded,
-                &self.steps_failed,
-                &self.custom_actions,
-                &self.check_actions,
-                &self.emit_actions,
-                &self.compiler_invocations,
+                &self.stepsStarted,
+                &self.stepsSucceeded,
+                &self.stepsFailed,
+                &self.customActions,
+                &self.checkActions,
+                &self.emitActions,
+                &self.compilerInvocations,
             ],
-        ).as_build_error().?;
-        stderr.flush().as_build_error()
+        ).asBuildError().?;
+        stderr.flush().asBuildError()
     }
 
-    fn set_step_state(&mut self, handle: StepHandle, state: StepState) void {
+    fn setStepState(&mut self, handle: StepHandle, state: StepState) void {
         let mut steps = self.steps.as_mut_slice();
         steps[handle.index()].state = state;
     }
 
-    fn find_step(&self, name: string::StringView) ?Step {
+    fn findStep(&self, name: string::StringView) ?Step {
         for &step in self.steps.iter() {
             if mem::equal[char](step.name.text(), name.text()) {
                 return ?step;
@@ -438,10 +504,10 @@ extend Build {
         null
     }
 
-    fn find_step_arg(&self, arg: process::Arg) ?StepHandle {
+    fn findStepArg(&self, arg: process::Arg) ?StepHandle {
         let mut index = 0usize;
         for &step in self.steps.iter() {
-            if arg_matches_text(arg, step.name.text()) {
+            if argMatchesText(arg, step.name.text()) {
                 return ?StepHandle::init(index);
             }
             index += 1usize;
@@ -449,7 +515,7 @@ extend Build {
         null
     }
 
-    fn find_executable(&self, name: string::StringView) ?ExecutableTarget {
+    fn findExecutable(&self, name: string::StringView) ?ExecutableTarget {
         for &target in self.executables.iter() {
             if mem::equal[char](target.name.text(), name.text()) {
                 return ?target;
@@ -458,32 +524,32 @@ extend Build {
         null
     }
 
-    fn validate_executable_handle(&self, handle: ExecutableHandle) Error!void {
+    fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!void {
         if handle.index() >= self.executables.len() {
             return Error::InvalidTarget!;
         }
         !{}
     }
 
-    fn validate_module_handle(&self, handle: ModuleHandle) Error!void {
+    fn validateModuleHandle(&self, handle: ModuleHandle) Error!void {
         if handle.index() >= self.modules.len() {
             return Error::InvalidTarget!;
         }
         !{}
     }
 
-    fn report_unknown_step(&mut self, step: process::Arg) Error!void {
+    fn reportUnknownStep(&mut self, step: process::Arg) Error!void {
         let mut buffer: [256]u8 = [_]u8[0; 256];
         let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
-        stderr.print(&"unknown build step `{}`\n", &[&step]).as_build_error().?;
-        stderr.flush().as_build_error()
+        stderr.print(&"unknown build step `{}`\n", &[&step]).asBuildError().?;
+        stderr.flush().asBuildError()
     }
 
-    fn add_step_record(&mut self, step: Step) Error!StepHandle {
-        if step.name.len() == 0usize {
+    fn addStepRecord(&mut self, name: string::StringView, kind: StepKind, payload: StepPayload) Error!StepHandle {
+        if name.len() == 0usize {
             return Error::InvalidStep!;
         }
-        switch self.find_step(step.name) {
+        switch self.findStep(name) {
             ?old => {
                 _ = old;
                 return Error::InvalidStep!;
@@ -491,7 +557,13 @@ extend Build {
             null => {},
         }
         let handle = StepHandle::init(self.steps.len());
-        self.steps.push(self.allocator, step).as_build_error().?;
+        let mut step = Step::init(self.allocator, name, kind, payload).?;
+        let mut transferred = false;
+        defer if not transferred {
+            step.deinit(self.allocator).?;
+        };
+        self.steps.push(self.allocator, step).asBuildError().?;
+        transferred = true;
         !handle
     }
 }
@@ -545,48 +617,46 @@ extend ExecutableStep {
 }
 
 extend Step {
-    fn init(name: string::StringView, kind: StepKind, payload: StepPayload) Step {
-        {
-            name: name,
+    fn init(
+        allocator: &mut mem::Allocator,
+        name: string::StringView,
+        kind: StepKind,
+        payload: StepPayload,
+    ) Error!Step {
+        let ownedName = string::StringBuf::from_slice(allocator, name.text()).asBuildError().?;
+        !{
+            name: ownedName,
             kind: kind,
             payload: payload,
             state: StepState::Pending,
         }
     }
 
-    fn custom(name: string::StringView, run: StepFn) Step {
-        Step::init(name, StepKind::Custom, { custom: CustomStep::init(run) })
-    }
-
-    fn check_executable(name: string::StringView, target: ExecutableHandle) Step {
-        Step::init(name, StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
-    }
-
-    fn emit_executable(name: string::StringView, target: ExecutableHandle) Step {
-        Step::init(name, StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        self.name.deinit(allocator).asBuildError()
     }
 }
 
 extend ModuleOptions {
-    pub fn init(root_source: fs::PathView) ModuleOptions {
+    pub fn init(rootSource: fs::PathView) ModuleOptions {
         {
-            root_source: root_source,
+            rootSource: rootSource,
             optimization: OptimizationMode::O2,
             imports: null,
         }
     }
 
-    pub fn with_optimization(self, optimization: OptimizationMode) ModuleOptions {
+    pub fn withOptimization(self, optimization: OptimizationMode) ModuleOptions {
         {
-            root_source: self.root_source,
+            rootSource: self.rootSource,
             optimization: optimization,
             imports: self.imports,
         }
     }
 
-    pub fn with_imports(self, imports: &[ModuleImport]) ModuleOptions {
+    pub fn withImports(self, imports: &[ModuleImport]) ModuleOptions {
         {
-            root_source: self.root_source,
+            rootSource: self.rootSource,
             optimization: self.optimization,
             imports: ?imports,
         }
@@ -595,16 +665,31 @@ extend ModuleOptions {
 
 extend Module {
     pub fn init(allocator: &mut mem::Allocator, options: ModuleOptions) Error!Module {
-        let imports = clone_module_imports(allocator, options.imports).?;
-        !{
-            root_source: options.root_source,
+        let mut moduleRecord: Module = {
+            rootSource: fs::PathBuf::init(),
             optimization: options.optimization,
-            imports: imports,
-        }
+            imports: collections::ArrayList[OwnedModuleImport]::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            moduleRecord.deinit(allocator).?;
+        };
+        moduleRecord.rootSource = fs::PathBuf::from_path(allocator, options.rootSource).asBuildError().?;
+        moduleRecord.imports = cloneModuleImports(allocator, options.imports).?;
+        transferred = true;
+        !moduleRecord
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
-        allocator.free_slice[ModuleImport](self.imports).as_build_error()
+        let mut firstError: ?Error = null;
+        let mut index = self.imports.len();
+        while index != 0usize {
+            index -= 1usize;
+            rememberCleanupError(&mut firstError, self.imports.as_mut_slice()[index].deinit(allocator));
+        }
+        rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).asBuildError());
+        cleanupResult(firstError)
     }
 }
 
@@ -617,48 +702,91 @@ extend ModuleImport {
     }
 }
 
+extend OwnedModuleImport {
+    fn init(allocator: &mut mem::Allocator, import: ModuleImport) Error!OwnedModuleImport {
+        let mut owned: OwnedModuleImport = {
+            name: string::StringBuf::init(),
+            path: fs::PathBuf::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            owned.deinit(allocator).?;
+        };
+        owned.name = string::StringBuf::from_slice(allocator, import.name.text()).asBuildError().?;
+        owned.path = fs::PathBuf::from_path(allocator, import.path).asBuildError().?;
+        transferred = true;
+        !owned
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.path.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError());
+        cleanupResult(firstError)
+    }
+}
+
 extend ExecutableTarget {
-    pub fn init(options: ExecutableOptions, output_name: string::StringView) ExecutableTarget {
-        {
-            name: options.name,
-            root_module: options.root_module,
-            output_name: output_name,
+    pub fn init(
+        allocator: &mut mem::Allocator,
+        options: ExecutableOptions,
+        outputName: string::StringView,
+    ) Error!ExecutableTarget {
+        let mut target: ExecutableTarget = {
+            name: string::StringBuf::init(),
+            rootModule: options.rootModule,
+            outputName: string::StringBuf::init(),
             runtime: options.runtime,
-        }
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            target.deinit(allocator).?;
+        };
+        target.name = string::StringBuf::from_slice(allocator, options.name.text()).asBuildError().?;
+        target.outputName = string::StringBuf::from_slice(allocator, outputName.text()).asBuildError().?;
+        transferred = true;
+        !target
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError());
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError());
+        cleanupResult(firstError)
     }
 }
 
 extend ExecutableOptions {
-    pub fn init(name: &[char], root_module: ModuleHandle) ExecutableOptions {
+    pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
         {
             name: string::StringView::init(name),
-            root_module: root_module,
-            output_name: null,
+            rootModule: rootModule,
+            outputName: null,
             runtime: Runtime::Freestanding,
         }
     }
 
-    pub fn with_output_name(self, output_name: &[char]) ExecutableOptions {
+    pub fn withOutputName(self, outputName: &[char]) ExecutableOptions {
         {
             name: self.name,
-            root_module: self.root_module,
-            output_name: ?string::StringView::init(output_name),
+            rootModule: self.rootModule,
+            outputName: ?string::StringView::init(outputName),
             runtime: self.runtime,
         }
     }
 
-    pub fn with_runtime(self, runtime: Runtime) ExecutableOptions {
+    pub fn withRuntime(self, runtime: Runtime) ExecutableOptions {
         {
             name: self.name,
-            root_module: self.root_module,
-            output_name: self.output_name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
             runtime: runtime,
         }
     }
 }
 
-fn executable_output_name(options: ExecutableOptions) string::StringView {
-    if options.output_name is ?name {
+fn executableOutputName(options: ExecutableOptions) string::StringView {
+    if options.outputName is ?name {
         name
     } else {
         options.name
@@ -697,7 +825,7 @@ extend Runtime {
     }
 }
 
-fn is_valid_target_name(name: string::StringView) bool {
+fn isValidTargetName(name: string::StringView) bool {
     if name.len() == 0usize {
         return false;
     }
@@ -711,11 +839,11 @@ fn is_valid_target_name(name: string::StringView) bool {
     true
 }
 
-fn validate_module_imports(imports: ?&[ModuleImport]) Error!void {
+fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
     switch imports {
         ?items => {
             for &import in items.iter() {
-                if not is_valid_module_import_name(import.name) {
+                if not isValidModuleImportName(import.name) {
                     return Error::InvalidTarget!;
                 }
             }
@@ -725,28 +853,51 @@ fn validate_module_imports(imports: ?&[ModuleImport]) Error!void {
     !{}
 }
 
-fn clone_module_imports(
+fn cloneModuleImports(
     allocator: &mut mem::Allocator,
     imports: ?&[ModuleImport],
-) Error!&mut [ModuleImport] {
-    switch imports {
-        ?items => {
-            if items.len() == 0usize {
-                let mut empty = 1usize as &mut ModuleImport;
-                return !&mut empty[0..0];
-            }
-            let mut owned = allocator.alloc_slice[ModuleImport](items.len()).as_build_error().?;
-            mem::copy_forwards[ModuleImport](owned, items);
-            !owned
-        },
-        null => {
-            let mut empty = 1usize as &mut ModuleImport;
-            !&mut empty[0..0]
-        },
+) Error!collections::ArrayList[OwnedModuleImport] {
+    let items = if imports is ?values {
+        values
+    } else {
+        &[]
+    };
+    let mut owned = collections::ArrayList[OwnedModuleImport]::init_capacity(
+        allocator,
+        items.len(),
+    ).asBuildError().?;
+    let mut transferred = false;
+    defer if not transferred {
+        deinitModuleImports(&mut owned, allocator).?;
+    };
+    for &import in items.iter() {
+        let mut ownedImport = OwnedModuleImport::init(allocator, import).?;
+        let mut importTransferred = false;
+        defer if not importTransferred {
+            ownedImport.deinit(allocator).?;
+        };
+        owned.push(allocator, ownedImport).asBuildError().?;
+        importTransferred = true;
     }
+    transferred = true;
+    !owned
 }
 
-fn is_valid_module_import_name(name: string::StringView) bool {
+fn deinitModuleImports(
+    imports: &mut collections::ArrayList[OwnedModuleImport],
+    allocator: &mut mem::Allocator,
+) Error!void {
+    let mut firstError: ?Error = null;
+    let mut index = imports.len();
+    while index != 0usize {
+        index -= 1usize;
+        rememberCleanupError(&mut firstError, imports.as_mut_slice()[index].deinit(allocator));
+    }
+    rememberCleanupError(&mut firstError, imports.deinit(allocator).asBuildError());
+    cleanupResult(firstError)
+}
+
+fn isValidModuleImportName(name: string::StringView) bool {
     if name.len() == 0usize {
         return false;
     }
@@ -768,34 +919,34 @@ fn is_valid_module_import_name(name: string::StringView) bool {
     true
 }
 
-fn append_module_import_args(
+fn appendModuleImportArgs(
     argv: &mut ArgList,
-    imports: &[ModuleImport],
+    imports: &[OwnedModuleImport],
     storage: &mut [[os::max_path_bytes]u8],
 ) Error!void {
     if imports.len() > 16usize {
         return Error::InvalidTarget!;
     }
-    static module_flag = b"--module\0";
+    static moduleFlag = b"--module\0";
     let mut index = 0usize;
     for &import in imports.iter() {
-        argv.push_ptr(&module_flag[0]).as_build_error().?;
-        let arg = encode_module_import(import, &mut storage[index][..]).?;
-        argv.push_ptr(arg.ptr()).as_build_error().?;
+        argv.push_ptr(&moduleFlag[0]).asBuildError().?;
+        let arg = encodeModuleImport(import, &mut storage[index][..]).?;
+        argv.push_ptr(arg.ptr()).asBuildError().?;
         index += 1usize;
     }
     !{}
 }
 
-fn encode_module_import(import: ModuleImport, storage: &mut [u8]) Error!fs::EncodedPath {
+fn encodeModuleImport(import: OwnedModuleImport, storage: &mut [u8]) Error!fs::EncodedPath {
     let mut out = 0usize;
-    out = append_chars_to_bytes(import.name.text(), storage, out).?;
+    out = appendCharsToBytes(import.name.text(), storage, out).?;
     if out >= storage.len() {
         return Error::InvalidTarget!;
     }
     storage[out] = b'=';
     out += 1usize;
-    out = append_chars_to_bytes(import.path.text(), storage, out).?;
+    out = appendCharsToBytes(import.path.text(), storage, out).?;
     if out >= storage.len() {
         return Error::InvalidTarget!;
     }
@@ -803,7 +954,7 @@ fn encode_module_import(import: ModuleImport, storage: &mut [u8]) Error!fs::Enco
     !fs::EncodedPath::init(storage.ptr(), out)
 }
 
-fn append_chars_to_bytes(text: &[char], storage: &mut [u8], start: usize) Error!usize {
+fn appendCharsToBytes(text: &[char], storage: &mut [u8], start: usize) Error!usize {
     let mut out = start;
     for &ch in text.iter() {
         if ch as u32 == 0u32 {
@@ -822,18 +973,39 @@ fn append_chars_to_bytes(text: &[char], storage: &mut [u8], start: usize) Error!
     !out
 }
 
-fn arg_matches_text(arg: process::Arg, text: &[char]) bool {
+fn argMatchesText(arg: process::Arg, text: &[char]) bool {
     let bytes = arg.bytes();
-    let mut byte_index = 0usize;
+    let mut byteIndex = 0usize;
     for &ch in text.iter() {
         let encoded = ch.encode_utf8();
-        let encoded_bytes = encoded.bytes();
-        for &encoded_byte in encoded_bytes.iter() {
-            if byte_index >= bytes.len() or bytes[byte_index] != encoded_byte {
+        let encodedBytes = encoded.bytes();
+        for &encodedByte in encodedBytes.iter() {
+            if byteIndex >= bytes.len() or bytes[byteIndex] != encodedByte {
                 return false;
             }
-            byte_index += 1usize;
+            byteIndex += 1usize;
         }
     }
-    byte_index == bytes.len()
+    byteIndex == bytes.len()
+}
+
+fn rememberCleanupError(firstError: &mut ?Error, result: Error!void) void {
+    switch result {
+        !ok => {
+            _ = ok;
+        },
+        err! => {
+            if firstError.* is null {
+                firstError.* = ?err;
+            }
+        },
+    }
+}
+
+fn cleanupResult(firstError: ?Error) Error!void {
+    if firstError is ?err {
+        err!
+    } else {
+        !{}
+    }
 }
