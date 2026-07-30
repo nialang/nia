@@ -17,6 +17,7 @@ using std::build;
 using std::fs;
 using std::mem;
 using std::process;
+using std::string;
 
 struct FaultAllocator {
     backing: mem::PageAllocator,
@@ -81,11 +82,17 @@ extend FaultAllocator : mem::Allocator {
     }
 }
 
+fn testTarget(text: &[char]) build::TargetView {
+    let value = string::StringView::init(text);
+    build::TargetView::init(value, value, value, value, value, value, 64u32)
+}
+
 fn checkInitRollback(init: process::Init) process::ExitCode!void {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
     let pathText: [64]char = [_]char['p'; 64];
     let path = fs::PathView::init(&pathText);
+    let target = testTarget(&pathText);
     switch build::Build::init(
         init,
         &mut allocator,
@@ -94,6 +101,8 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
         path,
         path,
         path,
+        target,
+        target,
         false,
         1usize,
     ) {
@@ -114,12 +123,12 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
     !{}
 }
 
-fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void {
+fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!void {
     let mut allocator = FaultAllocator::init();
-    allocator.failAfter(1usize);
-    allocator.failNextFree();
+    allocator.failAfter(successfulAllocations);
     let pathText: [64]char = [_]char['p'; 64];
     let path = fs::PathView::init(&pathText);
+    let target = testTarget(&pathText);
     switch build::Build::init(
         init,
         &mut allocator,
@@ -128,6 +137,43 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
         path,
         path,
         path,
+        target,
+        target,
+        false,
+        1usize,
+    ) {
+        !value => {
+            let mut unexpected = value;
+            unexpected.deinit().exit().?;
+            return (14 as process::ExitCode)!;
+        },
+        err! => if err != build::Error::OutOfMemory {
+            return (15 as process::ExitCode)!;
+        },
+    }
+    if allocator.activeAllocations != 0usize {
+        return (16 as process::ExitCode)!;
+    }
+    !{}
+}
+
+fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void {
+    let mut allocator = FaultAllocator::init();
+    allocator.failAfter(1usize);
+    allocator.failNextFree();
+    let pathText: [64]char = [_]char['p'; 64];
+    let path = fs::PathView::init(&pathText);
+    let target = testTarget(&pathText);
+    switch build::Build::init(
+        init,
+        &mut allocator,
+        path,
+        path,
+        path,
+        path,
+        path,
+        target,
+        target,
         false,
         1usize,
     ) {
@@ -152,6 +198,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     let mut allocator = FaultAllocator::init();
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
+    let target = testTarget(&empty);
     let mut api = build::Build::init(
         init,
         &mut allocator,
@@ -160,6 +207,8 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         emptyPath,
         emptyPath,
         emptyPath,
+        target,
+        target,
         false,
         1usize,
     ).exit().?;
@@ -226,6 +275,8 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     checkInitRollback(init).?;
+    checkTargetInitRollback(init, 7usize).?;
+    checkTargetInitRollback(init, 13usize).?;
     checkCleanupFailureOverridesExit(init).?;
     checkRecordRollback(init).?;
     !{}

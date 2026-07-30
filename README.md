@@ -155,6 +155,9 @@ the build script runs. `build.nia` is ordinary Nia code and can use the standard
 library. The `std::build::Build` value passed to
 `build.nia` exposes `packageRoot()`, `buildDir()`, `cacheDir()`, and
 `toolchainExecutable()` so build scripts use toolchain-owned paths explicitly.
+`hostTarget()` and `artifactTarget()` expose borrowed `TargetView` descriptors
+whose text is owned by `Build`, so build scripts can configure declarations
+without confusing host services with artifact runtime facts.
 The initial build API includes `addModule(ModuleOptions::init(rootSource))`
 for declaring a root source module, `withOptimization(mode)` for overriding
 the default optimization mode, and `addExecutable(ExecutableOptions::init(name,
@@ -167,6 +170,10 @@ Builder calls copy retained text, paths, and imports, so local input arrays may
 leave scope before execution. `setDefaultStep(step)` selects the step used by
 `nia build` when no step name is passed; otherwise users must request a named
 step explicitly.
+
+The callback bootstrap can retain a distinct artifact declaration, but rejects
+executing it until the typed coordinator can pass that target directly to the
+compiler. It never silently emits a host artifact for a distinct target.
 
 This is an experimental bootstrap API, not a compatibility promise. Its current
 callbacks, index handles, raw compiler command bridge, error enum, and fixed

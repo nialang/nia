@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env, fmt, fs, io,
+    env,
+    ffi::OsString,
+    fmt, fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
     sync::Arc,
@@ -289,10 +291,63 @@ fn build_runner_source_for_path(
         r#"
 using std::build;
 using std::collections;
+using std::fmt;
 using std::fs;
 using std::mem;
 using std::process;
 using buildScript;
+
+struct TargetText {
+    arch: collections::ArrayList[char],
+    vendor: collections::ArrayList[char],
+    os: collections::ArrayList[char],
+    env: collections::ArrayList[char],
+    abi: collections::ArrayList[char],
+    endian: collections::ArrayList[char],
+}
+
+fn rememberTargetCleanupError(
+    firstError: &mut ?build::Error,
+    result: build::Error!void,
+) void {
+    switch result {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            if firstError.* is null {
+                firstError.* = ?error;
+            }
+        },
+    }
+}
+
+extend TargetText {
+    fn init() TargetText {
+        {
+            arch: collections::ArrayList[char]::init(),
+            vendor: collections::ArrayList[char]::init(),
+            os: collections::ArrayList[char]::init(),
+            env: collections::ArrayList[char]::init(),
+            abi: collections::ArrayList[char]::init(),
+            endian: collections::ArrayList[char]::init(),
+        }
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) build::Error!void {
+        let mut firstError: ?build::Error = null;
+        rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError());
+        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError());
+        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).asBuildError());
+        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).asBuildError());
+        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).asBuildError());
+        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).asBuildError());
+        if firstError is ?error {
+            return error!;
+        }
+        !{}
+    }
+}
 
 fn pathArg(
     init: process::Init,
@@ -309,6 +364,38 @@ fn pathArg(
         },
     };
     fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).asBuildError()
+}
+
+fn targetArg(
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    startIndex: usize,
+    storage: &mut TargetText,
+) build::Error!build::TargetView {
+    let arch = pathArg(init, allocator, startIndex, &mut storage.arch).?.string();
+    let vendor = pathArg(init, allocator, startIndex + 1usize, &mut storage.vendor).?.string();
+    let os = pathArg(init, allocator, startIndex + 2usize, &mut storage.os).?.string();
+    let env = pathArg(init, allocator, startIndex + 3usize, &mut storage.env).?.string();
+    let abi = pathArg(init, allocator, startIndex + 4usize, &mut storage.abi).?.string();
+    let endian = pathArg(init, allocator, startIndex + 5usize, &mut storage.endian).?.string();
+    let pointerWidthArg = switch init.args().get(startIndex + 6usize) {
+        ?value => {
+            value
+        },
+        null => {
+            return build::Error::Internal!;
+        },
+    };
+    let pointerWidth = switch fmt::parse[u32](pointerWidthArg) {
+        !value => {
+            value
+        },
+        error! => {
+            _ = error;
+            return build::Error::InvalidTarget!;
+        },
+    };
+    !build::TargetView::init(arch, vendor, os, env, abi, endian, pointerWidth)
 }
 
 fn actionReportEnabled(init: process::Init) bool {
@@ -348,6 +435,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let cacheDir = pathArg(init, &mut allocator, 3usize, &mut cacheDirText).exit().?;
     let toolchainExecutable = pathArg(init, &mut allocator, 4usize, &mut toolchainText).exit().?;
     let toolchainResourceRoot = pathArg(init, &mut allocator, 5usize, &mut resourceRootText).exit().?;
+    let mut hostTargetText = TargetText::init();
+    defer hostTargetText.deinit(&mut allocator).exit().?;
+    let hostTarget = targetArg(init, &mut allocator, 7usize, &mut hostTargetText).exit().?;
+    let mut artifactTargetText = TargetText::init();
+    defer artifactTargetText.deinit(&mut allocator).exit().?;
+    let artifactTarget = targetArg(init, &mut allocator, 14usize, &mut artifactTargetText).exit().?;
 
     let mut api = build::Build::init(
         init,
@@ -360,8 +453,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         cacheDir,
         toolchainExecutable,
         toolchainResourceRoot,
+        hostTarget,
+        artifactTarget,
         actionReportEnabled(init),
-        7usize,
+        21usize,
 "#,
     );
     source.push_str(
@@ -427,10 +522,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
             error,
         })?;
     }
-    let driver = Driver::with_config(DriverConfig {
-        artifact_cache_dir: Some(plan.cache_dir.clone()),
-        ..DriverConfig::new(Arc::clone(&plan.toolchain))
-    });
+    let driver = Driver::with_config(build_runner_driver_config(plan));
     driver.set_source(runner.path.clone(), runner.source.clone());
     let output = driver.link_executable(LinkExecutableRequest::new(
         CheckRequest::new(runner.path.clone())
@@ -444,6 +536,14 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
         error: Box::new(error),
     })?;
     Ok(plan.runner_executable.clone())
+}
+
+fn build_runner_driver_config(plan: &BuildPlan) -> DriverConfig {
+    DriverConfig {
+        artifact_cache_dir: Some(plan.cache_dir.clone()),
+        ..DriverConfig::new(Arc::clone(&plan.toolchain))
+    }
+    .with_artifact_target(plan.toolchain.host_target().clone())
 }
 
 fn build_runner_module_map(plan: &BuildPlan) -> ModuleMap {
@@ -469,21 +569,7 @@ fn prepare_build_directories(plan: &BuildPlan) -> Result<(), BuildError> {
 fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), BuildError> {
     let mut command = Command::new(runner_executable);
     command.current_dir(&plan.package_root);
-    command.arg(&plan.package_root);
-    command.arg(&plan.build_dir);
-    command.arg(&plan.cache_dir);
-    command.arg(plan.toolchain.compiler_executable());
-    command.arg(plan.toolchain.resource_root());
-    command.arg(
-        if plan.timings == TimingMode::Detail && plan.timing_format == TimingFormat::Json {
-            "json"
-        } else {
-            "off"
-        },
-    );
-    if let Some(step) = plan.step.as_runner_arg() {
-        command.arg(step);
-    }
+    command.args(build_runner_args(plan));
     match command.status() {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(BuildError::RunnerFailed {
@@ -495,6 +581,41 @@ fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), Bu
             error,
         }),
     }
+}
+
+fn build_runner_args(plan: &BuildPlan) -> Vec<OsString> {
+    let mut args = vec![
+        plan.package_root.as_os_str().to_owned(),
+        plan.build_dir.as_os_str().to_owned(),
+        plan.cache_dir.as_os_str().to_owned(),
+        plan.toolchain.compiler_executable().as_os_str().to_owned(),
+        plan.toolchain.resource_root().as_os_str().to_owned(),
+        OsString::from(
+            if plan.timings == TimingMode::Detail && plan.timing_format == TimingFormat::Json {
+                "json"
+            } else {
+                "off"
+            },
+        ),
+    ];
+    args.extend(target_runner_args(plan.toolchain.host_target()).map(OsString::from));
+    args.extend(target_runner_args(plan.toolchain.artifact_target()).map(OsString::from));
+    if let Some(step) = plan.step.as_runner_arg() {
+        args.push(OsString::from(step));
+    }
+    args
+}
+
+fn target_runner_args(target: &nia_target_config::TargetConfig) -> [String; 7] {
+    [
+        target.arch.clone(),
+        target.vendor.clone(),
+        target.os.clone(),
+        target.env.clone(),
+        target.abi.clone(),
+        target.endian.clone(),
+        target.pointer_width.to_string(),
+    ]
 }
 
 struct BuildLock {
@@ -683,6 +804,26 @@ mod tests {
         }))
     }
 
+    fn test_toolchain_layout_for(
+        artifact_target: nia_target_config::TargetConfig,
+    ) -> Arc<nia_toolchain::ToolchainLayout> {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .expect("nia-build lives under crates/");
+        Arc::new(
+            nia_toolchain::ToolchainLayout::resolve(
+                nia_toolchain::ToolchainLayoutRequest::explicit(
+                    std::env::current_exe().expect("test executable path"),
+                    workspace_root.join("lib"),
+                )
+                .with_artifact_target(artifact_target),
+            )
+            .expect("development toolchain layout"),
+        )
+    }
+
     #[test]
     fn resolves_package_root_from_child_directory() {
         let root = temp_root("resolves_package_root_from_child_directory");
@@ -725,6 +866,7 @@ mod tests {
         assert!(runner.source.contains("using std::mem;"));
         assert!(runner.source.contains("using buildScript;"));
         assert!(runner.source.contains("fn pathArg("));
+        assert!(runner.source.contains("fn targetArg("));
         assert!(runner.source.contains("fs::PathView::from_utf8_into("));
         assert!(runner.source.contains("let mut api = build::Build::init("));
         assert!(
@@ -753,7 +895,19 @@ mod tests {
                 .contains("pathArg(init, &mut allocator, 5usize")
         );
         assert!(runner.source.contains("actionReportEnabled(init),"));
-        assert!(runner.source.contains("7usize,"));
+        assert!(
+            runner
+                .source
+                .contains("targetArg(init, &mut allocator, 7usize, &mut hostTargetText)")
+        );
+        assert!(
+            runner
+                .source
+                .contains("targetArg(init, &mut allocator, 14usize, &mut artifactTargetText)")
+        );
+        assert!(runner.source.contains("hostTarget,"));
+        assert!(runner.source.contains("artifactTarget,"));
+        assert!(runner.source.contains("21usize,"));
         assert!(runner.source.contains("api.reportActions(false)"));
         assert!(runner.source.contains("api.reportActions(true)"));
         assert!(
@@ -763,6 +917,47 @@ mod tests {
         );
         assert!(runner.source.contains("return error.asExitCode()!;"));
         assert!(!runner.source.contains("const"));
+    }
+
+    #[test]
+    fn build_runner_compiles_for_host_and_transports_both_targets() {
+        let mut artifact_target = nia_target_config::TargetConfig::host();
+        artifact_target.arch = "artifact-arch".to_string();
+        artifact_target.vendor = "artifact-vendor".to_string();
+        artifact_target.os = "artifact-os".to_string();
+        artifact_target.env = "artifact-env".to_string();
+        artifact_target.abi = "artifact-abi".to_string();
+        artifact_target.endian = "big".to_string();
+        artifact_target.pointer_width = 32;
+        let toolchain = test_toolchain_layout_for(artifact_target.clone());
+        let root = temp_root("build_runner_compiles_for_host_and_transports_both_targets");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let plan = resolve_build_plan(
+            BuildRequest::new(Arc::clone(&toolchain))
+                .with_root(&root)
+                .with_step("inspect"),
+        )
+        .expect("build plan");
+
+        let config = build_runner_driver_config(&plan);
+        let args = build_runner_args(&plan);
+
+        assert_eq!(config.artifact_target, *toolchain.host_target());
+        assert_ne!(config.artifact_target, *toolchain.artifact_target());
+        assert_eq!(args.len(), 21);
+        assert_eq!(args[6], OsString::from(&toolchain.host_target().arch));
+        assert_eq!(
+            args[12],
+            OsString::from(toolchain.host_target().pointer_width.to_string())
+        );
+        assert_eq!(args[13], OsString::from("artifact-arch"));
+        assert_eq!(args[14], OsString::from("artifact-vendor"));
+        assert_eq!(args[15], OsString::from("artifact-os"));
+        assert_eq!(args[16], OsString::from("artifact-env"));
+        assert_eq!(args[17], OsString::from("artifact-abi"));
+        assert_eq!(args[18], OsString::from("big"));
+        assert_eq!(args[19], OsString::from("32"));
+        assert_eq!(args[20], OsString::from("inspect"));
     }
 
     #[test]

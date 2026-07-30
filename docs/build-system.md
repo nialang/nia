@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phase B toolchain-layout migration in progress
+Status: Phase C build-host standard-library migration in progress
 
 This document owns the durable build-system boundary. The active migration and
 acceptance sequence remains in `../build-std-roadmap.md`.
@@ -85,6 +85,17 @@ protocol.
 Artifacts have typed roles and one producer. Publication is staged and atomic.
 An action that fails or is cancelled cannot leave an output that appears valid.
 Host tools and target artifacts remain distinct even if built from one package.
+
+Driver invocations own their effective artifact target. A normal Driver starts
+from the layout-selected artifact target, while build-runner compilation
+explicitly overrides that value with the layout host target. The generated
+runner receives complete host and artifact descriptors as separate arguments
+and passes borrowed `TargetView` values into `std::build`; the builder retains
+owned copies. Bootstrap executable records carry only the selected artifact
+role. Because the current callback executor cannot pass a target through the
+public CLI, it rejects a distinct target at execution rather than substituting
+the host. The immutable plan and coordinator replace this temporary execution
+limit with typed target-bearing compiler actions.
 
 Build diagnostics carry phase, action identity, package-relative subject,
 cause, and process/compiler detail where applicable. Invalid plan data, missing
