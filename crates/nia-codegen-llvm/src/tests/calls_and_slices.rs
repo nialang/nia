@@ -182,10 +182,13 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    if !ok = stdout.write_all(&b"nia\n") {
-        _ = ok;
-    } or error! {
-        return (1 as process::ExitCode)!;
+    switch stdout.write_all(&b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (1 as process::ExitCode)!;
+        },
     }
     !{}
 }
@@ -227,15 +230,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    if !ok = stdout.write_all(&b"nia\n") {
-        _ = ok;
-    } or error! {
-        return (1 as process::ExitCode)!;
+    switch stdout.write_all(&b"nia\n") {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (1 as process::ExitCode)!;
+        },
     }
-    if !ok = stdout.flush() {
-        _ = ok;
-    } or error! {
-        return (2 as process::ExitCode)!;
+    switch stdout.flush() {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            return (2 as process::ExitCode)!;
+        },
     }
     !{}
 }
@@ -311,19 +320,28 @@ extend Z {
 fn main() i32 {
     let mut z = Z::init();
     let mut layout: Layout;
-    if !value = Layout::init(7, 1) {
-        layout = value;
-    } or error! {
-        return 1;
+    switch Layout::init(7, 1) {
+        !value => {
+            layout = value;
+        },
+        error! => {
+            return 1;
+        },
     }
-    if !maybe = z.alloc(layout) {
-        if ?value = maybe {
-            return value.len() as i32;
-        } or null {
-            return 2;
-        }
-    } or error! {
-        return 3;
+    switch z.alloc(layout) {
+        !maybe => {
+            switch maybe {
+                ?value => {
+                    return value.len() as i32;
+                },
+                null => {
+                    return 2;
+                },
+            }
+        },
+        error! => {
+            return 3;
+        },
     }
 }
 "#,

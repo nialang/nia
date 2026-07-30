@@ -13,10 +13,13 @@ fn main() i32 {
 let init = facade::Init::init();
 let args = init.args();
 let mut iter = args.iter();
-if ?value = iter.next() {
-    value
-} or null {
-    0
+switch iter.next() {
+    ?value => {
+        value
+    },
+    null => {
+        0
+    },
 }
 }
 "#,

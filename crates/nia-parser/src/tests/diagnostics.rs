@@ -95,6 +95,20 @@ fn main(ptr: &i32) i32 {
 }
 
 #[test]
+fn rejects_removed_multi_arm_if_pattern_syntax() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main(value: ?i32) void {
+    if ?item = value {
+        _ = item;
+    } or null {}
+}
+"#,
+    );
+    assert!(!errors.is_empty(), "removed syntax parsed successfully");
+}
+
+#[test]
 fn parser_makes_progress_on_generated_invalid_inputs() {
     const TOKENS: &[&str] = &[
         "let",
@@ -112,6 +126,7 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
         "type",
         "using",
         "if",
+        "is",
         "or",
         "else",
         "for",

@@ -270,11 +270,14 @@ fn ok() Error!void {
 }
 
 fn main() i32 {
-    if !value = ok() {
-        _ = value;
-        0
-    } or error! {
-        1
+    switch ok() {
+        !value => {
+            _ = value;
+            0
+        },
+        error! => {
+            1
+        },
     }
 }
 "#,

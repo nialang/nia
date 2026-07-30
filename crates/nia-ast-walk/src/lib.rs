@@ -392,10 +392,8 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         }
         ExprKind::IfPattern(if_pattern) => {
             visitor.visit_expr(&if_pattern.target);
-            for arm in &if_pattern.arms {
-                visit_pattern(visitor, &arm.pattern);
-                visitor.visit_block(&arm.body);
-            }
+            visit_pattern(visitor, &if_pattern.pattern);
+            visitor.visit_block(&if_pattern.then_branch);
             if let Some(else_branch) = &if_pattern.else_branch {
                 visitor.visit_expr(else_branch);
             }

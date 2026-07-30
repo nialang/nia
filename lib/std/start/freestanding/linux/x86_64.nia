@@ -4,11 +4,14 @@ using pkg::os;
 using pkg::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
-    if !ok = entry::main(init) {
-        _ = ok;
-        process::ExitCode::Success
-    } or error! {
-        error
+    switch entry::main(init) {
+        !ok => {
+            _ = ok;
+            process::ExitCode::Success
+        },
+        error! => {
+            error
+        },
     }
 }
 

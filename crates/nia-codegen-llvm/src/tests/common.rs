@@ -415,14 +415,20 @@ fn read() convert::A!?Item {
 }
 
 pub fn run() i32 {
-    if !maybe = read().as_b() {
-        if ?item = maybe {
-            item.value
-        } or null {
-            0
-        }
-    } or err! {
-        err as i32
+    switch read().as_b() {
+        !maybe => {
+            switch maybe {
+                ?item => {
+                    item.value
+                },
+                null => {
+                    0
+                },
+            }
+        },
+        err! => {
+            err as i32
+        },
     }
 }
 "#,
@@ -447,10 +453,13 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     pub fn as_b(self) B!T {
-        if !value = self {
-            !value
-        } or err! {
-            to_b(err)!
+        switch self {
+            !value => {
+                !value
+            },
+            err! => {
+                to_b(err)!
+            },
         }
     }
 }

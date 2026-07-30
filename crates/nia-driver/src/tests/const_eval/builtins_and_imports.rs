@@ -146,11 +146,14 @@ where I: Iterator {
     let mut total = 0usize;
     let mut done = false;
     while not done {
-        if ?value = values.next() {
-            _ = value;
-            total += 1usize;
-        } or null {
-            done = true;
+        switch values.next() {
+            ?value => {
+                _ = value;
+                total += 1usize;
+            },
+            null => {
+                done = true;
+            },
         }
     }
     total

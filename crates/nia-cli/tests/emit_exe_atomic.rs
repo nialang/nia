@@ -34,11 +34,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if value.fetch_xor_seq_cst(2usize) != 6usize {
         return process::exit(4)!;
     }
-    if ?actual = value.cmpxchg_strong_seq_cst(4usize, 5usize) { _ = actual;
-            return process::exit(5)!; } or null { }
-    if ?actual = value.cmpxchg_strong_seq_cst(4usize, 5usize) { if actual != 5usize {
-                return process::exit(6)!;
-            } } or null { return process::exit(7)!; }
+    switch value.cmpxchg_strong_seq_cst(4usize, 5usize) {
+        ?actual => { _ = actual;
+                return process::exit(5)!; },
+        null => { },
+    }
+    switch value.cmpxchg_strong_seq_cst(4usize, 5usize) {
+        ?actual => { if actual != 5usize {
+                    return process::exit(6)!;
+                } },
+        null => { return process::exit(7)!; },
+    }
     atomic::fence_seq_cst();
     !{}
 }

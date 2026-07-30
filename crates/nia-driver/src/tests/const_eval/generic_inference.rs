@@ -203,10 +203,13 @@ const fn id[T](value: ?T) ?T {
 }
 
 const fn unwrap(value: ?usize) usize {
-    if ?payload = value {
-        payload
-    } or null {
-        1usize
+    switch value {
+        ?payload => {
+            payload
+        },
+        null => {
+            1usize
+        },
     }
 }
 
@@ -350,10 +353,13 @@ const fn id[T](value: T) T {
 }
 
 const value: ?usize = ?8usize;
-const n: usize = if ?payload = value {
-    id(payload)
-} or null {
-    1usize
+const n: usize = switch value {
+    ?payload => {
+        id(payload)
+    },
+    null => {
+        1usize
+    },
 };
 
 fn main() i32 {
@@ -378,10 +384,13 @@ const fn id[T](value: T) T {
 }
 
 const value: usize!usize = !8usize;
-const n: usize = if !payload = value {
-    id(payload)
-} or err! {
-    id(err)
+const n: usize = switch value {
+    !payload => {
+        id(payload)
+    },
+    err! => {
+        id(err)
+    },
 };
 
 fn main() i32 {
@@ -473,10 +482,13 @@ fn generic_const_function_infers_type_arg_from_contextual_array_literal() {
         &root.join("main.nia"),
         r#"
 const fn first_some[T](values: [2]?T) T {
-    if ?payload = values[0] {
-        payload
-    } or null {
-        values[1].?
+    switch values[0] {
+        ?payload => {
+            payload
+        },
+        null => {
+            values[1].?
+        },
     }
 }
 
@@ -533,10 +545,13 @@ struct Slot[T] {
 }
 
 const fn pick[T](slot: Slot[T]) T {
-    if ?payload = slot.primary {
-        payload
-    } or null {
-        slot.fallback.?
+    switch slot.primary {
+        ?payload => {
+            payload
+        },
+        null => {
+            slot.fallback.?
+        },
     }
 }
 

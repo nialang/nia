@@ -83,20 +83,22 @@ impl<'a> BodyChecker<'a> {
         let target_ty = self.check_expr(&if_pattern.target);
         let mut coverage = PatternCoverage::default();
         let mut result_ty = expected;
-        for arm in &if_pattern.arms {
-            if coverage.catch_all.is_some() {
-                self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                    arm.span,
-                    "if pattern arm is unreachable because a previous pattern matches all remaining values",
-                ));
-            }
-            self.check_pattern(&arm.pattern, target_ty, Some(&mut coverage), "if pattern");
-            let arm_ty = self.check_block_with_expected(&arm.body, result_ty);
-            if let Some(expected) = result_ty {
-                self.expect_block_tail_type(&arm.body, expected, arm_ty, "if pattern branches");
-            } else if !self.is_never(arm_ty) {
-                result_ty = Some(arm_ty);
-            }
+        self.check_pattern(
+            &if_pattern.pattern,
+            target_ty,
+            Some(&mut coverage),
+            "if pattern",
+        );
+        let then_ty = self.check_block_with_expected(&if_pattern.then_branch, result_ty);
+        if let Some(expected) = result_ty {
+            self.expect_block_tail_type(
+                &if_pattern.then_branch,
+                expected,
+                then_ty,
+                "if pattern branches",
+            );
+        } else if !self.is_never(then_ty) {
+            result_ty = Some(then_ty);
         }
 
         let Some(else_branch) = &if_pattern.else_branch else {

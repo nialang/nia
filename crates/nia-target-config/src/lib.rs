@@ -282,23 +282,23 @@ impl Pruner<'_> {
             },
             ExprKind::IfPattern(mut if_pattern) => {
                 if_pattern.target = self.prune_expr(if_pattern.target);
-                for arm in &mut if_pattern.arms {
-                    arm.pattern = self.prune_pattern(std::mem::replace(
-                        &mut arm.pattern,
-                        Pattern {
-                            span: arm.span,
-                            kind: PatternKind::Wildcard,
-                        },
-                    ));
-                    arm.body = self.prune_block(std::mem::replace(
-                        &mut arm.body,
-                        Block {
-                            span: arm.span,
-                            stmts: Vec::new(),
-                            tail: None,
-                        },
-                    ));
-                }
+                let pattern_span = if_pattern.pattern.span;
+                if_pattern.pattern = self.prune_pattern(std::mem::replace(
+                    &mut if_pattern.pattern,
+                    Pattern {
+                        span: pattern_span,
+                        kind: PatternKind::Wildcard,
+                    },
+                ));
+                let then_span = if_pattern.then_branch.span;
+                if_pattern.then_branch = self.prune_block(std::mem::replace(
+                    &mut if_pattern.then_branch,
+                    Block {
+                        span: then_span,
+                        stmts: Vec::new(),
+                        tail: None,
+                    },
+                ));
                 if_pattern.else_branch = if_pattern
                     .else_branch
                     .map(|else_branch| Box::new(self.prune_expr(*else_branch)));

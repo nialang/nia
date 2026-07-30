@@ -173,10 +173,13 @@ extend Dir {
     }
 
     pub fn borrow_handle(&self) Error!os::FileHandle {
-        if ?handle = self.handle {
-            !handle
-        } or null {
-            Error::BadFd!
+        switch self.handle {
+            ?handle => {
+                !handle
+            },
+            null => {
+                Error::BadFd!
+            },
         }
     }
 
@@ -228,10 +231,13 @@ extend File {
     }
 
     pub fn borrow_handle(&self) Error!os::FileHandle {
-        if ?handle = self.handle {
-            !handle
-        } or null {
-            Error::BadFd!
+        switch self.handle {
+            ?handle => {
+                !handle
+            },
+            null => {
+                Error::BadFd!
+            },
         }
     }
 

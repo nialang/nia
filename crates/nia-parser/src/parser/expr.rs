@@ -769,14 +769,11 @@ impl Parser {
 
     fn parse_if_expr(&mut self) -> Option<Expr> {
         let start = self.expect(TokenKind::If, "expected `if`")?.start;
-        if self.at(TokenKind::Let) {
-            self.error_here("`if let` has been removed; write `if pattern = value` instead");
-            return self.parse_if_pattern_expr(start);
+        let target = self.parse_expr_until_tokens(&[TokenKind::Is, TokenKind::LBrace])?;
+        if self.eat(TokenKind::Is).is_some() {
+            return self.parse_if_pattern_expr(start, target);
         }
-        if self.if_pattern_condition_has_equals() {
-            return self.parse_if_pattern_expr(start);
-        }
-        let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
+        let cond = target;
         let then_branch = self.parse_block()?;
         let else_branch = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {
@@ -801,68 +798,31 @@ impl Parser {
         ))
     }
 
-    fn parse_if_pattern_expr(&mut self, start: usize) -> Option<Expr> {
-        self.eat(TokenKind::Let);
-        let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::Eq])?;
-        self.expect(TokenKind::Eq, "expected `=` after if pattern")?;
-        let target = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
-        let body = self.parse_block()?;
-        let mut arms = vec![IfPatternArm {
-            span: Span::new(pattern.span.start, body.span.end),
-            pattern,
-            body,
-        }];
-        let mut else_branch = None;
-        while self.eat(TokenKind::Or).is_some() {
-            let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::LBrace])?;
-            let body = self.parse_block()?;
-            arms.push(IfPatternArm {
-                span: Span::new(pattern.span.start, body.span.end),
-                pattern,
-                body,
-            });
-        }
-        if self.eat(TokenKind::Else).is_some() {
+    fn parse_if_pattern_expr(&mut self, start: usize, target: Expr) -> Option<Expr> {
+        let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::LBrace])?;
+        let then_branch = self.parse_block()?;
+        let else_branch = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {
-                else_branch = Some(Box::new(self.parse_if_expr()?));
+                Some(Box::new(self.parse_if_expr()?))
             } else {
                 let block = self.parse_block()?;
-                else_branch = Some(Box::new(self.make_expr(block.span, ExprKind::Block(block))));
+                Some(Box::new(self.make_expr(block.span, ExprKind::Block(block))))
             }
-        }
-        let end = else_branch.as_ref().map_or_else(
-            || arms.last().map_or(target.span.end, |arm| arm.body.span.end),
-            |expr| expr.span.end,
-        );
+        } else {
+            None
+        };
+        let end = else_branch
+            .as_ref()
+            .map_or(then_branch.span.end, |expr| expr.span.end);
         Some(self.make_expr(
             Span::new(start, end),
             ExprKind::IfPattern(Box::new(IfPatternExpr {
                 target,
-                arms,
+                pattern,
+                then_branch,
                 else_branch,
             })),
         ))
-    }
-
-    fn if_pattern_condition_has_equals(&self) -> bool {
-        let mut depth = 0usize;
-        let mut offset = 0usize;
-        loop {
-            let Some(kind) = self.tokens.nth_kind(offset) else {
-                return false;
-            };
-            match kind {
-                TokenKind::Eof => return false,
-                TokenKind::LBrace if depth == 0 => return false,
-                TokenKind::Eq if depth == 0 => return true,
-                TokenKind::LParen | TokenKind::LBracket => depth += 1,
-                TokenKind::RParen | TokenKind::RBracket => {
-                    depth = depth.saturating_sub(1);
-                }
-                _ => {}
-            }
-            offset += 1;
-        }
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {

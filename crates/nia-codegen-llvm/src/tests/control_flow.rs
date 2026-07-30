@@ -190,10 +190,13 @@ fn main() i32 {
     let mut iter = Counter { current: 1, end: 4 };
     let mut sum = 0;
     for result in iter {
-        let value = if !item = result {
-            item
-        } or error! {
-            return 100;
+        let value = switch result {
+            !item => {
+                item
+            },
+            error! => {
+                return 100;
+            },
         };
         sum += value;
     }
@@ -395,45 +398,63 @@ fn main() i32 {
 
     let mut optional_iter = iter::OptionalIter { index: 0 };
     for item in optional_iter {
-        if ?value = item {
-            total += value.value;
-        } or null {
-            total += 100;
+        switch item {
+            ?value => {
+                total += value.value;
+            },
+            null => {
+                total += 100;
+            },
         }
     }
 
     let mut error_iter = iter::ErrorIter { index: 0 };
     for item in error_iter {
-        if !value = item {
-            total += value.value;
-        } or error! {
-            total += 1000;
+        switch item {
+            !value => {
+                total += value.value;
+            },
+            error! => {
+                total += 1000;
+            },
         }
     }
 
     let mut optional_error_iter = iter::OptionalErrorIter { index: 0 };
     for item in optional_error_iter {
-        if ?result = item {
-            if !value = result {
-                total += value.value;
-            } or error! {
-                total += 1000;
-            }
-        } or null {
-            total += 100;
+        switch item {
+            ?result => {
+                switch result {
+                    !value => {
+                        total += value.value;
+                    },
+                    error! => {
+                        total += 1000;
+                    },
+                }
+            },
+            null => {
+                total += 100;
+            },
         }
     }
 
     let mut error_optional_iter = iter::ErrorOptionalIter { index: 0 };
     for item in error_optional_iter {
-        if !maybe = item {
-            if ?value = maybe {
-                total += value.value;
-            } or null {
-                total += 100;
-            }
-        } or error! {
-            total += 1000;
+        switch item {
+            !maybe => {
+                switch maybe {
+                    ?value => {
+                        total += value.value;
+                    },
+                    null => {
+                        total += 100;
+                    },
+                }
+            },
+            error! => {
+                total += 1000;
+            },
         }
     }
 

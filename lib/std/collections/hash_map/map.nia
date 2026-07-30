@@ -83,10 +83,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
         let mut result: ?mem::Error = null;
-        if !ok = self.free_allocations(allocator) {
-            _ = ok;
-        } or err! {
-            result = ?err;
+        switch self.free_allocations(allocator) {
+            !ok => {
+                _ = ok;
+            },
+            err! => {
+                result = ?err;
+            },
         }
         self.ctrl = raw::dangling_slice[u8]();
         self.keys = raw::dangling_slice[K]();
@@ -94,10 +97,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.bucket_count = 0usize;
         self.len = 0usize;
         self.growth_left = 0usize;
-        if ?err = result {
-            err!
-        } or null {
-            !{}
+        switch result {
+            ?err => {
+                err!
+            },
+            null => {
+                !{}
+            },
         }
     }
 
@@ -158,57 +164,75 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn contains_key(&self, key: &K) bool {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            _ = index;
-            true
-        } or null {
-            false
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                _ = index;
+                true
+            },
+            null => {
+                false
+            },
         }
     }
 
     pub fn get(&self, key: &K) ?&V {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            ?&self.values[index]
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                ?&self.values[index]
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn get_mut(&mut self, key: &K) ?&mut V {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            ?&mut self.values[index]
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                ?&mut self.values[index]
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn get_entry(&self, key: &K) ?HashMapEntryRef[K, V] {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            ?{
-                key: &self.keys[index],
-                value: &self.values[index],
-            }
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                ?{
+                    key: &self.keys[index],
+                    value: &self.values[index],
+                }
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn get_entry_mut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            ?{
-                key: &self.keys[index],
-                value: &mut self.values[index],
-            }
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                ?{
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                }
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn get_key(&self, key: &K) ?&K {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            ?&self.keys[index]
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                ?&self.keys[index]
+            },
+            null => {
+                null
+            },
         }
     }
 
@@ -236,11 +260,14 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn put(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            let old = self.values[index];
-            self.values[index] = value;
-            return !?old;
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                let old = self.values[index];
+                self.values[index] = value;
+                return !?old;
+            },
+            null => {
+            },
         }
 
         self.insert_new(allocator, key, value).?;
@@ -253,10 +280,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn put_if_absent(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!bool {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            _ = index;
-            return !false;
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                _ = index;
+                return !false;
+            },
+            null => {
+            },
         }
 
         self.insert_new(allocator, key, value).?;
@@ -265,11 +295,14 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn put_assume_capacity(&mut self, key: K, value: V) ?V {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            let old = self.values[index];
-            self.values[index] = value;
-            return ?old;
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                let old = self.values[index];
+                self.values[index] = value;
+                return ?old;
+            },
+            null => {
+            },
         }
 
         self.insert_new_assume_capacity(key, value);
@@ -278,10 +311,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn put_if_absent_assume_capacity(&mut self, key: K, value: V) bool {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            _ = index;
-            return false;
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                _ = index;
+                return false;
+            },
+            null => {
+            },
         }
 
         self.insert_new_assume_capacity(key, value);
@@ -295,13 +331,16 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) mem::Error!HashMapGetOrPutResult[K, V] {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            return !{
-                key: &self.keys[index],
-                value: &mut self.values[index],
-                found_existing: true,
-            };
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return !{
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {
+            },
         }
 
         let index = self.insert_new_index(allocator, key, value).?;
@@ -318,13 +357,16 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) HashMapGetOrPutResult[K, V] {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            return {
-                key: &self.keys[index],
-                value: &mut self.values[index],
-                found_existing: true,
-            };
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return {
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {
+            },
         }
 
         let index = self.insert_new_index_assume_capacity(key, value);
@@ -341,13 +383,16 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         key: K,
     ) mem::Error!HashMapGetOrPutResult[K, V] {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            return !{
-                key: &self.keys[index],
-                value: &mut self.values[index],
-                found_existing: true,
-            };
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return !{
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {
+            },
         }
 
         let index = self.insert_new_uninitialized_index(allocator, key).?;
@@ -363,13 +408,16 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         key: K,
     ) HashMapGetOrPutResult[K, V] {
         let value_hash = self.hash_key(&key);
-        if ?index = self.find_index(&key, value_hash) {
-            return {
-                key: &self.keys[index],
-                value: &mut self.values[index],
-                found_existing: true,
-            };
-        } or null {
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return {
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {
+            },
         }
 
         let index = self.insert_new_uninitialized_index_assume_capacity(key);
@@ -431,25 +479,31 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn remove(&mut self, key: &K) ?V {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            let value = self.values[index];
-            self.set_ctrl(index, raw::ctrl_deleted);
-            self.len -= 1usize;
-            ?value
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                let value = self.values[index];
+                self.set_ctrl(index, raw::ctrl_deleted);
+                self.len -= 1usize;
+                ?value
+            },
+            null => {
+                null
+            },
         }
     }
 
     pub fn remove_entry(&mut self, key: &K) ?HashMapEntry[K, V] {
-        if ?index = self.find_index(key, self.hash_key(key)) {
-            let found_key = self.keys[index];
-            let value = self.values[index];
-            self.set_ctrl(index, raw::ctrl_deleted);
-            self.len -= 1usize;
-            ?{ key: found_key, value: value }
-        } or null {
-            null
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                let found_key = self.keys[index];
+                let value = self.values[index];
+                self.set_ctrl(index, raw::ctrl_deleted);
+                self.len -= 1usize;
+                ?{ key: found_key, value: value }
+            },
+            null => {
+                null
+            },
         }
     }
 
@@ -469,10 +523,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if additional <= self.growth_left {
             return !{};
         }
-        let needed = if ?value = self.len.checked_add(additional) {
-            value
-        } or null {
-            return mem::Error::OutOfMemory!;
+        let needed = switch self.len.checked_add(additional) {
+            ?value => {
+                value
+            },
+            null => {
+                return mem::Error::OutOfMemory!;
+            },
         };
         if needed <= self.capacity() {
             self.rehash_to_buckets(allocator, self.bucket_capacity()).?;
@@ -607,33 +664,48 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if keys_layout.is_empty() {
             self.keys = raw::dangling_len_slice[K](capacity);
         } else {
-            if !keys_block = allocator.alloc(keys_layout) {
-                self.keys = keys_block.as_slice[K]();
-            } or err! {
-                if !ok = allocator.free(ctrl_block) {
-                    _ = ok;
-                } or error! {}
-                return err!;
+            switch allocator.alloc(keys_layout) {
+                !keys_block => {
+                    self.keys = keys_block.as_slice[K]();
+                },
+                err! => {
+                    switch allocator.free(ctrl_block) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        error! => {},
+                    }
+                    return err!;
+                },
             }
         }
 
         if values_layout.is_empty() {
             self.values = raw::dangling_len_slice[V](capacity);
         } else {
-            if !values_block = allocator.alloc(values_layout) {
-                self.values = values_block.as_slice[V]();
-            } or err! {
-                if not keys_layout.is_empty() {
-                    let key_block = mem::Block::init(self.keys.ptr_mut() as &mut u8, keys_layout);
-                    if !ok = allocator.free(key_block) {
-                        _ = ok;
-                    } or error! {}
-                }
-                if !ok = allocator.free(ctrl_block) {
-                    _ = ok;
-                } or error! {}
-                self.keys = raw::dangling_slice[K]();
-                return err!;
+            switch allocator.alloc(values_layout) {
+                !values_block => {
+                    self.values = values_block.as_slice[V]();
+                },
+                err! => {
+                    if not keys_layout.is_empty() {
+                        let key_block = mem::Block::init(self.keys.ptr_mut() as &mut u8, keys_layout);
+                        switch allocator.free(key_block) {
+                            !ok => {
+                                _ = ok;
+                            },
+                            error! => {},
+                        }
+                    }
+                    switch allocator.free(ctrl_block) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        error! => {},
+                    }
+                    self.keys = raw::dangling_slice[K]();
+                    return err!;
+                },
             }
         }
 
@@ -649,44 +721,62 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         let mut first_error: ?mem::Error = null;
         if self.ctrl.len() != 0usize {
             let layout = mem::Layout::array[u8](self.ctrl.len()).?;
-            if !ok = allocator.free(mem::Block::init(self.ctrl.ptr_mut() as &mut u8, layout)) {
-                _ = ok;
-            } or err! {
-                first_error = ?err;
+            switch allocator.free(mem::Block::init(self.ctrl.ptr_mut() as &mut u8, layout)) {
+                !ok => {
+                    _ = ok;
+                },
+                err! => {
+                    first_error = ?err;
+                },
             }
         }
         if self.keys.len() != 0usize {
             let layout = mem::Layout::array[K](self.bucket_count).?;
             if not layout.is_empty() {
-                if !ok = allocator.free(mem::Block::init(self.keys.ptr_mut() as &mut u8, layout)) {
-                    _ = ok;
-                } or err! {
-                    if ?value = first_error {
-                        _ = value;
-                    } or null {
-                        first_error = ?err;
-                    }
+                switch allocator.free(mem::Block::init(self.keys.ptr_mut() as &mut u8, layout)) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    err! => {
+                        switch first_error {
+                            ?value => {
+                                _ = value;
+                            },
+                            null => {
+                                first_error = ?err;
+                            },
+                        }
+                    },
                 }
             }
         }
         if self.values.len() != 0usize {
             let layout = mem::Layout::array[V](self.bucket_count).?;
             if not layout.is_empty() {
-                if !ok = allocator.free(mem::Block::init(self.values.ptr_mut() as &mut u8, layout)) {
-                    _ = ok;
-                } or err! {
-                    if ?value = first_error {
-                        _ = value;
-                    } or null {
-                        first_error = ?err;
-                    }
+                switch allocator.free(mem::Block::init(self.values.ptr_mut() as &mut u8, layout)) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    err! => {
+                        switch first_error {
+                            ?value => {
+                                _ = value;
+                            },
+                            null => {
+                                first_error = ?err;
+                            },
+                        }
+                    },
                 }
             }
         }
-        if ?err = first_error {
-            err!
-        } or null {
-            !{}
+        switch first_error {
+            ?err => {
+                err!
+            },
+            null => {
+                !{}
+            },
         }
     }
 }

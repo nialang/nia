@@ -36,11 +36,14 @@ where I: Iterator
         if self.remaining == 0usize {
             return null;
         }
-        if ?value = self.iter.next() {
-            self.remaining -= 1usize;
-            ?value
-        } or null {
-            null
+        switch self.iter.next() {
+            ?value => {
+                self.remaining -= 1usize;
+                ?value
+            },
+            null => {
+                null
+            },
         }
     }
 }
@@ -52,11 +55,14 @@ where I: DoubleEndedIterator
         if self.remaining == 0usize {
             return null;
         }
-        if ?value = self.iter.next_back() {
-            self.remaining -= 1usize;
-            ?value
-        } or null {
-            null
+        switch self.iter.next_back() {
+            ?value => {
+                self.remaining -= 1usize;
+                ?value
+            },
+            null => {
+                null
+            },
         }
     }
 }
@@ -99,11 +105,14 @@ where I: Iterator
         let mut total = 0usize;
         let mut done = false;
         while done == false {
-            if ?value = iter.next() {
-                _ = value;
-                total += 1usize;
-            } or null {
-                done = true;
+            switch iter.next() {
+                ?value => {
+                    _ = value;
+                    total += 1usize;
+                },
+                null => {
+                    done = true;
+                },
             }
         }
         total

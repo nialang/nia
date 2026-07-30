@@ -45,10 +45,13 @@ extend Layout {
     where T: Sized
     {
         let elem_len = std::builtin::size[T]();
-        let size = if ?value = elem_len.checked_mul(count) {
-            value
-        } or null {
-            return Error::OutOfMemory!;
+        let size = switch elem_len.checked_mul(count) {
+            ?value => {
+                value
+            },
+            null => {
+                return Error::OutOfMemory!;
+            },
         };
         Layout::init(size, std::builtin::align[T]())
     }

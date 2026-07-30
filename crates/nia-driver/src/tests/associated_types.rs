@@ -158,10 +158,13 @@ where B: Back
 
 fn main() i32 {
     let mut counter: Counter = { value: 7 };
-    if ?value = read_back[Counter](&mut counter) {
-        value
-    } or null {
-        0
+    switch read_back[Counter](&mut counter) {
+        ?value => {
+            value
+        },
+        null => {
+            0
+        },
     }
 }
 "#,
@@ -201,10 +204,13 @@ extend[T] Box[T] : Back {
 
 fn main() i32 {
     let mut value: Box[i32] = { value: 7 };
-    if ?item = value.next_back() {
-        item
-    } or null {
-        0
+    switch value.next_back() {
+        ?item => {
+            item
+        },
+        null => {
+            0
+        },
     }
 }
 "#,
@@ -244,10 +250,13 @@ extend[T] Box[T] : Back {
 
 fn main() i32 {
     let mut value: Box[i32] = { value: 7 };
-    if ?item = value.next_back() {
-        item
-    } or null {
-        0
+    switch value.next_back() {
+        ?item => {
+            item
+        },
+        null => {
+            0
+        },
     }
 }
 "#,
@@ -344,10 +353,13 @@ where R: Reader
 fn main() i32 {
     let mut source: Source = {};
     let mut limit: Limit[Source] = { reader: &source };
-    if !n = limit.read() {
-        n as i32
-    } or error! {
-        1
+    switch limit.read() {
+        !n => {
+            n as i32
+        },
+        error! => {
+            1
+        },
     }
 }
 "#,
@@ -1071,10 +1083,13 @@ extend Device : Reader {
 
 fn main() i32 {
     let mut device: Device = {};
-    if !value = device.read() {
-        value
-    } or error! {
-        0
+    switch device.read() {
+        !value => {
+            value
+        },
+        error! => {
+            0
+        },
     }
 }
 "#,

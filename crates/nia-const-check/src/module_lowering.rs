@@ -405,10 +405,8 @@ impl ConstModuleLowerer<'_> {
             }
             nia_ast::ExprKind::IfPattern(if_pattern) => {
                 self.collect_expr_locals(&if_pattern.target, out);
-                for arm in &if_pattern.arms {
-                    self.collect_pattern_locals(&arm.pattern, out);
-                    self.collect_block_locals(&arm.body, out);
-                }
+                self.collect_pattern_locals(&if_pattern.pattern, out);
+                self.collect_block_locals(&if_pattern.then_branch, out);
                 if let Some(else_branch) = if_pattern.else_branch.as_deref() {
                     self.collect_expr_locals(else_branch, out);
                 }

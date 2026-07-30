@@ -36,19 +36,25 @@ extend FixedBufferAllocator {
             return true;
         }
         let base = self.buffer.ptr() as usize;
-        let limit = if ?value = base.checked_add(self.buffer.len()) {
-            value
-        } or null {
-            return false;
+        let limit = switch base.checked_add(self.buffer.len()) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
         let addr = block.ptr() as usize;
         if addr < base {
             return false;
         }
-        let end = if ?value = addr.checked_add(block.size()) {
-            value
-        } or null {
-            return false;
+        let end = switch addr.checked_add(block.size()) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
         end <= limit
     }
@@ -58,15 +64,21 @@ extend FixedBufferAllocator {
             return false;
         }
         let base = self.buffer.ptr() as usize;
-        let cursor = if ?value = base.checked_add(self.end_index) {
-            value
-        } or null {
-            return false;
+        let cursor = switch base.checked_add(self.end_index) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
-        let block_end = if ?value = (block.ptr() as usize).checked_add(block.size()) {
-            value
-        } or null {
-            return false;
+        let block_end = switch (block.ptr() as usize).checked_add(block.size()) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
         block_end == cursor
     }
@@ -79,21 +91,30 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let base = self.buffer.ptr_mut() as usize;
-        let current = if ?value = base.checked_add(self.end_index) {
-            value
-        } or null {
-            return Error::OutOfMemory!;
+        let current = switch base.checked_add(self.end_index) {
+            ?value => {
+                value
+            },
+            null => {
+                return Error::OutOfMemory!;
+            },
         };
-        let aligned = if ?value = current.align_forward(layout.align()) {
-            value
-        } or null {
-            return Error::OutOfMemory!;
+        let aligned = switch current.align_forward(layout.align()) {
+            ?value => {
+                value
+            },
+            null => {
+                return Error::OutOfMemory!;
+            },
         };
         let offset = aligned - base;
-        let new_end = if ?value = offset.checked_add(layout.size()) {
-            value
-        } or null {
-            return Error::OutOfMemory!;
+        let new_end = switch offset.checked_add(layout.size()) {
+            ?value => {
+                value
+            },
+            null => {
+                return Error::OutOfMemory!;
+            },
         };
         if new_end > self.buffer.len() {
             return Error::OutOfMemory!;
@@ -122,10 +143,13 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let add = new_layout.size() - block.size();
-        let new_end = if ?value = self.end_index.checked_add(add) {
-            value
-        } or null {
-            return false;
+        let new_end = switch self.end_index.checked_add(add) {
+            ?value => {
+                value
+            },
+            null => {
+                return false;
+            },
         };
         if new_end > self.buffer.len() {
             return false;

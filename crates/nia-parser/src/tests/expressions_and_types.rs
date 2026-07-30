@@ -624,18 +624,21 @@ fn parses_optional_and_error_union_if_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn optional(value: ?i32) i32 {
-    if ?x = value {
+    if value is ?x {
         x
-    } or null {
+    } else {
         0
     }
 }
 
 fn error_union(value: i32!i32) i32 {
-    if !x = value {
-        x
-    } or e! {
-        e
+    switch value {
+        !x => {
+            x
+        },
+        e! => {
+            e
+        },
     }
 }
 "#,
@@ -652,12 +655,9 @@ fn error_union(value: i32!i32) i32 {
         panic!("expected if pattern");
     };
     assert!(matches!(
-        &if_pattern.arms[0].pattern.kind,
+        &if_pattern.pattern.kind,
         PatternKind::OptionalSome(inner)
             if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("x"))
     ));
-    assert!(matches!(
-        &if_pattern.arms[1].pattern.kind,
-        PatternKind::OptionalNull
-    ));
+    assert!(if_pattern.else_branch.is_some());
 }

@@ -89,30 +89,33 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
     while parsing_flags and index < template.len() {
         let ch = template[index];
         if index + 1usize < template.len() {
-            if ?parsed_alignment = parse_alignment(template[index + 1usize]) {
+            if parse_alignment(template[index + 1usize]) is ?parsed_alignment {
                 fill = ch;
                 alignment = parsed_alignment;
                 index += 2usize;
                 continue;
             }
         }
-        if ?parsed_alignment = parse_alignment(ch) {
-            alignment = parsed_alignment;
-            index += 1usize;
-        } or null {
-            if ch == '0' {
-                    fill = '0';
-                    alignment = core::FormatAlignment::Right;
-                    index += 1usize;
-                } else if ch == '+' and not sign_plus {
-                    sign_plus = true;
-                    index += 1usize;
-                } else if ch == '#' and not alternate {
-                    alternate = true;
-                    index += 1usize;
-                } else {
-                    parsing_flags = false;
-                }
+        switch parse_alignment(ch) {
+            ?parsed_alignment => {
+                alignment = parsed_alignment;
+                index += 1usize;
+            },
+            null => {
+                if ch == '0' {
+                        fill = '0';
+                        alignment = core::FormatAlignment::Right;
+                        index += 1usize;
+                    } else if ch == '+' and not sign_plus {
+                        sign_plus = true;
+                        index += 1usize;
+                    } else if ch == '#' and not alternate {
+                        alternate = true;
+                        index += 1usize;
+                    } else {
+                        parsing_flags = false;
+                    }
+            },
         }
     }
 
@@ -123,10 +126,13 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         index += 2usize;
     } else {
         while index < template.len() {
-            let digit = if ?digit = digit_value(template[index]) {
-                digit
-            } or null {
-                break;
+            let digit = switch digit_value(template[index]) {
+                ?digit => {
+                    digit
+                },
+                null => {
+                    break;
+                },
             };
             width = width * 10usize + digit;
             index += 1usize;
@@ -144,10 +150,13 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
             let mut parsed_precision = 0usize;
             let mut has_digit = false;
             while index < template.len() {
-                let digit = if ?digit = digit_value(template[index]) {
-                    digit
-                } or null {
-                    break;
+                let digit = switch digit_value(template[index]) {
+                    ?digit => {
+                        digit
+                    },
+                    null => {
+                        break;
+                    },
                 };
                 parsed_precision = parsed_precision * 10usize + digit;
                 has_digit = true;
@@ -162,7 +171,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
 
     let mut presentation = core::FormatPresentation::Display;
     if index < template.len() {
-        if ?parsed = parse_presentation(template[index]) {
+        if parse_presentation(template[index]) is ?parsed {
             presentation = parsed;
             index += 1usize;
         }
@@ -190,10 +199,13 @@ fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize, checked_args: b
     if arg_index.* >= args.len() {
         return core::Error::InvalidTemplate!;
     }
-    let value = if ?value = args[arg_index.*].format_usize_arg() {
-        value
-    } or null {
-        return core::Error::InvalidTemplate!;
+    let value = switch args[arg_index.*].format_usize_arg() {
+        ?value => {
+            value
+        },
+        null => {
+            return core::Error::InvalidTemplate!;
+        },
     };
     arg_index.* += 1usize;
     !value

@@ -76,9 +76,12 @@ extend Command {
         options.set_stdin(self.stdin.as_os_stdio().?).as_process_setup_error().?;
         options.set_stdout(self.stdout.as_os_stdio().?).as_process_setup_error().?;
         options.set_stderr(self.stderr.as_os_stdio().?).as_process_setup_error().?;
-        if ?cwd = self.cwd {
-            options.set_cwd(cwd.raw_ptr());
-        } or null {}
+        switch self.cwd {
+            ?cwd => {
+                options.set_cwd(cwd.raw_ptr());
+            },
+            null => {},
+        }
         spawn_with_options(self.path.raw_ptr(), self.argv, self.envp, options)
     }
 

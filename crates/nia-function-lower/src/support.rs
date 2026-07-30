@@ -581,9 +581,7 @@ impl FunctionLowerer<'_> {
                 }
             }
             TypedExprKind::IfPattern(if_pattern) => {
-                for arm in &if_pattern.arms {
-                    self.collect_body_locals(&arm.body, locals);
-                }
+                self.collect_body_locals(&if_pattern.then_branch, locals);
                 if let Some(else_branch) = &if_pattern.else_branch {
                     self.collect_expr_locals(else_branch, locals);
                 }
@@ -830,10 +828,8 @@ impl FunctionLowerer<'_> {
                 }
                 TypedExprKind::IfPattern(if_pattern) => {
                     visit_expr(&if_pattern.target, max_id);
-                    for arm in &if_pattern.arms {
-                        visit_pattern(&arm.pattern, max_id);
-                        visit_body(&arm.body, max_id);
-                    }
+                    visit_pattern(&if_pattern.pattern, max_id);
+                    visit_body(&if_pattern.then_branch, max_id);
                     if let Some(else_branch) = &if_pattern.else_branch {
                         visit_expr(else_branch, max_id);
                     }

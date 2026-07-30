@@ -33,10 +33,13 @@ fn into_error(self) Target {
 
 fn main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
-if !ok = value.cast_error() {
-    ok
-} or error! {
-    error.value
+switch value.cast_error() {
+    !ok => {
+        ok
+    },
+    error! => {
+        error.value
+    },
 }
 }
 "#,
@@ -55,10 +58,13 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 pub fn cast_error(self) Target!T {
-    if !ok = self {
-        !ok
-    } or error! {
-        error.into_error()!
+    switch self {
+        !ok => {
+            !ok
+        },
+        error! => {
+            error.into_error()!
+        },
     }
 }
 }
@@ -113,10 +119,13 @@ using entry::impls;
 
 fn main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
-if !ok = value.cast_error() {
-    ok
-} or error! {
-    error.value
+switch value.cast_error() {
+    !ok => {
+        ok
+    },
+    error! => {
+        error.value
+    },
 }
 }
 "#,
@@ -135,10 +144,13 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 pub fn cast_error(self) Target!T {
-    if !ok = self {
-        !ok
-    } or error! {
-        error.into_error()!
+    switch self {
+        !ok => {
+            !ok
+        },
+        error! => {
+            error.into_error()!
+        },
     }
 }
 }
@@ -207,10 +219,13 @@ using entry::impls;
 
 fn main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
-if !ok = value.as_target_error() {
-    ok
-} or error! {
-    error.value
+switch value.as_target_error() {
+    !ok => {
+        ok
+    },
+    error! => {
+        error.value
+    },
 }
 }
 "#,
@@ -229,10 +244,13 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 pub fn cast_error(self) Target!T {
-    if !ok = self {
-        !ok
-    } or error! {
-        error.into_error()!
+    switch self {
+        !ok => {
+            !ok
+        },
+        error! => {
+            error.into_error()!
+        },
     }
 }
 }

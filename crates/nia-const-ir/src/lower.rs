@@ -1499,17 +1499,14 @@ fn lower_if_pattern_as_switch(
     if_pattern: &nia_ast::IfPatternExpr,
     context: &dyn ConstLowerContext,
 ) -> Result<EarlyConstSwitch, ConstLowerError> {
-    let mut arms = if_pattern
-        .arms
-        .iter()
-        .map(|arm| {
-            Ok(EarlyConstSwitchArm {
-                span: arm.span,
-                patterns: vec![lower_pattern_with_context(&arm.pattern, context)?],
-                body: EarlyConstSwitchArmBody::Block(lower_block_with_context(&arm.body, context)?),
-            })
-        })
-        .collect::<Result<Vec<_>, ConstLowerError>>()?;
+    let mut arms = vec![EarlyConstSwitchArm {
+        span: if_pattern.then_branch.span,
+        patterns: vec![lower_pattern_with_context(&if_pattern.pattern, context)?],
+        body: EarlyConstSwitchArmBody::Block(lower_block_with_context(
+            &if_pattern.then_branch,
+            context,
+        )?),
+    }];
     if let Some(else_branch) = &if_pattern.else_branch {
         arms.push(EarlyConstSwitchArm {
             span: else_branch.span,

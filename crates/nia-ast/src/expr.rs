@@ -80,15 +80,9 @@ pub struct LoopStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfPatternExpr {
     pub target: Expr,
-    pub arms: Vec<IfPatternArm>,
-    pub else_branch: Option<Box<Expr>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct IfPatternArm {
     pub pattern: Pattern,
-    pub body: Block,
-    pub span: Span,
+    pub then_branch: Block,
+    pub else_branch: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

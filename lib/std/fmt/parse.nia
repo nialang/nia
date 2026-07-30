@@ -132,10 +132,13 @@ where U: AsciiParseUnit
     let mut value = 0u128;
     let radix_wide = radix as u128;
     while index < input.len() {
-        let digit = if ?value = ascii_digit_value[U](input[index]) {
-            value
-        } or null {
-            return ParseError::InvalidDigit!;
+        let digit = switch ascii_digit_value[U](input[index]) {
+            ?value => {
+                value
+            },
+            null => {
+                return ParseError::InvalidDigit!;
+            },
         };
         if digit >= radix {
             return ParseError::InvalidDigit!;
@@ -193,10 +196,13 @@ where U: AsciiParseUnit
     let mut value = 0u128;
     let radix_wide = radix as u128;
     while index < input.len() {
-        let digit = if ?value = ascii_digit_value[U](input[index]) {
-            value
-        } or null {
-            return ParseError::InvalidDigit!;
+        let digit = switch ascii_digit_value[U](input[index]) {
+            ?value => {
+                value
+            },
+            null => {
+                return ParseError::InvalidDigit!;
+            },
         };
         if digit >= radix {
             return ParseError::InvalidDigit!;

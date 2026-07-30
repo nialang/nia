@@ -577,10 +577,8 @@ impl LocalDefinitionAllocator {
             }
             ExprKind::IfPattern(if_pattern) => {
                 self.allocate_expr(&if_pattern.target);
-                for arm in &if_pattern.arms {
-                    self.allocate_pattern(&arm.pattern, LocalKind::ImmutableBinding);
-                    self.allocate_block(&arm.body);
-                }
+                self.allocate_pattern(&if_pattern.pattern, LocalKind::ImmutableBinding);
+                self.allocate_block(&if_pattern.then_branch);
                 if let Some(else_branch) = &if_pattern.else_branch {
                     self.allocate_expr(else_branch);
                 }
@@ -1092,16 +1090,14 @@ impl<'a> LocalResolver<'a> {
             }
             ExprKind::IfPattern(if_pattern) => {
                 self.resolve_expr(&if_pattern.target);
-                for arm in &if_pattern.arms {
-                    self.push_scope();
-                    self.resolve_pattern(
-                        &arm.pattern,
-                        LocalKind::ImmutableBinding,
-                        "duplicate if pattern binding",
-                    );
-                    self.resolve_block(&arm.body);
-                    self.pop_scope();
-                }
+                self.push_scope();
+                self.resolve_pattern(
+                    &if_pattern.pattern,
+                    LocalKind::ImmutableBinding,
+                    "duplicate if pattern binding",
+                );
+                self.resolve_block(&if_pattern.then_branch);
+                self.pop_scope();
                 if let Some(else_branch) = &if_pattern.else_branch {
                     self.resolve_expr(else_branch);
                 }

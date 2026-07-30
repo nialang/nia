@@ -146,32 +146,29 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
                         kind: TypedExprKind::Local(target_local),
                     },
                     bool_ty: ty,
-                    arms: vec![TypedIfPatternArm {
-                        pattern: TypedPattern {
-                            ty,
-                            span,
-                            kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
-                                ty,
-                                span,
-                                kind: TypedPatternKind::Bind {
-                                    local_id: payload_local,
-                                    name: local_name("x"),
-                                },
-                            })),
-                        },
-                        body: TypedBody {
-                            span,
-                            locals: Vec::new(),
-                            stmts: Vec::new(),
-                            tail: Some(Box::new(TypedExpr {
-                                span,
-                                ty,
-                                kind: TypedExprKind::Local(payload_local),
-                            })),
-                            ty,
-                        },
+                    pattern: TypedPattern {
+                        ty,
                         span,
-                    }],
+                        kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
+                            ty,
+                            span,
+                            kind: TypedPatternKind::Bind {
+                                local_id: payload_local,
+                                name: local_name("x"),
+                            },
+                        })),
+                    },
+                    then_branch: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: Vec::new(),
+                        tail: Some(Box::new(TypedExpr {
+                            span,
+                            ty,
+                            kind: TypedExprKind::Local(payload_local),
+                        })),
+                        ty,
+                    },
                     else_branch: Some(Box::new(int_expr(0))),
                 })),
             }),
@@ -361,22 +358,19 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
                         kind: TypedExprKind::Local(target_local),
                     },
                     bool_ty: append.intern(TyKind::Primitive(PrimitiveTy::Bool)),
-                    arms: vec![TypedIfPatternArm {
-                        pattern: TypedPattern {
-                            ty: error_ty,
-                            span,
-                            kind: TypedPatternKind::ErrorOk(Box::new(TypedPattern {
-                                ty: i32_ty,
-                                span,
-                                kind: TypedPatternKind::Bind {
-                                    local_id: payload_local,
-                                    name: local_name("x"),
-                                },
-                            })),
-                        },
-                        body: empty_body(void_ty),
+                    pattern: TypedPattern {
+                        ty: error_ty,
                         span,
-                    }],
+                        kind: TypedPatternKind::ErrorOk(Box::new(TypedPattern {
+                            ty: i32_ty,
+                            span,
+                            kind: TypedPatternKind::Bind {
+                                local_id: payload_local,
+                                name: local_name("x"),
+                            },
+                        })),
+                    },
+                    then_branch: empty_body(void_ty),
                     else_branch: None,
                 })),
             }),
@@ -431,50 +425,30 @@ fn value_if_pattern_caches_target_and_stores_payload_binding() {
                 kind: TypedExprKind::Local(target_local),
             },
             bool_ty: ty,
-            arms: vec![
-                TypedIfPatternArm {
-                    pattern: TypedPattern {
-                        ty,
-                        span,
-                        kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
-                            ty,
-                            span,
-                            kind: TypedPatternKind::Bind {
-                                local_id: payload_local,
-                                name: local_name("payload"),
-                            },
-                        })),
-                    },
-                    body: TypedBody {
-                        span,
-                        locals: Vec::new(),
-                        stmts: Vec::new(),
-                        tail: Some(Box::new(TypedExpr {
-                            span,
-                            ty,
-                            kind: TypedExprKind::Local(payload_local),
-                        })),
-                        ty,
-                    },
+            pattern: TypedPattern {
+                ty,
+                span,
+                kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
+                    ty,
                     span,
-                },
-                TypedIfPatternArm {
-                    pattern: TypedPattern {
-                        ty,
-                        span,
-                        kind: TypedPatternKind::OptionalNull,
+                    kind: TypedPatternKind::Bind {
+                        local_id: payload_local,
+                        name: local_name("payload"),
                     },
-                    body: TypedBody {
-                        span,
-                        locals: Vec::new(),
-                        stmts: Vec::new(),
-                        tail: Some(Box::new(int_expr(0))),
-                        ty,
-                    },
+                })),
+            },
+            then_branch: TypedBody {
+                span,
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                tail: Some(Box::new(TypedExpr {
                     span,
-                },
-            ],
-            else_branch: None,
+                    ty,
+                    kind: TypedExprKind::Local(payload_local),
+                })),
+                ty,
+            },
+            else_branch: Some(Box::new(int_expr(0))),
         })),
     };
     let body = TypedBody {
@@ -565,32 +539,29 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
                 kind: TypedExprKind::Local(target_local),
             },
             bool_ty: ty,
-            arms: vec![TypedIfPatternArm {
-                pattern: TypedPattern {
-                    ty,
-                    span,
-                    kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
-                        ty,
-                        span,
-                        kind: TypedPatternKind::Bind {
-                            local_id: payload_local,
-                            name: local_name("payload"),
-                        },
-                    })),
-                },
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(TypedExpr {
-                        span,
-                        ty,
-                        kind: TypedExprKind::Local(payload_local),
-                    })),
-                    ty,
-                },
+            pattern: TypedPattern {
+                ty,
                 span,
-            }],
+                kind: TypedPatternKind::OptionalSome(Box::new(TypedPattern {
+                    ty,
+                    span,
+                    kind: TypedPatternKind::Bind {
+                        local_id: payload_local,
+                        name: local_name("payload"),
+                    },
+                })),
+            },
+            then_branch: TypedBody {
+                span,
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                tail: Some(Box::new(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Local(payload_local),
+                })),
+                ty,
+            },
             else_branch: Some(Box::new(TypedExpr {
                 span,
                 ty,
