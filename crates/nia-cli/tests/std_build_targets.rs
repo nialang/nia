@@ -121,8 +121,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
             return (2 as process::ExitCode)!;
         },
-        error! => if error != build::Error::InvalidTarget {
-            return (3 as process::ExitCode)!;
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::ArtifactTarget,
+            } => {},
+            _ => return (3 as process::ExitCode)!,
         },
     }
     !{}

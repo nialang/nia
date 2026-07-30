@@ -1163,6 +1163,30 @@ crosses all three former limits, compiles, links, and launches its artifact.
 Phase C remains open for contextual errors and the remaining invalid UTF-8/path,
 unavailable file, process failure, partial-I/O, and cleanup conformance matrix.
 
+Phase C progress (2026-07-30): the fifth batch replaces coarse bootstrap build
+errors with payload-enum diagnostics that retain operation, indexed subject,
+and the exact memory, formatting, filesystem, process, or child-termination
+cause. Path/target decoding, retained input construction, argv assembly,
+compiler execution, reporting, step cycles, and failed-step propagation all
+use the same model. The generated runner reports initialization and defer
+cleanup failures before a `Build` exists, and reports build-script/action
+failures before telemetry, so an exit status is never the only user-visible
+failure. Focused execution proves missing compiler `SpawnExec`, compiler exit
+code 1, embedded-NUL module path, and rollback release failures preserve exact
+context. The fault allocator was corrected after the probe showed that failing
+`free` on an empty growth block produced false evidence: cleanup fault
+injection now applies only to non-empty owned blocks, and the asserted
+`Release/PackageRoot/FileSystem(Invalid)` path genuinely comes from rollback.
+Error formatting also stopped returning slices to function-local string
+literals; Nia has no inferred borrow lifetime, so such a view cannot escape its
+frame. Adding early runner reporting exposed a compiler ICE where identical
+trait-object vtables materialized in two modules gave default methods different
+argument-module identities. Default vtable methods now use their trait
+definition module, while selected implementations keep the actual use-module
+context; the full 12-case runner integration passes. Phase C remains open for
+the unavailable-file and partial-I/O conformance cases plus facade/provider
+isolation of ordinary programs.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

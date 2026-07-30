@@ -437,7 +437,7 @@ impl<'a> ModuleLowerer<'a> {
                 module_id: source_trait_id.module_id,
                 def_id: method.def_id,
             };
-            let Some((def_id, self_arg, args)) = self
+            let Some((def_id, arg_module_id, self_arg, args)) = self
                 .resolve_trait_method_impl(
                     source_trait_id,
                     trait_args,
@@ -445,10 +445,20 @@ impl<'a> ModuleLowerer<'a> {
                     &method.name,
                     self_ty,
                 )
-                .map(|(def_id, args)| (def_id, None, args))
+                .map(|(def_id, args)| (def_id, self.input.module_id, None, args))
                 .or_else(|| {
                     if self.trait_method_has_default(method_id) {
-                        Some((method_id, Some(self_ty), trait_args.to_vec()))
+                        // A default method is defined and type-checked in the
+                        // trait's module.  Using the module currently
+                        // materializing a vtable creates duplicate instances
+                        // for the same concrete `(self, object)` pair when a
+                        // facade and its consumer both reference the vtable.
+                        Some((
+                            method_id,
+                            source_trait_id.module_id,
+                            Some(self_ty),
+                            trait_args.to_vec(),
+                        ))
                     } else {
                         None
                     }
@@ -462,7 +472,7 @@ impl<'a> ModuleLowerer<'a> {
                 let args = self.canonicalize_instance_args(&args);
                 BackendTraitObjectVtableFunction::FunctionInstance {
                     def_id,
-                    arg_module_id: self.input.module_id,
+                    arg_module_id,
                     self_arg,
                     args,
                     const_args: Vec::new(),

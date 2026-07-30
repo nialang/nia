@@ -679,7 +679,7 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule]) {
                 owner.trait_id == vtable.trait_id
                     && owner.trait_args == vtable.trait_args
                     && owner.entries == vtable.entries,
-                "Nia ICE: trait-object vtable {:?} has conflicting definitions in modules {:?} and {:?}",
+                "Nia ICE: trait-object vtable {:?} has conflicting definitions in modules {:?} and {:?}: owner={owner:?}, duplicate={vtable:?}",
                 vtable.key,
                 owner_module.id,
                 module.id

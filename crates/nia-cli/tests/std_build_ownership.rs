@@ -15,6 +15,7 @@ fn build_owned_inputs_roll_back_partial_allocations() {
         r#"
 using std::build;
 using std::fs;
+using std::io;
 using std::mem;
 using std::process;
 using std::string;
@@ -73,10 +74,10 @@ extend FaultAllocator : mem::Allocator {
                 return mem::Error::Invalid!;
             }
             self.activeAllocations -= 1usize;
-        }
-        if self.failFree {
-            self.failFree = false;
-            return mem::Error::Invalid!;
+            if self.failFree {
+                self.failFree = false;
+                return mem::Error::Invalid!;
+            }
         }
         !{}
     }
@@ -85,6 +86,94 @@ extend FaultAllocator : mem::Allocator {
 fn testTarget(text: &[char]) build::TargetView {
     let value = string::StringView::init(text);
     build::TargetView::init(value, value, value, value, value, value, 64u32)
+}
+
+fn isBuildDirRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::BuildDir,
+            cause: build::ErrorCause::FileSystem(fs::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isTargetRetainOom(error: build::Error, host: bool) bool {
+    if host {
+        switch error {
+            build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: build::ErrorSubject::HostTarget,
+                cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+            } => true,
+            _ => false,
+        }
+    } else {
+        switch error {
+            build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: build::ErrorSubject::ArtifactTarget,
+                cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+            } => true,
+            _ => false,
+        }
+    }
+}
+
+fn isPackageRootReleaseInvalid(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Release,
+            subject: build::ErrorSubject::PackageRoot,
+            cause: build::ErrorCause::FileSystem(fs::Error::Invalid),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isImportRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::ModuleImport(1usize),
+            cause: build::ErrorCause::FileSystem(fs::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isExecutableRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Executable(0usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isCommandAssemblyOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::AssembleCommand,
+            subject,
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => {
+            _ = subject;
+            true
+        },
+        _ => false,
+    }
+}
+
+fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!void {
+    let mut buffer: [512]u8 = [_]u8[0; 512];
+    let mut stderr = io::FileWriter::stderr(init.io(), &mut buffer[..]);
+    stderr.print(&"unexpected build error: {}\n", &[&error]).exit().?;
+    stderr.flush().exit().?;
+    !{}
 }
 
 fn checkInitRollback(init: process::Init) process::ExitCode!void {
@@ -112,7 +201,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
             return (1 as process::ExitCode)!;
         },
         err! => {
-            if err != build::Error::OutOfMemory {
+            if not isBuildDirRetainOom(err) {
                 return (2 as process::ExitCode)!;
             }
         },
@@ -147,8 +236,11 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
             unexpected.deinit().exit().?;
             return (14 as process::ExitCode)!;
         },
-        err! => if err != build::Error::OutOfMemory {
-            return (15 as process::ExitCode)!;
+        err! => {
+            let host = successfulAllocations == 7usize;
+            if not isTargetRetainOom(err, host) {
+                return (15 as process::ExitCode)!;
+            }
         },
     }
     if allocator.activeAllocations != 0usize {
@@ -183,7 +275,8 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
             return (11 as process::ExitCode)!;
         },
         err! => {
-            if err == build::Error::OutOfMemory {
+            if not isPackageRootReleaseInvalid(err) {
+                reportUnexpected(init, err).?;
                 return (12 as process::ExitCode)!;
             }
         },
@@ -234,7 +327,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
             return (4 as process::ExitCode)!;
         },
         err! => {
-            if err != build::Error::OutOfMemory {
+            if not isImportRetainOom(err) {
                 return (5 as process::ExitCode)!;
             }
         },
@@ -257,7 +350,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
             return (7 as process::ExitCode)!;
         },
         err! => {
-            if err != build::Error::OutOfMemory {
+            if not isExecutableRetainOom(err) {
                 return (8 as process::ExitCode)!;
             }
         },
@@ -316,7 +409,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
             _ = ok;
             return (17 as process::ExitCode)!;
         },
-        err! => if err != build::Error::OutOfMemory {
+        err! => if not isCommandAssemblyOom(err) {
             return (18 as process::ExitCode)!;
         },
     }

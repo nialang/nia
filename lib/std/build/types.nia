@@ -90,6 +90,7 @@ pub union StepPayload {
 }
 
 pub struct Step {
+    index: usize,
     name: string::StringBuf,
     kind: StepKind,
     payload: StepPayload,
@@ -108,6 +109,7 @@ pub struct ModuleOptions {
 }
 
 pub struct Module {
+    index: usize,
     rootSource: fs::PathBuf,
     optimization: OptimizationMode,
     imports: collections::ArrayList[OwnedModuleImport],
@@ -119,6 +121,7 @@ pub struct ModuleImport {
 }
 
 pub struct OwnedModuleImport {
+    index: usize,
     name: string::StringBuf,
     path: fs::PathBuf,
 }
@@ -131,6 +134,7 @@ pub struct ExecutableOptions {
 }
 
 pub struct ExecutableTarget {
+    index: usize,
     name: string::StringBuf,
     rootModule: ModuleHandle,
     outputName: string::StringBuf,

@@ -293,9 +293,45 @@ using std::build;
 using std::collections;
 using std::fmt;
 using std::fs;
+using std::io;
 using std::mem;
 using std::process;
 using buildScript;
+
+extend[T] build::Error!T {
+    fn reportAndExit(self, init: process::Init) process::ExitCode!T {
+        switch self {
+            !value => !value,
+            error! => {
+                let mut buffer: [1024]u8 = [_]u8[0; 1024];
+                let mut stderr = io::FileWriter::stderr(init.io(), &mut buffer[..]);
+                switch stderr.print(&"build error: {}\n", &[&error]).asBuildError(
+                    build::ErrorOperation::Report,
+                    build::ErrorSubject::Diagnostic,
+                ) {
+                    !reported => {
+                        _ = reported;
+                    },
+                    reportError! => {
+                        return reportError.asExitCode()!;
+                    },
+                }
+                switch stderr.flush().asBuildError(
+                    build::ErrorOperation::Report,
+                    build::ErrorSubject::Diagnostic,
+                ) {
+                    !reported => {
+                        _ = reported;
+                    },
+                    reportError! => {
+                        return reportError.asExitCode()!;
+                    },
+                }
+                error.asExitCode()!
+            },
+        }
+    }
+}
 
 struct TargetText {
     arch: collections::ArrayList[char],
@@ -334,14 +370,18 @@ extend TargetText {
         }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) build::Error!void {
+    fn deinit(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        subject: build::ErrorSubject,
+    ) build::Error!void {
         let mut firstError: ?build::Error = null;
-        rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError());
-        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError());
-        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).asBuildError());
-        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).asBuildError());
-        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).asBuildError());
-        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).asBuildError());
+        rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
         if firstError is ?error {
             return error!;
         }
@@ -354,16 +394,20 @@ fn pathArg(
     allocator: &mut mem::Allocator,
     index: usize,
     storage: &mut collections::ArrayList[char],
+    subject: build::ErrorSubject,
 ) build::Error!fs::PathView {
     let arg = switch init.args().get(index) {
         ?value => {
             value
         },
         null => {
-            return build::Error::Internal!;
+            return build::Error::Internal(build::ErrorOperation::Initialize)!;
         },
     };
-    fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).asBuildError()
+    fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).asBuildError(
+        build::ErrorOperation::Encode,
+        subject,
+    )
 }
 
 fn targetArg(
@@ -371,19 +415,20 @@ fn targetArg(
     allocator: &mut mem::Allocator,
     startIndex: usize,
     storage: &mut TargetText,
+    subject: build::ErrorSubject,
 ) build::Error!build::TargetView {
-    let arch = pathArg(init, allocator, startIndex, &mut storage.arch).?.string();
-    let vendor = pathArg(init, allocator, startIndex + 1usize, &mut storage.vendor).?.string();
-    let os = pathArg(init, allocator, startIndex + 2usize, &mut storage.os).?.string();
-    let env = pathArg(init, allocator, startIndex + 3usize, &mut storage.env).?.string();
-    let abi = pathArg(init, allocator, startIndex + 4usize, &mut storage.abi).?.string();
-    let endian = pathArg(init, allocator, startIndex + 5usize, &mut storage.endian).?.string();
+    let arch = pathArg(init, allocator, startIndex, &mut storage.arch, subject).?.string();
+    let vendor = pathArg(init, allocator, startIndex + 1usize, &mut storage.vendor, subject).?.string();
+    let os = pathArg(init, allocator, startIndex + 2usize, &mut storage.os, subject).?.string();
+    let env = pathArg(init, allocator, startIndex + 3usize, &mut storage.env, subject).?.string();
+    let abi = pathArg(init, allocator, startIndex + 4usize, &mut storage.abi, subject).?.string();
+    let endian = pathArg(init, allocator, startIndex + 5usize, &mut storage.endian, subject).?.string();
     let pointerWidthArg = switch init.args().get(startIndex + 6usize) {
         ?value => {
             value
         },
         null => {
-            return build::Error::Internal!;
+            return build::Error::Internal(build::ErrorOperation::Initialize)!;
         },
     };
     let pointerWidth = switch fmt::parse[u32](pointerWidthArg) {
@@ -392,7 +437,10 @@ fn targetArg(
         },
         error! => {
             _ = error;
-            return build::Error::InvalidTarget!;
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: subject,
+            }!;
         },
     };
     !build::TargetView::init(arch, vendor, os, env, abi, endian, pointerWidth)
@@ -420,27 +468,27 @@ pub fn main(init: process::Init) process::ExitCode!void {
     defer allocator.deinit().ok().exit().?;
 
     let mut packageRootText = collections::ArrayList[char]::init();
-    defer packageRootText.deinit(&mut allocator).exit().?;
+    defer packageRootText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
     let mut buildDirText = collections::ArrayList[char]::init();
-    defer buildDirText.deinit(&mut allocator).exit().?;
+    defer buildDirText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildDir).reportAndExit(init).?;
     let mut cacheDirText = collections::ArrayList[char]::init();
-    defer cacheDirText.deinit(&mut allocator).exit().?;
+    defer cacheDirText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::CacheDir).reportAndExit(init).?;
     let mut toolchainText = collections::ArrayList[char]::init();
-    defer toolchainText.deinit(&mut allocator).exit().?;
+    defer toolchainText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
     let mut resourceRootText = collections::ArrayList[char]::init();
-    defer resourceRootText.deinit(&mut allocator).exit().?;
+    defer resourceRootText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
 
-    let packageRoot = pathArg(init, &mut allocator, 1usize, &mut packageRootText).exit().?;
-    let buildDir = pathArg(init, &mut allocator, 2usize, &mut buildDirText).exit().?;
-    let cacheDir = pathArg(init, &mut allocator, 3usize, &mut cacheDirText).exit().?;
-    let toolchainExecutable = pathArg(init, &mut allocator, 4usize, &mut toolchainText).exit().?;
-    let toolchainResourceRoot = pathArg(init, &mut allocator, 5usize, &mut resourceRootText).exit().?;
+    let packageRoot = pathArg(init, &mut allocator, 1usize, &mut packageRootText, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
+    let buildDir = pathArg(init, &mut allocator, 2usize, &mut buildDirText, build::ErrorSubject::BuildDir).reportAndExit(init).?;
+    let cacheDir = pathArg(init, &mut allocator, 3usize, &mut cacheDirText, build::ErrorSubject::CacheDir).reportAndExit(init).?;
+    let toolchainExecutable = pathArg(init, &mut allocator, 4usize, &mut toolchainText, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
+    let toolchainResourceRoot = pathArg(init, &mut allocator, 5usize, &mut resourceRootText, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
     let mut hostTargetText = TargetText::init();
-    defer hostTargetText.deinit(&mut allocator).exit().?;
-    let hostTarget = targetArg(init, &mut allocator, 7usize, &mut hostTargetText).exit().?;
+    defer hostTargetText.deinit(&mut allocator, build::ErrorSubject::HostTarget).reportAndExit(init).?;
+    let hostTarget = targetArg(init, &mut allocator, 7usize, &mut hostTargetText, build::ErrorSubject::HostTarget).reportAndExit(init).?;
     let mut artifactTargetText = TargetText::init();
-    defer artifactTargetText.deinit(&mut allocator).exit().?;
-    let artifactTarget = targetArg(init, &mut allocator, 14usize, &mut artifactTargetText).exit().?;
+    defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
+    let artifactTarget = targetArg(init, &mut allocator, 14usize, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
 
     let mut api = build::Build::init(
         init,
@@ -460,14 +508,22 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
     source.push_str(
-        r#"    ).exit().?;
-    defer api.deinit().exit().?;
+        r#"    ).reportAndExit(init).?;
+    defer api.deinit().reportAndExit(init).?;
 
     switch buildScript::build(&mut api) {
         !ok => {
             _ = ok;
         },
         error! => {
+            switch api.reportError(error) {
+                !reported => {
+                    _ = reported;
+                },
+                reportError! => {
+                    return reportError.asExitCode()!;
+                },
+            }
             switch api.reportActions(false) {
                 !reported => {
                     _ = reported;
@@ -484,6 +540,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
+            switch api.reportError(error) {
+                !reported => {
+                    _ = reported;
+                },
+                reportError! => {
+                    return reportError.asExitCode()!;
+                },
+            }
             switch api.reportActions(false) {
                 !reported => {
                     _ = reported;
@@ -863,10 +927,12 @@ mod tests {
         );
         assert!(runner.source.contains("using std::build;"));
         assert!(runner.source.contains("using std::fs;"));
+        assert!(runner.source.contains("using std::io;"));
         assert!(runner.source.contains("using std::mem;"));
         assert!(runner.source.contains("using buildScript;"));
         assert!(runner.source.contains("fn pathArg("));
         assert!(runner.source.contains("fn targetArg("));
+        assert!(runner.source.contains("fn reportAndExit("));
         assert!(runner.source.contains("fs::PathView::from_utf8_into("));
         assert!(runner.source.contains("let mut api = build::Build::init("));
         assert!(
@@ -898,16 +964,18 @@ mod tests {
         assert!(
             runner
                 .source
-                .contains("targetArg(init, &mut allocator, 7usize, &mut hostTargetText)")
+                .contains("targetArg(init, &mut allocator, 7usize, &mut hostTargetText, build::ErrorSubject::HostTarget)")
         );
         assert!(
             runner
                 .source
-                .contains("targetArg(init, &mut allocator, 14usize, &mut artifactTargetText)")
+                .contains("targetArg(init, &mut allocator, 14usize, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget)")
         );
         assert!(runner.source.contains("hostTarget,"));
         assert!(runner.source.contains("artifactTarget,"));
         assert!(runner.source.contains("21usize,"));
+        assert!(runner.source.contains("api.reportError(error)"));
+        assert!(runner.source.contains(").reportAndExit(init).?;"));
         assert!(runner.source.contains("api.reportActions(false)"));
         assert!(runner.source.contains("api.reportActions(true)"));
         assert!(

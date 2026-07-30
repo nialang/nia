@@ -2924,6 +2924,13 @@ String and byte string literals are array values, not pointers. There is no
 implicit `[N]u8` to `&u8` decay; take an explicit address and then use `ptr()`
 when an ABI requires an element pointer.
 
+A literal evaluated in a function does not acquire static storage merely
+because its contents are compile-time text. An address or slice derived from
+that array must not escape the lifetime of the containing value or frame. Nia
+does not infer or check a borrow lifetime for the pointer; callers that need a
+longer-lived view must place the array in storage with that lifetime or copy it
+into owned storage.
+
 ### 13.1 Internal Symbol Names
 
 Nia uses deterministic, readable internal symbol names. The format is not meant

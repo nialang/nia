@@ -4,34 +4,113 @@ using pkg::fs;
 using pkg::mem;
 using pkg::process;
 
-pub enum Error: i32 {
-    UnknownStep = 1,
-    InvalidStep = 2,
-    OutOfMemory = 3,
-    Report = 4,
-    Internal = 5,
-    CommandFailed = 6,
-    InvalidTarget = 7,
-    StepCycle = 8,
-    StepFailed = 9,
-    MissingDefaultStep = 10,
-    _,
+pub enum ErrorOperation {
+    Initialize,
+    Retain,
+    Release,
+    Validate,
+    Encode,
+    AssembleCommand,
+    ExecuteCommand,
+    Report,
+}
+
+pub enum ErrorSubject {
+    Build,
+    PackageRoot,
+    BuildDir,
+    CacheDir,
+    ToolchainExecutable,
+    ToolchainResourceRoot,
+    HostTarget,
+    ArtifactTarget,
+    Steps,
+    Dependencies,
+    Modules,
+    Executables,
+    Step(usize),
+    Module(usize),
+    Executable(usize),
+    ModuleImport(usize),
+    Output,
+    Compiler,
+    Diagnostic,
+    RequestedStep,
+}
+
+pub enum ErrorCause {
+    Memory(mem::Error),
+    Format(fmt::Error),
+    FileSystem(fs::Error),
+    Process(process::Error),
+    Exit(process::Term),
+}
+
+pub enum Error {
+    UnknownStep,
+    Invalid { operation: ErrorOperation, subject: ErrorSubject },
+    Failure { operation: ErrorOperation, subject: ErrorSubject, cause: ErrorCause },
+    Internal(ErrorOperation),
+    StepCycle { step: usize, dependency: usize },
+    StepFailed(usize),
+    MissingDefaultStep,
 }
 
 extend Error {
     pub fn asExitCode(self) process::ExitCode {
         switch self {
             Error::UnknownStep => process::exit(2),
-            Error::InvalidStep => process::exit(22),
-            Error::OutOfMemory => process::exit(12),
-            Error::Report => process::exit(5),
-            Error::Internal => process::exit(255),
-            Error::CommandFailed => process::exit(1),
-            Error::InvalidTarget => process::exit(22),
-            Error::StepCycle => process::exit(22),
-            Error::StepFailed => process::exit(1),
+            Error::Invalid { operation, subject } => {
+                _ = operation;
+                _ = subject;
+                process::exit(22)
+            },
+            Error::Failure { operation, subject, cause } => {
+                _ = operation;
+                _ = subject;
+                cause.asExitCode()
+            },
+            Error::Internal(operation) => {
+                _ = operation;
+                process::exit(255)
+            },
+            Error::StepCycle { step, dependency } => {
+                _ = step;
+                _ = dependency;
+                process::exit(22)
+            },
+            Error::StepFailed(step) => {
+                _ = step;
+                process::exit(1)
+            },
             Error::MissingDefaultStep => process::exit(22),
-            _ => process::exit(255),
+        }
+    }
+}
+
+extend ErrorCause {
+    fn asExitCode(self) process::ExitCode {
+        switch self {
+            ErrorCause::Memory(cause) => switch cause {
+                mem::Error::OutOfMemory => process::exit(12),
+                _ => process::exit(255),
+            },
+            ErrorCause::Format(cause) => switch cause {
+                fmt::Error::Write => process::exit(5),
+                _ => process::exit(255),
+            },
+            ErrorCause::FileSystem(cause) => switch cause {
+                fs::Error::OutOfMemory => process::exit(12),
+                _ => process::exit(5),
+            },
+            ErrorCause::Process(cause) => switch cause {
+                process::Error::OutOfMemory => process::exit(12),
+                _ => process::exit(5),
+            },
+            ErrorCause::Exit(cause) => {
+                _ = cause;
+                process::exit(1)
+            },
         }
     }
 }
@@ -48,85 +127,237 @@ extend Error : error::IntoError[process::ExitCode] {
     }
 }
 
-extend fmt::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
-        switch self {
-            fmt::Error::Write => Error::Report,
-            fmt::Error::InvalidTemplate => Error::Internal,
-            fmt::Error::MissingArgument => Error::Internal,
-            fmt::Error::ExtraArgument => Error::Internal,
-            _ => Error::Internal,
-        }
-    }
-}
-
 extend[T] fmt::Error!T {
-    pub fn asBuildError(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend fs::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         switch self {
-            fs::Error::Invalid => Error::Report,
-            fs::Error::Io => Error::Report,
-            fs::Error::TooLong => Error::Report,
-            fs::Error::NotFound => Error::Report,
-            fs::Error::AlreadyExists => Error::Report,
-            fs::Error::NotDir => Error::Report,
-            fs::Error::IsDir => Error::Report,
-            fs::Error::NoSpace => Error::Report,
-            fs::Error::OutOfMemory => Error::OutOfMemory,
-            _ => Error::Report,
+            !value => !value,
+            cause! => Error::Failure {
+                operation: operation,
+                subject: subject,
+                cause: ErrorCause::Format(cause),
+            }!,
         }
     }
 }
 
 extend[T] fs::Error!T {
-    pub fn asBuildError(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend process::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         switch self {
-            process::Error::OutOfMemory => Error::OutOfMemory,
-            process::Error::Invalid => Error::InvalidStep,
-            process::Error::SpawnSetup => Error::Report,
-            process::Error::SpawnStdio => Error::Report,
-            process::Error::SpawnCwd => Error::Report,
-            process::Error::SpawnExec => Error::Report,
-            process::Error::Wait => Error::Report,
-            process::Error::TryWait => Error::Report,
-            process::Error::Kill => Error::Report,
-            process::Error::CloseStdin => Error::Report,
-            process::Error::CloseStdout => Error::Report,
-            process::Error::CloseStderr => Error::Report,
-            process::Error::System => Error::Report,
-            _ => Error::Report,
+            !value => !value,
+            cause! => Error::Failure {
+                operation: operation,
+                subject: subject,
+                cause: ErrorCause::FileSystem(cause),
+            }!,
         }
     }
 }
 
 extend[T] process::Error!T {
-    pub fn asBuildError(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend mem::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         switch self {
-            mem::Error::OutOfMemory => Error::OutOfMemory,
-            _ => Error::InvalidStep,
+            !value => !value,
+            cause! => Error::Failure {
+                operation: operation,
+                subject: subject,
+                cause: ErrorCause::Process(cause),
+            }!,
         }
     }
 }
 
 extend[T] mem::Error!T {
-    pub fn asBuildError(self) Error!T {
-        self.cast_error()
+    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+        switch self {
+            !value => !value,
+            cause! => Error::Failure {
+                operation: operation,
+                subject: subject,
+                cause: ErrorCause::Memory(cause),
+            }!,
+        }
+    }
+}
+
+extend ErrorOperation : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        formatter.write_text(switch self.* {
+            ErrorOperation::Initialize => &"initialize",
+            ErrorOperation::Retain => &"retain",
+            ErrorOperation::Release => &"release",
+            ErrorOperation::Validate => &"validate",
+            ErrorOperation::Encode => &"encode",
+            ErrorOperation::AssembleCommand => &"assemble command",
+            ErrorOperation::ExecuteCommand => &"execute command",
+            ErrorOperation::Report => &"report",
+        })
+    }
+}
+
+extend ErrorSubject : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        switch self.* {
+            ErrorSubject::Build => formatter.write_text(&"build"),
+            ErrorSubject::PackageRoot => formatter.write_text(&"package root"),
+            ErrorSubject::BuildDir => formatter.write_text(&"build directory"),
+            ErrorSubject::CacheDir => formatter.write_text(&"cache directory"),
+            ErrorSubject::ToolchainExecutable => formatter.write_text(&"toolchain executable"),
+            ErrorSubject::ToolchainResourceRoot => formatter.write_text(&"toolchain resource root"),
+            ErrorSubject::HostTarget => formatter.write_text(&"host target"),
+            ErrorSubject::ArtifactTarget => formatter.write_text(&"artifact target"),
+            ErrorSubject::Steps => formatter.write_text(&"step collection"),
+            ErrorSubject::Dependencies => formatter.write_text(&"dependency collection"),
+            ErrorSubject::Modules => formatter.write_text(&"module collection"),
+            ErrorSubject::Executables => formatter.write_text(&"executable collection"),
+            ErrorSubject::Step(index) => writeIndexedSubject(formatter, &"step", index),
+            ErrorSubject::Module(index) => writeIndexedSubject(formatter, &"module", index),
+            ErrorSubject::Executable(index) => writeIndexedSubject(formatter, &"executable", index),
+            ErrorSubject::ModuleImport(index) => writeIndexedSubject(formatter, &"module import", index),
+            ErrorSubject::Output => formatter.write_text(&"output"),
+            ErrorSubject::Compiler => formatter.write_text(&"compiler"),
+            ErrorSubject::Diagnostic => formatter.write_text(&"diagnostic"),
+            ErrorSubject::RequestedStep => formatter.write_text(&"requested step"),
+        }
+    }
+}
+
+extend ErrorCause : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        switch self.* {
+            ErrorCause::Memory(cause) => {
+                writeCausePrefix(formatter, &"memory").?;
+                writeMemoryCause(formatter, cause)
+            },
+            ErrorCause::Format(cause) => {
+                writeCausePrefix(formatter, &"format").?;
+                writeFormatCause(formatter, cause)
+            },
+            ErrorCause::FileSystem(cause) => {
+                writeCausePrefix(formatter, &"filesystem").?;
+                writeFileSystemCause(formatter, cause)
+            },
+            ErrorCause::Process(cause) => {
+                writeCausePrefix(formatter, &"process").?;
+                writeProcessCause(formatter, cause)
+            },
+            ErrorCause::Exit(cause) => writeTermCause(formatter, cause),
+        }
+    }
+}
+
+extend Error : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        switch self.* {
+            Error::UnknownStep => formatter.write_text(&"unknown requested step"),
+            Error::Invalid { operation, subject } => {
+                formatter.write_text(&"invalid ").?;
+                subject.format(formatter).?;
+                formatter.write_text(&" during ").?;
+                operation.format(formatter)
+            },
+            Error::Failure { operation, subject, cause } => {
+                operation.format(formatter).?;
+                formatter.write_text(&" ").?;
+                subject.format(formatter).?;
+                formatter.write_text(&": ").?;
+                cause.format(formatter)
+            },
+            Error::Internal(operation) => {
+                formatter.write_text(&"internal build failure during ").?;
+                operation.format(formatter)
+            },
+            Error::StepCycle { step, dependency } => {
+                formatter.write_text(&"step cycle between ").?;
+                formatter.write_unsigned(step as u128).?;
+                formatter.write_text(&" and ").?;
+                formatter.write_unsigned(dependency as u128)
+            },
+            Error::StepFailed(step) => {
+                formatter.write_text(&"previously failed step ").?;
+                formatter.write_unsigned(step as u128)
+            },
+            Error::MissingDefaultStep => formatter.write_text(&"build declares steps without a default"),
+        }
+    }
+}
+
+fn writeIndexedSubject(
+    formatter: &mut fmt::Formatter,
+    name: &[char],
+    index: usize,
+) fmt::Error!void {
+    formatter.write_text(name).?;
+    formatter.write_text(&"[").?;
+    formatter.write_unsigned(index as u128).?;
+    formatter.write_text(&"]")
+}
+
+fn writeCausePrefix(formatter: &mut fmt::Formatter, domain: &[char]) fmt::Error!void {
+    formatter.write_text(domain).?;
+    formatter.write_text(&"/")
+}
+
+fn writeTermCause(formatter: &mut fmt::Formatter, cause: process::Term) fmt::Error!void {
+    formatter.write_text(&"command/").?;
+    formatter.write_text(switch cause.kind() {
+        process::TermKind::Exited => &"exit code ",
+        process::TermKind::Signal => &"signal ",
+        process::TermKind::Stopped => &"stopped by signal ",
+        process::TermKind::Unknown => &"unknown status ",
+    }).?;
+    formatter.write_signed(cause.code() as i128)
+}
+
+fn writeMemoryCause(formatter: &mut fmt::Formatter, cause: mem::Error) fmt::Error!void {
+    switch cause {
+        mem::Error::Invalid => formatter.write_text(&"invalid"),
+        mem::Error::InvalidAlignment => formatter.write_text(&"invalid alignment"),
+        mem::Error::OutOfMemory => formatter.write_text(&"out of memory"),
+        mem::Error::System => formatter.write_text(&"system"),
+        _ => formatter.write_text(&"unknown"),
+    }
+}
+
+fn writeFormatCause(formatter: &mut fmt::Formatter, cause: fmt::Error) fmt::Error!void {
+    switch cause {
+        fmt::Error::Write => formatter.write_text(&"write"),
+        fmt::Error::InvalidTemplate => formatter.write_text(&"invalid template"),
+        fmt::Error::MissingArgument => formatter.write_text(&"missing argument"),
+        fmt::Error::ExtraArgument => formatter.write_text(&"extra argument"),
+        _ => formatter.write_text(&"unknown"),
+    }
+}
+
+fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::Error!void {
+    switch cause {
+        fs::Error::PermissionDenied => formatter.write_text(&"permission denied"),
+        fs::Error::NotFound => formatter.write_text(&"not found"),
+        fs::Error::OutOfMemory => formatter.write_text(&"out of memory"),
+        fs::Error::AlreadyExists => formatter.write_text(&"already exists"),
+        fs::Error::NotDir => formatter.write_text(&"not a directory"),
+        fs::Error::IsDir => formatter.write_text(&"is a directory"),
+        fs::Error::Invalid => formatter.write_text(&"invalid"),
+        fs::Error::NoSpace => formatter.write_text(&"no space"),
+        fs::Error::TooLong => formatter.write_text(&"too long"),
+        fs::Error::Io => formatter.write_text(&"I/O"),
+        _ => formatter.write_text(&"system"),
+    }
+}
+
+fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!void {
+    switch cause {
+        process::Error::OutOfMemory => formatter.write_text(&"out of memory"),
+        process::Error::Invalid => formatter.write_text(&"invalid"),
+        process::Error::SpawnSetup => formatter.write_text(&"spawn setup"),
+        process::Error::SpawnStdio => formatter.write_text(&"spawn stdio"),
+        process::Error::SpawnCwd => formatter.write_text(&"spawn working directory"),
+        process::Error::SpawnExec => formatter.write_text(&"spawn executable"),
+        process::Error::Wait => formatter.write_text(&"wait"),
+        process::Error::TryWait => formatter.write_text(&"try wait"),
+        process::Error::Kill => formatter.write_text(&"kill"),
+        process::Error::CloseStdin => formatter.write_text(&"close stdin"),
+        process::Error::CloseStdout => formatter.write_text(&"close stdout"),
+        process::Error::CloseStderr => formatter.write_text(&"close stderr"),
+        _ => formatter.write_text(&"system"),
     }
 }

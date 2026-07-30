@@ -5,24 +5,24 @@ using std::io;
 fn prepare(b: &mut build::Build) build::Error!void {
     let mut buffer: [128]u8 = [_]u8[0; 128];
     let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
-    stdout.print(&"prepare\n", &[]).asBuildError().?;
-    stdout.flush().asBuildError().?;
+    stdout.print(&"prepare\n", &[]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     !{}
 }
 
 fn buildApp(b: &mut build::Build) build::Error!void {
     let mut buffer: [128]u8 = [_]u8[0; 128];
     let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
-    stdout.print(&"build\n", &[]).asBuildError().?;
-    stdout.flush().asBuildError().?;
+    stdout.print(&"build\n", &[]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     !{}
 }
 
 fn check(b: &mut build::Build) build::Error!void {
     let mut buffer: [128]u8 = [_]u8[0; 128];
     let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
-    stdout.print(&"check\n", &[]).asBuildError().?;
-    stdout.flush().asBuildError().?;
+    stdout.print(&"check\n", &[]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     !{}
 }
 
