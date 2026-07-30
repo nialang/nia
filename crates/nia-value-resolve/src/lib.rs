@@ -808,6 +808,19 @@ impl<'a> ValueResolver<'a> {
                     self.visit_type(backing_type);
                 }
                 for variant in &item_enum.variants {
+                    match &variant.payload {
+                        nia_ast::EnumVariantPayload::Unit => {}
+                        nia_ast::EnumVariantPayload::Tuple(fields) => {
+                            for field in fields {
+                                self.visit_type(field);
+                            }
+                        }
+                        nia_ast::EnumVariantPayload::Named(fields) => {
+                            for field in fields {
+                                self.visit_type(&field.ty);
+                            }
+                        }
+                    }
                     if let Some(value) = &variant.value {
                         self.visit_expr(value);
                     }

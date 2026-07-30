@@ -621,6 +621,37 @@ impl Parser {
             }
             let start = self.peek().span.start;
             let name = self.expect_name(TokenKind::Ident, "expected enum variant")?;
+            let payload = if self.eat(TokenKind::LParen).is_some() {
+                let mut fields = Vec::new();
+                while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                    fields.push(self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?);
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                if fields.is_empty() {
+                    self.error_here("tuple enum variant requires at least one payload type");
+                }
+                self.expect(TokenKind::RParen, "expected `)` after enum variant payload")?;
+                EnumVariantPayload::Tuple(fields)
+            } else if self.eat(TokenKind::LBrace).is_some() {
+                let mut fields = Vec::new();
+                while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                    if let Some(field) = self.parse_field() {
+                        fields.push(field);
+                    } else {
+                        let checkpoint = self.checkpoint();
+                        self.recover_to_member_boundary_with_progress(checkpoint);
+                    }
+                }
+                if fields.is_empty() {
+                    self.error_here("named enum variant requires at least one payload field");
+                }
+                self.expect(TokenKind::RBrace, "expected `}` after enum variant payload")?;
+                EnumVariantPayload::Named(fields)
+            } else {
+                EnumVariantPayload::Unit
+            };
             let value = if self.eat(TokenKind::Eq).is_some() {
                 Some(self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?)
             } else {
@@ -629,7 +660,7 @@ impl Parser {
             let end = value
                 .as_ref()
                 .map_or_else(|| self.previous_end(), |expr| expr.span.end);
-            variants.push(self.make_enum_variant(name, value, Span::new(start, end)));
+            variants.push(self.make_enum_variant(name, payload, value, Span::new(start, end)));
             self.eat(TokenKind::Comma);
         }
         self.expect(TokenKind::RBrace, "expected `}` after enum body")?;

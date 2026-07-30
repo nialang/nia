@@ -2,11 +2,11 @@
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
     BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
-    ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind, ExtendItem,
-    ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam, IfPatternExpr, Item,
-    ItemBindingKind, ItemKind, LocalBindingKind, LoopStmt, Module, ModuleItem, Param,
-    PathSegmentKind, Pattern, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem,
-    SwitchArm, SwitchArmBody, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
+    ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, EnumVariantPayload, Expr, ExprKind,
+    ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam,
+    IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind, LoopStmt, Module, ModuleItem,
+    Param, PathSegmentKind, Pattern, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral,
+    StructItem, SwitchArm, SwitchArmBody, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
     TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
     UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
     WhileStmt,
@@ -285,12 +285,14 @@ impl Parser {
     fn make_enum_variant(
         &mut self,
         name: SymbolId,
+        payload: EnumVariantPayload,
         value: Option<Expr>,
         span: Span,
     ) -> EnumVariant {
         let node_key = self.node_key(NodeSyntaxKind::Item, span);
         EnumVariant {
             name,
+            payload,
             value,
             span,
             node_key,

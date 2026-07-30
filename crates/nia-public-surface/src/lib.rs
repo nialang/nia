@@ -572,7 +572,8 @@ fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
         | DefKind::TraitAssociatedType
         | DefKind::StructField
         | DefKind::UnionField
-        | DefKind::EnumVariant => None,
+        | DefKind::EnumVariant
+        | DefKind::EnumVariantField => None,
     }
 }
 

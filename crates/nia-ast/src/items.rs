@@ -232,9 +232,17 @@ pub struct EnumItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: SymbolId,
+    pub payload: EnumVariantPayload,
     pub value: Option<Expr>,
     pub span: Span,
     pub node_key: VersionedNodeKey,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumVariantPayload {
+    Unit,
+    Tuple(Vec<TypeRef>),
+    Named(Vec<Field>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

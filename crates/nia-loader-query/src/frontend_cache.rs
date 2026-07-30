@@ -1629,6 +1629,7 @@ fn write_def_kind(encoded: &mut Vec<u8>, kind: DefKind) {
         DefKind::Enum => 12,
         DefKind::EnumVariant => 13,
         DefKind::TypeAlias => 14,
+        DefKind::EnumVariantField => 15,
     });
 }
 
@@ -1649,6 +1650,7 @@ fn read_def_kind(cursor: &mut Cursor<&[u8]>) -> Option<DefKind> {
         12 => Some(DefKind::Enum),
         13 => Some(DefKind::EnumVariant),
         14 => Some(DefKind::TypeAlias),
+        15 => Some(DefKind::EnumVariantField),
         _ => None,
     }
 }

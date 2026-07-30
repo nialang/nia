@@ -600,10 +600,27 @@ fn enum_decl_eq(lhs: &EnumItem, rhs: &EnumItem) -> bool {
 
 fn enum_variants_decl_eq(lhs: &[EnumVariant], rhs: &[EnumVariant]) -> bool {
     lhs.len() == rhs.len()
-        && lhs
-            .iter()
-            .zip(rhs.iter())
-            .all(|(lhs, rhs)| lhs.name == rhs.name && lhs.value == rhs.value)
+        && lhs.iter().zip(rhs.iter()).all(|(lhs, rhs)| {
+            lhs.name == rhs.name
+                && enum_variant_payload_decl_eq(&lhs.payload, &rhs.payload)
+                && lhs.value == rhs.value
+        })
+}
+
+fn enum_variant_payload_decl_eq(
+    lhs: &nia_ast::EnumVariantPayload,
+    rhs: &nia_ast::EnumVariantPayload,
+) -> bool {
+    match (lhs, rhs) {
+        (nia_ast::EnumVariantPayload::Unit, nia_ast::EnumVariantPayload::Unit) => true,
+        (nia_ast::EnumVariantPayload::Tuple(lhs), nia_ast::EnumVariantPayload::Tuple(rhs)) => {
+            type_refs_decl_eq(lhs, rhs)
+        }
+        (nia_ast::EnumVariantPayload::Named(lhs), nia_ast::EnumVariantPayload::Named(rhs)) => {
+            fields_decl_eq(lhs, rhs)
+        }
+        _ => false,
+    }
 }
 
 fn type_alias_decl_eq(lhs: &TypeAliasItem, rhs: &TypeAliasItem) -> bool {

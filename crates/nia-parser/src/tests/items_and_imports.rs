@@ -21,6 +21,44 @@ enum Flag {
 }
 
 #[test]
+fn parses_unit_tuple_and_named_enum_variants() {
+    let (module, errors) = parse_module(
+        r#"
+enum Event: u16 {
+    Closed,
+    Data(Bytes),
+    Move(i32, i32) = 7,
+    Resize { width: i32, height: i32 },
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Enum(item_enum) = &module.items[0].kind else {
+        panic!("expected enum");
+    };
+    assert!(matches!(
+        item_enum.variants[0].payload,
+        EnumVariantPayload::Unit
+    ));
+    assert!(matches!(
+        &item_enum.variants[1].payload,
+        EnumVariantPayload::Tuple(fields) if fields.len() == 1
+    ));
+    assert!(matches!(
+        &item_enum.variants[2].payload,
+        EnumVariantPayload::Tuple(fields) if fields.len() == 2
+    ));
+    assert!(item_enum.variants[2].value.is_some());
+    assert!(matches!(
+        &item_enum.variants[3].payload,
+        EnumVariantPayload::Named(fields)
+            if fields.len() == 2
+                && fields[0].name == sym("width")
+                && fields[1].name == sym("height")
+    ));
+}
+
+#[test]
 fn parses_extern_items_and_binding_declarations() {
     let (module, errors) = parse_module(
         r#"

@@ -101,6 +101,19 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
                 visitor.visit_type(backing_type);
             }
             for variant in &item_enum.variants {
+                match &variant.payload {
+                    nia_ast::EnumVariantPayload::Unit => {}
+                    nia_ast::EnumVariantPayload::Tuple(fields) => {
+                        for field in fields {
+                            visitor.visit_type(field);
+                        }
+                    }
+                    nia_ast::EnumVariantPayload::Named(fields) => {
+                        for field in fields {
+                            visitor.visit_type(&field.ty);
+                        }
+                    }
+                }
                 if let Some(value) = &variant.value {
                     visitor.visit_expr(value);
                 }

@@ -476,6 +476,7 @@ impl StableDefHasher {
             DefKind::Method => b"method",
             DefKind::Enum => b"enum",
             DefKind::EnumVariant => b"enum_variant",
+            DefKind::EnumVariantField => b"enum_variant_field",
             DefKind::TypeAlias => b"type_alias",
         });
     }
@@ -661,6 +662,7 @@ pub enum DefKind {
     Method,
     Enum,
     EnumVariant,
+    EnumVariantField,
     TypeAlias,
 }
 
@@ -1312,8 +1314,9 @@ impl<'a> Collector<'a> {
         );
         let mut members = EnumScope::default();
         for variant in &item_enum.variants {
+            let variant_identity = identity.child(DefKind::EnumVariant, &variant.name);
             let variant_id = self.push_member_def(
-                identity.child(DefKind::EnumVariant, &variant.name),
+                variant_identity.clone(),
                 Some(enum_id),
                 variant.name,
                 DefKind::EnumVariant,
@@ -1328,6 +1331,27 @@ impl<'a> Collector<'a> {
                 variant.span,
                 "duplicate enum variant",
             );
+            if let nia_ast::EnumVariantPayload::Named(fields) = &variant.payload {
+                let mut field_names = NameTable::default();
+                for field in fields {
+                    let field_id = self.push_member_def(
+                        variant_identity.child(DefKind::EnumVariantField, &field.name),
+                        Some(variant_id),
+                        field.name,
+                        DefKind::EnumVariantField,
+                        Visibility::Private,
+                        field.span,
+                    );
+                    self.def_nodes.insert(field.node_key.clone(), field_id);
+                    self.insert_member(
+                        &mut field_names,
+                        field.name,
+                        field_id,
+                        field.span,
+                        "duplicate enum variant field",
+                    );
+                }
+            }
         }
         self.enum_members.insert(enum_id, members);
     }
