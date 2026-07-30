@@ -11,10 +11,13 @@ using std::build;
 using std::fs;
 using std::mem;
 using std::process;
+using std::string;
 
 fn main(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
 let path = fs::PathView::init(&"");
-build::Build::init(init, allocator, path, path, path, path, path, false, 1usize)
+let text = string::StringView::init(&"");
+let target = build::TargetView::init(text, text, text, text, text, text, 64u32);
+build::Build::init(init, allocator, path, path, path, path, path, target, target, false, 1usize)
 }
 "#,
     );

@@ -39,6 +39,31 @@ pub enum Runtime: i32 {
     _
 }
 
+pub(pkg) enum TargetRole: i32 {
+    Artifact = 1,
+    _
+}
+
+pub struct TargetView {
+    arch: string::StringView,
+    vendor: string::StringView,
+    os: string::StringView,
+    env: string::StringView,
+    abi: string::StringView,
+    endian: string::StringView,
+    pointerWidth: u32,
+}
+
+pub(pkg) struct TargetStorage {
+    arch: string::StringBuf,
+    vendor: string::StringBuf,
+    os: string::StringBuf,
+    env: string::StringBuf,
+    abi: string::StringBuf,
+    endian: string::StringBuf,
+    pointerWidth: u32,
+}
+
 pub struct StepHandle {
     index: usize,
 }
@@ -110,6 +135,7 @@ pub struct ExecutableTarget {
     rootModule: ModuleHandle,
     outputName: string::StringBuf,
     runtime: Runtime,
+    targetRole: TargetRole,
 }
 
 pub struct BuildPaths {
@@ -124,6 +150,8 @@ pub struct Build {
     init: process::Init,
     allocator: &mut mem::Allocator,
     paths: BuildPaths,
+    hostTarget: TargetStorage,
+    artifactTarget: TargetStorage,
     actionReporting: bool,
     stepArgIndex: usize,
     defaultStep: ?StepHandle,

@@ -1129,6 +1129,25 @@ contract above rather than an unsafe inferred offset. Phase C remains open for
 host/target API separation, contextual errors, fixed-buffer removal from build
 argv assembly, and the rest of the build-host conformance matrix.
 
+Phase C progress (2026-07-30): the third batch separates build-host compilation
+from artifact declaration at the actual Driver invocation boundary. A Driver
+now owns its effective artifact target, defaulting once from `ToolchainLayout`;
+build-runner compilation explicitly overrides it with the host target, and
+loader pruning, object generation, linking, and cache identity consume that one
+invocation value. The runner argv protocol transports both complete seven-field
+target descriptors independently. `Build` deep-copies them into package-private
+storage and exposes only borrowed `TargetView` accessors, following Nia's
+existing view/storage discipline rather than publishing parallel `Target` and
+`OwnedTarget` records. Executable records carry an explicit artifact role but
+offer no arbitrary-target setter. The callback bootstrap rejects execution
+when host and artifact differ because the current public CLI cannot yet accept
+an explicit target; it cannot silently substitute a host artifact for a
+cross-target declaration. Driver target-pruning, runner protocol, helper-stack
+lifetime, mid-host and mid-artifact allocation rollback, distinct declaration,
+and real configured runner execution now have focused evidence. Phase C remains
+open for contextual errors, fixed-buffer removal from build argv assembly, and
+the remaining build-host failure/conformance matrix.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

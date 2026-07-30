@@ -39,17 +39,25 @@ pub struct CheckRequest {
 #[derive(Debug, Clone)]
 pub struct DriverConfig {
     pub toolchain: std::sync::Arc<ToolchainLayout>,
+    pub artifact_target: TargetConfig,
     pub artifact_cache_dir: Option<PathBuf>,
     pub verify_frontend_cache: bool,
 }
 
 impl DriverConfig {
     pub fn new(toolchain: std::sync::Arc<ToolchainLayout>) -> Self {
+        let artifact_target = toolchain.artifact_target().clone();
         Self {
             toolchain,
+            artifact_target,
             artifact_cache_dir: None,
             verify_frontend_cache: false,
         }
+    }
+
+    pub fn with_artifact_target(mut self, artifact_target: TargetConfig) -> Self {
+        self.artifact_target = artifact_target;
+        self
     }
 }
 
@@ -759,7 +767,7 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             let mut request = request;
             request.link_options.target =
-                LinkTarget::from_target_config(self.config.toolchain.artifact_target());
+                LinkTarget::from_target_config(&self.config.artifact_target);
             let timings = request.check.timings;
             let output = nia_timing::time_stage(
                 timings,
@@ -792,8 +800,7 @@ impl Driver {
         timings: TimingMode,
     ) -> DriverOutput<ExecutableArtifact> {
         DriverOutput::catch_ice(|| {
-            link_options.target =
-                LinkTarget::from_target_config(self.config.toolchain.artifact_target());
+            link_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
             let link_fingerprint = match link_options.result_fingerprint(
                 &objects.link_inputs,
                 self.config.toolchain.identity().fingerprint(),
@@ -906,7 +913,7 @@ impl Driver {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             module_map: request.module_map.clone(),
-            target: self.config.toolchain.artifact_target().clone(),
+            target: self.config.artifact_target.clone(),
             entry_runtime: entry_runtime(request.runtime),
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");

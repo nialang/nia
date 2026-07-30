@@ -3039,6 +3039,13 @@ runner, so it can use the standard library. The runner passes a `std::build::Bui
 value with explicit `packageRoot()`, `buildDir()`, `cacheDir()`, and
 `toolchainExecutable()` accessors instead of requiring scripts to infer those
 paths.
+`Build::hostTarget()` and `Build::artifactTarget()` return borrowed
+`TargetView` descriptors containing architecture, vendor, OS, environment, ABI,
+endian, and pointer width. Their text remains valid for the lifetime of the
+`Build`; the generated runner's temporary decoding buffers are not retained.
+The bootstrap accepts a distinct artifact declaration but rejects executing it
+until the typed coordinator can pass that target directly to a compiler action;
+it never silently emits a host artifact instead.
 `Build::addModule(ModuleOptions::init(rootSource))` declares a root source
 module and returns a module handle. `ModuleOptions::withOptimization(mode)`
 overrides the default optimization mode. `Build::addExecutable(

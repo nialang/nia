@@ -232,6 +232,7 @@ dependencies = [
  "nia-imports",
  "nia-loader-query",
  "nia-source",
+ "nia-target-config",
  "nia-timing",
  "nia-toolchain",
 ]

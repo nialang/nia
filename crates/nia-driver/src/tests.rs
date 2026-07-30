@@ -14,6 +14,32 @@ mod type_system;
 mod using;
 
 #[test]
+fn driver_invocation_target_overrides_toolchain_default() {
+    let toolchain = common::test_toolchain_layout();
+    let mut invocation_target = toolchain.artifact_target().clone();
+    invocation_target.os = "driver-invocation-target".to_string();
+    let driver = crate::Driver::with_config(
+        crate::DriverConfig::new(toolchain).with_artifact_target(invocation_target.clone()),
+    );
+    driver.set_source(
+        "main.nia",
+        r#"
+@[if os == "driver-invocation-target"]
+fn selected() i32 { 1 }
+
+fn main() i32 { selected() }
+"#,
+    );
+
+    let output = driver.check_entry(crate::CheckRequest::new("main.nia"));
+
+    assert_eq!(driver.config().artifact_target, invocation_target);
+    output
+        .result
+        .expect("invocation target must drive loader target pruning");
+}
+
+#[test]
 fn writing_native_object_preserves_incremental_link_identity() {
     use nia_backend_ir::{
         CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,

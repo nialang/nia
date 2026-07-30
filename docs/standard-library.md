@@ -141,6 +141,21 @@ runtime/startup resources are selected independently. This separation is a
 prerequisite for cross-target declarations even while the only Tier 0 runtime
 is Linux x86_64 freestanding.
 
+`Build::hostTarget()` and `Build::artifactTarget()` return `TargetView` values
+over builder-owned storage. The view contains the exact toolchain target fields:
+architecture, vendor, OS, environment, ABI, endian, and pointer width. The
+generated runner transports both descriptors independently and `Build::init`
+deep-copies them; a view supplied by runner-local decoding storage is never
+retained. The backing `TargetStorage` and executable target role are
+package-private implementation details, not a second public target model.
+
+The current bootstrap can declare a distinct artifact target, but its legacy
+callback executor still launches the public CLI, which has no explicit target
+selection surface. It therefore rejects execution when host and artifact target
+differ instead of silently producing a host artifact. Phase D/E typed compiler
+actions replace that bootstrap boundary; no temporary arbitrary-target setter
+is exposed from `ExecutableOptions`.
+
 ## 7. Proposal Decision Gates
 
 Language proposals that affect error propagation, ownership/borrowing,
