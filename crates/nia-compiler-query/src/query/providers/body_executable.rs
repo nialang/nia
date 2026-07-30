@@ -115,6 +115,7 @@ impl ExecutableValueRefEdges {
             | DefKind::UnionField
             | DefKind::Enum
             | DefKind::EnumVariant
+            | DefKind::EnumVariantField
             | DefKind::TypeAlias
             | DefKind::Trait
             | DefKind::TraitAssociatedType

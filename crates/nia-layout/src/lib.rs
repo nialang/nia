@@ -8,9 +8,9 @@ use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
-    EnumSignature, ItemSignatures, ProgramEnumSignature, ProgramStructSignature,
-    ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, TypeAliasSignature,
-    UnionSignature,
+    EnumSignature, EnumVariantPayloadSignature, ItemSignatures, ProgramEnumSignature,
+    ProgramStructSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
+    TypeAliasSignature, UnionSignature,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
@@ -73,12 +73,35 @@ pub struct FieldLayout {
     pub layout: TypeLayout,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumLayout {
+    pub layout: TypeLayout,
+    pub tag: TypeLayout,
+    pub payload_offset: Option<u64>,
+    pub variants: Vec<EnumVariantLayout>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumVariantLayout {
+    pub def_id: DefId,
+    pub payload: TypeLayout,
+    pub fields: Vec<EnumFieldLayout>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumFieldLayout {
+    pub def_id: Option<DefId>,
+    pub offset: u64,
+    pub layout: TypeLayout,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layouts {
     pub target: TargetDataLayout,
     pub types: HashMap<InternedTyId, TypeLayout>,
     pub structs: HashMap<DefId, StructLayout>,
     pub unions: HashMap<DefId, StructLayout>,
+    pub enums: HashMap<DefId, EnumLayout>,
     pub struct_instances: HashMap<StructLayoutKey, StructLayout>,
     pub union_instances: HashMap<StructLayoutKey, StructLayout>,
     pub diagnostics: Vec<Diagnostic>,
@@ -127,6 +150,11 @@ impl Layouts {
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
                     self.unions
+                        .get(&def_id.def_id)
+                        .map(|layout| layout.layout.clone())
+                })
+                .or_else(|| {
+                    self.enums
                         .get(&def_id.def_id)
                         .map(|layout| layout.layout.clone())
                 })
@@ -201,6 +229,10 @@ impl Layouts {
                 .get(&key)
                 .or_else(|| self.union_instances.get(&key))
         }
+    }
+
+    pub fn nominal_enum_layout(&self, def_id: GlobalDefId) -> Option<&EnumLayout> {
+        self.enums.get(&def_id.def_id)
     }
 }
 
@@ -381,6 +413,7 @@ struct LayoutComputer<'a> {
     types: HashMap<InternedTyId, TypeLayout>,
     structs: HashMap<DefId, StructLayout>,
     unions: HashMap<DefId, StructLayout>,
+    enums: HashMap<DefId, EnumLayout>,
     struct_instances: HashMap<StructLayoutKey, StructLayout>,
     union_instances: HashMap<StructLayoutKey, StructLayout>,
     external_struct_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
@@ -408,6 +441,7 @@ impl<'a> LayoutComputer<'a> {
             types: HashMap::new(),
             structs: HashMap::new(),
             unions: HashMap::new(),
+            enums: HashMap::new(),
             struct_instances: HashMap::new(),
             union_instances: HashMap::new(),
             external_struct_instances: HashMap::new(),
@@ -447,6 +481,15 @@ impl<'a> LayoutComputer<'a> {
         for (def_id, signature) in union_signatures {
             self.union_layout(signature.span, def_id, &signature, &[], &[]);
         }
+        let enum_signatures: Vec<(DefId, EnumSignature)> = self
+            .signatures
+            .enums
+            .iter()
+            .map(|(def_id, signature)| (*def_id, signature.clone()))
+            .collect();
+        for (def_id, signature) in enum_signatures {
+            self.enum_layout(signature.span, Some(def_id), &signature);
+        }
         self.finish()
     }
 
@@ -484,6 +527,7 @@ impl<'a> LayoutComputer<'a> {
             types: self.types,
             structs: self.structs,
             unions: self.unions,
+            enums: self.enums,
             struct_instances: self.struct_instances,
             union_instances: self.union_instances,
             diagnostics: self.diagnostics,
@@ -842,7 +886,7 @@ impl<'a> LayoutComputer<'a> {
             return self.union_layout(span, def_id.def_id, &signature, args, const_args);
         }
         if let Some(signature) = self.signatures.enums.get(&def_id.def_id).cloned() {
-            return self.enum_layout(span, &signature);
+            return self.enum_layout(span, Some(def_id.def_id), &signature);
         }
         None
     }
@@ -891,13 +935,13 @@ impl<'a> LayoutComputer<'a> {
             && let Some(signature) = program_enums.get(&def_id).cloned()
         {
             let signature = signature.signature;
-            return self.enum_layout(span, &signature);
+            return self.enum_layout(span, None, &signature);
         }
         if let Some(program_enum) = self.program.enum_
             && let Some(signature) = program_enum(def_id)
         {
             let signature = signature.signature;
-            return self.enum_layout(span, &signature);
+            return self.enum_layout(span, None, &signature);
         }
         if let Some(program_type_aliases) = self.program.type_aliases
             && let Some(signature) = program_type_aliases.get(&def_id).cloned()
@@ -1025,8 +1069,78 @@ impl<'a> LayoutComputer<'a> {
         Some(layout)
     }
 
-    fn enum_layout(&mut self, span: Span, signature: &EnumSignature) -> Option<TypeLayout> {
-        self.layout_ty(signature.backing_type, span)
+    fn enum_layout(
+        &mut self,
+        span: Span,
+        def_id: Option<DefId>,
+        signature: &EnumSignature,
+    ) -> Option<TypeLayout> {
+        if let Some(def_id) = def_id
+            && let Some(existing) = self.enums.get(&def_id)
+        {
+            return Some(existing.layout.clone());
+        }
+        let tag = self.layout_ty(signature.backing_type, span)?;
+        let mut variants = Vec::with_capacity(signature.variants.len());
+        for variant in &signature.variants {
+            let pending = match &variant.payload {
+                EnumVariantPayloadSignature::Unit => Vec::new(),
+                EnumVariantPayloadSignature::Tuple(fields) => fields
+                    .iter()
+                    .map(|ty| {
+                        Some(PendingEnumFieldLayout {
+                            def_id: None,
+                            layout: self.layout_ty(*ty, variant.span)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+                EnumVariantPayloadSignature::Named(fields) => fields
+                    .iter()
+                    .map(|field| {
+                        Some(PendingEnumFieldLayout {
+                            def_id: Some(field.def_id),
+                            layout: self.layout_ty(field.ty, field.span)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            };
+            let (payload, fields) = place_enum_fields(pending);
+            variants.push(EnumVariantLayout {
+                def_id: variant.def_id,
+                payload,
+                fields,
+            });
+        }
+        let has_payload = variants.iter().any(|variant| !variant.fields.is_empty());
+        let layout = if has_payload {
+            tagged_union_layout_with_tag(
+                &tag,
+                &variants
+                    .iter()
+                    .map(|variant| variant.payload.clone())
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            tag.clone()
+        };
+        let payload_offset = has_payload.then(|| {
+            let payload_align = variants
+                .iter()
+                .map(|variant| variant.payload.align)
+                .max()
+                .unwrap_or(1);
+            align_to(tag.size, payload_align)
+        });
+        let enum_layout = EnumLayout {
+            layout: layout.clone(),
+            tag,
+            payload_offset,
+            variants,
+        };
+        if let Some(def_id) = def_id {
+            self.enums.insert(def_id, enum_layout);
+        }
+        Some(layout)
     }
 
     fn struct_layout(
@@ -1256,6 +1370,35 @@ struct PendingFieldLayout {
     layout: TypeLayout,
 }
 
+#[derive(Debug, Clone)]
+struct PendingEnumFieldLayout {
+    def_id: Option<DefId>,
+    layout: TypeLayout,
+}
+
+fn place_enum_fields(fields: Vec<PendingEnumFieldLayout>) -> (TypeLayout, Vec<EnumFieldLayout>) {
+    let mut placed = Vec::with_capacity(fields.len());
+    let mut offset = 0u64;
+    let mut max_align = 1u64;
+    for field in fields {
+        offset = align_to(offset, field.layout.align);
+        placed.push(EnumFieldLayout {
+            def_id: field.def_id,
+            offset,
+            layout: field.layout.clone(),
+        });
+        offset = offset.saturating_add(field.layout.size);
+        max_align = max_align.max(field.layout.align);
+    }
+    (
+        TypeLayout {
+            size: align_to(offset, max_align),
+            align: max_align,
+        },
+        placed,
+    )
+}
+
 fn place_struct_fields(fields: Vec<PendingFieldLayout>) -> StructLayout {
     let mut placed = Vec::new();
     let mut offset = 0u64;
@@ -1451,6 +1594,10 @@ fn align_to(value: u64, align: u64) -> u64 {
 
 fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
     let tag = TypeLayout { size: 1, align: 1 };
+    tagged_union_layout_with_tag(&tag, payloads)
+}
+
+fn tagged_union_layout_with_tag(tag: &TypeLayout, payloads: &[TypeLayout]) -> TypeLayout {
     let payload_size = payloads.iter().map(|layout| layout.size).max().unwrap_or(0);
     let payload_align = payloads
         .iter()
@@ -1500,4 +1647,7 @@ mod tests {
 
     #[path = "layout/aggregate_instances.rs"]
     mod aggregate_instances;
+
+    #[path = "layout/enum_layouts.rs"]
+    mod enum_layouts;
 }

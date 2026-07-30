@@ -176,6 +176,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
                 variants: vec![item_signatures::EnumVariantSignature {
                     def_id: DefId(54),
                     name: symbol("First"),
+                    payload: item_signatures::EnumVariantPayloadSignature::Unit,
                     span,
                 }],
                 span,

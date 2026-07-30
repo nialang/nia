@@ -2,9 +2,10 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    Attribute, AttributeKind, BindingItem, Block, EnumItem, ExtendItem, FunctionItem, GenericParam,
-    GenericParamKind, Module, Param, StmtKind, StructItem, TraitItem, TypeAliasItem, TypeRef,
-    UnionItem, WhereClause, generic_param_identities, type_ref_identity, where_clause_identity,
+    Attribute, AttributeKind, BindingItem, Block, EnumItem, EnumVariantPayload, ExtendItem,
+    FunctionItem, GenericParam, GenericParamKind, Module, Param, StmtKind, StructItem, TraitItem,
+    TypeAliasItem, TypeRef, UnionItem, WhereClause, generic_param_identities, type_ref_identity,
+    where_clause_identity,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -64,7 +65,20 @@ impl ItemSignatures {
             collect_where_type_roots(&signature.where_predicates, &mut roots);
             roots.extend(signature.associated_types.iter().map(|binding| binding.ty));
         }
-        roots.extend(self.enums.values().map(|signature| signature.backing_type));
+        for signature in self.enums.values() {
+            roots.push(signature.backing_type);
+            for variant in &signature.variants {
+                match &variant.payload {
+                    EnumVariantPayloadSignature::Unit => {}
+                    EnumVariantPayloadSignature::Tuple(fields) => {
+                        roots.extend(fields.iter().copied());
+                    }
+                    EnumVariantPayloadSignature::Named(fields) => {
+                        roots.extend(fields.iter().map(|field| field.ty));
+                    }
+                }
+            }
+        }
         roots.extend(self.type_aliases.values().map(|signature| signature.target));
         roots.extend(
             self.globals
@@ -507,7 +521,15 @@ pub struct EnumSignature {
 pub struct EnumVariantSignature {
     pub def_id: DefId,
     pub name: SymbolId,
+    pub payload: EnumVariantPayloadSignature,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumVariantPayloadSignature {
+    Unit,
+    Tuple(Vec<InternedTyId>),
+    Named(Vec<FieldSignature>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -954,7 +976,7 @@ impl<'a> SignatureCollector<'a> {
         };
         let backing_type = match &item_enum.backing_type {
             Some(ty) => self.ty_for_type(ty),
-            None => self.primitive(PrimitiveTy::I32),
+            None => self.primitive(PrimitiveTy::U8),
         };
         let mut variants = Vec::new();
         for variant in &item_enum.variants {
@@ -963,11 +985,47 @@ impl<'a> SignatureCollector<'a> {
             else {
                 continue;
             };
+            let payload = match &variant.payload {
+                EnumVariantPayload::Unit => EnumVariantPayloadSignature::Unit,
+                EnumVariantPayload::Tuple(fields) => EnumVariantPayloadSignature::Tuple(
+                    fields.iter().map(|field| self.ty_for_type(field)).collect(),
+                ),
+                EnumVariantPayload::Named(fields) => EnumVariantPayloadSignature::Named(
+                    fields
+                        .iter()
+                        .filter_map(|field| {
+                            let def_id = self.def_id_for_node(
+                                &field.node_key,
+                                field.span,
+                                DefKind::EnumVariantField,
+                            )?;
+                            Some(FieldSignature {
+                                def_id,
+                                name: field.name,
+                                ty: self.ty_for_type(&field.ty),
+                                span: field.span,
+                            })
+                        })
+                        .collect(),
+                ),
+            };
             variants.push(EnumVariantSignature {
                 def_id: variant_id,
                 name: variant.name,
+                payload,
                 span: variant.span,
             });
+        }
+        if item_enum.is_open
+            && variants
+                .iter()
+                .any(|variant| !matches!(variant.payload, EnumVariantPayloadSignature::Unit))
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                item.span,
+                "payload enum cannot use the open enum marker",
+            ));
         }
         signatures.enums.insert(
             def_id,

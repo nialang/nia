@@ -1504,6 +1504,20 @@ fn write_enum_signature(
     for variant in &signature.variants {
         write_u64(encoded, variant.def_id.0);
         graph.write_symbol(encoded, variant.name)?;
+        match &variant.payload {
+            item_signatures::EnumVariantPayloadSignature::Unit => encoded.push(0),
+            item_signatures::EnumVariantPayloadSignature::Tuple(fields) => {
+                encoded.push(1);
+                write_u64(encoded, fields.len() as u64);
+                for field in fields {
+                    write_type_index(encoded, graph.intern(*field)?);
+                }
+            }
+            item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                encoded.push(2);
+                write_fields(encoded, fields, graph)?;
+            }
+        }
         write_span(encoded, variant.span);
     }
     write_span(encoded, signature.span);
@@ -1522,9 +1536,27 @@ fn read_enum_signature(
     let mut variants = Vec::with_capacity(variant_len);
     let mut variant_ids = HashSet::new();
     for _ in 0..variant_len {
+        let def_id = DefId(read_u64(cursor)?);
+        let name = read_symbol(cursor, symbols)?;
+        let payload = match read_u8(cursor)? {
+            0 => item_signatures::EnumVariantPayloadSignature::Unit,
+            1 => {
+                let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+                let mut fields = Vec::with_capacity(len);
+                for _ in 0..len {
+                    fields.push(read_type_index(cursor, types)?);
+                }
+                item_signatures::EnumVariantPayloadSignature::Tuple(fields)
+            }
+            2 => item_signatures::EnumVariantPayloadSignature::Named(read_fields(
+                cursor, types, symbols, source_len,
+            )?),
+            _ => return None,
+        };
         let variant = item_signatures::EnumVariantSignature {
-            def_id: DefId(read_u64(cursor)?),
-            name: read_symbol(cursor, symbols)?,
+            def_id,
+            name,
+            payload,
             span: read_span(cursor, source_len)?,
         };
         if !variant_ids.insert(variant.def_id) {
