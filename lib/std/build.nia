@@ -5,7 +5,12 @@ pub(pkg) module types;
 using pkg::build::core;
 
 pub using core::noopStep;
-pub using error::Error;
+pub using error::{
+    Error,
+    ErrorCause,
+    ErrorOperation,
+    ErrorSubject,
+};
 pub using types::{
     Build,
     ExecutableHandle,

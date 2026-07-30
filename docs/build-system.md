@@ -38,7 +38,7 @@ execution model that remains after migration.
 | Package discovery, runner compilation, package lock | `crates/nia-build/src/lib.rs` | evolve into coordinator; remove checkout and global-lock assumptions |
 | Build graph declaration and recursive execution | `lib/std/build/core.nia` | split builder from execution; physically delete recursive executor |
 | Build API records and handles | `lib/std/build/types.nia` | replace index-only callback records with plan-owned typed values |
-| Build-script error conversion | `lib/std/build/error.nia` | replace coarse exit mapping with structured diagnostics |
+| Build-script error conversion | `lib/std/build/error.nia` | structured operation/subject/cause errors implemented; add package/action identity at frozen-plan handoff |
 | Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; delete compile-time checkout lookup |
 | Compiler actions and compiler cache | `nia-driver` and compiler query/codegen crates | remain compiler-owned typed actions/work products |
 | Link execution and link-result reuse | `nia-linker` and `nia-driver` | remain linker/Driver-owned; build references declared artifacts |
@@ -102,6 +102,17 @@ cause, and process/compiler detail where applicable. Invalid plan data, missing
 resources, filesystem failures, process failures, and compiler diagnostics are
 ordinary typed failures. Panic is reserved for a genuine internal invariant and
 is caught by the existing ICE boundary.
+
+The bootstrap already preserves this shape within its available identities.
+`Error` distinguishes invalid input, internal invariants, cycles, prior step
+failure, and contextual failure. Contextual failures carry an operation, an
+indexed or named subject, and the original `mem`, `fmt`, `fs`, `process`, or
+child `Term` value. The generated runner reports failures both before and after
+`Build::init`; path decoding, target decoding, construction cleanup, build
+script execution, requested-step execution, and final deinitialization cannot
+silently collapse to an exit code. Frozen-plan work extends these subjects with
+stable package/action/artifact identity rather than introducing another error
+hierarchy.
 
 Build-cache entries are immutable and content-addressed. Their identity includes
 action schema, semantic inputs, toolchain/std identity, host/target, declared
@@ -198,3 +209,10 @@ memory, and cgroups rather than hidden WSL or CI profiles.
 Subprocess tests and baseline tools use bounded time and process-tree cleanup.
 The end-to-end configured build case is the owner of generated-runner codegen
 coverage; a duplicate unaccounted unit-test compilation is not permitted.
+
+Fault injection must prove that the injected operation is the operation under
+test. In particular, allocator growth may release empty sentinel blocks; a
+`free` failure injector intended to test rollback cleanup must ignore those
+non-owned empty blocks. Tests assert both the structured operation/subject/cause
+and the final active-allocation count so an earlier incidental call cannot
+masquerade as cleanup coverage.

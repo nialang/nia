@@ -7,17 +7,17 @@ fn generateSource(b: &mut build::Build) build::Error!void {
     let mut file = fs::File::create(
         fs::PathView::init(&generatedPath),
         fs::CreateOptions::init(),
-    ).asBuildError().?;
-    defer file.close().asBuildError().?;
+    ).asBuildError(build::ErrorOperation::Initialize, build::ErrorSubject::Output).?;
+    defer file.close().asBuildError(build::ErrorOperation::Release, build::ErrorSubject::Output).?;
     let mut buffer: [256]u8 = [_]u8[0; 256];
-    let mut writer = file.writer(b.io(), &mut buffer[..]).asBuildError().?;
-    writer.write_all(&b"using std::process;\npub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }\n").asBuildError().?;
-    writer.flush().asBuildError()
+    let mut writer = file.writer(b.io(), &mut buffer[..]).asBuildError(build::ErrorOperation::Initialize, build::ErrorSubject::Output).?;
+    writer.write_all(&b"using std::process;\npub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }\n").asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Output).?;
+    writer.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Output)
 }
 
 fn failAction(b: &mut build::Build) build::Error!void {
     _ = b;
-    build::Error::StepFailed!
+    build::Error::StepFailed(0usize)!
 }
 
 pub fn build(b: &mut build::Build) build::Error!void {

@@ -122,12 +122,34 @@ block address. Builder failure tests therefore inject allocation failures into
 an allocator that counts active blocks, while exact fixed/arena checkpoint
 semantics remain a separate reviewed API decision.
 
+Fault allocators distinguish an owned non-empty allocation from an empty block
+used as a collection-growth sentinel. A release fault injected into every
+`free`, including empty blocks, can fire during ordinary capacity growth and
+falsely appear to test rollback. Cleanup tests therefore inject only at the
+owned release boundary and assert the complete contextual error as well as
+zero live allocations.
+
+Borrowed views receive no inferred lifetime from Nia. A function-local string
+literal is an array value in that frame; returning `&[char]` obtained from it
+creates a dangling view after return even when the source text looks constant.
+Formatting helpers either write literal text while their frame is active or
+refer to explicitly stable storage. The same rule applies to `StringView`,
+`PathView`, target text, and every future frozen-plan field.
+
 Allocator failure, invalid UTF-8, invalid path encoding, unavailable files,
 partial I/O, spawn setup, process exit, cleanup, and formatting output are
 ordinary typed failures. Errors retain operation, subject/path/action, and
 underlying category long enough for the build coordinator to issue one
 structured diagnostic. `Invalid`, `Report`, `Internal`, or an exit code alone
 is not the target error contract.
+
+The bootstrap build error model now carries `ErrorOperation`, `ErrorSubject`,
+and an exact domain `ErrorCause`. Memory, formatting, filesystem, process, and
+child termination values are preserved rather than translated into parallel
+coarse build variants. This is the minimum accepted build-host error shape;
+the immutable plan adds stable package/action/artifact subjects without
+restoring aliases such as `InvalidTarget`, `CommandFailed`, or bare
+`OutOfMemory`.
 
 ## 6. Host And Target Separation
 

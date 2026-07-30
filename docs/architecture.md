@@ -225,7 +225,12 @@ Current Nia-owned optimization consumers:
   Trait-object vtable collection caches vtable construction by concrete
   `(self_ty, object_ty)` key across instance-discovery rounds so repeated
   coercions do not rebuild identical vtable metadata while discovering
-  monomorphized vtable entries. Vtable-driven generic instance discovery scans
+  monomorphized vtable entries. A selected trait implementation retains the
+  use-module context required to interpret its instance arguments. A trait
+  default method instead uses the trait definition module: deriving that
+  context from whichever consumer happens to materialize the vtable would give
+  one `(self_ty, object_ty)` key conflicting definitions across facades and
+  consumers. Vtable-driven generic instance discovery scans
   root functions once and then scans only function instances added by the
   previous queue drain, avoiding repeated full traversals of all
   already-discovered instances. Generic type instantiation interns the active
