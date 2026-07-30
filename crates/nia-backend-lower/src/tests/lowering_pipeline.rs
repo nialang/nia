@@ -215,6 +215,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
             trait_impl_index: &trait_impl_index,
             instantiations: &semantic_instantiations,
         }],
+        [(module_id, nia_source::SourceIdentity::new("main"))],
         &type_store,
     );
     assert!(
@@ -241,8 +242,12 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         .iter()
         .map(|(def_id, init)| (*def_id, init.as_ref()))
         .collect::<HashMap<_, _>>();
-    let program =
-        TestBackendProgramFacts::new(program_const, program_function_bodies, program_static_inits);
+    let program = TestBackendProgramFacts::new(
+        module_id,
+        program_const,
+        program_function_bodies,
+        program_static_inits,
+    );
 
     let input = BackendLowerModuleInput {
         module_id,

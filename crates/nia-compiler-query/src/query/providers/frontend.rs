@@ -320,10 +320,7 @@ pub(super) fn provide_signature_type_resolution(
             .as_ref()
             .and_then(|program_sources| {
                 let source = program_sources.by_module.get(&module_id)?;
-                let namespace = crate::FrontendCacheNamespace::new(
-                    &db.context().loader_facts.target(),
-                    db.context().loader_facts.runtime(),
-                );
+                let namespace = db.context().frontend_cache_namespace();
                 let key = crate::FrontendSignatureTypeResolutionCacheKey::new(
                     namespace,
                     &source.module,
@@ -552,10 +549,7 @@ pub(super) fn provide_signature_type_lowering(
         .as_ref()
         .and_then(|program_sources| {
             let source = program_sources.by_module.get(&module_id)?;
-            let namespace = crate::FrontendCacheNamespace::new(
-                &db.context().loader_facts.target(),
-                db.context().loader_facts.runtime(),
-            );
+            let namespace = db.context().frontend_cache_namespace();
             let key = crate::FrontendSignatureTypeLoweringCacheKey::new(
                 namespace,
                 &source.module,
@@ -749,10 +743,7 @@ pub(super) fn provide_signature_item_signatures(
         .as_ref()
         .and_then(|program_sources| {
             let source = program_sources.by_module.get(&module_id)?;
-            let namespace = crate::FrontendCacheNamespace::new(
-                &db.context().loader_facts.target(),
-                db.context().loader_facts.runtime(),
-            );
+            let namespace = db.context().frontend_cache_namespace();
             let key = crate::FrontendSignatureItemSignaturesCacheKey::new(
                 namespace,
                 &source.module,

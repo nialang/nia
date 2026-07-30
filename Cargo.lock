@@ -279,6 +279,7 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-timing",
+ "nia-toolchain",
  "nia-ty",
 ]
 
@@ -327,6 +328,7 @@ dependencies = [
  "nia-syntax",
  "nia-target-config",
  "nia-timing",
+ "nia-toolchain",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -651,6 +653,7 @@ dependencies = [
  "nia-query",
  "nia-source",
  "nia-target-config",
+ "nia-toolchain",
 ]
 
 [[package]]
@@ -954,6 +957,7 @@ dependencies = [
 name = "nia-toolchain"
 version = "0.4.3"
 dependencies = [
+ "nia-query",
  "nia-target-config",
 ]
 

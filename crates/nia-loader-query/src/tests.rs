@@ -207,6 +207,7 @@ fn test_loader_context(
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,
+        toolchain_identity: test_toolchain_layout().identity().fingerprint(),
         package_roots_with_used_paths: HashSet::new(),
         package_root_used_paths: false,
         provider_facts: ProviderFactStore::default(),

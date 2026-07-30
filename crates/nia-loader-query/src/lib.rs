@@ -119,10 +119,19 @@ impl LoaderDatabase {
         let frontend_cache = request
             .frontend_cache_dir
             .map(|root| Arc::new(frontend_cache::PersistentFrontendCache::new(root)));
-        let namespace = FrontendCacheNamespace::new(
+        let toolchain_identity = request
+            .toolchain
+            .as_deref()
+            .map(|toolchain| toolchain.identity().fingerprint())
+            .unwrap_or_else(nia_toolchain::ToolchainIdentityFingerprint::current);
+        let namespace = FrontendCacheNamespace::for_toolchain(
             &request.target,
             queries::runtime_model(request.entry_runtime),
+            toolchain_identity,
         );
+        let source_roots = std::iter::once(entry_path.clone())
+            .chain(module_map.entries().map(|(_, path)| path.clone()))
+            .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint(&module_map);
         let provider_demand_plan_key = frontend_cache.as_ref().map(|_| {
             FrontendProviderDemandPlanCacheKey::new(
@@ -142,6 +151,7 @@ impl LoaderDatabase {
                     &entry_path.identity(),
                     module_map_fingerprint,
                     request.package_root_used_paths,
+                    &source_roots,
                     &sources,
                     &symbols,
                 ) {
@@ -167,6 +177,7 @@ impl LoaderDatabase {
                 symbols,
                 target: request.target,
                 entry_runtime: request.entry_runtime,
+                toolchain_identity,
                 package_roots_with_used_paths,
                 package_root_used_paths: request.package_root_used_paths,
                 provider_facts,
@@ -358,10 +369,7 @@ impl LoaderDatabase {
             .modules()
             .map(|module| module.path.clone())
             .collect::<Vec<_>>();
-        let namespace = FrontendCacheNamespace::new(
-            &context.target,
-            queries::runtime_model(context.entry_runtime),
-        );
+        let namespace = context.frontend_cache_namespace();
         let module_map = frontend_module_map_fingerprint(&context.module_map);
         let snapshot = provider_facts.as_snapshot();
         let _ = cache.publish_provider_demand_plan(
@@ -572,6 +580,10 @@ impl LoaderFactProvider for LoaderDatabase {
     fn runtime(&self) -> nia_compiler_query::RuntimeModel {
         queries::runtime_model(self.db.context().entry_runtime)
     }
+
+    fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
+        self.db.context().toolchain_identity
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -686,6 +698,7 @@ fn load_program_trace(
             symbols: SymbolTable::new(),
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
+            toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
             package_roots_with_used_paths: HashSet::new(),
             package_root_used_paths: false,
             provider_facts: ProviderFactStore::default(),
@@ -711,8 +724,9 @@ fn effective_module_map(
     let Some(toolchain) = toolchain else {
         return module_map;
     };
-    module_map.with_default_std(SourcePath::new(
+    module_map.with_default_std(SourcePath::with_identity(
         toolchain.std_module().to_string_lossy().into_owned(),
+        "toolchain:/std.nia",
     ))
 }
 
@@ -725,6 +739,7 @@ pub(crate) struct LoaderContext {
     pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
     pub(crate) entry_runtime: EntryRuntime,
+    pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) package_root_used_paths: bool,
     pub(crate) provider_facts: ProviderFactStore,
@@ -732,4 +747,14 @@ pub(crate) struct LoaderContext {
     pub(crate) verify_frontend_cache: bool,
     pub(crate) provider_demand_plan_key: Option<FrontendProviderDemandPlanCacheKey>,
     pub(crate) provider_demand_plan_candidate: Mutex<Option<HashSet<ProviderDemand>>>,
+}
+
+impl LoaderContext {
+    pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
+        FrontendCacheNamespace::for_toolchain(
+            &self.target,
+            queries::runtime_model(self.entry_runtime),
+            self.toolchain_identity,
+        )
+    }
 }

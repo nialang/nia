@@ -2,6 +2,7 @@
 use super::*;
 
 pub(super) struct TestBackendProgramFacts<'a> {
+    source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
     const_array_lengths: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, u64>>,
     function_body_ids: Vec<GlobalDefId>,
     function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
@@ -20,6 +21,7 @@ pub(super) struct TestBackendProgramFacts<'a> {
 
 impl<'a> TestBackendProgramFacts<'a> {
     pub(super) fn new(
+        module_id: ModuleId,
         const_array_lengths: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, u64>>,
         function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
         static_inits: HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
@@ -29,6 +31,10 @@ impl<'a> TestBackendProgramFacts<'a> {
         let mut static_init_ids = static_inits.keys().copied().collect::<Vec<_>>();
         static_init_ids.sort_unstable();
         Self {
+            source_identities: HashMap::from([(
+                module_id,
+                nia_source::SourceIdentity::new("main"),
+            )]),
             const_array_lengths,
             function_body_ids,
             function_bodies,
@@ -48,6 +54,10 @@ impl<'a> TestBackendProgramFacts<'a> {
 }
 
 impl BackendProgramFacts for TestBackendProgramFacts<'_> {
+    fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity> {
+        &self.source_identities
+    }
+
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>> {
         self.const_array_lengths.get(&module_id).copied()
     }

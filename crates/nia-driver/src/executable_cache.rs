@@ -12,8 +12,8 @@ use nia_linker::{
 };
 use nia_query::QueryFingerprintBuilder;
 
-const LINK_RESULT_MAGIC: &[u8; 8] = b"NIALNK02";
-const LINK_RESULT_SCHEMA: &str = "v2";
+const LINK_RESULT_MAGIC: &[u8; 8] = b"NIALNK03";
+const LINK_RESULT_SCHEMA: &str = "v3";
 static LINK_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -232,6 +232,7 @@ fn encode_link_result(fingerprints: LinkResultFingerprintSet, bytes: &[u8]) -> V
     write_fingerprint(&mut encoded, fingerprints.fingerprint);
     for component in [
         fingerprints.components.inputs,
+        fingerprints.components.toolchain,
         fingerprints.components.target,
         fingerprints.components.linker,
         fingerprints.components.options,
@@ -259,6 +260,7 @@ fn decode_link_result(encoded: &[u8]) -> Option<DecodedLinkResult> {
     let fingerprint = read_fingerprint(&mut cursor)?;
     let components = LinkResultFingerprintComponents {
         inputs: read_fingerprint(&mut cursor)?,
+        toolchain: read_fingerprint(&mut cursor)?,
         target: read_fingerprint(&mut cursor)?,
         linker: read_fingerprint(&mut cursor)?,
         options: read_fingerprint(&mut cursor)?,
@@ -332,9 +334,10 @@ mod tests {
             LinkResultCacheKey::from_parts([1, 2]),
             LinkResultFingerprintComponents {
                 inputs: LinkResultFingerprint::from_parts([seed, 1]),
-                target: LinkResultFingerprint::from_parts([seed, 2]),
-                linker: LinkResultFingerprint::from_parts([seed, 3]),
-                options: LinkResultFingerprint::from_parts([seed, 4]),
+                toolchain: LinkResultFingerprint::from_parts([seed, 2]),
+                target: LinkResultFingerprint::from_parts([seed, 3]),
+                linker: LinkResultFingerprint::from_parts([seed, 4]),
+                options: LinkResultFingerprint::from_parts([seed, 5]),
             },
         )
     }
@@ -447,6 +450,7 @@ mod tests {
                 .expect("lookup changed"),
             LinkResultCacheLookup::Invalidated(LinkResultInvalidation {
                 inputs: false,
+                toolchain: false,
                 target: true,
                 linker: false,
                 options: false,

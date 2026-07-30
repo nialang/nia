@@ -42,6 +42,7 @@ impl LinkResultCacheKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkResultFingerprintComponents {
     pub inputs: LinkResultFingerprint,
+    pub toolchain: LinkResultFingerprint,
     pub target: LinkResultFingerprint,
     pub linker: LinkResultFingerprint,
     pub options: LinkResultFingerprint,
@@ -59,6 +60,7 @@ impl LinkResultFingerprintSet {
         let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_FINGERPRINT_DOMAIN);
         for component in [
             components.inputs,
+            components.toolchain,
             components.target,
             components.linker,
             components.options,
@@ -78,6 +80,7 @@ impl LinkResultFingerprintSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkResultInvalidation {
     pub inputs: bool,
+    pub toolchain: bool,
     pub target: bool,
     pub linker: bool,
     pub options: bool,
@@ -90,6 +93,7 @@ impl LinkResultInvalidation {
     ) -> Self {
         Self {
             inputs: cached.inputs != expected.inputs,
+            toolchain: cached.toolchain != expected.toolchain,
             target: cached.target != expected.target,
             linker: cached.linker != expected.linker,
             options: cached.options != expected.options,
@@ -98,6 +102,7 @@ impl LinkResultInvalidation {
 
     pub fn count(self) -> u32 {
         u32::from(self.inputs)
+            + u32::from(self.toolchain)
             + u32::from(self.target)
             + u32::from(self.linker)
             + u32::from(self.options)
@@ -267,6 +272,7 @@ impl LinkOptions {
     pub fn result_fingerprint<T>(
         &self,
         inputs: &IncrementalLinkInputs<T>,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<Option<LinkResultFingerprintSet>, LinkerConfigError> {
         if self.sysroot.is_some() || !self.libraries.is_empty() || !self.raw_args.is_empty() {
             return Ok(None);
@@ -289,6 +295,11 @@ impl LinkOptions {
             for part in input.fingerprint.parts() {
                 input_component.write_u64(part);
             }
+        }
+
+        let mut toolchain_component = QueryFingerprintBuilder::new("nia.link-result-toolchain.v1");
+        for part in toolchain_identity.parts() {
+            toolchain_component.write_u64(part);
         }
 
         let mut target_component = QueryFingerprintBuilder::new("nia.link-result-target.v2");
@@ -323,6 +334,7 @@ impl LinkOptions {
             LinkResultCacheKey::from_parts(cache_key.finish().parts()),
             LinkResultFingerprintComponents {
                 inputs: finish_link_fingerprint(input_component),
+                toolchain: finish_link_fingerprint(toolchain_component),
                 target: finish_link_fingerprint(target_component),
                 linker: finish_link_fingerprint(linker_component),
                 options: finish_link_fingerprint(option_component),

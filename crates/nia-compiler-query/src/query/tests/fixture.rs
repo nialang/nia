@@ -129,6 +129,7 @@ impl LoadedProgramFixture {
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
+            toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
             modules: self.modules.clone(),
             diagnostics: Vec::new(),
         }

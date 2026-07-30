@@ -285,8 +285,8 @@ fn executable_check_in_session(
         let provider_fact_worklist = db.get(ProviderFactWorklistQuery)?;
         let body_activation_worklist = db.get(BodyActivationWorklistQuery)?;
         let executable_fact_epoch = db.get(ExecutableFactEpochQuery)?;
-        let semantic_module_ids = db.get(SemanticModuleIdsQuery)?;
-        let parse_ok = resolve_stable_module_sequence(db, &semantic_module_ids)?;
+        let parse_ok_module_ids = db.get(ParseOkModuleIdsQuery)?;
+        let parse_ok = resolve_stable_module_sequence(db, &parse_ok_module_ids)?;
         let (entry_module, runtime_root_modules) =
             db.get(ExecutableRootModulesQuery)?.as_ref().clone();
         let (root_functions, root_globals) =

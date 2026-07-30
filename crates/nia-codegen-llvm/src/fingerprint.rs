@@ -37,7 +37,7 @@ pub(super) fn source_unit_fingerprint(
 ) -> CodegenUnitFingerprintSet {
     declarations.validate_dependencies(partition, index);
     let mut policy = Encoder::new("nia.llvm.source-policy.v3", index);
-    policy.compiler_contract();
+    policy.compiler_contract(options.toolchain_identity);
     policy.codegen_unit_key(&partition.key);
     policy.optimization(options.optimization);
     policy.artifact_kind(target);
@@ -65,7 +65,7 @@ pub(super) fn compiler_builtins_fingerprint(
     target: &TargetMachineIdentity,
 ) -> CodegenUnitFingerprintSet {
     let mut policy = QueryFingerprintBuilder::new("nia.llvm.builtins-policy.v2");
-    policy.write_str(env!("CARGO_PKG_VERSION"));
+    write_toolchain_identity(&mut policy, options.toolchain_identity);
     policy.write_u64(llvm_sys_version());
     write_optimization(&mut policy, options.optimization);
 
@@ -105,8 +105,11 @@ impl<'a> Encoder<'a> {
         CodegenUnitFingerprint::from_parts(self.builder.finish().parts())
     }
 
-    fn compiler_contract(&mut self) {
-        self.builder.write_str(env!("CARGO_PKG_VERSION"));
+    fn compiler_contract(
+        &mut self,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    ) {
+        write_toolchain_identity(&mut self.builder, toolchain_identity);
         self.builder.write_u64(llvm_sys_version());
         self.builder.write_u64(nia_mangle::MANGLE_ABI_VERSION);
     }
@@ -1853,6 +1856,15 @@ impl<'a> Encoder<'a> {
     }
 }
 
+fn write_toolchain_identity(
+    builder: &mut QueryFingerprintBuilder,
+    identity: nia_toolchain::ToolchainIdentityFingerprint,
+) {
+    for part in identity.parts() {
+        builder.write_u64(part);
+    }
+}
+
 fn write_optimization(builder: &mut QueryFingerprintBuilder, policy: OptimizationPolicy) {
     builder.write_u8(match policy.level {
         NiaOptimizationLevel::O0 => 0,
@@ -2539,6 +2551,36 @@ mod tests {
         assert_eq!(
             baseline.components.declarations,
             changed.components.declarations
+        );
+
+        let changed_toolchain = source_unit_fingerprint(
+            &fixture.partition,
+            &declarations,
+            &fixture.index,
+            LlvmCodegenOptions {
+                toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::from_parts([
+                    9, 11,
+                ]),
+                ..LlvmCodegenOptions::default()
+            },
+            ArtifactTarget::NativeObject(&target),
+        );
+        assert_ne!(baseline.fingerprint, changed_toolchain.fingerprint);
+        assert_ne!(
+            baseline.components.policy,
+            changed_toolchain.components.policy
+        );
+        assert_eq!(
+            baseline.components.definition,
+            changed_toolchain.components.definition
+        );
+        assert_eq!(
+            baseline.components.declarations,
+            changed_toolchain.components.declarations
+        );
+        assert_eq!(
+            baseline.components.target,
+            changed_toolchain.components.target
         );
     }
 }

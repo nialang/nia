@@ -999,8 +999,7 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phase A is complete. The project is ready to execute Phase B and the independent
-language batches that must settle before affected Phase C APIs freeze. Later
+Phases A and B are complete. The project is ready to execute Phase C. Later
 implementation phases are not marked complete by roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
@@ -1051,6 +1050,28 @@ resource-accounted build acceptance passed. The next batch must place semantic
 toolchain identity in frontend/object/link/build cache domains and prove copied
 installed-tree `check`, object, executable, build, and relocation reuse before
 Phase B can close.
+
+Phase B completion (2026-07-30): the second relocation batch threads the
+path-independent toolchain compatibility fingerprint through frontend,
+provider-demand, LLVM object, compiler-builtins, link-result, and build-runner
+compilation domains. `SourcePath` now separates the physical path used for I/O
+and diagnostics from its logical `SourceIdentity`; installed std modules use
+`toolchain:/...` identities, and persisted provider-demand plans contain only
+those identities before strictly remapping them through the current entry and
+module-map roots. No legacy cache reader or absolute-path fallback was retained.
+The relocation probe also exposed and fixed a deeper executable-closure defect:
+parse-valid shallow providers may now be activated by resolved references
+without eagerly checking unrelated provider bodies. A resource-accounted CLI
+acceptance test constructs an installed tree, copies it to another absolute
+location, and proves relocated `check`, `emit --obj`, `emit --exe`, executable
+launch, and `build`, with complete object/link reuse and no toolchain
+invalidation. The current bootstrap `BuildPlan` is an in-memory request model
+and has no persistent cache; build-runner compilation already uses the same
+Driver frontend/object/link caches. The immutable frozen-plan cache introduced
+in later phases must use this compatibility identity rather than inventing a
+parallel domain. Together with the first batch's layout diagnostics and removal
+of compile-time checkout inference, this satisfies every Phase B acceptance
+gate. Phase C is now the critical path.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

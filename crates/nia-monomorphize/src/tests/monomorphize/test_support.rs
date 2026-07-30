@@ -72,7 +72,13 @@ fn collect_test_monomorphizations(
     inputs: &[MonomorphizeModuleInput<'_>],
     type_store: &TypeStore,
 ) -> Monomorphization {
-    collect_monomorphizations(inputs, type_store)
+    collect_monomorphizations(
+        inputs,
+        inputs
+            .iter()
+            .map(|input| (input.module_id, input.source_identity.clone())),
+        type_store,
+    )
 }
 
 fn mono_input<'a>(

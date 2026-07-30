@@ -115,6 +115,13 @@ pub(super) fn monomorphization_for_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
 ) -> QueryResult<nia_monomorphize::Monomorphization> {
+    let source_identities = db
+        .context()
+        .loader_facts
+        .module_graph()?
+        .modules()
+        .map(|module| (module.id, module.stable_key.source_identity().clone()))
+        .collect::<Vec<_>>();
     let executable_signatures = executable_program_non_function_signatures(db)?;
     let program_enums = &executable_signatures.enums;
     let trait_impls = executable_signatures.trait_impls.as_slice();
@@ -158,6 +165,7 @@ pub(super) fn monomorphization_for_checked_modules(
                 },
             )
             .collect::<Vec<_>>(),
+        source_identities,
         &db.context().type_store,
     ))
 }
@@ -553,12 +561,20 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         checked_modules.iter().map(|module| module.id),
     )?;
     let runtime = *db.get(CompilerRuntimeQuery)?;
+    let source_identities = db
+        .context()
+        .loader_facts
+        .module_graph()?
+        .modules()
+        .map(|module| (module.id, module.stable_key.source_identity().clone()))
+        .collect();
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
         || {
             BackendLoweringInputs::new(BackendLoweringInputsParts {
                 symbols: db.context().symbols(),
+                source_identities,
                 checked_modules,
                 runtime,
                 active_item_trees,

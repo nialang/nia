@@ -252,8 +252,12 @@ fn main() i32 {
         .iter()
         .map(|(def_id, init)| (*def_id, init.as_ref()))
         .collect::<HashMap<_, _>>();
-    let program =
-        TestBackendProgramFacts::new(program_const, program_function_bodies, program_static_inits);
+    let program = TestBackendProgramFacts::new(
+        module_id,
+        program_const,
+        program_function_bodies,
+        program_static_inits,
+    );
     let function_instance_plan = Vec::new();
 
     let input = BackendLowerModuleInput {

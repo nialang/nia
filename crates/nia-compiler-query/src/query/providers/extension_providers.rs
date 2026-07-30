@@ -178,10 +178,7 @@ pub(super) fn provide_extension_trait_solving_module_facts(
         .as_ref()
         .and_then(|program_sources| {
             let source = program_sources.by_module.get(&module_id)?;
-            let namespace = crate::FrontendCacheNamespace::new(
-                &db.context().loader_facts.target(),
-                db.context().loader_facts.runtime(),
-            );
+            let namespace = db.context().frontend_cache_namespace();
             let key = crate::FrontendExtensionTraitSolvingFactsCacheKey::new(
                 namespace,
                 &source.module,
@@ -428,10 +425,7 @@ pub(super) fn provide_extension_provider_validation_facts(
             .as_ref()
             .and_then(|program_sources| {
                 let source = program_sources.by_module.get(&module_id)?;
-                let namespace = crate::FrontendCacheNamespace::new(
-                    &db.context().loader_facts.target(),
-                    db.context().loader_facts.runtime(),
-                );
+                let namespace = db.context().frontend_cache_namespace();
                 let key = crate::FrontendExtensionValidationDiagnosticsCacheKey::new(
                     namespace,
                     &source.module,

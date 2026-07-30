@@ -123,6 +123,10 @@ fn emit_link_result_reuse(timings: TimingMode, reuse: LinkResultReuse) {
         u64::from(invalidation.is_some_and(|reasons| reasons.inputs)),
     );
     nia_timing::emit_counter(
+        "link.result_invalidation_toolchain",
+        u64::from(invalidation.is_some_and(|reasons| reasons.toolchain)),
+    );
+    nia_timing::emit_counter(
         "link.result_invalidation_target",
         u64::from(invalidation.is_some_and(|reasons| reasons.target)),
     );
@@ -394,7 +398,11 @@ impl Driver {
                 .iter()
                 .map(|module| module.body_ir.function_bodies.len())
                 .sum();
-            let options = codegen_options(preparation.optimization, timings);
+            let options = codegen_options(
+                preparation.optimization,
+                timings,
+                self.config.toolchain.identity().fingerprint(),
+            );
             let optimization = preparation.optimization;
             let diagnostics = preparation.diagnostics;
             let type_store = std::sync::Arc::clone(&preparation.type_store);
@@ -485,7 +493,11 @@ impl Driver {
                 std::sync::Arc::clone(&program.backend_lowering),
                 std::sync::Arc::clone(&program.type_store),
                 &session,
-                codegen_options(program.optimization, timings),
+                codegen_options(
+                    program.optimization,
+                    timings,
+                    self.config.toolchain.identity().fingerprint(),
+                ),
             );
             if !output.diagnostics.is_empty() {
                 return DriverOutput::from_error(DriverError::CodegenDiagnostics(
@@ -533,7 +545,11 @@ impl Driver {
             let optimization = preparation.optimization;
             let diagnostics = preparation.diagnostics;
             let type_store = std::sync::Arc::clone(&preparation.type_store);
-            let options = codegen_options(optimization, timings);
+            let options = codegen_options(
+                optimization,
+                timings,
+                self.config.toolchain.identity().fingerprint(),
+            );
             let session = database.query_session();
             let cache = self.object_cache.as_ref().map(|cache| {
                 cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
@@ -628,7 +644,11 @@ impl Driver {
                 std::sync::Arc::clone(&program.backend_lowering),
                 std::sync::Arc::clone(&program.type_store),
                 &session,
-                codegen_options(program.optimization, timings),
+                codegen_options(
+                    program.optimization,
+                    timings,
+                    self.config.toolchain.identity().fingerprint(),
+                ),
                 cache,
             );
             if !output.diagnostics.is_empty() {
@@ -774,7 +794,10 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             link_options.target =
                 LinkTarget::from_target_config(self.config.toolchain.artifact_target());
-            let link_fingerprint = match link_options.result_fingerprint(&objects.link_inputs) {
+            let link_fingerprint = match link_options.result_fingerprint(
+                &objects.link_inputs,
+                self.config.toolchain.identity().fingerprint(),
+            ) {
                 Ok(fingerprint) => fingerprint,
                 Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
             };
@@ -1365,10 +1388,12 @@ pub enum DriverError {
 fn codegen_options(
     optimization: OptimizationPolicy,
     timings: TimingMode,
+    toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
 ) -> nia_codegen_llvm::LlvmCodegenOptions {
     nia_codegen_llvm::LlvmCodegenOptions {
         optimization,
         timings,
+        toolchain_identity,
     }
 }
 

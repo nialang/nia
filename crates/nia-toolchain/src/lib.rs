@@ -15,6 +15,29 @@ pub struct ToolchainIdentity {
     build_protocol_schema: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ToolchainIdentityFingerprint(nia_query::QueryFingerprint);
+
+impl ToolchainIdentityFingerprint {
+    pub fn current() -> Self {
+        ToolchainIdentity {
+            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+            resource_layout_schema: RESOURCE_LAYOUT_SCHEMA,
+            std_schema: STD_SCHEMA,
+            build_protocol_schema: BUILD_PROTOCOL_SCHEMA,
+        }
+        .fingerprint()
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(nia_query::QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
+
 impl ToolchainIdentity {
     pub fn compiler_version(&self) -> &str {
         &self.compiler_version
@@ -30,6 +53,16 @@ impl ToolchainIdentity {
 
     pub const fn build_protocol_schema(&self) -> u32 {
         self.build_protocol_schema
+    }
+
+    pub fn fingerprint(&self) -> ToolchainIdentityFingerprint {
+        let mut builder =
+            nia_query::QueryFingerprintBuilder::new("nia.toolchain.compatibility-identity.v1");
+        builder.write_str(&self.compiler_version);
+        builder.write_u64(u64::from(self.resource_layout_schema));
+        builder.write_u64(u64::from(self.std_schema));
+        builder.write_u64(u64::from(self.build_protocol_schema));
+        ToolchainIdentityFingerprint(builder.finish())
     }
 }
 
@@ -596,6 +629,48 @@ mod tests {
                 ToolchainLayoutError::MalformedManifest { line: 3, .. }
             ),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn compatibility_fingerprint_is_path_independent_and_tracks_every_identity_field() {
+        let baseline = ToolchainIdentity {
+            compiler_version: "compiler".to_string(),
+            resource_layout_schema: 1,
+            std_schema: 2,
+            build_protocol_schema: 3,
+        };
+        let baseline_fingerprint = baseline.fingerprint();
+        for changed in [
+            ToolchainIdentity {
+                compiler_version: "changed".to_string(),
+                ..baseline.clone()
+            },
+            ToolchainIdentity {
+                resource_layout_schema: 9,
+                ..baseline.clone()
+            },
+            ToolchainIdentity {
+                std_schema: 9,
+                ..baseline.clone()
+            },
+            ToolchainIdentity {
+                build_protocol_schema: 9,
+                ..baseline.clone()
+            },
+        ] {
+            assert_ne!(baseline_fingerprint, changed.fingerprint());
+        }
+
+        assert_eq!(
+            ToolchainIdentityFingerprint::current(),
+            ToolchainIdentity {
+                compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+                resource_layout_schema: RESOURCE_LAYOUT_SCHEMA,
+                std_schema: STD_SCHEMA,
+                build_protocol_schema: BUILD_PROTOCOL_SCHEMA,
+            }
+            .fingerprint()
         );
     }
 }

@@ -35,9 +35,9 @@ const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM02";
 const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF02";
 const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD02";
 const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS03";
-const PROVIDER_DEMAND_PLAN_MAGIC: &[u8; 8] = b"NIAFPD01";
+const PROVIDER_DEMAND_PLAN_MAGIC: &[u8; 8] = b"NIAFPD02";
 const PUBLIC_SURFACE_FACTS_MAGIC: &[u8; 8] = b"NIAFPF01";
-const FRONTEND_CACHE_SCHEMA: &str = "v3";
+const FRONTEND_CACHE_SCHEMA: &str = "v4";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
@@ -481,6 +481,7 @@ impl PersistentFrontendCache {
         entry: &SourceIdentity,
         module_map: FrontendModuleMapFingerprint,
         package_root_used_paths: bool,
+        source_roots: &[SourcePath],
         sources: &SourceDatabase,
         symbols: &SymbolTable,
     ) -> io::Result<ProviderDemandPlanCacheLookup> {
@@ -511,8 +512,14 @@ impl PersistentFrontendCache {
             remove_corrupt(&path);
             return Ok(ProviderDemandPlanCacheLookup::Corrupt);
         }
-        for source in decoded.sources {
-            let Ok(file) = sources.read_source(&source.path) else {
+        for source in &decoded.sources {
+            let Some(source_path) =
+                resolve_cached_source_path(&source.path.identity(), source_roots)
+            else {
+                remove_corrupt(&path);
+                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+            };
+            let Ok(file) = sources.read_source(&source_path) else {
                 remove_corrupt(&path);
                 return Ok(ProviderDemandPlanCacheLookup::Invalidated);
             };
@@ -527,7 +534,11 @@ impl PersistentFrontendCache {
             remove_corrupt(&path);
             return Ok(ProviderDemandPlanCacheLookup::Corrupt);
         }
-        Ok(ProviderDemandPlanCacheLookup::Hit(decoded.demands))
+        let Some(demands) = remap_provider_demands(decoded.demands, source_roots) else {
+            remove_corrupt(&path);
+            return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+        };
+        Ok(ProviderDemandPlanCacheLookup::Hit(demands))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -721,7 +732,11 @@ fn encode_provider_demand_plan(
     symbols: &SymbolTable,
 ) -> io::Result<Vec<u8>> {
     let mut source_paths = source_paths.to_vec();
-    source_paths.sort_unstable_by(|left, right| left.as_str().cmp(right.as_str()));
+    source_paths.sort_unstable_by(|left, right| {
+        left.identity()
+            .normalized_path()
+            .cmp(right.identity().normalized_path())
+    });
     source_paths.dedup_by(|left, right| left.identity() == right.identity());
 
     let mut payload = Vec::new();
@@ -733,7 +748,7 @@ fn encode_provider_demand_plan(
     payload.extend_from_slice(&(source_paths.len() as u64).to_le_bytes());
     for path in source_paths {
         let file = sources.read_source(&path)?;
-        write_string(&mut payload, path.as_str());
+        write_string(&mut payload, path.identity().normalized_path());
         write_parts(&mut payload, source_content_fingerprint(&file.text).parts());
         payload.extend_from_slice(&(file.text.len() as u64).to_le_bytes());
     }
@@ -760,7 +775,10 @@ fn encode_provider_demand_plan(
     demands.sort_unstable_by(|left, right| compare_provider_demands(left, right));
     payload.extend_from_slice(&(demands.len() as u64).to_le_bytes());
     for demand in demands {
-        write_string(&mut payload, demand.source_path.as_str());
+        write_string(
+            &mut payload,
+            demand.source_path.identity().normalized_path(),
+        );
         match &demand.request {
             ProviderRequest::Method {
                 target_type_name,
@@ -776,11 +794,11 @@ fn encode_provider_demand_plan(
             }
             ProviderRequest::ModuleSemantic { module_path } => {
                 payload.push(2);
-                write_string(&mut payload, module_path.as_str());
+                write_string(&mut payload, module_path.identity().normalized_path());
             }
             ProviderRequest::ModuleBody { module_path } => {
                 payload.push(3);
-                write_string(&mut payload, module_path.as_str());
+                write_string(&mut payload, module_path.identity().normalized_path());
             }
         }
     }
@@ -915,6 +933,79 @@ fn provider_demand_plan_paths_are_closed(plan: &DecodedProviderDemandPlan) -> bo
         })
 }
 
+fn remap_provider_demands(
+    demands: HashSet<ProviderDemand>,
+    source_roots: &[SourcePath],
+) -> Option<HashSet<ProviderDemand>> {
+    demands
+        .into_iter()
+        .map(|demand| {
+            let source_path =
+                resolve_cached_source_path(&demand.source_path.identity(), source_roots)?;
+            let request = match demand.request {
+                ProviderRequest::Method {
+                    target_type_name,
+                    method_name,
+                } => ProviderRequest::Method {
+                    target_type_name,
+                    method_name,
+                },
+                ProviderRequest::TraitImpl { trait_name } => {
+                    ProviderRequest::TraitImpl { trait_name }
+                }
+                ProviderRequest::ModuleSemantic { module_path } => {
+                    ProviderRequest::ModuleSemantic {
+                        module_path: resolve_cached_source_path(
+                            &module_path.identity(),
+                            source_roots,
+                        )?,
+                    }
+                }
+                ProviderRequest::ModuleBody { module_path } => ProviderRequest::ModuleBody {
+                    module_path: resolve_cached_source_path(&module_path.identity(), source_roots)?,
+                },
+            };
+            Some(ProviderDemand {
+                source_path,
+                request,
+            })
+        })
+        .collect()
+}
+
+fn resolve_cached_source_path(
+    identity: &SourceIdentity,
+    source_roots: &[SourcePath],
+) -> Option<SourcePath> {
+    let logical = identity.normalized_path();
+    if let Some(root) = source_roots
+        .iter()
+        .find(|root| root.identity().normalized_path() == logical)
+    {
+        return Some(root.clone());
+    }
+
+    let remapped = source_roots
+        .iter()
+        .filter_map(|root| {
+            let root_identity = root.identity();
+            let logical_root = root_identity.normalized_path().strip_suffix(".nia")?;
+            let suffix = logical.strip_prefix(logical_root)?.strip_prefix('/')?;
+            let physical_root = root.as_str().strip_suffix(".nia")?;
+            Some((
+                logical_root.len(),
+                SourcePath::with_identity(format!("{physical_root}/{suffix}"), logical),
+            ))
+        })
+        .max_by_key(|(prefix_len, _)| *prefix_len)
+        .map(|(_, path)| path);
+    if remapped.is_some() {
+        return remapped;
+    }
+
+    (!logical.contains(":/")).then(|| SourcePath::new(logical))
+}
+
 fn read_canonical_source_path(cursor: &mut Cursor<&[u8]>, limit: usize) -> Option<String> {
     let path = read_string(cursor, limit)?;
     (SourcePath::new(&path).as_str() == path).then_some(path)
@@ -922,8 +1013,9 @@ fn read_canonical_source_path(cursor: &mut Cursor<&[u8]>, limit: usize) -> Optio
 
 fn compare_provider_demands(left: &ProviderDemand, right: &ProviderDemand) -> std::cmp::Ordering {
     left.source_path
-        .as_str()
-        .cmp(right.source_path.as_str())
+        .identity()
+        .normalized_path()
+        .cmp(right.source_path.identity().normalized_path())
         .then_with(|| compare_provider_requests(&left.request, &right.request))
 }
 
@@ -976,7 +1068,10 @@ fn compare_provider_requests(
                 ProviderRequest::ModuleBody {
                     module_path: right_path,
                 },
-            ) => left_path.as_str().cmp(right_path.as_str()),
+            ) => left_path
+                .identity()
+                .normalized_path()
+                .cmp(right_path.identity().normalized_path()),
             _ => std::cmp::Ordering::Equal,
         })
 }

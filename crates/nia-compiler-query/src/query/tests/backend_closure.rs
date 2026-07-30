@@ -122,6 +122,122 @@ extend Token : Marker {}
 }
 
 #[test]
+fn executable_backend_lowering_includes_shallow_primitive_extension_owners() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+module unicode;
+using entry::unicode;
+
+fn main() i32 {
+'a'.encoded_len()
+}
+"#,
+    );
+    let entry_id = fixture.entry_id();
+    let unicode_id = fixture.add_shallow_child(
+        entry_id,
+        "unicode",
+        "unicode.nia",
+        r#"
+extend char {
+pub fn encoded_len(self) i32 {
+    _ = self;
+    1
+}
+}
+"#,
+    );
+    fixture.graph.mark_semantic_selected(unicode_id);
+    let unused_id = fixture.add_shallow_child(
+        entry_id,
+        "unused",
+        "unused.nia",
+        r#"
+extend i32 {
+pub fn unreachable(self) i32 {
+    missing_symbol
+}
+}
+"#,
+    );
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let defs = module_defs_semantic(&db, unicode_id).expect("unicode defs");
+    let method = defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Method && def.name == sym("encoded_len")).then_some(
+                GlobalDefId {
+                    module_id: unicode_id,
+                    def_id,
+                },
+            )
+        })
+        .expect("encoded_len extension method");
+    let signatures = db.expect_get(SignatureItemSignaturesQuery(
+        unicode_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    assert!(
+        signatures
+            .semantic
+            .functions
+            .get(&method.def_id)
+            .is_some_and(|signature| signature.has_body),
+        "shallow extension signature should retain its runtime body contract"
+    );
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    assert!(
+        modules.iter().all(|module| module.id != unused_id),
+        "parse-ok shallow providers without reachable bodies must remain unchecked"
+    );
+    let entry = modules
+        .iter()
+        .find(|module| module.id == entry_id)
+        .expect("entry module should be executable-reachable");
+    assert!(
+        entry
+            .semantic_facts
+            .iter_node_resolved_calls()
+            .map(|(_, call)| call)
+            .any(|call| matches!(call, nia_sema_ir::ResolvedCall::Method { def_id, .. } if *def_id == method)),
+        "entry semantic facts should retain the resolved cross-module extension call"
+    );
+    assert!(
+        entry.semantic_facts.function_facts.values().any(|facts| {
+            facts.node_resolved_calls.values().any(
+                |call| matches!(call, nia_sema_ir::ResolvedCall::Method { def_id, .. } if *def_id == method),
+            )
+        }),
+        "the resolved extension call should be attributed to its calling function"
+    );
+    let unicode = modules
+        .iter()
+        .find(|module| module.id == unicode_id)
+        .expect("shallow primitive extension owner should be executable-reachable");
+    assert!(
+        unicode.body_ir.function_bodies.contains_key(&method),
+        "reachable primitive extension method body should be checked"
+    );
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(
+        backend
+            .semantic
+            .program
+            .modules
+            .iter()
+            .any(|module| module.id == unicode_id),
+        "reachable primitive extension owner should be present in the backend module plan"
+    );
+}
+
+#[test]
 fn executable_backend_lowering_includes_cross_module_trait_default_vtable_instances() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

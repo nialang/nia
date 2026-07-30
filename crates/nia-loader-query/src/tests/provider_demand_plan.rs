@@ -2,6 +2,93 @@
 
 use super::*;
 
+fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
+    let resources = root.join("resources");
+    let executable = root.join("bin/nia");
+    fs::create_dir_all(executable.parent().expect("compiler parent"))
+        .expect("create compiler directory");
+    fs::create_dir_all(resources.join("std")).expect("create resource directories");
+    write(&executable, "compiler");
+    write(
+        &resources.join("toolchain.meta"),
+        include_str!("../../../../lib/toolchain.meta"),
+    );
+    write(&resources.join("std.nia"), "pub module unicode;");
+    write(&resources.join("std/start.nia"), "");
+    write(
+        &resources.join("std/unicode.nia"),
+        "extend char { pub fn encoded_len(self) i32 { _ = self; 1 } }",
+    );
+    Arc::new(
+        nia_toolchain::ToolchainLayout::resolve(nia_toolchain::ToolchainLayoutRequest::explicit(
+            executable, resources,
+        ))
+        .expect("test toolchain layout"),
+    )
+}
+
+#[test]
+fn provider_demand_plan_remaps_logical_toolchain_paths_after_relocation() {
+    let root = temp_dir("provider_demand_plan_remaps_relocated_toolchain");
+    let cache_root = root.join("cache");
+    let main_path = root.join("main.nia");
+    write(&main_path, "using std::unicode;");
+    let first_toolchain = provider_plan_toolchain(&root.join("first"));
+    let second_toolchain = provider_plan_toolchain(&root.join("second"));
+    let request = |toolchain| {
+        LoadRequest::new(main_path.to_string_lossy().into_owned())
+            .with_frontend_cache_dir(Some(cache_root.clone()))
+            .with_toolchain_layout(toolchain)
+    };
+
+    let cold = LoaderDatabase::new(request(Arc::clone(&first_toolchain)));
+    let program = cold.load_program().expect("cold program load");
+    let first_unicode = program
+        .modules
+        .iter()
+        .find(|module| module.path.identity().normalized_path() == "toolchain:/std/unicode.nia")
+        .expect("cold unicode module")
+        .path
+        .clone();
+    let demand = ProviderDemand {
+        source_path: first_unicode.clone(),
+        request: nia_compiler_query::ProviderRequest::ModuleBody {
+            module_path: first_unicode,
+        },
+    };
+    cold.update_provider_demands([demand])
+        .expect("cold provider update");
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold)
+        .expect("settle cold provider demands");
+
+    let warm = LoaderDatabase::new(request(Arc::clone(&second_toolchain)));
+    warm.load_program().expect("warm relocated program load");
+    let warm_facts =
+        nia_compiler_query::LoaderFactProvider::provider_facts(&warm).expect("warm provider facts");
+    let restored = warm_facts
+        .demands()
+        .iter()
+        .find(|demand| {
+            matches!(
+                demand.request,
+                nia_compiler_query::ProviderRequest::ModuleBody { .. }
+            )
+        })
+        .expect("restored module-body demand");
+    let expected = second_toolchain.resource_root().join("std/unicode.nia");
+    assert_eq!(restored.source_path.as_str(), expected.to_string_lossy());
+    let nia_compiler_query::ProviderRequest::ModuleBody { module_path } = &restored.request else {
+        unreachable!();
+    };
+    assert_eq!(module_path.as_str(), expected.to_string_lossy());
+    assert!(
+        !restored
+            .source_path
+            .as_str()
+            .starts_with(first_toolchain.resource_root().to_string_lossy().as_ref())
+    );
+}
+
 #[test]
 fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() {
     let root = temp_dir("persistent_provider_demand_plan_restores_full_snapshot");
