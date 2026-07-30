@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn broad_and_narrow_std_imports_select_the_same_module_work() {
+    let root = temp_dir("broad_and_narrow_std_imports_select_the_same_module_work");
+    let broad_path = root.join("broad.nia");
+    let narrow_path = root.join("narrow.nia");
+    write(
+        &broad_path,
+        r#"
+using std::collections;
+
+fn consume(values: collections::ArrayList[i32]) usize {
+    values.len()
+}
+"#,
+    );
+    write(
+        &narrow_path,
+        r#"
+using std::collections::ArrayList;
+
+fn consume(values: ArrayList[i32]) usize {
+    values.len()
+}
+"#,
+    );
+
+    let broad = load_program(broad_path.to_string_lossy().into_owned());
+    let narrow = load_program(narrow_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&broad);
+    assert_no_error_diagnostics(&narrow);
+    assert_eq!(
+        toolchain_module_activation(&broad),
+        toolchain_module_activation(&narrow),
+        "public import spelling must not change selected std work"
+    );
+}
+
+#[test]
 fn query_loader_keeps_unused_explicit_std_imports_shallow() {
     let root = temp_dir("query_loader_keeps_unused_explicit_std_imports_shallow");
     let main_path = root.join("main.nia");
@@ -58,6 +96,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_module_not_loaded(&program, "lib/std/io/file_adapter.nia");
     assert_module_not_loaded(&program, "lib/std/mem/general_purpose_allocator.nia");
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+fn toolchain_module_activation(program: &LoadedProgram) -> Vec<(String, bool, bool, bool)> {
+    let mut modules = program
+        .graph
+        .modules()
+        .filter_map(|module| {
+            let identity = module.path.identity();
+            identity
+                .normalized_path()
+                .starts_with("toolchain:/")
+                .then(|| {
+                    (
+                        identity.normalized_path().to_string(),
+                        module.semantic_selected,
+                        module.process_used_paths,
+                        module.process_declared_children,
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    modules.sort_unstable();
+    modules
 }
 
 #[test]

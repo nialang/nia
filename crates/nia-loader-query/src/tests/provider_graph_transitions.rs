@@ -94,7 +94,10 @@ fn semantic_provider_demand_remaps_across_graph_owners() {
 
     assert_ne!(rebuilt_provider, initial_provider);
     assert!(!rebuilt.get(rebuilt_provider).unwrap().semantic_selected);
-    crate::graph::mark_semantic_provider_module(&mut rebuilt, &provider_path);
+    let remapped_provider = rebuilt
+        .module_id_for_source_identity(&provider_path.identity())
+        .expect("remapped provider module");
+    rebuilt.mark_semantic_selected(remapped_provider);
     assert!(rebuilt.get(rebuilt_provider).unwrap().semantic_selected);
 }
 

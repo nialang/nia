@@ -113,13 +113,24 @@ pub(crate) fn add_public_reexport_source_module(
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
     name: &SymbolId,
+    processing: Option<UsedModulePathProcessing>,
 ) -> TraversalResult<Option<nia_imports::ModuleId>> {
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
     let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
     for source_path in facts.reexport_source_paths(name) {
-        let Some(start) = used_path_start(graph, module_id, source_path) else {
+        let source_path = processing.as_ref().map_or_else(
+            || source_path.clone(),
+            |processing| {
+                source_path.with_appended_segments_with_processing_mode(
+                    &[],
+                    source_path.include_declared_children(),
+                    processing.clone(),
+                )
+            },
+        );
+        let Some(start) = used_path_start(graph, module_id, &source_path) else {
             continue;
         };
         return add_visible_declared_module_path(
