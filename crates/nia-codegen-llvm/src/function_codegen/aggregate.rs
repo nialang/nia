@@ -218,23 +218,174 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     pub(super) fn emit_enum_variant(
-        &self,
+        &mut self,
         expr: &FunctionExpr,
         def_id: GlobalDefId,
+        fields: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(variant_info) = self.module.program.enum_variant_info(def_id) else {
             return Err(self.error(expr.span, "missing enum variant"));
         };
         let enum_item = variant_info.owner;
+        let Some(layout) = self.module.program.enum_layout(enum_item.def_id) else {
+            return Err(self.error(expr.span, "missing enum layout"));
+        };
+        if layout.payload_offset.is_none() {
+            return self.enum_variant_tag_value(expr.span, def_id, enum_item.backing_type);
+        }
+        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(ty, "enumtmp")
+            .map_err(|_| self.error(expr.span, "failed to allocate enum literal"))?;
+        let tag_ptr = self
+            .builder
+            .build_struct_gep(ty, ptr, 0, "enum.tag.ptr")
+            .map_err(|_| self.error(expr.span, "failed to address enum tag"))?;
+        let tag = self.enum_variant_tag_value(expr.span, def_id, enum_item.backing_type)?;
+        self.builder
+            .build_store(tag_ptr, tag)
+            .map_err(|_| self.error(expr.span, "failed to store enum tag"))?;
+        let variant_layout = layout
+            .variants
+            .iter()
+            .find(|variant| variant.def_id == def_id.def_id)
+            .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?;
+        let payload_offset = layout.payload_offset.unwrap_or(0);
+        for (index, field) in fields.iter().enumerate() {
+            let Some(field_layout) = variant_layout.fields.get(index) else {
+                return Err(self.error(field.span, "missing enum payload field layout"));
+            };
+            let field_ptr = self.enum_byte_offset_ptr(
+                ptr,
+                payload_offset.saturating_add(field_layout.offset),
+                field.span,
+            )?;
+            let value = self.emit_expr(field)?;
+            self.builder
+                .build_store(field_ptr, value)
+                .map_err(|_| self.error(field.span, "failed to store enum payload field"))?;
+        }
+        self.builder
+            .build_load(ty, ptr, "enumlit")
+            .map_err(|_| self.error(expr.span, "failed to load enum literal"))
+    }
+
+    pub(super) fn emit_enum_variant_tag(
+        &self,
+        expr: &FunctionExpr,
+        def_id: GlobalDefId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        self.enum_variant_tag_value(expr.span, def_id, expr.ty)
+    }
+
+    fn enum_variant_tag_value(
+        &self,
+        span: Span,
+        def_id: GlobalDefId,
+        backing_type: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(variant_info) = self.module.program.enum_variant_info(def_id) else {
+            return Err(self.error(span, "missing enum variant"));
+        };
         let value = variant_info
             .variant
             .value
             .unwrap_or(variant_info.index as i128);
-        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(enum_item.backing_type) else {
-            return Err(self.error(expr.span, "enum backing type is not primitive"));
+        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(backing_type) else {
+            return Err(self.error(span, "enum backing type is not primitive"));
         };
-        let ty = self.integer_llvm_type(*primitive, expr.span)?;
+        let ty = self.integer_llvm_type(*primitive, span)?;
         Ok(ty.const_u128(value as u128).into())
+    }
+
+    pub(super) fn emit_enum_tag(
+        &mut self,
+        expr: &FunctionExpr,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let value = self.emit_expr(value)?;
+        self.emit_enum_tag_from_value(expr, value)
+    }
+
+    fn emit_enum_tag_from_value(
+        &self,
+        expr: &FunctionExpr,
+        value: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if value.is_int_value() {
+            return Ok(value);
+        }
+        let aggregate = value
+            .into_struct_value()
+            .map_err(|_| self.error(expr.span, "enum value is not an aggregate"))?;
+        self.builder
+            .build_extract_value(aggregate, 0, "enum.tag")
+            .map_err(|_| self.error(expr.span, "failed to extract enum tag"))
+    }
+
+    pub(super) fn emit_enum_payload_field(
+        &mut self,
+        expr: &FunctionExpr,
+        value: &FunctionExpr,
+        variant: GlobalDefId,
+        field: usize,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(variant_info) = self.module.program.enum_variant_info(variant) else {
+            return Err(self.error(expr.span, "missing enum variant"));
+        };
+        let Some(layout) = self.module.program.enum_layout(variant_info.owner.def_id) else {
+            return Err(self.error(expr.span, "missing enum layout"));
+        };
+        let payload_offset = layout
+            .payload_offset
+            .ok_or_else(|| self.error(expr.span, "enum variant has no payload storage"))?;
+        let variant_layout = layout
+            .variants
+            .iter()
+            .find(|candidate| candidate.def_id == variant.def_id)
+            .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?;
+        let field_layout = variant_layout
+            .fields
+            .get(field)
+            .ok_or_else(|| self.error(expr.span, "missing enum payload field layout"))?;
+        let enum_ty = self.module.llvm_basic_type(value.ty, value.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(enum_ty, "enum.payload.copy")
+            .map_err(|_| self.error(expr.span, "failed to allocate enum payload copy"))?;
+        let value = self.emit_expr(value)?;
+        self.builder
+            .build_store(ptr, value)
+            .map_err(|_| self.error(expr.span, "failed to store enum payload copy"))?;
+        let field_ptr = self.enum_byte_offset_ptr(
+            ptr,
+            payload_offset.saturating_add(field_layout.offset),
+            expr.span,
+        )?;
+        let field_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        self.builder
+            .build_load(field_ty, field_ptr, "enum.payload.field")
+            .map_err(|_| self.error(expr.span, "failed to load enum payload field"))
+    }
+
+    fn enum_byte_offset_ptr(
+        &self,
+        ptr: PointerValue<'ctx>,
+        offset: u64,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let offset = self.module.context.i64_type().const_int(offset, false);
+        unsafe {
+            self.builder
+                .build_gep(
+                    self.module.context.i8_type(),
+                    ptr,
+                    &[offset],
+                    "enum.byte.ptr",
+                )
+                .map_err(|_| self.error(span, "failed to address enum payload"))
+        }
     }
 
     fn emit_const_index_addr(

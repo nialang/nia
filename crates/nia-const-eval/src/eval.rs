@@ -1,5 +1,6 @@
 use crate::{
-    ConstError, ConstRangeValue, ConstValue, EarlyConstEnv, ResolvedConstEnv,
+    ConstCommonEnv, ConstEnumPayload, ConstError, ConstRangeValue, ConstValue, EarlyConstEnv,
+    ResolvedConstEnv,
     literals::{
         bytes_to_array, char_array_to_string, checked_shift, checked_shift_u128,
         const_error_message, decode_byte_char_literal, decode_char_literal,
@@ -9,18 +10,18 @@ use crate::{
 };
 
 use nia_const_ir::{
-    ConstAssignOp, ConstBinaryOp, ConstNameResolution, ConstUnaryOp, EarlyConstArrayElements,
-    EarlyConstAssign, EarlyConstAssignPathElem, EarlyConstAssignTarget, EarlyConstBlock,
-    EarlyConstExpr, EarlyConstExprKind, EarlyConstForIn, EarlyConstFunction, EarlyConstName,
-    EarlyConstParam, EarlyConstPattern, EarlyConstRange, EarlyConstSliceRange, EarlyConstStmt,
-    EarlyConstStmtKind, EarlyConstSwitch, EarlyConstSwitchArm, EarlyConstSwitchArmBody,
-    ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssign,
-    ResolvedConstAssignPathElem, ResolvedConstAssignPathElemKind, ResolvedConstAssignTarget,
-    ResolvedConstAssignTargetKind, ResolvedConstBlock, ResolvedConstExpr, ResolvedConstExprKind,
-    ResolvedConstFieldInit, ResolvedConstForIn, ResolvedConstFunction, ResolvedConstParam,
-    ResolvedConstPatternKind, ResolvedConstRange, ResolvedConstSliceRange, ResolvedConstStmt,
-    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArm, ResolvedConstSwitchArmBody,
-    ResolvedConstSwitchArmBodyKind,
+    ConstAssignOp, ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstUnaryOp,
+    EarlyConstArrayElements, EarlyConstAssign, EarlyConstAssignPathElem, EarlyConstAssignTarget,
+    EarlyConstBlock, EarlyConstExpr, EarlyConstExprKind, EarlyConstForIn, EarlyConstFunction,
+    EarlyConstName, EarlyConstParam, EarlyConstPattern, EarlyConstRange, EarlyConstSliceRange,
+    EarlyConstStmt, EarlyConstStmtKind, EarlyConstSwitch, EarlyConstSwitchArm,
+    EarlyConstSwitchArmBody, ResolvedConstArrayElements, ResolvedConstArrayElementsKind,
+    ResolvedConstAssign, ResolvedConstAssignPathElem, ResolvedConstAssignPathElemKind,
+    ResolvedConstAssignTarget, ResolvedConstAssignTargetKind, ResolvedConstBlock,
+    ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit, ResolvedConstForIn,
+    ResolvedConstFunction, ResolvedConstParam, ResolvedConstPatternKind, ResolvedConstRange,
+    ResolvedConstSliceRange, ResolvedConstStmt, ResolvedConstStmtKind, ResolvedConstSwitch,
+    ResolvedConstSwitchArm, ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind,
 };
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
@@ -200,9 +201,15 @@ fn eval_resolved_const_expr_flow(
                 span,
                 message: format!("invalid byte char literal `{text}` in const expression"),
             })?,
-        ResolvedConstExprKind::Name(resolution) => {
-            env.resolve_resolved_name(span, resolution.clone())?
-        }
+        ResolvedConstExprKind::Name(resolution) => match resolution {
+            ConstNameResolution::Global(variant) if env.is_enum_variant(*variant) => {
+                ConstValue::Enum {
+                    variant: *variant,
+                    payload: ConstEnumPayload::Unit,
+                }
+            }
+            _ => env.resolve_resolved_name(span, resolution.clone())?,
+        },
         ResolvedConstExprKind::Field { lhs, name } => {
             match eval_resolved_value_or_return_flow!(lhs, env) {
                 ConstValue::Struct(fields) => {
@@ -233,6 +240,9 @@ fn eval_resolved_const_expr_flow(
         }
         ResolvedConstExprKind::StructLiteral { fields, .. } => {
             return eval_resolved_struct_literal_flow(fields, env);
+        }
+        ResolvedConstExprKind::EnumStructLiteral { variant, fields } => {
+            return eval_resolved_enum_struct_literal_flow(span, variant, fields, env);
         }
         ResolvedConstExprKind::CompileError { message } => {
             let value = eval_resolved_value_or_return_flow!(message, env);
@@ -289,7 +299,14 @@ fn eval_resolved_const_expr_flow(
                 for arg in args {
                     values.push(eval_resolved_value_or_return_flow!(arg, env));
                 }
-                env.call_resolved_function(span, callee, type_args, args, values)?
+                if let Some(variant) = resolved_enum_variant_id(callee, env) {
+                    ConstValue::Enum {
+                        variant,
+                        payload: ConstEnumPayload::Tuple(values),
+                    }
+                } else {
+                    env.call_resolved_function(span, callee, type_args, args, values)?
+                }
             }
         }
         ResolvedConstExprKind::Unary {
@@ -451,7 +468,14 @@ fn eval_const_expr_flow(
                 message: format!("invalid byte char literal `{text}` in const expression"),
             })?,
         EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
-            env.resolve_name(expr.span, name)?
+            if let Some(variant) = early_enum_variant_id(name, env) {
+                ConstValue::Enum {
+                    variant,
+                    payload: ConstEnumPayload::Unit,
+                }
+            } else {
+                env.resolve_name(expr.span, name)?
+            }
         }
         EarlyConstExprKind::Field { lhs, name } => match eval_value_or_return_flow!(lhs, env) {
             ConstValue::Struct(fields) => fields.get(name).cloned().ok_or_else(|| ConstError {
@@ -479,6 +503,9 @@ fn eval_const_expr_flow(
         }
         EarlyConstExprKind::StructLiteral { fields, .. } => {
             return eval_struct_literal_flow(fields, env);
+        }
+        EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
+            return eval_enum_struct_literal_flow(expr.span, variant, fields, env);
         }
         EarlyConstExprKind::CompileError { message } => {
             let value = eval_value_or_return_flow!(message, env);
@@ -537,7 +564,14 @@ fn eval_const_expr_flow(
                 for arg in args {
                     values.push(eval_value_or_return_flow!(arg, env));
                 }
-                env.call_function(expr.span, callee, type_args, args, values)?
+                if let Some(variant) = early_enum_expr_variant_id(callee, env) {
+                    ConstValue::Enum {
+                        variant,
+                        payload: ConstEnumPayload::Tuple(values),
+                    }
+                } else {
+                    env.call_function(expr.span, callee, type_args, args, values)?
+                }
             }
         }
         EarlyConstExprKind::Unary {
@@ -967,6 +1001,26 @@ fn early_pattern_matches(
                 message: "const error switch pattern requires an error union target".to_string(),
             }),
         },
+        EarlyConstPattern::EnumVariant {
+            variant,
+            fields,
+            span,
+        } => {
+            let Some(variant) = early_enum_expr_variant_id(variant, env) else {
+                return Err(ConstError {
+                    span: *span,
+                    message: "const enum pattern requires a resolved enum variant".to_string(),
+                });
+            };
+            enum_pattern_matches(
+                target,
+                variant,
+                fields,
+                bindings,
+                *span,
+                |value, pattern, bindings| early_pattern_matches(value, pattern, env, bindings),
+            )
+        }
         EarlyConstPattern::Expr(pattern) => {
             let pattern = eval_const_expr(pattern, env)?;
             Ok(values_equal(target, &pattern).unwrap_or(false))
@@ -1047,6 +1101,26 @@ fn resolved_pattern_matches(
                 message: "const error switch pattern requires an error union target".to_string(),
             }),
         },
+        ResolvedConstPatternKind::EnumVariant {
+            variant,
+            fields,
+            span,
+        } => {
+            let Some(variant) = resolved_enum_variant_id(variant, env) else {
+                return Err(ConstError {
+                    span: *span,
+                    message: "const enum pattern requires a resolved enum variant".to_string(),
+                });
+            };
+            enum_pattern_matches(
+                target,
+                variant,
+                fields,
+                bindings,
+                *span,
+                |value, pattern, bindings| resolved_pattern_matches(value, pattern, env, bindings),
+            )
+        }
         ResolvedConstPatternKind::Expr(pattern) => {
             let pattern = eval_resolved_const_expr_value(pattern, env)?;
             Ok(values_equal(target, &pattern).unwrap_or(false))
@@ -1057,6 +1131,67 @@ fn resolved_pattern_matches(
             inclusive,
             span,
         } => resolved_switch_range_matches(target, start, end, *inclusive, *span, env),
+    }
+}
+
+fn enum_pattern_matches<P>(
+    target: &ConstValue,
+    variant: GlobalDefId,
+    fields: &ConstEnumPatternFields<P>,
+    bindings: &mut Vec<ConstSwitchBinding>,
+    span: Span,
+    mut pattern_matches: impl FnMut(
+        &ConstValue,
+        &P,
+        &mut Vec<ConstSwitchBinding>,
+    ) -> Result<bool, ConstError>,
+) -> Result<bool, ConstError> {
+    let ConstValue::Enum {
+        variant: actual_variant,
+        payload,
+    } = target
+    else {
+        return Err(ConstError {
+            span,
+            message: "const enum pattern requires an enum target".to_string(),
+        });
+    };
+    if *actual_variant != variant {
+        return Ok(false);
+    }
+    match (fields, payload) {
+        (ConstEnumPatternFields::Tuple(patterns), ConstEnumPayload::Tuple(values)) => {
+            if patterns.len() != values.len() {
+                return Err(ConstError {
+                    span,
+                    message: "const enum tuple pattern has the wrong arity".to_string(),
+                });
+            }
+            for (pattern, value) in patterns.iter().zip(values) {
+                if !pattern_matches(value, pattern, bindings)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        (ConstEnumPatternFields::Named(patterns), ConstEnumPayload::Named(values)) => {
+            for field in patterns {
+                let Some(value) = values.get(&field.name) else {
+                    return Err(ConstError {
+                        span: field.span,
+                        message: "const enum named pattern references a missing field".to_string(),
+                    });
+                };
+                if !pattern_matches(value, &field.pattern, bindings)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        _ => Err(ConstError {
+            span,
+            message: "const enum pattern shape does not match its variant payload".to_string(),
+        }),
     }
 }
 
@@ -1517,6 +1652,44 @@ fn eval_struct_literal_flow(
     Ok(ConstEvalFlow::Value(ConstValue::Struct(values)))
 }
 
+fn eval_enum_struct_literal_flow(
+    span: Span,
+    variant: &EarlyConstExpr,
+    fields: &[nia_const_ir::EarlyConstFieldInit],
+    env: &mut impl EarlyConstEnv,
+) -> Result<ConstEvalFlow, ConstError> {
+    let Some(variant) = early_enum_expr_variant_id(variant, env) else {
+        return Err(ConstError {
+            span,
+            message: "const enum literal requires a resolved enum variant".to_string(),
+        });
+    };
+    if let Some(field) = check_unique_field_set(
+        fields
+            .iter()
+            .map(|field| NamedField::new(field.span, field.name)),
+    )
+    .into_iter()
+    .next()
+    {
+        return Err(ConstError {
+            span: field.span,
+            message: format!(
+                "duplicate const enum field `{}`",
+                env.symbol_name(field.name)
+            ),
+        });
+    }
+    let mut values = BTreeMap::new();
+    for field in fields {
+        values.insert(field.name, eval_value_or_return_flow!(&field.value, env));
+    }
+    Ok(ConstEvalFlow::Value(ConstValue::Enum {
+        variant,
+        payload: ConstEnumPayload::Named(values),
+    }))
+}
+
 fn eval_resolved_struct_literal_flow(
     fields: &[ResolvedConstFieldInit],
     env: &mut impl ResolvedConstEnv,
@@ -1545,6 +1718,79 @@ fn eval_resolved_struct_literal_flow(
         );
     }
     Ok(ConstEvalFlow::Value(ConstValue::Struct(values)))
+}
+
+fn eval_resolved_enum_struct_literal_flow(
+    span: Span,
+    variant: &ResolvedConstExpr,
+    fields: &[ResolvedConstFieldInit],
+    env: &mut impl ResolvedConstEnv,
+) -> Result<ConstEvalFlow, ConstError> {
+    let Some(variant) = resolved_enum_variant_id(variant, env) else {
+        return Err(ConstError {
+            span,
+            message: "const enum literal requires a resolved enum variant".to_string(),
+        });
+    };
+    if let Some(field) = check_unique_field_set(
+        fields
+            .iter()
+            .map(|field| NamedField::new(field.span(), field.name())),
+    )
+    .into_iter()
+    .next()
+    {
+        return Err(ConstError {
+            span: field.span,
+            message: format!(
+                "duplicate const enum field `{}`",
+                env.symbol_name(field.name)
+            ),
+        });
+    }
+    let mut values = BTreeMap::new();
+    for field in fields {
+        values.insert(
+            *field.name_symbol(),
+            eval_resolved_value_or_return_flow!(field.value(), env),
+        );
+    }
+    Ok(ConstEvalFlow::Value(ConstValue::Enum {
+        variant,
+        payload: ConstEnumPayload::Named(values),
+    }))
+}
+
+fn early_enum_variant_id(
+    name: &nia_const_ir::EarlyConstName,
+    env: &impl ConstCommonEnv,
+) -> Option<GlobalDefId> {
+    let ConstNameResolution::Global(variant) = name.resolution()? else {
+        return None;
+    };
+    env.is_enum_variant(variant).then_some(variant)
+}
+
+fn early_enum_expr_variant_id(
+    expr: &EarlyConstExpr,
+    env: &impl ConstCommonEnv,
+) -> Option<GlobalDefId> {
+    match expr.kind() {
+        EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
+            early_enum_variant_id(name, env)
+        }
+        _ => None,
+    }
+}
+
+fn resolved_enum_variant_id(
+    expr: &ResolvedConstExpr,
+    env: &impl ConstCommonEnv,
+) -> Option<GlobalDefId> {
+    let ConstNameResolution::Global(variant) = expr.name_resolution()? else {
+        return None;
+    };
+    env.is_enum_variant(variant).then_some(variant)
 }
 
 fn eval_const_int_expr(
@@ -3304,6 +3550,21 @@ fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
                 .zip(rhs)
                 .try_fold(true, |_, (lhs, rhs)| values_equal(lhs, rhs))
         }
+        (
+            ConstValue::Enum {
+                variant: lhs_variant,
+                payload: lhs_payload,
+            },
+            ConstValue::Enum {
+                variant: rhs_variant,
+                payload: rhs_payload,
+            },
+        ) => {
+            if lhs_variant != rhs_variant {
+                return Some(false);
+            }
+            enum_payloads_equal(lhs_payload, rhs_payload)
+        }
         (ConstValue::Optional(lhs), ConstValue::Optional(rhs)) => match (lhs, rhs) {
             (None, None) => Some(true),
             (Some(lhs), Some(rhs)) => values_equal(lhs, rhs),
@@ -3314,5 +3575,29 @@ fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
             _ => Some(false),
         },
         _ => None,
+    }
+}
+
+fn enum_payloads_equal(lhs: &ConstEnumPayload, rhs: &ConstEnumPayload) -> Option<bool> {
+    match (lhs, rhs) {
+        (ConstEnumPayload::Unit, ConstEnumPayload::Unit) => Some(true),
+        (ConstEnumPayload::Tuple(lhs), ConstEnumPayload::Tuple(rhs)) => {
+            if lhs.len() != rhs.len() {
+                return Some(false);
+            }
+            lhs.iter()
+                .zip(rhs)
+                .try_fold(true, |_, (lhs, rhs)| values_equal(lhs, rhs))
+        }
+        (ConstEnumPayload::Named(lhs), ConstEnumPayload::Named(rhs)) => {
+            if lhs.len() != rhs.len() {
+                return Some(false);
+            }
+            lhs.iter().try_fold(true, |_, (name, lhs)| {
+                let rhs = rhs.get(name)?;
+                values_equal(lhs, rhs)
+            })
+        }
+        _ => Some(false),
     }
 }

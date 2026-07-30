@@ -253,6 +253,50 @@ impl FunctionLowerer<'_> {
                 );
                 self.pattern_payload_condition(target, inner, tag, context)
             }
+            TypedPatternKind::EnumVariant {
+                variant,
+                backing_type,
+                fields,
+            } => {
+                let tag = FunctionExpr {
+                    span: pattern.span,
+                    ty: *backing_type,
+                    kind: FunctionExprKind::EnumTag {
+                        value: Box::new(target.clone()),
+                    },
+                };
+                let expected = FunctionExpr {
+                    span: pattern.span,
+                    ty: *backing_type,
+                    kind: FunctionExprKind::EnumVariantTag(*variant),
+                };
+                let mut condition = self.switch_eq_condition(&tag, expected, context.bool_ty);
+                for (field, field_pattern) in fields.iter().enumerate() {
+                    let payload = FunctionExpr {
+                        span: field_pattern.span,
+                        ty: field_pattern.ty,
+                        kind: FunctionExprKind::EnumPayloadField {
+                            value: Box::new(target.clone()),
+                            variant: *variant,
+                            field,
+                        },
+                    };
+                    if let Some(field_condition) =
+                        self.pattern_condition(&payload, field_pattern, context)
+                    {
+                        condition = FunctionExpr {
+                            span: pattern.span,
+                            ty: context.bool_ty,
+                            kind: FunctionExprKind::Binary {
+                                lhs: Box::new(condition),
+                                op: BinaryOp::And,
+                                rhs: Box::new(field_condition),
+                            },
+                        };
+                    }
+                }
+                Some(condition)
+            }
             TypedPatternKind::Expr(pattern) => {
                 let pattern = self.lower_value_expr(
                     pattern,
@@ -439,6 +483,22 @@ impl FunctionLowerer<'_> {
             | TypedPatternKind::ErrorErr(inner) => {
                 let payload = self.tagged_union_payload_expr(target, inner.ty, inner.span);
                 self.lower_pattern_binding(inner, &payload, ops);
+            }
+            TypedPatternKind::EnumVariant {
+                variant, fields, ..
+            } => {
+                for (field, field_pattern) in fields.iter().enumerate() {
+                    let payload = FunctionExpr {
+                        span: field_pattern.span,
+                        ty: field_pattern.ty,
+                        kind: FunctionExprKind::EnumPayloadField {
+                            value: Box::new(target.clone()),
+                            variant: *variant,
+                            field,
+                        },
+                    };
+                    self.lower_pattern_binding(field_pattern, &payload, ops);
+                }
             }
             TypedPatternKind::Wildcard
             | TypedPatternKind::OptionalNull
@@ -737,6 +797,11 @@ impl FunctionLowerer<'_> {
                         visit_expr(&field.value, max_id);
                     }
                 }
+                TypedExprKind::EnumVariant { fields, .. } => {
+                    for field in fields {
+                        visit_expr(field, max_id);
+                    }
+                }
                 TypedExprKind::UnionLiteral { field, .. } => visit_expr(&field.value, max_id),
                 TypedExprKind::Binary { lhs, rhs, .. }
                 | TypedExprKind::Index { lhs, index: rhs }
@@ -883,7 +948,6 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }
-                | TypedExprKind::EnumVariant(_)
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::Trap => {}
             }
@@ -896,6 +960,11 @@ impl FunctionLowerer<'_> {
                 | TypedPatternKind::OptionalSome(pattern)
                 | TypedPatternKind::ErrorOk(pattern)
                 | TypedPatternKind::ErrorErr(pattern) => visit_pattern(pattern, max_id),
+                TypedPatternKind::EnumVariant { fields, .. } => {
+                    for field in fields {
+                        visit_pattern(field, max_id);
+                    }
+                }
                 TypedPatternKind::Expr(pattern) => visit_expr(pattern, max_id),
                 TypedPatternKind::Range { start, end, .. } => {
                     visit_expr(start, max_id);

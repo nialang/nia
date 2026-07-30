@@ -71,6 +71,7 @@ struct ProgramIndexTables {
     type_layouts: HashMap<InternedTyId, LayoutPosition>,
     struct_layouts: HashMap<GlobalDefId, LayoutPosition>,
     union_layouts: HashMap<GlobalDefId, LayoutPosition>,
+    enum_layouts: HashMap<GlobalDefId, LayoutPosition>,
     struct_instance_layouts: AggregateLayoutIndex,
     union_instance_layouts: AggregateLayoutIndex,
     struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<LayoutPosition>>,
@@ -202,6 +203,15 @@ impl ProgramIndexPublisher {
         }
         for (layout_index, (def_id, _)) in module.layouts.unions.iter().enumerate() {
             index.union_layouts.insert(
+                *def_id,
+                LayoutPosition {
+                    module: module.id,
+                    layout: layout_index,
+                },
+            );
+        }
+        for (layout_index, (def_id, _)) in module.layouts.enums.iter().enumerate() {
+            index.enum_layouts.insert(
                 *def_id,
                 LayoutPosition {
                     module: module.id,
@@ -513,6 +523,11 @@ impl ProgramIndex {
     pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
         let position = self.tables().union_layouts.get(&def_id).copied()?;
         Some(&self.module_at(position.module).layouts.unions[position.layout].1)
+    }
+
+    pub(super) fn enum_layout(&self, def_id: GlobalDefId) -> Option<&nia_layout::EnumLayout> {
+        let position = self.tables().enum_layouts.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).layouts.enums[position.layout].1)
     }
 
     pub(super) fn struct_instance_layout(
@@ -837,6 +852,7 @@ mod tests {
                 types: vec![(ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
+                enums: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
@@ -997,6 +1013,7 @@ mod tests {
                     ],
                     structs: Vec::new(),
                     unions: Vec::new(),
+                    enums: Vec::new(),
                     struct_instances: vec![(struct_key.clone(), struct_layout.clone())],
                     union_instances: Vec::new(),
                 },
@@ -1022,12 +1039,14 @@ mod tests {
                             def_id: first_variant,
                             name: sym("First"),
                             value: None,
+                            payload: nia_backend_ir::BackendEnumVariantPayload::Unit,
                             span: Span::default(),
                         },
                         BackendEnumVariant {
                             def_id: second_variant,
                             name: sym("Second"),
                             value: Some(7),
+                            payload: nia_backend_ir::BackendEnumVariantPayload::Unit,
                             span: Span::default(),
                         },
                     ],

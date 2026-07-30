@@ -258,6 +258,12 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         FunctionExprKind::StructLiteral { fields, .. } => fields
             .iter()
             .any(|field| function_expr_contains_builtin_eq(&field.value)),
+        FunctionExprKind::EnumVariant { fields, .. } => {
+            fields.iter().any(function_expr_contains_builtin_eq)
+        }
+        FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
+            function_expr_contains_builtin_eq(value)
+        }
         FunctionExprKind::UnionLiteral { field, .. } => {
             function_expr_contains_builtin_eq(&field.value)
         }
@@ -301,7 +307,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
-        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => false,
     }
 }

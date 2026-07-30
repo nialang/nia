@@ -437,7 +437,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "`.?` propagation requires control-flow lowering before LLVM codegen",
             )),
-            FunctionExprKind::EnumVariant(def_id) => self.emit_enum_variant(expr, *def_id),
+            FunctionExprKind::EnumVariant { variant, fields } => {
+                self.emit_enum_variant(expr, *variant, fields)
+            }
+            FunctionExprKind::EnumVariantTag(variant) => self.emit_enum_variant_tag(expr, *variant),
+            FunctionExprKind::EnumTag { value } => self.emit_enum_tag(expr, value),
+            FunctionExprKind::EnumPayloadField {
+                value,
+                variant,
+                field,
+            } => self.emit_enum_payload_field(expr, value, *variant, *field),
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
                     return self.emit_short_circuit(expr.span, lhs, *op, rhs);

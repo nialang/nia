@@ -91,7 +91,9 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         FunctionExprKind::ByteChar(text) => {
             decode_byte_char_literal(text).map(SwitchConstantValue::Byte)
         }
-        FunctionExprKind::EnumVariant(def_id) => Some(SwitchConstantValue::EnumVariant(*def_id)),
+        FunctionExprKind::EnumVariant { variant, fields } if fields.is_empty() => {
+            Some(SwitchConstantValue::EnumVariant(*variant))
+        }
         FunctionExprKind::ConstGeneric(_)
         | FunctionExprKind::Error
         | FunctionExprKind::Trap
@@ -103,6 +105,10 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant { .. }
+        | FunctionExprKind::EnumVariantTag(_)
+        | FunctionExprKind::EnumTag { .. }
+        | FunctionExprKind::EnumPayloadField { .. }
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::Discard(_)
         | FunctionExprKind::Range(_)

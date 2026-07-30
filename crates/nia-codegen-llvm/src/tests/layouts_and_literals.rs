@@ -2,6 +2,52 @@
 use super::common::*;
 
 #[test]
+fn emits_payload_enum_layout_construction_and_matching() {
+    let root = temp_dir("emits_payload_enum_layout_construction_and_matching");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+    Move(i32, i32),
+    Resize { width: i32, height: i32 },
+}
+
+fn score(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(value) => value,
+        Event::Move(x, y) => x + y,
+        Event::Resize { width, height: h } => width + h,
+    }
+}
+
+fn main() i32 {
+    score(Event::Data(2))
+        + score(Event::Move(3, 4))
+        + score(Event::Resize { height: 5, width: 6 })
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    let score = mangled_symbol(ir, '@', "score");
+    assert!(ir.contains("{ i8, [3 x i8], { i32, [4 x i8] } }"), "{ir}");
+    assert!(ir.contains(&format!("define i32 {score}(ptr %0)")), "{ir}");
+    assert!(ir.contains("enum.tag"), "{ir}");
+    assert!(ir.contains("enum.payload.field"), "{ir}");
+    assert!(ir.contains("enumlit"), "{ir}");
+}
+
+#[test]
 fn emits_nia_structs_in_physical_layout_order() {
     let root = temp_dir("emits_nia_structs_in_physical_layout_order");
     let main = root.join("main.nia");

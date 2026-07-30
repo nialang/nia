@@ -830,9 +830,28 @@ impl<'a> Encoder<'a> {
                 self.types(args);
                 self.const_args(const_args);
             }
-            FunctionExprKind::EnumVariant(def_id) => {
+            FunctionExprKind::EnumVariant { variant, fields } => {
                 self.tag(15);
-                self.global_def(*def_id);
+                self.global_def(*variant);
+                self.exprs(fields);
+            }
+            FunctionExprKind::EnumVariantTag(variant) => {
+                self.tag(51);
+                self.global_def(*variant);
+            }
+            FunctionExprKind::EnumTag { value } => {
+                self.tag(52);
+                self.expr(value);
+            }
+            FunctionExprKind::EnumPayloadField {
+                value,
+                variant,
+                field,
+            } => {
+                self.tag(53);
+                self.expr(value);
+                self.global_def(*variant);
+                self.usize(*field);
             }
             FunctionExprKind::BuiltinValue(value) => {
                 self.tag(16);
@@ -1921,6 +1940,7 @@ mod tests {
                 types: vec![(ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
+                enums: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
@@ -1966,6 +1986,7 @@ mod tests {
                 types,
                 structs: Vec::new(),
                 unions: Vec::new(),
+                enums: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },

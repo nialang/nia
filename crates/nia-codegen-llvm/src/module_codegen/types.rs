@@ -210,7 +210,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::TraitObject { .. }
                 | TyKind::Range { .. },
             ) => AbiParam::Direct(ty),
-            Some(TyKind::Nominal { def_id, .. }) if self.program.has_enum(*def_id) => {
+            Some(TyKind::Nominal { def_id, .. })
+                if self
+                    .program
+                    .enum_layout(*def_id)
+                    .is_some_and(|layout| layout.payload_offset.is_none()) =>
+            {
                 AbiParam::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiParam::IndirectReadonly(ty),
@@ -252,7 +257,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::TraitObject { .. }
                 | TyKind::Range { .. },
             ) => AbiReturn::Direct(ty),
-            Some(TyKind::Nominal { def_id, .. }) if self.program.has_enum(*def_id) => {
+            Some(TyKind::Nominal { def_id, .. })
+                if self
+                    .program
+                    .enum_layout(*def_id)
+                    .is_some_and(|layout| layout.payload_offset.is_none()) =>
+            {
                 AbiReturn::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiReturn::IndirectOut(ty),
@@ -368,7 +378,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return Ok(union_ty.into());
                 }
                 if let Some(item) = self.program.enum_item(*def_id) {
-                    return self.llvm_basic_type_in(item.backing_type, item.span);
+                    return self.enum_type(item, span);
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
@@ -424,6 +434,37 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         self.tagged_union_type(&[error, value], span)
+    }
+
+    fn enum_type(
+        &self,
+        item: &nia_backend_ir::BackendEnum,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        let tag = self.llvm_basic_type_in(item.backing_type, span)?;
+        let Some(layout) = self.program.enum_layout(item.def_id) else {
+            return Err(self.error(span, "missing enum layout during LLVM lowering"));
+        };
+        let Some(payload_offset) = layout.payload_offset else {
+            return Ok(tag);
+        };
+        let padding = payload_offset.saturating_sub(layout.tag.size);
+        if padding > u32::MAX as u64 {
+            return Err(self.error(span, "enum payload padding is too large for LLVM"));
+        }
+        let storage_size = layout.layout.size.saturating_sub(payload_offset);
+        let storage_align = layout
+            .variants
+            .iter()
+            .map(|variant| variant.payload.align)
+            .max()
+            .unwrap_or(1);
+        let padding = self.context.i8_type().array_type(padding as u32).into();
+        let storage = self.union_storage_type(storage_size, storage_align, span)?;
+        Ok(self
+            .context
+            .struct_type(&[tag, padding, storage], false)
+            .into())
     }
 
     fn tagged_union_type(

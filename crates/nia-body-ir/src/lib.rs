@@ -141,6 +141,11 @@ pub enum TypedPatternKind {
     OptionalNull,
     ErrorOk(Box<TypedPattern>),
     ErrorErr(Box<TypedPattern>),
+    EnumVariant {
+        variant: GlobalDefId,
+        backing_type: InternedTyId,
+        fields: Vec<TypedPattern>,
+    },
     Expr(TypedExpr),
     CheckedInt {
         value: i128,
@@ -192,7 +197,10 @@ pub enum TypedExprKind {
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
-    EnumVariant(GlobalDefId),
+    EnumVariant {
+        variant: GlobalDefId,
+        fields: Vec<TypedExpr>,
+    },
     BuiltinValue(BuiltinConst),
     Trap,
     Range(TypedRange),

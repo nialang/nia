@@ -232,6 +232,15 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    changed |= self.devirtualize_direct_trait_calls_in_expr(field);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => {
+                changed |= self.devirtualize_direct_trait_calls_in_expr(value);
+            }
             FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -247,7 +256,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
         }
         changed

@@ -76,6 +76,9 @@ impl<'a> BodyChecker<'a> {
                 let explicit = self.ty_for_type(ty);
                 self.check_struct_literal(expr.span, Some(explicit), fields)
             }
+            ExprKind::QualifiedStructLiteral { target, fields } => {
+                self.check_qualified_struct_literal(expr, target, fields)
+            }
             ExprKind::Unary { op, expr: inner } => {
                 let expected_ref_target = self.expected_ref_target_from_expected(*op, expected);
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
@@ -223,7 +226,9 @@ impl<'a> BodyChecker<'a> {
                 }
                 target
             }
-            ExprKind::Call { callee, args } => self.check_call(expr, callee, args, expected),
+            ExprKind::Call { callee, args } => self
+                .check_enum_variant_call(expr, callee, args)
+                .unwrap_or_else(|| self.check_call(expr, callee, args, expected)),
             ExprKind::Field { lhs, name } => self.check_field_access(expr, lhs, name),
             ExprKind::Qualified { lhs, name } => {
                 if let Some(builtin) = crate::calls::std_builtin_function(expr) {

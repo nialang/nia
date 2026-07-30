@@ -259,7 +259,30 @@ impl<'a> ModuleLowerer<'a> {
                     args,
                     const_args,
                 },
-                FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
+                FunctionExprKind::EnumVariant { variant, fields } => {
+                    FunctionExprKind::EnumVariant {
+                        variant,
+                        fields: fields
+                            .into_iter()
+                            .map(|field| self.resolve_builtin_operator_calls_in_expr(field))
+                            .collect(),
+                    }
+                }
+                FunctionExprKind::EnumVariantTag(variant) => {
+                    FunctionExprKind::EnumVariantTag(variant)
+                }
+                FunctionExprKind::EnumTag { value } => FunctionExprKind::EnumTag {
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                },
+                FunctionExprKind::EnumPayloadField {
+                    value,
+                    variant,
+                    field,
+                } => FunctionExprKind::EnumPayloadField {
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                    variant,
+                    field,
+                },
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value),
                 FunctionExprKind::Range(range) => {
                     FunctionExprKind::Range(self.resolve_builtin_operator_calls_in_range(range))

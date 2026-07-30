@@ -2,14 +2,14 @@
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
     BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
-    ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, EnumVariantPayload, Expr, ExprKind,
-    ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam,
-    IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind, LoopStmt, Module, ModuleItem,
-    Param, PathSegmentKind, Pattern, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral,
-    StructItem, SwitchArm, SwitchArmBody, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
-    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
-    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
-    WhileStmt,
+    ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, EnumVariantPatternFields,
+    EnumVariantPayload, Expr, ExprKind, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt,
+    FunctionItem, GenericParam, IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind,
+    LoopStmt, Module, ModuleItem, NamedPatternField, Param, PathSegmentKind, Pattern, PatternKind,
+    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody, SwitchStmt,
+    TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment,
+    TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
+    UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{

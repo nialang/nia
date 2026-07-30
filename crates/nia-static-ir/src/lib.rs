@@ -81,7 +81,13 @@ impl StaticInit {
             Self::AddrOfFunction { function, args } => {
                 sink.function(*function, args);
             }
-            Self::StaticArrayPointer { array_init, .. } => array_init.visit_refs(sink),
+            Self::StaticArrayPointer {
+                array_ty,
+                array_init,
+            } => {
+                sink.ty(*array_ty);
+                array_init.visit_refs(sink);
+            }
             Self::Zero
             | Self::Int(_)
             | Self::Float(_)
@@ -98,6 +104,7 @@ impl StaticInit {
 trait StaticInitRefSink {
     fn global(&mut self, global: GlobalDefId);
     fn function(&mut self, function: GlobalDefId, args: &[InternedTyId]);
+    fn ty(&mut self, ty: InternedTyId);
 }
 
 impl StaticInitRefSink for StaticInitRefs {
@@ -108,6 +115,8 @@ impl StaticInitRefSink for StaticInitRefs {
     fn function(&mut self, function: GlobalDefId, _args: &[InternedTyId]) {
         self.functions.insert(function);
     }
+
+    fn ty(&mut self, _ty: InternedTyId) {}
 }
 
 struct FunctionBodyRefSink<'a> {
@@ -134,6 +143,10 @@ impl StaticInitRefSink for FunctionBodyRefSink<'_> {
                 span: Span::default(),
             });
         }
+    }
+
+    fn ty(&mut self, ty: InternedTyId) {
+        self.refs.types.insert(ty);
     }
 }
 
@@ -251,5 +264,23 @@ mod tests {
         assert_eq!(refs.function_instances[0].def_id, function);
         assert_eq!(refs.function_instances[0].arg_module_id, module_id);
         assert_eq!(refs.function_instances[0].args, vec![arg]);
+    }
+
+    #[test]
+    fn typed_refs_include_static_array_pointer_type() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let types = nia_ty::TypeStore::new();
+        let array_ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::U8);
+        let init = StaticInit::StaticArrayPointer {
+            array_ty,
+            array_init: Box::new(StaticInit::Bytes(vec![1, 2, 3])),
+        };
+
+        assert_eq!(
+            init.value_refs(module_id).types,
+            std::collections::BTreeSet::from([array_ty])
+        );
     }
 }

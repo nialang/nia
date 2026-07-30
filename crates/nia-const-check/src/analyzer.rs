@@ -15,7 +15,7 @@ use crate::{
 };
 use nia_const_eval::ConstError;
 use nia_const_ir::{
-    ConstBinaryOp, ConstNameResolution, ConstStringLiteral, ConstUnaryOp,
+    ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral, ConstUnaryOp,
     ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstBlock,
     ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
     ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern, ResolvedConstPatternKind,
@@ -864,9 +864,11 @@ impl Analyzer<'_> {
                     Err(value) => self.validate_runtime_typed_value(span, value, error),
                 }
             }
-            Some(TyKind::Nominal { .. }) => {
-                self.validate_nominal_struct_value(span, value, ty);
-            }
+            Some(TyKind::Nominal { def_id, .. }) => match self.def_kind_of(def_id) {
+                Some(DefKind::Struct) => self.validate_nominal_struct_value(span, value, ty),
+                Some(DefKind::Enum) => self.validate_nominal_enum_value(span, value, def_id),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -900,6 +902,91 @@ impl Analyzer<'_> {
         }
         for field in &field_set.unknown_fields {
             self.push_const_extra_struct_field(span, &field.name);
+        }
+    }
+
+    fn validate_nominal_enum_value(
+        &mut self,
+        span: Span,
+        value: &ConstValue,
+        enum_id: GlobalDefId,
+    ) {
+        let ConstValue::Enum { variant, payload } = value else {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        };
+        let Some(defs) = self.global_defs(variant.module_id) else {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        };
+        let Some(owner) = defs
+            .as_ref()
+            .defs
+            .get(variant.def_id)
+            .and_then(|def| def.parent)
+        else {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        };
+        if variant.module_id != enum_id.module_id || owner != enum_id.def_id {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        }
+        let Some(signature) = self
+            .signatures_for_module(enum_id.module_id)
+            .and_then(|signatures| signatures.as_ref().enums.get(&enum_id.def_id).cloned())
+        else {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        };
+        let Some(variant) = signature
+            .variants
+            .iter()
+            .find(|candidate| candidate.def_id == variant.def_id)
+        else {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        };
+        let current_module = self.current_execution_module_id();
+        match (&variant.payload, payload) {
+            (
+                nia_item_signatures::EnumVariantPayloadSignature::Unit,
+                nia_const_eval::ConstEnumPayload::Unit,
+            ) => {}
+            (
+                nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys),
+                nia_const_eval::ConstEnumPayload::Tuple(values),
+            ) if field_tys.len() == values.len() => {
+                for (value, ty) in values.iter().zip(field_tys) {
+                    let Some(ty) = self.type_for_module_or_none(*ty, current_module) else {
+                        continue;
+                    };
+                    self.validate_runtime_typed_value(span, value, ty);
+                }
+            }
+            (
+                nia_item_signatures::EnumVariantPayloadSignature::Named(field_tys),
+                nia_const_eval::ConstEnumPayload::Named(values),
+            ) => {
+                let field_set: FieldSetCheck<SymbolId> = check_value_field_set(
+                    values.keys().copied(),
+                    field_tys.iter().map(|field| field.name),
+                );
+                if !field_set.is_valid() {
+                    self.push_const_type_mismatch(span, "enum payload");
+                    return;
+                }
+                for field in field_tys {
+                    let Some(value) = values.get(&field.name) else {
+                        continue;
+                    };
+                    let Some(ty) = self.type_for_module_or_none(field.ty, current_module) else {
+                        continue;
+                    };
+                    self.validate_runtime_typed_value(span, value, ty);
+                }
+            }
+            _ => self.push_const_type_mismatch(span, "enum payload"),
         }
     }
 

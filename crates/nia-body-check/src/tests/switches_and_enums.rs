@@ -7,6 +7,48 @@ use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 
 #[test]
+fn checks_payload_enum_construction_and_destructuring() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+    Move(i32, i32),
+    Resize { width: i32, height: i32 },
+}
+
+fn data(value: i32) Event { Event::Data(value) }
+fn resize(width: i32, height: i32) Event {
+    Event::Resize { height: height, width: width }
+}
+
+fn sum(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(value) => value,
+        Event::Move(x, y) => x + y,
+        Event::Resize { width, height: h } => width + h,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let payload_variants = checked
+        .ir
+        .function_bodies
+        .values()
+        .filter_map(|body| body.tail.as_ref())
+        .filter(|expr| {
+            matches!(
+                &expr.kind,
+                TypedExprKind::EnumVariant { fields, .. } if !fields.is_empty()
+            )
+        })
+        .count();
+    assert_eq!(payload_variants, 2, "{:#?}", checked.ir.function_bodies);
+}
+
+#[test]
 fn checks_enum_variants_and_switch_exhaustiveness() {
     let checked = pipeline(
         r#"

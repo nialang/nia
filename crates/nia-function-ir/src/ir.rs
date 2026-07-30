@@ -235,7 +235,19 @@ pub enum FunctionExprKind {
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
-    EnumVariant(nia_ids::GlobalDefId),
+    EnumVariant {
+        variant: nia_ids::GlobalDefId,
+        fields: Vec<FunctionExpr>,
+    },
+    EnumVariantTag(nia_ids::GlobalDefId),
+    EnumTag {
+        value: Box<FunctionExpr>,
+    },
+    EnumPayloadField {
+        value: Box<FunctionExpr>,
+        variant: nia_ids::GlobalDefId,
+        field: usize,
+    },
     BuiltinValue(FunctionBuiltinValue),
     Trap,
     Range(FunctionRange),

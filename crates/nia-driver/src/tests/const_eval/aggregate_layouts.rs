@@ -2,6 +2,44 @@
 use super::*;
 
 #[test]
+fn payload_enum_construction_and_matching_are_const_evaluable() {
+    let root = temp_dir("payload_enum_construction_and_matching_are_const_evaluable");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Event {
+    Closed,
+    Data(usize),
+    Move(usize, usize),
+    Resize { width: usize, height: usize },
+}
+
+const fn score(event: Event) usize {
+    switch event {
+        Event::Closed => 0usize,
+        Event::Data(value) => value,
+        Event::Move(x, y) => x + y,
+        Event::Resize { width, height: h } => width + h,
+    }
+}
+
+const n: usize = score(Event::Closed)
+    + score(Event::Data(2usize))
+    + score(Event::Move(3usize, 4usize))
+    + score(Event::Resize { height: 5usize, width: 6usize });
+
+fn main() i32 {
+    let values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_switch_structural_struct_fields_have_typed_values() {
     let root = temp_dir("const_switch_structural_struct_fields_have_typed_values");
     write(

@@ -553,6 +553,30 @@ impl Pruner<'_> {
                 PatternKind::ErrorErr(pattern) => {
                     PatternKind::ErrorErr(Box::new(self.prune_pattern(*pattern)))
                 }
+                PatternKind::EnumVariant { variant, fields } => PatternKind::EnumVariant {
+                    variant: Box::new(self.prune_expr(*variant)),
+                    fields: match fields {
+                        nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                            nia_ast::EnumVariantPatternFields::Tuple(
+                                fields
+                                    .into_iter()
+                                    .map(|field| self.prune_pattern(field))
+                                    .collect(),
+                            )
+                        }
+                        nia_ast::EnumVariantPatternFields::Named(fields) => {
+                            nia_ast::EnumVariantPatternFields::Named(
+                                fields
+                                    .into_iter()
+                                    .map(|mut field| {
+                                        field.pattern = self.prune_pattern(field.pattern);
+                                        field
+                                    })
+                                    .collect(),
+                            )
+                        }
+                    },
+                },
                 PatternKind::Expr(expr) => PatternKind::Expr(Box::new(self.prune_expr(*expr))),
                 PatternKind::Range {
                     start,

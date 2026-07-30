@@ -333,8 +333,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .or_else(|| self.program.union_layout(*def_id))
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
-                    let enum_item = self.program.enum_item(*def_id)?;
-                    self.layout_of(enum_item.backing_type)
+                    self.program
+                        .enum_layout(*def_id)
+                        .map(|layout| layout.layout.clone())
                 }),
             Some(TyKind::Nominal {
                 def_id,

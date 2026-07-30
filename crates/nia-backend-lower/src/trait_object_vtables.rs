@@ -257,6 +257,15 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.collect_trait_object_vtables_from_expr(field, out, seen);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => {
+                self.collect_trait_object_vtables_from_expr(value, out, seen);
+            }
             FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -272,7 +281,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }

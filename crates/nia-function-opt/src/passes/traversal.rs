@@ -131,8 +131,18 @@ where
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
-        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => false,
+        FunctionExprKind::EnumVariant { fields, .. } => {
+            let mut changed = false;
+            for field in fields {
+                changed |= rewrite_expr(field);
+            }
+            changed
+        }
+        FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
+            rewrite_expr(value)
+        }
         FunctionExprKind::Range(range) => rewrite_range_exprs(range, rewrite_expr),
         FunctionExprKind::InlineAsm(asm) => rewrite_inline_asm_exprs(asm, traversal, rewrite_expr),
         FunctionExprKind::Atomic(atomic) => rewrite_atomic_exprs(atomic, rewrite_expr),

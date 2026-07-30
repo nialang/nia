@@ -23,6 +23,10 @@ pub trait ConstCommonEnv {
         symbol_text_from_optional_resolver(None, symbol)
     }
 
+    fn is_enum_variant(&self, _def_id: GlobalDefId) -> bool {
+        false
+    }
+
     fn resolve_builtin_const(
         &mut self,
         span: Span,

@@ -356,6 +356,12 @@ impl ConstModuleLowerer<'_> {
                     self.collect_expr_locals(&field.value, out);
                 }
             }
+            nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
+                self.collect_expr_locals(target, out);
+                for field in fields {
+                    self.collect_expr_locals(&field.value, out);
+                }
+            }
             nia_ast::ExprKind::Unary { expr, .. }
             | nia_ast::ExprKind::OptionalSome { expr }
             | nia_ast::ExprKind::ErrorOk { expr }
@@ -465,6 +471,21 @@ impl ConstModuleLowerer<'_> {
             | nia_ast::PatternKind::OptionalSome(pattern)
             | nia_ast::PatternKind::ErrorOk(pattern)
             | nia_ast::PatternKind::ErrorErr(pattern) => self.collect_pattern_locals(pattern, out),
+            nia_ast::PatternKind::EnumVariant { variant, fields } => {
+                self.collect_expr_locals(variant, out);
+                match fields {
+                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                        for field in fields {
+                            self.collect_pattern_locals(field, out);
+                        }
+                    }
+                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                        for field in fields {
+                            self.collect_pattern_locals(&field.pattern, out);
+                        }
+                    }
+                }
+            }
             nia_ast::PatternKind::Expr(expr) => self.collect_expr_locals(expr, out),
             nia_ast::PatternKind::Range { start, end, .. } => {
                 self.collect_expr_locals(start, out);

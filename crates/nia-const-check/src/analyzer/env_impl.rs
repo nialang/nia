@@ -30,6 +30,10 @@ impl ConstCommonEnv for Analyzer<'_> {
         Analyzer::symbol_name(self, symbol)
     }
 
+    fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
+        self.def_kind_of(def_id) == Some(DefKind::EnumVariant)
+    }
+
     fn resolve_builtin_const(
         &mut self,
         span: Span,

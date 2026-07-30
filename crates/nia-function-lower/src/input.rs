@@ -230,6 +230,12 @@ impl BodyInputValidator {
                 Ok(())
             }
             TypedExprKind::Field { lhs, .. } => self.validate_value_expr(lhs),
+            TypedExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.validate_value_expr(field)?;
+                }
+                Ok(())
+            }
             TypedExprKind::Slice { lhs, range, .. } => {
                 self.validate_value_expr(lhs)?;
                 self.validate_slice_range(range)
@@ -247,7 +253,6 @@ impl BodyInputValidator {
             | TypedExprKind::Global(_)
             | TypedExprKind::Function(_)
             | TypedExprKind::FunctionInstance { .. }
-            | TypedExprKind::EnumVariant(_)
             | TypedExprKind::BuiltinValue(_)
             | TypedExprKind::Trap
             | TypedExprKind::MemoryIntrinsic(_)
@@ -285,6 +290,12 @@ impl BodyInputValidator {
             | TypedPatternKind::OptionalSome(inner)
             | TypedPatternKind::ErrorOk(inner)
             | TypedPatternKind::ErrorErr(inner) => self.validate_pattern(inner),
+            TypedPatternKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.validate_pattern(field)?;
+                }
+                Ok(())
+            }
             TypedPatternKind::Expr(expr) => self.validate_value_expr(expr),
             TypedPatternKind::Range { start, end, .. } => {
                 self.validate_value_expr(start)?;

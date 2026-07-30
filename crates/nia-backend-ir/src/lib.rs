@@ -847,6 +847,7 @@ pub struct BackendLayouts {
     pub types: Vec<(InternedTyId, TypeLayout)>,
     pub structs: Vec<(GlobalDefId, StructLayout)>,
     pub unions: Vec<(GlobalDefId, StructLayout)>,
+    pub enums: Vec<(GlobalDefId, nia_layout::EnumLayout)>,
     pub struct_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
     pub union_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
 }
@@ -882,6 +883,19 @@ impl BackendLayouts {
                 .collect(),
             unions: layouts
                 .unions
+                .iter()
+                .map(|(def_id, layout)| {
+                    (
+                        GlobalDefId {
+                            module_id,
+                            def_id: *def_id,
+                        },
+                        layout.clone(),
+                    )
+                })
+                .collect(),
+            enums: layouts
+                .enums
                 .iter()
                 .map(|(def_id, layout)| {
                     (
@@ -996,7 +1010,15 @@ pub struct BackendEnumVariant {
     pub def_id: GlobalDefId,
     pub name: SymbolId,
     pub value: Option<i128>,
+    pub payload: BackendEnumVariantPayload,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackendEnumVariantPayload {
+    Unit,
+    Tuple(Vec<InternedTyId>),
+    Named(Vec<BackendField>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

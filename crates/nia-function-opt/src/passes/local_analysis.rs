@@ -161,6 +161,13 @@ impl<'a> LocalUseCollector<'a> {
                 self.collect_expr(lhs);
                 self.collect_slice_range(range);
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.collect_expr(field);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => self.collect_expr(value),
             FunctionExprKind::Error
             | FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
@@ -175,7 +182,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }

@@ -715,7 +715,12 @@ fn collect_typed_expr_refs(
         TypedExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);
         }
-        TypedExprKind::EnumVariant(_) | TypedExprKind::BuiltinValue(_) | TypedExprKind::Trap => {}
+        TypedExprKind::EnumVariant { fields, .. } => {
+            for field in fields {
+                collect_typed_expr_refs(module, field, refs);
+            }
+        }
+        TypedExprKind::BuiltinValue(_) | TypedExprKind::Trap => {}
     }
 }
 
@@ -901,6 +906,11 @@ fn collect_typed_pattern_refs(
         | TypedPatternKind::OptionalSome(pattern)
         | TypedPatternKind::ErrorOk(pattern)
         | TypedPatternKind::ErrorErr(pattern) => collect_typed_pattern_refs(module, pattern, refs),
+        TypedPatternKind::EnumVariant { fields, .. } => {
+            for field in fields {
+                collect_typed_pattern_refs(module, field, refs);
+            }
+        }
         TypedPatternKind::Expr(expr) => collect_typed_expr_refs(module, expr, refs),
         TypedPatternKind::Range { start, end, .. } => {
             collect_typed_expr_refs(module, start, refs);
