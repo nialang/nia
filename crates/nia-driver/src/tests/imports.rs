@@ -38,6 +38,39 @@ fn modules_under<'a, M: TestModulePath + 'a>(
         .count()
 }
 
+fn toolchain_compiler_work(
+    program: &crate::CodegenProgram,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut semantic_modules = program
+        .graph
+        .modules()
+        .filter(|module| module.semantic_selected)
+        .filter_map(|module| toolchain_identity(module.path.identity().normalized_path()))
+        .collect::<Vec<_>>();
+    let mut body_modules = program
+        .modules
+        .iter()
+        .filter_map(|module| toolchain_identity(module.path.identity().normalized_path()))
+        .collect::<Vec<_>>();
+    let mut backend_modules = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .filter_map(|module| toolchain_identity(module.source_identity.normalized_path()))
+        .collect::<Vec<_>>();
+    semantic_modules.sort_unstable();
+    body_modules.sort_unstable();
+    backend_modules.sort_unstable();
+    (semantic_modules, body_modules, backend_modules)
+}
+
+fn toolchain_identity(identity: &str) -> Option<String> {
+    identity
+        .starts_with("toolchain:/")
+        .then(|| identity.to_string())
+}
+
 #[test]
 fn loads_entry_and_imported_modules_once() {
     let root = temp_dir("loads_entry_and_imported_modules_once");
@@ -834,6 +867,58 @@ fn main() usize {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn equivalent_public_std_imports_select_the_same_compiler_work() {
+    let root = temp_dir("equivalent_public_std_imports_select_the_same_compiler_work");
+    let broad_path = root.join("broad.nia");
+    let narrow_path = root.join("narrow.nia");
+    write(
+        &broad_path,
+        r#"
+using std::collections;
+
+fn consume(values: collections::ArrayList[i32]) usize {
+    values.len()
+}
+"#,
+    );
+    write(
+        &narrow_path,
+        r#"
+using std::collections::ArrayList;
+
+fn consume(values: ArrayList[i32]) usize {
+    values.len()
+}
+"#,
+    );
+
+    let broad = codegen_program(broad_path.to_string_lossy().into_owned());
+    let narrow = codegen_program(narrow_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&broad.diagnostics);
+    assert_no_error_diagnostics(&narrow.diagnostics);
+    let raw_dependency = broad
+        .graph
+        .modules()
+        .find(|module| {
+            module.path.identity().normalized_path()
+                == "toolchain:/std/collections/array_list/raw.nia"
+        })
+        .expect("ArrayList semantic dependency");
+    assert!(raw_dependency.semantic_selected, "{raw_dependency:?}");
+    assert!(!raw_dependency.process_used_paths, "{raw_dependency:?}");
+    let broad_work = toolchain_compiler_work(&broad);
+    assert!(!broad_work.0.is_empty(), "missing semantic std work");
+    assert!(!broad_work.1.is_empty(), "missing body std work");
+    assert!(!broad_work.2.is_empty(), "missing backend std work");
+    assert_eq!(
+        broad_work,
+        toolchain_compiler_work(&narrow),
+        "public import spelling must not change semantic, body, or backend std work"
+    );
 }
 
 #[test]

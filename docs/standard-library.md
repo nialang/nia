@@ -58,9 +58,17 @@ closure is recorded in `std-build-host-dependencies.json` and checked by
 declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
 conceptually require. This is not a claim that loader demand executes every
-module; it is evidence that the current layer boundary cannot prove a narrow
-host subset. Phase C must reduce both the declared closure and the observed
-loader closure rather than stabilize this accidental breadth.
+module and is not a module-count optimization target. It exists to expose
+forbidden conceptual layer edges. Phase C performance and isolation decisions
+use the loader's observed semantic, body, and backend closures instead.
+
+Public facade imports remain written for humans. Equivalent broad and narrow
+public `using` forms must select the same provider, semantic, body, and backend
+work for the same referenced items; rewriting std code to name package-private
+providers is not accepted as an optimization. Package roots and reexport
+facades stay shallow until concrete paths or provider demands activate them.
+Semantic provider activation supplies that provider's own import scope without
+turning semantic-only dependencies into body-check or backend work.
 
 ## 4. API Review Rules
 

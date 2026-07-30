@@ -432,10 +432,6 @@ impl ModuleGraph {
         self.active_package_facades.contains_key(package)
     }
 
-    pub fn std_package_facade_active(&self) -> bool {
-        self.package_facade_active(&known::STD)
-    }
-
     pub fn current_package_root(&self, module_id: ModuleId) -> Option<ModuleId> {
         let package = &self.get(module_id)?.module_path.package;
         self.package_root(package)

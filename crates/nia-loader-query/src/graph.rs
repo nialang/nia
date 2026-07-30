@@ -105,7 +105,11 @@ fn build_module_graph(
             for demand in new_provider_demands {
                 match &demand.request {
                     nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
-                        mark_semantic_provider_module(&mut graph, module_path);
+                        record_traversal_diagnostic(
+                            activate_semantic_provider_module(db, &mut graph, module_path),
+                            &mut fresh_diagnostics,
+                            module_path,
+                        )?;
                     }
                     nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
                         if let Some(module_id) = graph.module_id_for_path(module_path.as_str()) {
@@ -174,7 +178,7 @@ fn build_module_graph(
                 &node.path,
             )?;
         }
-        if should_process_used_module_paths(db.context(), &graph, &node) {
+        if should_process_used_module_paths(db.context(), &node) {
             for path in &declarations.semantic.used_module_paths {
                 record_traversal_diagnostic(
                     add_used_module_path(db, &mut graph, node.id, path),
@@ -221,10 +225,86 @@ fn record_traversal_diagnostic(
     }
 }
 
-pub(crate) fn mark_semantic_provider_module(graph: &mut ModuleGraph, module_path: &SourcePath) {
-    if let Some(module_id) = graph.module_id_for_source_identity(&module_path.identity()) {
-        graph.mark_semantic_selected(module_id);
+fn activate_semantic_provider_module(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_path: &SourcePath,
+) -> TraversalResult<()> {
+    let Some(module_id) = graph.module_id_for_source_identity(&module_path.identity()) else {
+        return Ok(());
+    };
+    mark_semantic_used_paths_and_process(db, graph, module_id)
+}
+
+fn mark_semantic_used_paths_and_process(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+) -> TraversalResult<()> {
+    if !graph.mark_semantic_selected(module_id) {
+        return Ok(());
     }
+    let Some(node) = graph.get(module_id).cloned() else {
+        return Ok(());
+    };
+    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    for package in &declarations.semantic.package_roots {
+        if graph.package_root(package).is_none()
+            && let Some(path) = db.context().module_map.get_name(package)
+        {
+            graph.intern_package_root(package, path.clone());
+        }
+    }
+    for path in &declarations.semantic.used_module_paths {
+        add_semantic_used_module_path(db, graph, module_id, path)?;
+    }
+    Ok(())
+}
+
+fn add_semantic_used_module_path(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+) -> TraversalResult<()> {
+    if matches!(
+        path.processing(),
+        UsedModulePathProcessing::IfProvidesExtensions
+            | UsedModulePathProcessing::IfProvidesTraitImpl { .. }
+            | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
+            | UsedModulePathProcessing::IfProvidesTraitMethod { .. }
+    ) {
+        return add_used_module_path(db, graph, current_module, path);
+    }
+    if path.processing() == UsedModulePathProcessing::Never {
+        return Ok(());
+    }
+    let Some(start) = used_path_start(graph, current_module, path) else {
+        return Ok(());
+    };
+    if let Some(package) = path.activates_package_facade() {
+        activate_package_facade(db, graph, package)?;
+    }
+    let shallow_path = path.with_appended_segments_with_processing_mode(
+        &[],
+        path.include_declared_children(),
+        UsedModulePathProcessing::Never,
+    );
+    let Some(module_id) = add_visible_declared_module_path(
+        db,
+        graph,
+        current_module,
+        start,
+        shallow_path.segments(),
+        shallow_path.processing(),
+    )?
+    else {
+        return Ok(());
+    };
+    if shallow_path.include_declared_children() {
+        add_declared_module_children(db, graph, module_id)?;
+    }
+    mark_semantic_used_paths_and_process(db, graph, module_id)
 }
 
 fn apply_provider_demands(
@@ -243,7 +323,11 @@ fn apply_provider_demands(
     for demand in demands {
         if let nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } = demand.request
         {
-            mark_semantic_provider_module(graph, &module_path);
+            record_traversal_diagnostic(
+                activate_semantic_provider_module(db, graph, &module_path),
+                diagnostics,
+                &module_path,
+            )?;
             continue;
         }
         for import in imports {
@@ -284,18 +368,12 @@ fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> 
         || node.module_path.is_std_start_module()
 }
 
-fn should_process_used_module_paths(
-    context: &LoaderContext,
-    graph: &ModuleGraph,
-    node: &ModuleNode,
-) -> bool {
+fn should_process_used_module_paths(context: &LoaderContext, node: &ModuleNode) -> bool {
     node.process_used_paths
-        && (!node.module_path.is_package_root()
-            || context
+        || (node.module_path.is_package_root()
+            && context
                 .package_roots_with_used_paths
-                .contains(&node.module_path.package)
-            || !node.module_path.is_std_package()
-            || graph.std_package_facade_active())
+                .contains(&node.module_path.package))
 }
 
 fn add_used_module_path(
@@ -437,8 +515,10 @@ pub(crate) fn add_visible_declared_module_path(
         )?
         else {
             let reexport_facade = current;
+            let source_processing = (processing == UsedModulePathProcessing::Never)
+                .then_some(UsedModulePathProcessing::Never);
             let Some(reexport_source) =
-                add_public_reexport_source_module(db, graph, current, segment)?
+                add_public_reexport_source_module(db, graph, current, segment, source_processing)?
             else {
                 if processing.should_process_module() {
                     mark_process_used_paths_and_process(db, graph, current)?;

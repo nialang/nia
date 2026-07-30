@@ -661,6 +661,12 @@ Tasks:
   matrix; do not freeze temporary enum-plus-union emulation into public APIs;
 - add direct std conformance fixtures for the exact path, I/O, process,
   allocator, Unicode, collection, and formatting operations used by build;
+- measure the actual loader semantic/body/backend closure rather than treating
+  the conservative source-declared closure as compilation work;
+- prove equivalent broad and narrow public `using` forms select the same work;
+  do not optimize std by exposing or spelling package-private provider paths;
+- keep package-root facade activation generic; only target/runtime resource
+  roles such as the selected `start` module may receive std-specific handling;
 - ensure ordinary programs do not load `std::build` implementation modules.
 
 Acceptance:
@@ -676,6 +682,9 @@ Acceptance:
   structured errors do not depend on a language compatibility shim;
 - std public facade/provider tests prove unused build/OS/container modules are
   not loaded;
+- changing only an equivalent public `using` spelling does not expand the
+  selected provider, semantic, body, or backend module closure;
+- the loader contains no std-name branch for ordinary package/facade loading;
 - no unrelated std-wide API redesign is used to inflate phase completion.
 
 ### Phase D: Immutable Build Plan And Versioned Handoff
@@ -1072,6 +1081,23 @@ in later phases must use this compatibility identity rather than inventing a
 parallel domain. Together with the first batch's layout diagnostics and removal
 of compile-time checkout inference, this satisfies every Phase B acceptance
 gate. Phase C is now the critical path.
+
+Phase C progress (2026-07-30): the first closure-discipline batch restores the
+original contract that public `using` spelling is a human-facing namespace
+choice, not a compilation-work control. The conservative 92-module
+source-declared build-host closure remains a layering alarm only; observed
+loader activation, checked/body modules, and backend modules are the execution
+evidence. Ordinary package-root activation no longer contains a std-name
+branch. A real broad-versus-narrow `std::collections::ArrayList` compilation
+now proves identical semantic, body, and backend toolchain closures. That probe
+also exposed a latent second-round defect: a shallow reexport provider selected
+for semantic method resolution was checked without its own import scope.
+Semantic provider activation now recursively selects the provider's concrete
+import dependencies without promoting those dependencies to body activation;
+the `ArrayList` raw implementation remains semantic-only when compiling a
+`len` call. Loader and Driver regressions preserve both spelling independence
+and the semantic/body boundary. Phase C remains open: its public build-host API
+review and conformance matrix still have to be completed.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
