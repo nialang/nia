@@ -1,3 +1,7 @@
 pub fn marker() i32 {
     1
 }
+
+pub fn id[T](value: T) T {
+    value
+}

@@ -527,9 +527,16 @@ Language-track status:
   finalized and cross-module-inlined bodies rather than relying only on source
   signatures; and focused parser, checker, const, LLVM, and resource-accounted
   linked-executable guards pass without a legacy enum path;
-- batch 4 is next: complete the focused compile-fail, exhaustiveness, generic,
-  nested-pattern, invalid-tag-boundary, and const/runtime equivalence matrix
-  before a reviewed std API adopts payload enums.
+- batch 4 is complete: focused compile-fail tests reject payload arity, shape,
+  missing, unknown, and duplicate-field errors; recursive exhaustiveness joins
+  single-field variant arms through nested enums, optionals, and error unions,
+  while multi-field products remain conservative unless one arm covers the
+  product; default-backing tag boundaries reject implicit and explicit
+  overflow; generic checking and a cross-module generic executable preserve
+  nominal enum values; and exact layout, LLVM construction/projection, const
+  evaluation, and resource-accounted const/runtime equivalence guards pass.
+  The language track is closed, so reviewed Phase C APIs may now use payload
+  enums without a temporary compatibility representation.
 
 These batches must use the normal diagnostic and ICE boundary and the existing
 resource-accounted integration harness. They must not create parallel legacy
@@ -1022,11 +1029,14 @@ closes the final Phase A decision gates. Phase B relocation remains independent;
 the language track must settle only before Phase C freezes APIs that depend on
 its enum, error, or naming surface.
 
-Language-track progress (2026-07-30): payload enum batch 3 is complete from
-syntax and semantic checking through const evaluation, finalized backend layout
-closure, LLVM lowering, and a resource-accounted cross-module executable. Batch
-4 remains the explicit acceptance-matrix gate before payload enums can enter a
-reviewed Phase C standard-library contract.
+Language-track progress (2026-07-30): all four payload-enum batches are
+complete. Syntax and semantic checking, recursive coverage, const evaluation,
+finalized backend layout closure, LLVM lowering, invalid construction and tag
+diagnostics, generic transport, nested patterns, and resource-accounted
+cross-module const/runtime execution now have focused acceptance evidence. The
+temporary language track is closed; Phase B relocation is the next critical
+path, and Phase C may rely on the accepted enum and pattern surface when it
+reviews build-host standard-library contracts.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
