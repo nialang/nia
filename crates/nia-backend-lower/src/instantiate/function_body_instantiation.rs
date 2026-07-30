@@ -275,7 +275,30 @@ impl<'a> ModuleLowerer<'a> {
                         const_args,
                     }
                 }
-                FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
+                FunctionExprKind::EnumVariant { variant, fields } => {
+                    FunctionExprKind::EnumVariant {
+                        variant,
+                        fields: fields
+                            .into_iter()
+                            .map(|field| self.instantiate_expr(field, substitutions))
+                            .collect(),
+                    }
+                }
+                FunctionExprKind::EnumVariantTag(variant) => {
+                    FunctionExprKind::EnumVariantTag(variant)
+                }
+                FunctionExprKind::EnumTag { value } => FunctionExprKind::EnumTag {
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                },
+                FunctionExprKind::EnumPayloadField {
+                    value,
+                    variant,
+                    field,
+                } => FunctionExprKind::EnumPayloadField {
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                    variant,
+                    field,
+                },
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(
                     self.instantiate_builtin_value(value, substitutions),
                 ),

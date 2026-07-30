@@ -95,12 +95,19 @@ pub(crate) fn propagate_local_constants_in_block(
 }
 
 pub(crate) fn local_constant_value(expr: &FunctionExpr) -> Option<FunctionExpr> {
-    match expr.kind {
+    match &expr.kind {
         FunctionExprKind::Integer(_)
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
-        | FunctionExprKind::EnumVariant(_) => Some(expr.clone()),
+        | FunctionExprKind::EnumVariantTag(_) => Some(expr.clone()),
+        FunctionExprKind::EnumVariant { fields, .. }
+            if fields
+                .iter()
+                .all(|field| local_constant_value(field).is_some()) =>
+        {
+            Some(expr.clone())
+        }
         _ => None,
     }
 }

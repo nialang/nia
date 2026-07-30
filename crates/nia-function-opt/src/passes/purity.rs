@@ -37,8 +37,12 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
-        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => true,
+        FunctionExprKind::EnumVariant { fields, .. } => fields.iter().all(is_pure_discardable_expr),
+        FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
+            is_pure_discardable_expr(value)
+        }
         FunctionExprKind::Discard(expr) => is_pure_discardable_expr(expr),
         FunctionExprKind::RangeBound { range, .. } => is_pure_discardable_expr(range),
         FunctionExprKind::Range(range) => {

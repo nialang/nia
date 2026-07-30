@@ -315,6 +315,7 @@ impl<'a> BodyChecker<'a> {
             | nia_ast::PatternKind::OptionalNull
             | nia_ast::PatternKind::ErrorOk(_)
             | nia_ast::PatternKind::ErrorErr(_)
+            | nia_ast::PatternKind::EnumVariant { .. }
             | nia_ast::PatternKind::Expr(_)
             | nia_ast::PatternKind::Range { .. } => {
                 self.diagnostics.push(Diagnostic::user_error_at(

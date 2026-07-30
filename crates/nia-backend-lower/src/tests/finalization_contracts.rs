@@ -25,6 +25,7 @@ fn module_finalizations_merge_in_program_order() {
                 types: Vec::new(),
                 structs: Vec::new(),
                 unions: Vec::new(),
+                enums: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },

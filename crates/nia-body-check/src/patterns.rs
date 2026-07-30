@@ -281,6 +281,16 @@ impl<'a> BodyChecker<'a> {
                 });
                 self.check_pattern(inner, error_ty, child_coverage, context);
             }
+            nia_ast::PatternKind::EnumVariant { variant, fields } => {
+                self.check_enum_variant_pattern(
+                    pattern.span,
+                    variant,
+                    fields,
+                    target_ty,
+                    coverage,
+                    context,
+                );
+            }
             nia_ast::PatternKind::Expr(expr) => {
                 if let Some(coverage) = coverage {
                     if let Some(previous) = coverage.catch_all {
@@ -322,6 +332,184 @@ impl<'a> BodyChecker<'a> {
                     );
                 } else {
                     self.check_if_pattern_range(range, target_ty, context);
+                }
+            }
+        }
+    }
+
+    fn check_enum_variant_pattern(
+        &mut self,
+        span: Span,
+        variant_expr: &Expr,
+        fields: &nia_ast::EnumVariantPatternFields,
+        target_ty: InternedTyId,
+        coverage: Option<&mut PatternCoverage>,
+        context: &str,
+    ) {
+        let Some((enum_id, variant_def)) = self.enum_variant_info(variant_expr) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                variant_expr.span,
+                format!("{context} payload target is not an enum variant"),
+            ));
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        };
+        let expected_enum = self.enum_global_def_id(target_ty);
+        if expected_enum != Some(enum_id) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                variant_expr.span,
+                format!(
+                    "{context} variant belongs to a different enum than `{}`",
+                    self.ty_name(target_ty)
+                ),
+            ));
+        }
+        self.record_expr_node_type(variant_expr, target_ty);
+        let variant_id = GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id: variant_def,
+        };
+        let Some((_, variant)) = self.resolved_enum_variant(variant_id) else {
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        };
+        let mut field_coverages = Vec::new();
+        match (&variant.payload, fields) {
+            (
+                nia_item_signatures::EnumVariantPayloadSignature::Tuple(expected),
+                nia_ast::EnumVariantPatternFields::Tuple(actual),
+            ) => {
+                if expected.len() != actual.len() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!(
+                            "enum variant `{}` expects {} pattern fields, found {}",
+                            self.symbol_name(variant.name),
+                            expected.len(),
+                            actual.len()
+                        ),
+                    ));
+                }
+                for (index, pattern) in actual.iter().enumerate() {
+                    let ty = expected.get(index).copied().unwrap_or_else(|| self.error());
+                    let mut child = PatternCoverage::default();
+                    self.check_pattern(pattern, ty, Some(&mut child), context);
+                    field_coverages.push((ty, child));
+                }
+            }
+            (
+                nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
+                nia_ast::EnumVariantPatternFields::Named(actual),
+            ) => {
+                let field_set = nia_sema::check_required_field_set(
+                    actual
+                        .iter()
+                        .map(|field| nia_sema::NamedField::new(field.span, field.name)),
+                    expected.iter().map(|field| field.name),
+                );
+                for field in actual {
+                    let ty = expected
+                        .iter()
+                        .find(|expected| expected.name == field.name)
+                        .map(|expected| expected.ty)
+                        .unwrap_or_else(|| self.error());
+                    let mut child = PatternCoverage::default();
+                    self.check_pattern(&field.pattern, ty, Some(&mut child), context);
+                    field_coverages.push((ty, child));
+                }
+                for field in field_set.duplicate_fields {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        field.span,
+                        format!(
+                            "duplicate payload pattern field `{}`",
+                            self.symbol_name(field.name)
+                        ),
+                    ));
+                }
+                for field in field_set.unknown_fields {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        field.span,
+                        format!(
+                            "unknown payload pattern field `{}`",
+                            self.symbol_name(field.name)
+                        ),
+                    ));
+                }
+                for name in field_set.missing_fields {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!("missing payload pattern field `{}`", self.symbol_name(name)),
+                    ));
+                }
+            }
+            (nia_item_signatures::EnumVariantPayloadSignature::Unit, _) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "unit enum variant `{}` has no payload",
+                        self.symbol_name(variant.name)
+                    ),
+                ));
+                self.check_invalid_enum_pattern_fields(fields, context);
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "enum variant `{}` payload pattern has the wrong shape",
+                        self.symbol_name(variant.name)
+                    ),
+                ));
+                self.check_invalid_enum_pattern_fields(fields, context);
+            }
+        }
+        let payload_is_complete = match &variant.payload {
+            nia_item_signatures::EnumVariantPayloadSignature::Unit => false,
+            nia_item_signatures::EnumVariantPayloadSignature::Tuple(expected) => {
+                expected.len() == field_coverages.len()
+                    && field_coverages
+                        .iter()
+                        .all(|(ty, coverage)| self.pattern_coverage_covers_type(*ty, coverage))
+            }
+            nia_item_signatures::EnumVariantPayloadSignature::Named(expected) => {
+                expected.len() == field_coverages.len()
+                    && field_coverages
+                        .iter()
+                        .all(|(ty, coverage)| self.pattern_coverage_covers_type(*ty, coverage))
+            }
+        };
+        if payload_is_complete
+            && let Some(coverage) = coverage
+            && let Some(previous) = coverage.enum_variants.insert(variant_def, span)
+        {
+            self.report_pattern_overlap(span, previous);
+        }
+    }
+
+    fn check_invalid_enum_pattern_fields(
+        &mut self,
+        fields: &nia_ast::EnumVariantPatternFields,
+        context: &str,
+    ) {
+        match fields {
+            nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                for field in fields {
+                    let error = self.error();
+                    self.check_pattern(field, error, None, context);
+                }
+            }
+            nia_ast::EnumVariantPatternFields::Named(fields) => {
+                for field in fields {
+                    let error = self.error();
+                    self.check_pattern(&field.pattern, error, None, context);
                 }
             }
         }

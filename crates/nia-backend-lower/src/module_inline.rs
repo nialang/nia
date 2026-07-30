@@ -413,6 +413,15 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.inline_leaf_calls_in_expr(field, function_candidates, instance_candidates);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => {
+                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates)
+            }
             FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -428,7 +437,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }
@@ -900,6 +909,14 @@ fn substitute_inline_locals(
         FunctionExprKind::Atomic(atomic) => {
             substitute_inline_locals_in_atomic(atomic, substitutions, require_local_match)?;
         }
+        FunctionExprKind::EnumVariant { fields, .. } => {
+            for field in fields {
+                substitute_inline_locals(field, substitutions, require_local_match)?;
+            }
+        }
+        FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
+            substitute_inline_locals(value, substitutions, require_local_match)?;
+        }
         FunctionExprKind::Error => {
             crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
         }
@@ -917,7 +934,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
-        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => {}
         FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::StaticArrayPointer { .. }
@@ -1007,8 +1024,19 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
-        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => 1,
+        FunctionExprKind::EnumVariant { fields, .. } => {
+            1 + fields
+                .iter()
+                .map(|field| small_pure_inline_expr_cost_with_local(field, budget, local_allowed))
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .sum::<usize>()
+        }
+        FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
+            1 + small_pure_inline_expr_cost_with_local(value, budget, local_allowed)?
+        }
         FunctionExprKind::Local(local_id) if local_allowed(*local_id) => 1,
         FunctionExprKind::Range(range) => {
             1 + optional_inline_expr_cost(range.start.as_deref(), budget, local_allowed)?

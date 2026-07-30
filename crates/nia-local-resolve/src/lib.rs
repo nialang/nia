@@ -522,6 +522,12 @@ impl LocalDefinitionAllocator {
                     self.allocate_expr(&field.value);
                 }
             }
+            ExprKind::QualifiedStructLiteral { target, fields } => {
+                self.allocate_expr(target);
+                for field in fields {
+                    self.allocate_expr(&field.value);
+                }
+            }
             ExprKind::Unary { expr, .. }
             | ExprKind::OptionalSome { expr }
             | ExprKind::ErrorOk { expr }
@@ -646,6 +652,25 @@ impl LocalDefinitionAllocator {
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => {
                 self.allocate_pattern_with_span(pattern, binding_kind, binding_span)
+            }
+            PatternKind::EnumVariant { variant, fields } => {
+                self.allocate_expr(variant);
+                match fields {
+                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                        for field in fields {
+                            self.allocate_pattern_with_span(field, binding_kind, binding_span);
+                        }
+                    }
+                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                        for field in fields {
+                            self.allocate_pattern_with_span(
+                                &field.pattern,
+                                binding_kind,
+                                binding_span,
+                            );
+                        }
+                    }
+                }
             }
             PatternKind::Expr(pattern) => self.allocate_expr(pattern),
             PatternKind::Range { start, end, .. } => {
@@ -1036,6 +1061,12 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(&field.value);
                 }
             }
+            ExprKind::QualifiedStructLiteral { target, fields } => {
+                self.resolve_expr(target);
+                for field in fields {
+                    self.resolve_expr(&field.value);
+                }
+            }
             ExprKind::Unary { expr, .. }
             | ExprKind::OptionalSome { expr }
             | ExprKind::ErrorOk { expr }
@@ -1163,6 +1194,31 @@ impl<'a> LocalResolver<'a> {
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => {
                 self.resolve_pattern_with_span(pattern, binding_kind, binding_span, duplicate);
+            }
+            PatternKind::EnumVariant { variant, fields } => {
+                self.resolve_expr(variant);
+                match fields {
+                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                        for field in fields {
+                            self.resolve_pattern_with_span(
+                                field,
+                                binding_kind,
+                                binding_span,
+                                duplicate,
+                            );
+                        }
+                    }
+                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                        for field in fields {
+                            self.resolve_pattern_with_span(
+                                &field.pattern,
+                                binding_kind,
+                                binding_span,
+                                duplicate,
+                            );
+                        }
+                    }
+                }
             }
             PatternKind::Expr(pattern) => self.resolve_expr(pattern),
             PatternKind::Range { start, end, .. } => {

@@ -251,7 +251,13 @@ impl FunctionLowerer<'_> {
                 args: args.clone(),
                 const_args: const_args.clone(),
             },
-            TypedExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(*def_id),
+            TypedExprKind::EnumVariant { variant, fields } => FunctionExprKind::EnumVariant {
+                variant: *variant,
+                fields: fields
+                    .iter()
+                    .map(|field| self.lower_value_expr(field, scope, current, ops, blocks))
+                    .collect(),
+            },
             TypedExprKind::BuiltinValue(value) => {
                 FunctionExprKind::BuiltinValue(Self::lower_builtin_value(value))
             }
@@ -827,7 +833,8 @@ impl FunctionLowerer<'_> {
                     | TypedPatternKind::OptionalSome(_)
                     | TypedPatternKind::OptionalNull
                     | TypedPatternKind::ErrorOk(_)
-                    | TypedPatternKind::ErrorErr(_) => {}
+                    | TypedPatternKind::ErrorErr(_)
+                    | TypedPatternKind::EnumVariant { .. } => {}
                 }
             }
             lowered_arms.push((arm_target, arm));

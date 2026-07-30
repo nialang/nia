@@ -86,6 +86,12 @@ impl AssociatedConstProjectionUseCollector<'_> {
                     self.visit_expr(&field.value);
                 }
             }
+            nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
+                self.visit_expr(target);
+                for field in fields {
+                    self.visit_expr(&field.value);
+                }
+            }
             nia_ast::ExprKind::Unary { expr, .. }
             | nia_ast::ExprKind::OptionalSome { expr }
             | nia_ast::ExprKind::ErrorOk { expr }
@@ -217,6 +223,21 @@ impl AssociatedConstProjectionUseCollector<'_> {
             | nia_ast::PatternKind::OptionalSome(inner)
             | nia_ast::PatternKind::ErrorOk(inner)
             | nia_ast::PatternKind::ErrorErr(inner) => self.visit_pattern(inner),
+            nia_ast::PatternKind::EnumVariant { variant, fields } => {
+                self.visit_expr(variant);
+                match fields {
+                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                        for field in fields {
+                            self.visit_pattern(field);
+                        }
+                    }
+                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                        for field in fields {
+                            self.visit_pattern(&field.pattern);
+                        }
+                    }
+                }
+            }
             nia_ast::PatternKind::Expr(expr) => self.visit_expr(expr),
             nia_ast::PatternKind::Range { start, end, .. } => {
                 self.visit_expr(start);

@@ -12,7 +12,10 @@ use nia_const_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
-use nia_item_signatures::{EnumSignature, StructSignature, UnionSignature};
+use nia_item_signatures::{
+    EnumSignature, EnumVariantPayloadSignature, EnumVariantSignature, StructSignature,
+    UnionSignature,
+};
 use nia_local_resolve::LocalKind;
 use nia_mangle::mangle_symbol_id;
 use nia_sema::{
@@ -673,22 +676,226 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        if !variants
+        let Some((_, variant_def)) = variants
             .iter()
-            .any(|(variant_name, _)| variant_name == name)
-        {
+            .find(|(variant_name, _)| variant_name == name)
+        else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
                 format!("unknown enum variant `{}`", self.symbol_name(*name)),
             ));
             return Some(self.error());
+        };
+        let variant_id = GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id: *variant_def,
+        };
+        if let Some((_, variant)) = self.resolved_enum_variant(variant_id)
+            && !matches!(variant.payload, EnumVariantPayloadSignature::Unit)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "enum variant `{}` requires a payload",
+                    self.symbol_name(variant.name)
+                ),
+            ));
         }
-        Some(self.interner.intern(TyKind::Nominal {
+        Some(self.enum_ty(enum_id))
+    }
+
+    pub(crate) fn resolved_enum_variant(
+        &mut self,
+        variant_id: GlobalDefId,
+    ) -> Option<(GlobalDefId, EnumVariantSignature)> {
+        let defs = self.defs_for_module(variant_id.module_id)?;
+        let enum_def = defs.as_ref().defs.get(variant_id.def_id)?.parent?;
+        let enum_id = GlobalDefId {
+            module_id: variant_id.module_id,
+            def_id: enum_def,
+        };
+        let signature = self.resolved_enum_signature(enum_id)?.signature;
+        let variant = signature
+            .variants
+            .into_iter()
+            .find(|variant| variant.def_id == variant_id.def_id)?;
+        Some((enum_id, variant))
+    }
+
+    pub(crate) fn check_enum_variant_call(
+        &mut self,
+        expr: &Expr,
+        callee: &Expr,
+        args: &[Expr],
+    ) -> Option<InternedTyId> {
+        let (enum_id, variant_def) = self.enum_variant_info(callee)?;
+        let variant_id = GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id: variant_def,
+        };
+        let (_, variant) = self.resolved_enum_variant(variant_id)?;
+        if let EnumVariantPayloadSignature::Tuple(fields) = &variant.payload {
+            self.check_enum_tuple_payload(expr.span, &variant, fields, args);
+            return Some(self.enum_ty(enum_id));
+        }
+        for arg in args {
+            self.check_expr(arg);
+        }
+        let expected = if matches!(variant.payload, EnumVariantPayloadSignature::Unit) {
+            "no payload"
+        } else {
+            "a named payload literal"
+        };
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            expr.span,
+            format!(
+                "enum variant `{}` expects {expected}",
+                self.symbol_name(variant.name)
+            ),
+        ));
+        Some(self.enum_ty(enum_id))
+    }
+
+    fn check_enum_tuple_payload(
+        &mut self,
+        span: Span,
+        variant: &EnumVariantSignature,
+        fields: &[InternedTyId],
+        args: &[Expr],
+    ) {
+        if fields.len() != args.len() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "enum variant `{}` expects {} payload values, found {}",
+                    self.symbol_name(variant.name),
+                    fields.len(),
+                    args.len()
+                ),
+            ));
+        }
+        for (index, arg) in args.iter().enumerate() {
+            let Some(expected) = fields.get(index).copied() else {
+                self.check_expr(arg);
+                continue;
+            };
+            let actual = self.check_expr_with_expected(arg, Some(expected));
+            self.expect_expr_type(arg, expected, actual, "enum variant payload");
+        }
+    }
+
+    pub(crate) fn check_qualified_struct_literal(
+        &mut self,
+        expr: &Expr,
+        target: &Expr,
+        fields: &[nia_ast::FieldInit],
+    ) -> InternedTyId {
+        if let Some((enum_id, variant_def)) = self.enum_variant_info(target) {
+            let variant_id = GlobalDefId {
+                module_id: enum_id.module_id,
+                def_id: variant_def,
+            };
+            let Some((_, variant)) = self.resolved_enum_variant(variant_id) else {
+                return self.error();
+            };
+            let EnumVariantPayloadSignature::Named(expected_fields) = &variant.payload else {
+                for field in fields {
+                    self.check_expr(&field.value);
+                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    format!(
+                        "enum variant `{}` does not have a named payload",
+                        self.symbol_name(variant.name)
+                    ),
+                ));
+                return self.enum_ty(enum_id);
+            };
+            self.check_named_enum_payload(expr.span, &variant, expected_fields, fields);
+            return self.enum_ty(enum_id);
+        }
+        if let Some((def_id, args, const_args)) = self.type_prefix_instance(target) {
+            let ty = self.interner.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            });
+            return self.check_struct_literal(expr.span, Some(ty), fields);
+        }
+        for field in fields {
+            self.check_expr(&field.value);
+        }
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            expr.span,
+            "qualified literal target is not a struct or named enum variant",
+        ));
+        self.error()
+    }
+
+    fn check_named_enum_payload(
+        &mut self,
+        span: Span,
+        variant: &EnumVariantSignature,
+        expected_fields: &[nia_item_signatures::FieldSignature],
+        fields: &[nia_ast::FieldInit],
+    ) {
+        let field_set = check_required_field_set(
+            fields
+                .iter()
+                .map(|field| NamedField::new(field.span, field.name)),
+            expected_fields.iter().map(|field| field.name),
+        );
+        for field in fields {
+            if let Some(expected) = expected_fields
+                .iter()
+                .find(|expected| expected.name == field.name)
+                .map(|field| field.ty)
+            {
+                let actual = self.check_expr_with_expected(&field.value, Some(expected));
+                self.expect_expr_type(&field.value, expected, actual, "enum variant payload field");
+            } else {
+                self.check_expr(&field.value);
+            }
+        }
+        for field in field_set.duplicate_fields {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                field.span,
+                format!("duplicate payload field `{}`", self.symbol_name(field.name)),
+            ));
+        }
+        for field in field_set.unknown_fields {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                field.span,
+                format!("unknown payload field `{}`", self.symbol_name(field.name)),
+            ));
+        }
+        for name in field_set.missing_fields {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "missing payload field `{}` for variant `{}`",
+                    self.symbol_name(name),
+                    self.symbol_name(variant.name)
+                ),
+            ));
+        }
+    }
+
+    fn enum_ty(&mut self, enum_id: GlobalDefId) -> InternedTyId {
+        self.interner.intern(TyKind::Nominal {
             def_id: enum_id,
             args: Vec::new(),
             const_args: Vec::new(),
-        }))
+        })
     }
 
     pub(crate) fn enum_global_def_id(&self, ty: InternedTyId) -> Option<GlobalDefId> {
@@ -819,6 +1026,10 @@ impl<'a> BodyChecker<'a> {
 }
 
 impl ConstCommonEnv for BodyChecker<'_> {
+    fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
+        self.global_def_kind(def_id) == Some(DefKind::EnumVariant)
+    }
+
     fn push_const_scope(&mut self, _span: Span) -> Result<(), ConstError> {
         self.const_call_locals
             .push(crate::ConstCallFrame::default());

@@ -334,6 +334,14 @@ fn collect_function_refs_from_expr(
                 collect_function_refs_from_expr(end, types, refs);
             }
         }
+        FunctionExprKind::EnumVariant { fields, .. } => {
+            for field in fields {
+                collect_function_refs_from_expr(field, types, refs);
+            }
+        }
+        FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
+            collect_function_refs_from_expr(value, types, refs);
+        }
         FunctionExprKind::Error => unreachable_invalid_function_ir("FunctionExprKind::Error"),
         FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
@@ -345,7 +353,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
         | FunctionExprKind::Local(_)
-        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::Trap => {}
         FunctionExprKind::Global(def_id) => {

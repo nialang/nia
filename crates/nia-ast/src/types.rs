@@ -565,6 +565,13 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_fields_identity(out, "struct", fields);
             out.push(')');
         }
+        ExprKind::QualifiedStructLiteral { target, fields } => {
+            out.push_str("qualified_struct(");
+            write_expr_identity(out, target);
+            out.push('|');
+            write_fields_identity(out, "struct", fields);
+            out.push(')');
+        }
         ExprKind::Unary { op, expr } => {
             out.push_str("unary(");
             out.push_str(unary_op_identity(*op));

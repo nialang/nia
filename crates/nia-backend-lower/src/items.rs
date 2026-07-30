@@ -101,6 +101,32 @@ impl<'a> ModuleLowerer<'a> {
                             ConstValue::Int(value) => value.as_i128(),
                             _ => None,
                         }),
+                    payload: match &variant.payload {
+                        nia_item_signatures::EnumVariantPayloadSignature::Unit => {
+                            nia_backend_ir::BackendEnumVariantPayload::Unit
+                        }
+                        nia_item_signatures::EnumVariantPayloadSignature::Tuple(fields) => {
+                            nia_backend_ir::BackendEnumVariantPayload::Tuple(
+                                fields
+                                    .iter()
+                                    .map(|ty| self.instantiate_ty(*ty, &substitutions))
+                                    .collect(),
+                            )
+                        }
+                        nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                            nia_backend_ir::BackendEnumVariantPayload::Named(
+                                fields
+                                    .iter()
+                                    .map(|field| BackendField {
+                                        def_id: self.global_def_id(field.def_id),
+                                        name: field.name,
+                                        ty: self.instantiate_ty(field.ty, &substitutions),
+                                        span: field.span,
+                                    })
+                                    .collect(),
+                            )
+                        }
+                    },
                     span: variant.span,
                 })
                 .collect(),

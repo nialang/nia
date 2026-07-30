@@ -662,6 +662,11 @@ impl Parser {
     }
 
     fn parse_primary_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        if !stops.contains(&TokenKind::LBrace)
+            && let Some(expr) = self.parse_qualified_struct_literal()
+        {
+            return Some(expr);
+        }
         if let Some(expr) = self.parse_typed_aggregate_literal(stops) {
             return Some(expr);
         }
@@ -723,6 +728,57 @@ impl Parser {
                 None
             }
         }
+    }
+
+    fn parse_qualified_struct_literal(&mut self) -> Option<Expr> {
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let Some(target) = self.parse_qualified_value_path() else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        if self.eat(TokenKind::LBrace).is_none() {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        }
+        let fields = self.parse_struct_literal_fields()?;
+        let end = self
+            .expect(TokenKind::RBrace, "expected `}` after qualified literal")?
+            .end;
+        Some(self.make_expr(
+            Span::new(target.span.start, end),
+            ExprKind::QualifiedStructLiteral {
+                target: Box::new(target),
+                fields,
+            },
+        ))
+    }
+
+    pub(super) fn parse_qualified_value_path(&mut self) -> Option<Expr> {
+        let token = self.peek().clone();
+        let kind = match token.kind {
+            TokenKind::Ident => ExprKind::Ident(self.token_name(&token)?),
+            TokenKind::Pkg => ExprKind::PathRoot(PathSegmentKind::Package),
+            TokenKind::Super => ExprKind::PathRoot(PathSegmentKind::Super),
+            _ => return None,
+        };
+        self.bump();
+        let mut expr = self.make_expr(token.span, kind);
+        let mut qualified = false;
+        while self.eat(TokenKind::ColonColon).is_some() {
+            let name = self.expect_name(TokenKind::Ident, "expected name after `::`")?;
+            expr = self.make_expr(
+                Span::new(expr.span.start, self.previous_end()),
+                ExprKind::Qualified {
+                    lhs: Box::new(expr),
+                    name,
+                },
+            );
+            qualified = true;
+        }
+        qualified.then_some(expr)
     }
 
     fn parse_typed_aggregate_literal(&mut self, stops: &[TokenKind]) -> Option<Expr> {

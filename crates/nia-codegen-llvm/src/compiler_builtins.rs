@@ -223,6 +223,13 @@ impl CompilerBuiltinCollector {
                 self.collect_expr(index, lhs);
                 self.collect_slice_range(index, range);
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.collect_expr(index, field);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => self.collect_expr(index, value),
             FunctionExprKind::Error
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -238,7 +245,7 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_)
             | FunctionExprKind::Trap => {}
         }

@@ -326,6 +326,49 @@ impl Analyzer<'_> {
         None
     }
 
+    pub(super) fn resolved_const_enum_variant(
+        &self,
+        expr: &ResolvedConstExpr,
+    ) -> Option<(GlobalDefId, nia_item_signatures::EnumVariantSignature)> {
+        let ConstNameResolution::Global(variant_id) = expr.name_resolution()? else {
+            return None;
+        };
+        if self.def_kind_of(variant_id) != Some(DefKind::EnumVariant) {
+            return None;
+        }
+        let enum_def = self
+            .global_defs(variant_id.module_id)?
+            .as_ref()
+            .defs
+            .get(variant_id.def_id)?
+            .parent?;
+        let enum_id = GlobalDefId {
+            module_id: variant_id.module_id,
+            def_id: enum_def,
+        };
+        let variant = self
+            .signatures_for_module(enum_id.module_id)?
+            .as_ref()
+            .enums
+            .get(&enum_id.def_id)?
+            .variants
+            .iter()
+            .find(|variant| variant.def_id == variant_id.def_id)?
+            .clone();
+        Some((enum_id, variant))
+    }
+
+    pub(super) fn enum_ty_in_current_module(&self, enum_id: GlobalDefId) -> InternedTyId {
+        self.input
+            .type_store
+            .append_for_module(self.current_execution_module_id())
+            .intern(TyKind::Nominal {
+                def_id: enum_id,
+                args: Vec::new(),
+                const_args: Vec::new(),
+            })
+    }
+
     pub(super) fn const_function_body(
         &self,
         def_id: GlobalDefId,

@@ -114,6 +114,7 @@ impl Pattern {
             PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => pattern.contains_binding(),
+            PatternKind::EnumVariant { fields, .. } => fields.contains_binding(),
             PatternKind::Wildcard
             | PatternKind::OptionalNull
             | PatternKind::Expr(_)
@@ -136,12 +137,38 @@ pub enum PatternKind {
     OptionalNull,
     ErrorOk(Box<Pattern>),
     ErrorErr(Box<Pattern>),
+    EnumVariant {
+        variant: Box<Expr>,
+        fields: EnumVariantPatternFields,
+    },
     Expr(Box<Expr>),
     Range {
         start: Box<Expr>,
         end: Box<Expr>,
         inclusive: bool,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumVariantPatternFields {
+    Tuple(Vec<Pattern>),
+    Named(Vec<NamedPatternField>),
+}
+
+impl EnumVariantPatternFields {
+    fn contains_binding(&self) -> bool {
+        match self {
+            Self::Tuple(fields) => fields.iter().any(Pattern::contains_binding),
+            Self::Named(fields) => fields.iter().any(|field| field.pattern.contains_binding()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NamedPatternField {
+    pub name: SymbolId,
+    pub pattern: Pattern,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +239,10 @@ pub enum ExprKind {
     },
     TypedStructLiteral {
         ty: TypeRef,
+        fields: Vec<FieldInit>,
+    },
+    QualifiedStructLiteral {
+        target: Box<Expr>,
         fields: Vec<FieldInit>,
     },
     Unary {

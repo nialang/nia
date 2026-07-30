@@ -706,6 +706,20 @@ impl ResolvedConstPattern {
         }
     }
 
+    pub fn enum_variant(
+        variant: ResolvedConstExpr,
+        fields: ConstEnumPatternFields<ResolvedConstPattern>,
+        span: Span,
+    ) -> Self {
+        Self {
+            kind: ResolvedConstPatternKind::EnumVariant {
+                variant,
+                fields,
+                span,
+            },
+        }
+    }
+
     pub fn expr(expr: ResolvedConstExpr) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Expr(expr),
@@ -774,6 +788,11 @@ pub enum ResolvedConstPatternKind {
     },
     ErrorErr {
         pattern: Box<ResolvedConstPattern>,
+        span: Span,
+    },
+    EnumVariant {
+        variant: ResolvedConstExpr,
+        fields: ConstEnumPatternFields<ResolvedConstPattern>,
         span: Span,
     },
     Expr(ResolvedConstExpr),
@@ -854,6 +873,10 @@ pub enum ResolvedConstExprKind {
     },
     StructLiteral {
         ty: Option<InternedTyId>,
+        fields: Vec<ResolvedConstFieldInit>,
+    },
+    EnumStructLiteral {
+        variant: Box<ResolvedConstExpr>,
         fields: Vec<ResolvedConstFieldInit>,
     },
     CompileError {
@@ -1205,6 +1228,11 @@ pub enum EarlyConstPattern {
         pattern: Box<EarlyConstPattern>,
         span: Span,
     },
+    EnumVariant {
+        variant: EarlyConstExpr,
+        fields: ConstEnumPatternFields<EarlyConstPattern>,
+        span: Span,
+    },
     Expr(EarlyConstExpr),
     Range {
         start: EarlyConstExpr,
@@ -1212,6 +1240,19 @@ pub enum EarlyConstPattern {
         inclusive: bool,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstEnumPatternFields<P> {
+    Tuple(Vec<P>),
+    Named(Vec<ConstNamedPatternField<P>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstNamedPatternField<P> {
+    pub name: SymbolId,
+    pub pattern: P,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1316,6 +1357,10 @@ pub enum EarlyConstExprKind {
     },
     StructLiteral {
         ty: Option<InternedTyId>,
+        fields: Vec<EarlyConstFieldInit>,
+    },
+    EnumStructLiteral {
+        variant: Box<EarlyConstExpr>,
         fields: Vec<EarlyConstFieldInit>,
     },
     CompileError {

@@ -436,7 +436,8 @@ impl FunctionLowerer<'_> {
                     | TypedPatternKind::OptionalSome(_)
                     | TypedPatternKind::OptionalNull
                     | TypedPatternKind::ErrorOk(_)
-                    | TypedPatternKind::ErrorErr(_) => {}
+                    | TypedPatternKind::ErrorErr(_)
+                    | TypedPatternKind::EnumVariant { .. } => {}
                 }
             }
             lowered_arms.push((arm_target, arm));

@@ -2,10 +2,11 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_backend_ir::{
-    BackendLayouts, BackendStructInstance, BackendStructInstanceKey, BackendUnionInstance,
+    BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendParam,
+    BackendStructInstance, BackendStructInstanceKey, BackendUnionInstance,
 };
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_layout::{ProgramLayoutContext, StructLayout};
+use nia_layout::ProgramLayoutContext;
 
 use crate::BackendLowerModuleInput;
 
@@ -22,21 +23,13 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         Self { input, type_store }
     }
 
-    pub(crate) fn extend_for_instances(
+    pub(crate) fn extend_for_finalized_module(
         &mut self,
         layouts: &mut BackendLayouts,
-        struct_instances: &[BackendStructInstance],
-        union_instances: &[BackendUnionInstance],
+        module: &BackendModule,
     ) {
         let mut normalization_input = self.input.signatures.type_roots();
-        for instance in struct_instances {
-            normalization_input.extend(instance.args.iter().copied());
-            normalization_input.extend(instance.const_args.iter().map(|arg| arg.ty));
-        }
-        for instance in union_instances {
-            normalization_input.extend(instance.args.iter().copied());
-            normalization_input.extend(instance.const_args.iter().map(|arg| arg.ty));
-        }
+        normalization_input.extend(finalized_module_type_roots(module, self.type_store));
         normalization_input.sort_unstable();
         normalization_input.dedup();
         let normalization = nia_type_normalize::normalize_module_types(
@@ -63,9 +56,11 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             array_lengths: Some(&array_lengths),
             structs: Some(self.input.program.structs()),
             unions: Some(self.input.program.unions()),
+            enums: Some(self.input.program.enums()),
+            type_aliases: Some(self.input.program.type_aliases()),
             ..Default::default()
         };
-        let root_types = self.input.signatures.type_roots();
+        let root_types = normalization_input;
         let computed =
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.type_store,
@@ -84,6 +79,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             self.input.module_id,
         );
         append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
+        append_missing_nominal_layouts(&mut layouts.enums, computed.enums, self.input.module_id);
         let layout_input = nia_layout::LayoutComputationInput {
             type_store: self.type_store,
             defs: self.input.defs,
@@ -94,7 +90,12 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             target: self.input.layouts.target,
             program,
         };
-        Self::append_instance_layouts(layouts, &layout_input, struct_instances, union_instances);
+        Self::append_instance_layouts(
+            layouts,
+            &layout_input,
+            &module.struct_instances,
+            &module.union_instances,
+        );
     }
 
     fn append_instance_layouts(
@@ -173,9 +174,9 @@ fn append_missing_type_layouts(
     }
 }
 
-fn append_missing_nominal_layouts(
-    output: &mut Vec<(GlobalDefId, StructLayout)>,
-    computed: HashMap<nia_ids::DefId, StructLayout>,
+fn append_missing_nominal_layouts<Layout>(
+    output: &mut Vec<(GlobalDefId, Layout)>,
+    computed: HashMap<nia_ids::DefId, Layout>,
     default_module_id: ModuleId,
 ) {
     let mut existing = output
@@ -191,4 +192,120 @@ fn append_missing_nominal_layouts(
             output.push((def_id, layout));
         }
     }
+}
+
+fn finalized_module_type_roots(
+    module: &BackendModule,
+    type_store: &nia_ty::TypeStore,
+) -> Vec<InternedTyId> {
+    let mut roots = Vec::new();
+    for item in &module.structs {
+        roots.extend(item.fields.iter().map(|field| field.ty));
+    }
+    for item in &module.unions {
+        roots.extend(item.fields.iter().map(|field| field.ty));
+    }
+    for item in &module.struct_instances {
+        extend_instance_types(&mut roots, &item.args, &item.const_args);
+        roots.extend(item.fields.iter().map(|field| field.ty));
+    }
+    for item in &module.union_instances {
+        extend_instance_types(&mut roots, &item.args, &item.const_args);
+        roots.extend(item.fields.iter().map(|field| field.ty));
+    }
+    for item in &module.enums {
+        roots.push(item.backing_type);
+        for variant in &item.variants {
+            match &variant.payload {
+                nia_backend_ir::BackendEnumVariantPayload::Unit => {}
+                nia_backend_ir::BackendEnumVariantPayload::Tuple(fields) => {
+                    roots.extend(fields.iter().copied());
+                }
+                nia_backend_ir::BackendEnumVariantPayload::Named(fields) => {
+                    roots.extend(fields.iter().map(|field| field.ty));
+                }
+            }
+        }
+    }
+    for item in &module.globals {
+        roots.push(item.ty);
+        if let Some(init) = &item.init {
+            roots.extend(init.value_refs(module.id).types);
+        }
+    }
+    for item in &module.global_instances {
+        roots.push(item.ty);
+        extend_instance_types(&mut roots, &item.args, &item.const_args);
+        if let Some(init) = &item.init {
+            roots.extend(init.value_refs(item.arg_module_id).types);
+        }
+    }
+    for item in &module.functions {
+        extend_function_types(&mut roots, item, type_store);
+    }
+    for item in &module.function_instances {
+        extend_function_instance_types(&mut roots, item, type_store);
+    }
+    for vtable in &module.trait_object_vtables {
+        roots.extend([vtable.key.self_ty, vtable.key.object_ty]);
+        roots.extend(vtable.trait_args.iter().copied());
+        for entry in &vtable.entries {
+            if let nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+                self_arg,
+                args,
+                const_args,
+                ..
+            } = &entry.function
+            {
+                roots.extend(self_arg.iter().copied());
+                extend_instance_types(&mut roots, args, const_args);
+            }
+        }
+    }
+    for instantiation in &module.generic_instantiations {
+        roots.extend(instantiation.self_arg.iter().copied());
+        extend_instance_types(&mut roots, &instantiation.args, &instantiation.const_args);
+    }
+    roots
+}
+
+fn extend_function_types(
+    roots: &mut Vec<InternedTyId>,
+    function: &BackendFunction,
+    type_store: &nia_ty::TypeStore,
+) {
+    extend_params(roots, &function.params);
+    roots.push(function.return_type);
+    if let Some(body) = &function.function_body {
+        roots.extend(body.value_refs(type_store).types);
+    }
+}
+
+fn extend_function_instance_types(
+    roots: &mut Vec<InternedTyId>,
+    function: &BackendFunctionInstance,
+    type_store: &nia_ty::TypeStore,
+) {
+    roots.extend(function.self_arg.iter().copied());
+    extend_instance_types(roots, &function.args, &function.const_args);
+    extend_params(roots, &function.params);
+    roots.push(function.return_type);
+    if let Some(body) = &function.function_body {
+        roots.extend(body.value_refs(type_store).types);
+    }
+}
+
+fn extend_params(roots: &mut Vec<InternedTyId>, params: &[BackendParam]) {
+    for param in params {
+        roots.extend([param.passing_ty, param.local_ty]);
+    }
+}
+
+fn extend_instance_types(
+    roots: &mut Vec<InternedTyId>,
+    args: &[InternedTyId],
+    const_args: &[nia_ty::ConstGenericArg],
+) {
+    roots.extend(args.iter().copied());
+    roots.extend(const_args.iter().map(|arg| arg.ty));
 }

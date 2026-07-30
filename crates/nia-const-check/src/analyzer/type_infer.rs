@@ -314,9 +314,9 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         match expr.kind() {
-            ResolvedConstExprKind::Name(resolution) => {
-                self.const_name_resolution_type(resolution.clone())
-            }
+            ResolvedConstExprKind::Name(resolution) => self
+                .resolved_const_enum_variant_value_type(expr)
+                .or_else(|| self.const_name_resolution_type(resolution.clone())),
             ResolvedConstExprKind::Integer(text) => {
                 integer_literal_suffix_ty(text).map(|primitive| {
                     ConstValueType::Runtime(self.current_runtime_primitive_type(primitive))
@@ -360,6 +360,9 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::StructLiteral { ty: None, fields } => {
                 self.resolved_const_struct_literal_type(expr.span(), fields, expected)
             }
+            ResolvedConstExprKind::EnumStructLiteral { variant, fields } => self
+                .resolved_const_named_enum_literal_type(variant, fields)
+                .map(ConstValueType::Runtime),
             ResolvedConstExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
                     Some(TyKind::Optional { elem }) => Some(elem),
@@ -448,7 +451,16 @@ impl Analyzer<'_> {
                 type_args,
                 args,
             } => self
-                .resolved_const_call_return_type(expr.span(), callee, type_args, args, expected)
+                .resolved_const_tuple_enum_literal_type(callee, args)
+                .or_else(|| {
+                    self.resolved_const_call_return_type(
+                        expr.span(),
+                        callee,
+                        type_args,
+                        args,
+                        expected,
+                    )
+                })
                 .map(ConstValueType::Runtime),
             ResolvedConstExprKind::LayoutBuiltin { .. }
             | ResolvedConstExprKind::FieldOffsetBuiltin { .. }
@@ -465,46 +477,187 @@ impl Analyzer<'_> {
         let target_ty = self.resolved_const_arg_runtime_type(switch.target(), None)?;
         for arm in switch.arms() {
             for pattern in arm.patterns() {
-                if resolved_pattern_local_id(pattern) == Some(local_id) {
-                    return self.resolved_pattern_binding_type(pattern, target_ty);
+                if let Some(ty) = self.resolved_pattern_binding_type(pattern, target_ty, local_id) {
+                    return Some(ty);
                 }
             }
         }
         None
     }
 
-    pub(super) fn resolved_pattern_binding_type(
+    fn resolved_const_enum_variant_value_type(
         &self,
+        variant: &ResolvedConstExpr,
+    ) -> Option<ConstValueType> {
+        let (enum_id, variant) = self.resolved_const_enum_variant(variant)?;
+        matches!(
+            variant.payload,
+            nia_item_signatures::EnumVariantPayloadSignature::Unit
+        )
+        .then(|| ConstValueType::Runtime(self.enum_ty_in_current_module(enum_id)))
+    }
+
+    fn resolved_const_tuple_enum_literal_type(
+        &mut self,
+        callee: &ResolvedConstExpr,
+        args: &[ResolvedConstExpr],
+    ) -> Option<InternedTyId> {
+        let (enum_id, variant) = self.resolved_const_enum_variant(callee)?;
+        let nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys) = variant.payload
+        else {
+            return None;
+        };
+        if field_tys.len() != args.len() {
+            return None;
+        }
+        let current_module = self.current_execution_module_id();
+        for (arg, field_ty) in args.iter().zip(field_tys) {
+            let field_ty = self.type_for_module_or_none(field_ty, current_module)?;
+            let actual = self.resolved_const_arg_runtime_type(arg, Some(field_ty))?;
+            if actual != field_ty {
+                return None;
+            }
+        }
+        Some(self.enum_ty_in_current_module(enum_id))
+    }
+
+    fn resolved_const_named_enum_literal_type(
+        &mut self,
+        target: &ResolvedConstExpr,
+        fields: &[ResolvedConstFieldInit],
+    ) -> Option<InternedTyId> {
+        let (enum_id, variant) = self.resolved_const_enum_variant(target)?;
+        let nia_item_signatures::EnumVariantPayloadSignature::Named(expected) = variant.payload
+        else {
+            return None;
+        };
+        let field_set = check_required_field_set(
+            fields
+                .iter()
+                .map(|field| NamedField::new(field.span(), *field.name_symbol())),
+            expected.iter().map(|field| field.name),
+        );
+        if !field_set.is_valid() {
+            return None;
+        }
+        let current_module = self.current_execution_module_id();
+        for field in fields {
+            let field_ty = expected
+                .iter()
+                .find(|expected| expected.name == *field.name_symbol())?
+                .ty;
+            let field_ty = self.type_for_module_or_none(field_ty, current_module)?;
+            let actual = self.resolved_const_arg_runtime_type(field.value(), Some(field_ty))?;
+            if actual != field_ty {
+                return None;
+            }
+        }
+        Some(self.enum_ty_in_current_module(enum_id))
+    }
+
+    fn resolved_const_enum_pattern_fields<'a>(
+        &mut self,
+        variant_expr: &ResolvedConstExpr,
+        fields: &'a ConstEnumPatternFields<ResolvedConstPattern>,
+        target_ty: InternedTyId,
+    ) -> Option<Vec<(&'a ResolvedConstPattern, InternedTyId)>> {
+        let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
+        let (target_enum, target_args) = self.expected_nominal_parts(target_ty)?;
+        if target_enum != enum_id || !target_args.is_empty() {
+            return None;
+        }
+        let current_module = self.current_execution_module_id();
+        match (fields, variant.payload) {
+            (
+                ConstEnumPatternFields::Tuple(patterns),
+                nia_item_signatures::EnumVariantPayloadSignature::Tuple(expected),
+            ) => {
+                if patterns.len() != expected.len() {
+                    return None;
+                }
+                patterns
+                    .iter()
+                    .zip(expected)
+                    .map(|(pattern, ty)| {
+                        Some((pattern, self.type_for_module_or_none(ty, current_module)?))
+                    })
+                    .collect()
+            }
+            (
+                ConstEnumPatternFields::Named(patterns),
+                nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
+            ) => {
+                let field_set = check_required_field_set(
+                    patterns
+                        .iter()
+                        .map(|field| NamedField::new(field.span, field.name)),
+                    expected.iter().map(|field| field.name),
+                );
+                if !field_set.is_valid() {
+                    return None;
+                }
+                patterns
+                    .iter()
+                    .map(|field| {
+                        let ty = expected
+                            .iter()
+                            .find(|expected| expected.name == field.name)?
+                            .ty;
+                        Some((
+                            &field.pattern,
+                            self.type_for_module_or_none(ty, current_module)?,
+                        ))
+                    })
+                    .collect()
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn resolved_pattern_binding_type(
+        &mut self,
         pattern: &ResolvedConstPattern,
         target_ty: InternedTyId,
+        local_id: LocalId,
     ) -> Option<InternedTyId> {
         match pattern.kind() {
-            ResolvedConstPatternKind::Bind { .. } => Some(target_ty),
+            ResolvedConstPatternKind::Bind {
+                local_id: pattern_local,
+                ..
+            } => (*pattern_local == local_id).then_some(target_ty),
             ResolvedConstPatternKind::Pointer { pattern, .. }
             | ResolvedConstPatternKind::MutPointer { pattern, .. } => {
                 let TyKind::Pointer { elem, .. } = self.ty_kind(target_ty)? else {
                     return None;
                 };
-                self.resolved_pattern_binding_type(pattern, elem)
+                self.resolved_pattern_binding_type(pattern, elem, local_id)
             }
             ResolvedConstPatternKind::OptionalSome { pattern, .. } => {
                 let TyKind::Optional { elem } = self.ty_kind(target_ty)? else {
                     return None;
                 };
-                self.resolved_pattern_binding_type(pattern, elem)
+                self.resolved_pattern_binding_type(pattern, elem, local_id)
             }
             ResolvedConstPatternKind::ErrorOk { pattern, .. } => {
                 let TyKind::ErrorUnion { value, .. } = self.ty_kind(target_ty)? else {
                     return None;
                 };
-                self.resolved_pattern_binding_type(pattern, value)
+                self.resolved_pattern_binding_type(pattern, value, local_id)
             }
             ResolvedConstPatternKind::ErrorErr { pattern, .. } => {
                 let TyKind::ErrorUnion { error, .. } = self.ty_kind(target_ty)? else {
                     return None;
                 };
-                self.resolved_pattern_binding_type(pattern, error)
+                self.resolved_pattern_binding_type(pattern, error, local_id)
             }
+            ResolvedConstPatternKind::EnumVariant {
+                variant, fields, ..
+            } => self
+                .resolved_const_enum_pattern_fields(variant, fields, target_ty)?
+                .into_iter()
+                .find_map(|(pattern, ty)| {
+                    self.resolved_pattern_binding_type(pattern, ty, local_id)
+                }),
             ResolvedConstPatternKind::Wildcard { .. }
             | ResolvedConstPatternKind::OptionalNull { .. }
             | ResolvedConstPatternKind::Expr(_)
@@ -1319,6 +1472,18 @@ impl Analyzer<'_> {
                 };
                 self.resolved_const_pattern_has_definite_mismatch(pattern, error)
             }
+            ResolvedConstPatternKind::EnumVariant {
+                variant, fields, ..
+            } => {
+                let Some(fields) =
+                    self.resolved_const_enum_pattern_fields(variant, fields, target_ty)
+                else {
+                    return true;
+                };
+                fields.into_iter().any(|(pattern, ty)| {
+                    self.resolved_const_pattern_has_definite_mismatch(pattern, ty)
+                })
+            }
         }
     }
 
@@ -1382,6 +1547,15 @@ impl Analyzer<'_> {
                     };
                     self.check_resolved_const_patterns(std::slice::from_ref(pattern), error)?;
                 }
+                ResolvedConstPatternKind::EnumVariant {
+                    variant, fields, ..
+                } => {
+                    for (pattern, ty) in
+                        self.resolved_const_enum_pattern_fields(variant, fields, target_ty)?
+                    {
+                        self.check_resolved_const_patterns(std::slice::from_ref(pattern), ty)?;
+                    }
+                }
             }
         }
         Some(())
@@ -1431,6 +1605,15 @@ impl Analyzer<'_> {
                     return None;
                 };
                 self.bind_typed_resolved_const_pattern(pattern, error)?;
+            }
+            ResolvedConstPatternKind::EnumVariant {
+                variant, fields, ..
+            } => {
+                for (pattern, ty) in
+                    self.resolved_const_enum_pattern_fields(variant, fields, target_ty)?
+                {
+                    self.bind_typed_resolved_const_pattern(pattern, ty)?;
+                }
             }
             ResolvedConstPatternKind::Wildcard { .. }
             | ResolvedConstPatternKind::OptionalNull { .. }

@@ -1,0 +1,38 @@
+using std::process;
+using helper;
+
+enum Event {
+    Closed,
+    Data(i32),
+    Move(i32, i32),
+    Resize { width: i32, height: i32 },
+}
+
+fn score(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(value) => value,
+        Event::Move(x, y) => x + y,
+        Event::Resize { width, height: h } => width + h,
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    if score(Event::Closed) != 0 {
+        return process::exit(10)!;
+    }
+    if score(Event::Data(2)) != 2 {
+        return process::exit(11)!;
+    }
+    if score(Event::Move(3, 4)) != 7 {
+        return process::exit(12)!;
+    }
+    if score(Event::Resize { height: 5, width: 6 }) != 11 {
+        return process::exit(13)!;
+    }
+    if helper::marker() != 1 {
+        return process::exit(14)!;
+    }
+    !{}
+}

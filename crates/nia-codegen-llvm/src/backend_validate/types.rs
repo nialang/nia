@@ -347,8 +347,9 @@ impl BackendValidator<'_> {
                         .or_else(|| self.index.union_layout(*def_id))
                         .map(|layout| layout.layout.clone())
                         .or_else(|| {
-                            let enum_item = self.index.enum_item(*def_id)?;
-                            self.layout_of_with_active(enum_item.backing_type, active)
+                            self.index
+                                .enum_layout(*def_id)
+                                .map(|layout| layout.layout.clone())
                         })
                         .or_else(|| {
                             self.index.struct_item(*def_id).and_then(|item| {

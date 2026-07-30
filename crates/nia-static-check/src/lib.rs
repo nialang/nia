@@ -223,11 +223,11 @@ impl StaticChecker<'_> {
                         .or_else(|| self.static_array_repeat_count_reject_reason(count)),
                 }
             }
-            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
-                fields
-                    .iter()
-                    .find_map(|field| self.static_init_reject_reason(&field.value))
-            }
+            ExprKind::StructLiteral { fields }
+            | ExprKind::TypedStructLiteral { fields, .. }
+            | ExprKind::QualifiedStructLiteral { fields, .. } => fields
+                .iter()
+                .find_map(|field| self.static_init_reject_reason(&field.value)),
             ExprKind::Unary { op, expr: inner } => match op {
                 UnaryOp::Neg => self.static_int_expr_reject_reason(expr),
                 UnaryOp::Ref | UnaryOp::RefReadOnly => {
@@ -550,6 +550,10 @@ struct StaticConstEnv<'a> {
 impl ConstCommonEnv for StaticConstEnv<'_> {
     fn symbol_name(&self, symbol: SymbolId) -> String {
         StaticConstEnv::symbol_name(self, symbol)
+    }
+
+    fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
+        self.global_def_kind(def_id) == Some(DefKind::EnumVariant)
     }
 }
 

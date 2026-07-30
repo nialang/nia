@@ -199,6 +199,21 @@ pub(super) fn validate_backend_declaration_module(
     for item in &module.enums {
         validator.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
         validator.validate_runtime_type(item.backing_type, item.span);
+        for variant in &item.variants {
+            match &variant.payload {
+                nia_backend_ir::BackendEnumVariantPayload::Unit => {}
+                nia_backend_ir::BackendEnumVariantPayload::Tuple(fields) => {
+                    for field in fields {
+                        validator.validate_runtime_type(*field, variant.span);
+                    }
+                }
+                nia_backend_ir::BackendEnumVariantPayload::Named(fields) => {
+                    for field in fields {
+                        validator.validate_runtime_type(field.ty, field.span);
+                    }
+                }
+            }
+        }
         validator.current_item = None;
     }
     for vtable in &module.trait_object_vtables {

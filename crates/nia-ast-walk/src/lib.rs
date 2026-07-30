@@ -349,6 +349,12 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(&field.value);
             }
         }
+        ExprKind::QualifiedStructLiteral { target, fields } => {
+            visitor.visit_expr(target);
+            for field in fields {
+                visitor.visit_expr(&field.value);
+            }
+        }
         ExprKind::Unary { expr, .. }
         | ExprKind::OptionalSome { expr }
         | ExprKind::ErrorOk { expr }
@@ -435,6 +441,21 @@ fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'as
         | PatternKind::OptionalSome(pattern)
         | PatternKind::ErrorOk(pattern)
         | PatternKind::ErrorErr(pattern) => visit_pattern(visitor, pattern),
+        PatternKind::EnumVariant { variant, fields } => {
+            visitor.visit_expr(variant);
+            match fields {
+                nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                    for field in fields {
+                        visit_pattern(visitor, field);
+                    }
+                }
+                nia_ast::EnumVariantPatternFields::Named(fields) => {
+                    for field in fields {
+                        visit_pattern(visitor, &field.pattern);
+                    }
+                }
+            }
+        }
         PatternKind::Expr(pattern) => visitor.visit_expr(pattern),
         PatternKind::Range { start, end, .. } => {
             visitor.visit_expr(start);

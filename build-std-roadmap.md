@@ -518,9 +518,18 @@ Language-track status:
   const and function lowering emit one test with then/else edges; and the old
   `if pattern = value`, `or pattern`, multi-arm AST/IR, parser lookahead, and CFG
   chain have been physically removed;
-- batch 3 is next: extend enum signatures, constructors, patterns, type
-  identity, layout, mangling, const evaluation, backend IR, codegen, and ABI
-  validation for unit, tuple, and named payload variants.
+- batch 3 is complete: enum signatures and checked types represent unit, tuple,
+  and named payloads; constructors and recursive patterns share semantic field
+  validation; const lowering/evaluation preserves nominal variant identity and
+  payload values; function/backend IR, optimization traversals, fingerprints,
+  LLVM construction/projection, ABI layout, and backend validation cover every
+  variant shape; backend finalization recomputes the complete layout closure of
+  finalized and cross-module-inlined bodies rather than relying only on source
+  signatures; and focused parser, checker, const, LLVM, and resource-accounted
+  linked-executable guards pass without a legacy enum path;
+- batch 4 is next: complete the focused compile-fail, exhaustiveness, generic,
+  nested-pattern, invalid-tag-boundary, and const/runtime equivalence matrix
+  before a reviewed std API adopts payload enums.
 
 These batches must use the normal diagnostic and ICE boundary and the existing
 resource-accounted integration harness. They must not create parallel legacy
@@ -1012,6 +1021,12 @@ and the `lowerCamelCase` public naming proposal are now classified in Section
 closes the final Phase A decision gates. Phase B relocation remains independent;
 the language track must settle only before Phase C freezes APIs that depend on
 its enum, error, or naming surface.
+
+Language-track progress (2026-07-30): payload enum batch 3 is complete from
+syntax and semantic checking through const evaluation, finalized backend layout
+closure, LLVM lowering, and a resource-accounted cross-module executable. Batch
+4 remains the explicit acceptance-matrix gate before payload enums can enter a
+reviewed Phase C standard-library contract.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

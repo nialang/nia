@@ -413,6 +413,60 @@ impl<'a> BodyChecker<'a> {
                 };
                 TypedPatternKind::ErrorErr(Box::new(self.lower_pattern(inner, error_ty)))
             }
+            nia_ast::PatternKind::EnumVariant { variant, fields } => {
+                let variant_id =
+                    self.enum_variant_info(variant)
+                        .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
+                            module_id: enum_id.module_id,
+                            def_id,
+                        });
+                let typed_fields = variant_id
+                    .and_then(|variant_id| {
+                        self.resolved_enum_variant(variant_id)
+                            .and_then(|(enum_id, signature)| {
+                                let backing_type = self
+                                    .resolved_enum_signature(enum_id)?
+                                    .signature
+                                    .backing_type;
+                                Some((variant_id, backing_type, signature))
+                            })
+                    })
+                    .map(|(variant_id, backing_type, signature)| {
+                        let fields = match (signature.payload, fields) {
+                            (
+                                nia_item_signatures::EnumVariantPayloadSignature::Tuple(types),
+                                nia_ast::EnumVariantPatternFields::Tuple(patterns),
+                            ) => patterns
+                                .iter()
+                                .zip(types)
+                                .map(|(pattern, ty)| self.lower_pattern(pattern, ty))
+                                .collect(),
+                            (
+                                nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
+                                nia_ast::EnumVariantPatternFields::Named(patterns),
+                            ) => expected
+                                .into_iter()
+                                .filter_map(|expected| {
+                                    let pattern = patterns
+                                        .iter()
+                                        .find(|pattern| pattern.name == expected.name)?;
+                                    Some(self.lower_pattern(&pattern.pattern, expected.ty))
+                                })
+                                .collect(),
+                            _ => Vec::new(),
+                        };
+                        (variant_id, backing_type, fields)
+                    });
+                if let Some((variant, backing_type, fields)) = typed_fields {
+                    TypedPatternKind::EnumVariant {
+                        variant,
+                        backing_type,
+                        fields,
+                    }
+                } else {
+                    TypedPatternKind::Wildcard
+                }
+            }
             nia_ast::PatternKind::Expr(expr) => self.lower_pattern_expr(expr, target_ty),
             nia_ast::PatternKind::Range {
                 start,
@@ -432,6 +486,16 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         target_ty: nia_ids::InternedTyId,
     ) -> TypedPatternKind {
+        if let Some(variant) = self.qualified_enum_variant(expr)
+            && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
+            && let Some(signature) = self.resolved_enum_signature(enum_id)
+        {
+            return TypedPatternKind::EnumVariant {
+                variant,
+                backing_type: signature.signature.backing_type,
+                fields: Vec::new(),
+            };
+        }
         if (self.is_integer(target_ty) || self.is_bool(target_ty))
             && let Some(value) = self.node_pattern_values.get(&expr.node_key).copied()
         {
@@ -542,7 +606,10 @@ impl<'a> BodyChecker<'a> {
             return TypedExpr {
                 span: expr.span,
                 ty,
-                kind: TypedExprKind::EnumVariant(variant_id),
+                kind: TypedExprKind::EnumVariant {
+                    variant: variant_id,
+                    fields: Vec::new(),
+                },
             };
         }
         if let Some(def_id) = self.qualified_value(expr) {
@@ -732,6 +799,60 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            ExprKind::QualifiedStructLiteral { target, fields } => {
+                if let Some((enum_id, variant_def)) = self.enum_variant_info(target) {
+                    let variant = nia_ids::GlobalDefId {
+                        module_id: enum_id.module_id,
+                        def_id: variant_def,
+                    };
+                    let ordered = self
+                        .resolved_enum_variant(variant)
+                        .and_then(|(_, signature)| match signature.payload {
+                            nia_item_signatures::EnumVariantPayloadSignature::Named(expected) => {
+                                Some(expected)
+                            }
+                            _ => None,
+                        })
+                        .map(|expected| {
+                            expected
+                                .into_iter()
+                                .filter_map(|expected| {
+                                    let field =
+                                        fields.iter().find(|field| field.name == expected.name)?;
+                                    Some(self.lower_expr_with_ty(&field.value, Some(expected.ty)))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    TypedExprKind::EnumVariant {
+                        variant,
+                        fields: ordered,
+                    }
+                } else {
+                    let Some(def_id) = self.nominal_global_def(ty) else {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::Error,
+                        };
+                    };
+                    TypedExprKind::StructLiteral {
+                        def_id,
+                        fields: fields
+                            .iter()
+                            .map(|field| {
+                                let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
+                                TypedFieldInit {
+                                    field: self.field_def_for_struct_ty(ty, &field.name),
+                                    name: self.symbol_name(field.name),
+                                    value: self.lower_expr_with_ty(&field.value, field_ty),
+                                    span: field.span,
+                                }
+                            })
+                            .collect(),
+                    }
+                }
+            }
             ExprKind::Unary { op, expr: inner }
                 if let Some(trait_id) = BuiltinOperatorOp::Unary(*op).trait_id() =>
             {
@@ -872,7 +993,15 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Call { callee, args } => {
-                if let Some(ResolvedCall::BuiltinFunction { builtin, type_arg }) =
+                if let Some((enum_id, variant_def)) = self.enum_variant_info(callee) {
+                    TypedExprKind::EnumVariant {
+                        variant: nia_ids::GlobalDefId {
+                            module_id: enum_id.module_id,
+                            def_id: variant_def,
+                        },
+                        fields: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                    }
+                } else if let Some(ResolvedCall::BuiltinFunction { builtin, type_arg }) =
                     self.resolved_call(expr)
                 {
                     self.lower_builtin_function_call(expr, builtin, type_arg, args)
@@ -940,7 +1069,10 @@ impl<'a> BodyChecker<'a> {
                     .qualified_enum_variant(expr)
                     .or_else(|| self.enum_variant_for_qualified(lhs, name))
                 {
-                    TypedExprKind::EnumVariant(variant)
+                    TypedExprKind::EnumVariant {
+                        variant,
+                        fields: Vec::new(),
+                    }
                 } else {
                     self.lower_field_access_expr(lhs, name)
                         .unwrap_or(TypedExprKind::Error)
@@ -1705,7 +1837,10 @@ impl<'a> BodyChecker<'a> {
                 if let Some(variant_id) = self.qualified_value(expr)
                     && self.variant_enum(expr).is_some()
                 {
-                    return TypedExprKind::EnumVariant(variant_id);
+                    return TypedExprKind::EnumVariant {
+                        variant: variant_id,
+                        fields: Vec::new(),
+                    };
                 }
                 if let Some(global_id) = self.qualified_value(expr) {
                     match self.global_def_kind(global_id) {

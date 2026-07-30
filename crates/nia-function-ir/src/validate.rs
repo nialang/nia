@@ -464,6 +464,15 @@ impl<'a> FunctionIrValidator<'a> {
                 }
             }
             FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic)?,
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.validate_value_expr(field)?;
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => {
+                self.validate_value_expr(value)?;
+            }
             FunctionExprKind::Error => {
                 return Err(FunctionIrError::new(
                     expr.span,
@@ -483,7 +492,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_)
             | FunctionExprKind::Trap => {}
         }

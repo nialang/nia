@@ -329,6 +329,15 @@ fn lower_expr_internal(
                 .map(|field| lower_field_init_with_context(field, context))
                 .collect::<Result<Vec<_>, _>>()?,
         },
+        nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
+            EarlyConstExprKind::EnumStructLiteral {
+                variant: Box::new(lower_expr_internal(target, context)?),
+                fields: fields
+                    .iter()
+                    .map(|field| lower_field_init_with_context(field, context))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => EarlyConstExprKind::Unary {
             op: lower_unary_op(*op),
@@ -980,6 +989,15 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                 .map(resolve_const_field_init)
                 .collect::<Result<Vec<_>, _>>()?,
         },
+        EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
+            ResolvedConstExprKind::EnumStructLiteral {
+                variant: Box::new(resolve_expr(*variant)?),
+                fields: fields
+                    .into_iter()
+                    .map(resolve_const_field_init)
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
         EarlyConstExprKind::CompileError { message } => ResolvedConstExprKind::CompileError {
             message: Box::new(resolve_expr(*message)?),
         },
@@ -1170,6 +1188,34 @@ fn resolve_const_pattern(
         )),
         EarlyConstPattern::ErrorErr { pattern, span } => Ok(ResolvedConstPattern::error_err(
             resolve_const_pattern(*pattern)?,
+            span,
+        )),
+        EarlyConstPattern::EnumVariant {
+            variant,
+            fields,
+            span,
+        } => Ok(ResolvedConstPattern::enum_variant(
+            resolve_expr(variant)?,
+            match fields {
+                ConstEnumPatternFields::Tuple(fields) => ConstEnumPatternFields::Tuple(
+                    fields
+                        .into_iter()
+                        .map(resolve_const_pattern)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                ConstEnumPatternFields::Named(fields) => ConstEnumPatternFields::Named(
+                    fields
+                        .into_iter()
+                        .map(|field| {
+                            Ok(ConstNamedPatternField {
+                                name: field.name,
+                                pattern: resolve_const_pattern(field.pattern)?,
+                                span: field.span,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ConstLowerError>>()?,
+                ),
+            },
             span,
         )),
         EarlyConstPattern::Expr(expr) => resolve_expr(expr).map(ResolvedConstPattern::expr),
@@ -1572,6 +1618,39 @@ fn lower_pattern_with_context(
             pattern: Box::new(lower_pattern_with_context(inner, context)?),
             span: pattern.span,
         }),
+        nia_ast::PatternKind::EnumVariant { variant, fields } => {
+            Ok(EarlyConstPattern::EnumVariant {
+                variant: lower_expr_internal(variant, context)?,
+                fields: match fields {
+                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                        ConstEnumPatternFields::Tuple(
+                            fields
+                                .iter()
+                                .map(|field| lower_pattern_with_context(field, context))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        )
+                    }
+                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                        ConstEnumPatternFields::Named(
+                            fields
+                                .iter()
+                                .map(|field| {
+                                    Ok(ConstNamedPatternField {
+                                        name: field.name,
+                                        pattern: lower_pattern_with_context(
+                                            &field.pattern,
+                                            context,
+                                        )?,
+                                        span: field.span,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, ConstLowerError>>()?,
+                        )
+                    }
+                },
+                span: pattern.span,
+            })
+        }
         nia_ast::PatternKind::Expr(expr) => {
             lower_expr_internal(expr, context).map(EarlyConstPattern::Expr)
         }

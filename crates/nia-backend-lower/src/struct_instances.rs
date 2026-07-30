@@ -454,6 +454,15 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.collect_struct_instances_expr(field, seen, out);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => {
+                self.collect_struct_instances_expr(value, seen, out);
+            }
             FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -467,7 +476,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }
@@ -1079,6 +1088,15 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
+            FunctionExprKind::EnumVariant { fields, .. } => {
+                for field in fields {
+                    self.collect_union_instances_expr(field, seen, out);
+                }
+            }
+            FunctionExprKind::EnumTag { value }
+            | FunctionExprKind::EnumPayloadField { value, .. } => {
+                self.collect_union_instances_expr(value, seen, out);
+            }
             FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -1092,7 +1110,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
-            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }

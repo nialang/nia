@@ -1636,11 +1636,7 @@ impl<'a> ModuleLowerer<'a> {
         );
         let mut layouts =
             BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(
-            &mut layouts,
-            &module.struct_instances,
-            &module.union_instances,
-        );
+        self.extend_backend_layouts_for_finalized_module(&mut layouts, module);
         module.layouts = layouts;
     }
 
@@ -2533,14 +2529,13 @@ impl<'a> ModuleLowerer<'a> {
         changed
     }
 
-    fn extend_backend_layouts_for_instances(
+    fn extend_backend_layouts_for_finalized_module(
         &mut self,
         layouts: &mut BackendLayouts,
-        struct_instances: &[nia_backend_ir::BackendStructInstance],
-        union_instances: &[nia_backend_ir::BackendUnionInstance],
+        module: &BackendModule,
     ) {
         layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
-            .extend_for_instances(layouts, struct_instances, union_instances);
+            .extend_for_finalized_module(layouts, module);
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {

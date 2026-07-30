@@ -314,11 +314,30 @@ impl BackendValidator<'_> {
                     ),
                 ));
             }
-            FunctionExprKind::EnumVariant(def_id) => {
+            FunctionExprKind::EnumVariant { variant, fields } => {
                 self.validate_enum_variant_ref(
-                    *def_id,
+                    *variant,
                     expr.span,
                     "backend IR expression references missing enum variant",
+                );
+                for field in fields {
+                    self.validate_expr(field);
+                }
+            }
+            FunctionExprKind::EnumVariantTag(variant) => {
+                self.validate_enum_variant_ref(
+                    *variant,
+                    expr.span,
+                    "backend IR expression references missing enum variant tag",
+                );
+            }
+            FunctionExprKind::EnumTag { value } => self.validate_expr(value),
+            FunctionExprKind::EnumPayloadField { value, variant, .. } => {
+                self.validate_expr(value);
+                self.validate_enum_variant_ref(
+                    *variant,
+                    expr.span,
+                    "backend IR expression references missing enum payload variant",
                 );
             }
         }

@@ -355,6 +355,18 @@ impl Parser {
             | PatternKind::OptionalSome(inner)
             | PatternKind::ErrorOk(inner)
             | PatternKind::ErrorErr(inner) => Self::mark_pattern_bindings_mutable(inner),
+            PatternKind::EnumVariant { fields, .. } => match fields {
+                EnumVariantPatternFields::Tuple(fields) => {
+                    for field in fields {
+                        Self::mark_pattern_bindings_mutable(field);
+                    }
+                }
+                EnumVariantPatternFields::Named(fields) => {
+                    for field in fields {
+                        Self::mark_pattern_bindings_mutable(&mut field.pattern);
+                    }
+                }
+            },
             PatternKind::Wildcard
             | PatternKind::OptionalNull
             | PatternKind::Expr(_)
@@ -439,6 +451,9 @@ impl Parser {
                 kind: PatternKind::ErrorOk(Box::new(pattern)),
             });
         }
+        if let Some(pattern) = self.parse_enum_variant_payload_pattern(stops) {
+            return Some(pattern);
+        }
         if self.at_bare_pattern_binding(stops) {
             let span = self.peek().span;
             let name = self.expect_name(TokenKind::Ident, "expected pattern binding")?;
@@ -484,6 +499,68 @@ impl Parser {
                 })
             }
         }
+    }
+
+    fn parse_enum_variant_payload_pattern(&mut self, _stops: &[TokenKind]) -> Option<Pattern> {
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let Some(variant) = self.parse_qualified_value_path() else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        let fields = if self.eat(TokenKind::LParen).is_some() {
+            let mut fields = Vec::new();
+            while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                fields.push(self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?);
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            self.expect(TokenKind::RParen, "expected `)` after enum variant pattern")?;
+            EnumVariantPatternFields::Tuple(fields)
+        } else if self.eat(TokenKind::LBrace).is_some() {
+            let mut fields = Vec::new();
+            while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                let start = self.peek().span.start;
+                let name_span = self.peek().span;
+                let name = self.expect_name(TokenKind::Ident, "expected payload field name")?;
+                let pattern = if self.eat(TokenKind::Colon).is_some() {
+                    self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RBrace])?
+                } else {
+                    Pattern {
+                        span: name_span,
+                        kind: PatternKind::Bind {
+                            name,
+                            node_key: self.node_key(NodeSyntaxKind::Pattern, name_span),
+                            is_mutable: false,
+                        },
+                    }
+                };
+                fields.push(NamedPatternField {
+                    name,
+                    span: Span::new(start, pattern.span.end),
+                    pattern,
+                });
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            self.expect(TokenKind::RBrace, "expected `}` after enum variant pattern")?;
+            EnumVariantPatternFields::Named(fields)
+        } else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        let span = Span::new(variant.span.start, self.previous_end());
+        Some(Pattern {
+            span,
+            kind: PatternKind::EnumVariant {
+                variant: Box::new(variant),
+                fields,
+            },
+        })
     }
 
     fn at_bare_pattern_binding(&self, stops: &[TokenKind]) -> bool {

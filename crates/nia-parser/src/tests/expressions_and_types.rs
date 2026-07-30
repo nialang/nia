@@ -2,6 +2,34 @@
 use super::common::*;
 
 #[test]
+fn qualified_enum_value_before_if_block_is_not_a_struct_literal() {
+    let (module, errors) = parse_module(
+        r#"
+enum Mode {
+    Active,
+}
+
+fn main(mode: Mode) i32 {
+    if mode == Mode::Active {
+        1
+    } else {
+        0
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    assert!(matches!(
+        body.tail.as_ref().map(|expr| &expr.kind),
+        Some(ExprKind::If { .. })
+    ));
+}
+
+#[test]
 fn parses_function_body_statements_and_expressions() {
     let (module, errors) = parse_module(
         r#"
