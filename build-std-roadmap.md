@@ -1230,6 +1230,21 @@ equivalence is directly tested. The versioned codec and production runner
 handoff remain the next gate; this model is not yet claimed as the production
 graph truth source.
 
+Phase D progress (2026-07-31, codec/handoff batch): the canonical binary codec
+uses `nia-toolchain`'s build-protocol schema as the single version source and
+round-trips every typed action variant. It has distinct bounded domains for the
+whole plan, collection counts, UTF-8 strings, and generated-content blobs.
+Decode rejects bad magic, unknown versions/tags, invalid text/names/logical
+paths, truncation, trailing data, and semantically invalid payloads, then runs
+the decoded draft through the same freeze validator. Allocation-order-equivalent
+plans encode byte-identically. The coordinator-side handoff uses a synced
+same-directory temporary file, atomic rename, parent-directory sync, bounded
+read, and cleanup on pre-publication failure; replace-existing and corrupt-file
+cases are tested. This completes the Rust codec and atomic handoff primitives,
+not the production handoff acceptance gate: `std::build` still needs to freeze
+and publish the real Nia-built graph, after which the coordinator must decode it
+before any action executes.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

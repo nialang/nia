@@ -87,6 +87,16 @@ equal relative paths in different packages from aliasing. Freeze canonicalizes
 node and reference order and validates references, cycles, output roots, and
 single-producer ownership before returning an immutable value.
 
+The binary codec uses `ToolchainLayout`'s build-protocol schema as its sole
+version source. It bounds the full envelope, collection counts, strings, and
+generated-content blobs separately; rejects bad magic, unknown versions/tags,
+invalid UTF-8/names/paths, truncation, trailing bytes, and semantic invalidity;
+and always routes decoded drafts back through freeze. A file handoff writes and
+syncs a same-directory temporary file, atomically renames it, syncs the parent
+directory, and removes the temporary file on pre-publication failure. These are
+coordinator primitives; the generated Nia runner does not publish this protocol
+yet.
+
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a
 handle rejects a different live builder before indexing its collections. The

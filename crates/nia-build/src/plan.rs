@@ -3,7 +3,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-pub const BUILD_PLAN_SCHEMA_VERSION: u32 = 1;
+mod codec;
+mod handoff;
+
+pub use codec::*;
+pub use handoff::*;
+
+pub const BUILD_PLAN_SCHEMA_VERSION: u32 = nia_toolchain::BUILD_PROTOCOL_SCHEMA;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StableNameError {
@@ -355,6 +361,10 @@ pub enum PlanError {
         reason: &'static str,
     },
     MissingDefaultStep,
+    InvalidTarget {
+        role: &'static str,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for PlanError {
@@ -367,6 +377,8 @@ impl std::error::Error for PlanError {}
 
 impl BuildPlan {
     pub fn freeze(mut draft: BuildPlanDraft) -> Result<Self, PlanError> {
+        validate_target(&draft.host_target, "host")?;
+        validate_target(&draft.artifact_target, "artifact")?;
         canonicalize_packages(&mut draft.packages, &draft.root_package)?;
         validate_package_references(&draft)?;
         canonicalize_modules(&mut draft.modules)?;
@@ -425,6 +437,44 @@ impl BuildPlan {
     pub fn selected_step(&self) -> Option<&StepKey> {
         self.selected_step.as_ref()
     }
+}
+
+fn validate_target(target: &TargetSpec, role: &'static str) -> Result<(), PlanError> {
+    if target.arch.is_empty() || target.os.is_empty() {
+        return Err(PlanError::InvalidTarget {
+            role,
+            reason: "architecture and operating system must be named",
+        });
+    }
+    if [
+        &target.arch,
+        &target.vendor,
+        &target.os,
+        &target.env,
+        &target.abi,
+        &target.endian,
+    ]
+    .into_iter()
+    .any(|value| value.contains('\0'))
+    {
+        return Err(PlanError::InvalidTarget {
+            role,
+            reason: "target field contains NUL",
+        });
+    }
+    if !matches!(target.endian.as_str(), "little" | "big") {
+        return Err(PlanError::InvalidTarget {
+            role,
+            reason: "endianness must be `little` or `big`",
+        });
+    }
+    if !matches!(target.pointer_width, 8 | 16 | 32 | 64 | 128) {
+        return Err(PlanError::InvalidTarget {
+            role,
+            reason: "unsupported pointer width",
+        });
+    }
+    Ok(())
 }
 
 fn canonicalize_packages(
@@ -788,7 +838,7 @@ mod tests {
         }
     }
 
-    fn draft(reverse: bool) -> BuildPlanDraft {
+    pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
         let module_a = module_key("a");
         let module_b = module_key("b");
         let artifact = artifact_key("app");
