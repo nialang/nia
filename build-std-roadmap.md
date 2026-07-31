@@ -1178,9 +1178,10 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phases A, B, C, and D are complete. Phase E coordinator execution and the
-standard-library reconstruction track are active. Later implementation phases
-are not marked complete by roadmap text.
+Phases A, B, C, D, and E are complete. Phase F incremental build cache and
+resource scheduling is next, while the standard-library reconstruction track
+remains active. Later implementation phases are not marked complete by roadmap
+text.
 
 The current compiler core is stable enough to support this work, but build/std
 product maturity remains early. The first proof of progress is not a new build
@@ -1603,6 +1604,35 @@ interruptible lock waits, and real child-process termination. Phase E remains
 open for the previously identified multi-output publication transaction; this
 batch does not claim that later cache/resource-class scheduling in Phase F is
 implemented.
+
+Phase E completion (2026-07-31, multi-output transaction batch): build protocol
+schema 3 admits multiple declared `BuildOutput` arguments through the reviewed
+Nia API, binary codec, freeze validation, and coordinator. Every logical output
+maps to a distinct same-filesystem staging file while the action holds all
+destination locks in canonical order.
+
+Publication validates and syncs the entire produced set before modifying a
+destination. It then backs up old regular files, installs new files, syncs every
+affected parent, and reaches an explicit transaction acceptance point only
+after all outputs are present. Pre-acceptance failure restores backups in
+reverse order, removes newly installed paths that were previously absent, and
+retires staging. Separate destination entries are not described as an
+instantaneous filesystem swap; they are unaccepted and protected by the action's
+cross-process locks until the complete transaction commits. Process-death
+journal recovery and garbage collection remain part of the interrupted
+publication work in Phase F, distinct from Phase E's ordinary failure and
+cancellation contract.
+
+Focused tests prove successful cross-directory multi-output publication,
+missing-output zero-publication, rollback after a partial install, rollback when
+the acceptance marker fails, restoration of both old and previously absent
+destinations, and cleanup of staging/backup state. The production build matrix
+now emits two typed tool outputs and validates both decoded bindings and file
+contents; all 14 cases pass through schema 3. With deterministic scheduling,
+process-tree cancellation, scoped output ownership, and multi-output rollback
+all accepted, Phase E is complete. This does not claim the action cache,
+fingerprints, restoration, miss diagnostics, or resource classes assigned to
+Phase F.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

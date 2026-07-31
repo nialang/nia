@@ -563,14 +563,21 @@ impl DriverActionExecutor {
                     .iter()
                     .map(|input| self.resolve_path(action, input).map(|path| (input, path)))
                     .collect::<Result<Vec<_>, _>>()?;
-                let resolved_output = outputs
-                    .first()
+                let resolved_outputs = outputs
+                    .iter()
                     .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
-                    .transpose()?;
-                let mut staged = resolved_output
-                    .as_ref()
-                    .map(|(_, output)| prepare_staged_output(action, output))
-                    .transpose()?;
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut staged = if resolved_outputs.is_empty() {
+                    None
+                } else {
+                    Some(prepare_staged_outputs(
+                        action,
+                        &resolved_outputs
+                            .iter()
+                            .map(|(_, output)| output.clone())
+                            .collect::<Vec<_>>(),
+                    )?)
+                };
                 let resolved_arguments = arguments
                     .iter()
                     .map(|argument| match argument {
@@ -588,21 +595,22 @@ impl DriverActionExecutor {
                             path_text(action, resolved)
                         }
                         CommandArgument::OutputPath(path) => {
-                            let Some(((output, _), staged)) =
-                                resolved_output.as_ref().zip(staged.as_ref())
+                            let Some(index) = resolved_outputs
+                                .iter()
+                                .position(|(output, _)| *output == path)
                             else {
-                                return Err(inconsistent(
-                                    format!("action `{}`", action.key.name()),
-                                    "declared command output binding".to_string(),
-                                ));
-                            };
-                            if *output != path {
                                 return Err(inconsistent(
                                     format!("action `{}`", action.key.name()),
                                     "matching command output binding".to_string(),
                                 ));
-                            }
-                            path_text(action, &staged.temporary)
+                            };
+                            let staged = staged.as_ref().ok_or_else(|| {
+                                inconsistent(
+                                    format!("action `{}`", action.key.name()),
+                                    "declared command output transaction".to_string(),
+                                )
+                            })?;
+                            path_text(action, &staged.outputs[index].temporary)
                         }
                     })
                     .collect::<Result<Vec<_>, CoordinatorError>>();
@@ -611,7 +619,7 @@ impl DriverActionExecutor {
                     Err(cause) => {
                         return match staged.take() {
                             Some(staged) => {
-                                cleanup_staged_output(action, staged, Some(Box::new(cause)))
+                                cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
                             }
                             None => Err(cause),
                         };
@@ -644,12 +652,12 @@ impl DriverActionExecutor {
                                     stderr: Vec::new(),
                                 },
                             }));
-                        cleanup_staged_output(action, staged, Some(Box::new(cause)))
+                        cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
                     }
-                    (Ok(()), Some(staged)) => publish_staged_output(action, staged),
+                    (Ok(()), Some(staged)) => publish_staged_outputs(action, staged),
                     (Ok(()), None) => Ok(()),
                     (Err(cause), Some(staged)) => {
-                        cleanup_staged_output(action, staged, Some(Box::new(cause)))
+                        cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
                     }
                     (Err(cause), None) => Err(cause),
                 }
@@ -1182,23 +1190,44 @@ fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBuf {
 
 static STAGED_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-struct StagedOutput {
-    destination: PathBuf,
+struct StagedOutputTransaction {
     directory: PathBuf,
-    temporary: PathBuf,
+    committed_directory: PathBuf,
+    outputs: Vec<StagedOutputEntry>,
 }
 
-fn prepare_staged_output(
+struct StagedOutputEntry {
+    destination: PathBuf,
+    temporary: PathBuf,
+    backup: PathBuf,
+}
+
+struct StagedOutputPublication {
+    had_previous: bool,
+    backed_up: bool,
+    installed: bool,
+}
+
+fn prepare_staged_outputs(
     action: &PlanAction,
-    destination: &Path,
-) -> Result<StagedOutput, CoordinatorError> {
-    let parent = destination
+    destinations: &[PathBuf],
+) -> Result<StagedOutputTransaction, CoordinatorError> {
+    let first = destinations.first().ok_or_else(|| {
+        staged_output_io(
+            action,
+            Path::new(""),
+            "resolve transaction root for",
+            io::Error::new(io::ErrorKind::InvalidInput, "output transaction is empty"),
+            None,
+        )
+    })?;
+    let parent = first
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .ok_or_else(|| {
             staged_output_io(
                 action,
-                destination,
+                first,
                 "resolve parent for",
                 io::Error::new(io::ErrorKind::InvalidInput, "output has no parent"),
                 None,
@@ -1213,12 +1242,28 @@ fn prepare_staged_output(
             ".nia-command-{}-{sequence}.stage",
             std::process::id()
         ));
+        let committed_directory = parent.join(format!(
+            ".nia-command-{}-{sequence}.committed",
+            std::process::id()
+        ));
+        if committed_directory.exists() {
+            continue;
+        }
         match fs::create_dir(&directory) {
             Ok(()) => {
-                return Ok(StagedOutput {
-                    destination: destination.to_path_buf(),
-                    temporary: directory.join("output"),
+                let outputs = destinations
+                    .iter()
+                    .enumerate()
+                    .map(|(index, destination)| StagedOutputEntry {
+                        destination: destination.clone(),
+                        temporary: directory.join(format!("output-{index}")),
+                        backup: directory.join(format!("backup-{index}")),
+                    })
+                    .collect();
+                return Ok(StagedOutputTransaction {
                     directory,
+                    committed_directory,
+                    outputs,
                 });
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -1245,96 +1290,271 @@ fn prepare_staged_output(
     ))
 }
 
-fn publish_staged_output(
+fn publish_staged_outputs(
     action: &PlanAction,
-    staged: StagedOutput,
+    staged: StagedOutputTransaction,
 ) -> Result<(), CoordinatorError> {
-    let result = (|| {
-        let metadata = fs::symlink_metadata(&staged.temporary).map_err(|error| {
-            staged_output_io(
-                action,
-                &staged.temporary,
-                "inspect command-produced",
-                error,
-                None,
-            )
-        })?;
-        if !metadata.file_type().is_file() {
-            return Err(staged_output_io(
-                action,
-                &staged.temporary,
-                "publish non-file",
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "external command output must be a regular file",
-                ),
-                None,
-            ));
-        }
-        fs::File::open(&staged.temporary)
-            .and_then(|file| file.sync_all())
-            .map_err(|error| {
+    publish_staged_outputs_with(action, staged, |_| Ok(()))
+}
+
+fn publish_staged_outputs_with(
+    action: &PlanAction,
+    staged: StagedOutputTransaction,
+    mut before_install: impl FnMut(usize) -> io::Result<()>,
+) -> Result<(), CoordinatorError> {
+    let prepared = (|| {
+        let mut publications = Vec::with_capacity(staged.outputs.len());
+        for output in &staged.outputs {
+            let metadata = fs::symlink_metadata(&output.temporary).map_err(|error| {
                 staged_output_io(
                     action,
-                    &staged.temporary,
-                    "sync command-produced",
+                    &output.temporary,
+                    "inspect command-produced",
                     error,
                     None,
                 )
             })?;
-        fs::rename(&staged.temporary, &staged.destination).map_err(|error| {
-            staged_output_io(action, &staged.destination, "publish", error, None)
-        })?;
-        let parent = staged.destination.parent().ok_or_else(|| {
-            staged_output_io(
-                action,
-                &staged.destination,
-                "resolve parent for",
-                io::Error::new(io::ErrorKind::InvalidInput, "output has no parent"),
-                None,
-            )
-        })?;
-        fs::File::open(parent)
+            if !metadata.file_type().is_file() {
+                return Err(staged_output_io(
+                    action,
+                    &output.temporary,
+                    "publish non-file",
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "external command output must be a regular file",
+                    ),
+                    None,
+                ));
+            }
+            fs::File::open(&output.temporary)
+                .and_then(|file| file.sync_all())
+                .map_err(|error| {
+                    staged_output_io(
+                        action,
+                        &output.temporary,
+                        "sync command-produced",
+                        error,
+                        None,
+                    )
+                })?;
+            let parent = output
+                .destination
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .ok_or_else(|| {
+                    staged_output_io(
+                        action,
+                        &output.destination,
+                        "resolve parent for",
+                        io::Error::new(io::ErrorKind::InvalidInput, "output has no parent"),
+                        None,
+                    )
+                })?;
+            fs::create_dir_all(parent).map_err(|error| {
+                staged_output_io(action, parent, "create parent directory for", error, None)
+            })?;
+            let had_previous = match fs::symlink_metadata(&output.destination) {
+                Ok(metadata) if metadata.file_type().is_file() => true,
+                Ok(_) => {
+                    return Err(staged_output_io(
+                        action,
+                        &output.destination,
+                        "replace non-file",
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "accepted external command output must be a regular file",
+                        ),
+                        None,
+                    ));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                Err(error) => {
+                    return Err(staged_output_io(
+                        action,
+                        &output.destination,
+                        "inspect previous",
+                        error,
+                        None,
+                    ));
+                }
+            };
+            publications.push(StagedOutputPublication {
+                had_previous,
+                backed_up: false,
+                installed: false,
+            });
+        }
+        fs::File::open(&staged.directory)
             .and_then(|directory| directory.sync_all())
             .map_err(|error| {
-                staged_output_io(action, parent, "sync parent directory for", error, None)
-            })
+                staged_output_io(
+                    action,
+                    &staged.directory,
+                    "sync prepared transaction",
+                    error,
+                    None,
+                )
+            })?;
+        Ok(publications)
     })();
-    match result {
-        Ok(()) => fs::remove_dir(&staged.directory).map_err(|error| {
+    let mut publications = match prepared {
+        Ok(publications) => publications,
+        Err(cause) => {
+            return cleanup_staged_outputs(action, staged, Some(Box::new(cause)));
+        }
+    };
+    let committed = (|| {
+        for (index, (output, publication)) in staged
+            .outputs
+            .iter()
+            .zip(publications.iter_mut())
+            .enumerate()
+        {
+            before_install(index).map_err(|error| {
+                staged_output_io(
+                    action,
+                    &output.destination,
+                    "commit transaction entry for",
+                    error,
+                    None,
+                )
+            })?;
+            if publication.had_previous {
+                fs::rename(&output.destination, &output.backup).map_err(|error| {
+                    staged_output_io(action, &output.destination, "back up previous", error, None)
+                })?;
+                publication.backed_up = true;
+            }
+            fs::rename(&output.temporary, &output.destination).map_err(|error| {
+                staged_output_io(action, &output.destination, "install", error, None)
+            })?;
+            publication.installed = true;
+        }
+        let parents: BTreeSet<_> = staged
+            .outputs
+            .iter()
+            .filter_map(|output| output.destination.parent())
+            .collect();
+        for parent in parents {
+            fs::File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|error| {
+                    staged_output_io(
+                        action,
+                        parent,
+                        "sync committed output directory for",
+                        error,
+                        None,
+                    )
+                })?;
+        }
+        fs::rename(&staged.directory, &staged.committed_directory).map_err(|error| {
             staged_output_io(
                 action,
                 &staged.directory,
-                "retire staging directory for",
+                "mark transaction committed at",
                 error,
                 None,
             )
-        }),
-        Err(cause) => cleanup_staged_output(action, staged, Some(Box::new(cause))),
+        })
+    })();
+    match committed {
+        Ok(()) => {
+            if let Some(parent) = staged.committed_directory.parent() {
+                let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+            }
+            let _ = fs::remove_dir_all(&staged.committed_directory);
+            if let Some(parent) = staged.committed_directory.parent() {
+                let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+            }
+            Ok(())
+        }
+        Err(cause) => rollback_staged_outputs(action, staged, publications, cause),
     }
 }
 
-fn cleanup_staged_output(
+fn rollback_staged_outputs(
     action: &PlanAction,
-    staged: StagedOutput,
+    staged: StagedOutputTransaction,
+    publications: Vec<StagedOutputPublication>,
+    cause: CoordinatorError,
+) -> Result<(), CoordinatorError> {
+    let mut cause = Some(Box::new(cause));
+    for (output, publication) in staged.outputs.iter().zip(&publications).rev() {
+        if publication.installed
+            && let Err(error) = fs::rename(&output.destination, &output.temporary)
+        {
+            return Err(staged_output_io(
+                action,
+                &output.destination,
+                "roll back installed",
+                error,
+                cause.take(),
+            ));
+        }
+        if publication.backed_up
+            && let Err(error) = fs::rename(&output.backup, &output.destination)
+        {
+            return Err(staged_output_io(
+                action,
+                &output.destination,
+                "restore previous",
+                error,
+                cause.take(),
+            ));
+        }
+    }
+    let parents: BTreeSet<_> = staged
+        .outputs
+        .iter()
+        .filter_map(|output| output.destination.parent())
+        .collect();
+    for parent in parents {
+        if let Err(error) = fs::File::open(parent).and_then(|directory| directory.sync_all()) {
+            return Err(staged_output_io(
+                action,
+                parent,
+                "sync rolled-back output directory for",
+                error,
+                cause.take(),
+            ));
+        }
+    }
+    cleanup_staged_outputs(action, staged, cause)
+}
+
+fn cleanup_staged_outputs(
+    action: &PlanAction,
+    staged: StagedOutputTransaction,
     cause: Option<Box<CoordinatorError>>,
 ) -> Result<(), CoordinatorError> {
     match fs::remove_dir_all(&staged.directory) {
-        Ok(()) => match cause {
-            Some(cause) => Err(*cause),
-            None => Ok(()),
-        },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => match cause {
-            Some(cause) => Err(*cause),
-            None => Ok(()),
-        },
-        Err(error) => Err(staged_output_io(
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(staged_output_io(
+                action,
+                &staged.directory,
+                "clean up",
+                error,
+                cause,
+            ));
+        }
+    }
+    if let Some(parent) = staged.directory.parent()
+        && let Err(error) = fs::File::open(parent).and_then(|directory| directory.sync_all())
+    {
+        return Err(staged_output_io(
             action,
-            &staged.directory,
-            "clean up",
+            parent,
+            "sync cleanup directory for",
             error,
             cause,
-        )),
+        ));
+    }
+    match cause {
+        Some(cause) => Err(*cause),
+        None => Ok(()),
     }
 }
 
@@ -2217,7 +2437,24 @@ mod tests {
     }
 
     fn staged_command_plan(invocation: &BuildInvocation, script: &str, output: &str) -> BuildPlan {
-        let output = LogicalPath::new(LogicalPathRoot::Build, output).unwrap();
+        staged_command_plan_outputs(invocation, script, &[output])
+    }
+
+    fn staged_command_plan_outputs(
+        invocation: &BuildInvocation,
+        script: &str,
+        outputs: &[&str],
+    ) -> BuildPlan {
+        let outputs = outputs
+            .iter()
+            .map(|output| LogicalPath::new(LogicalPathRoot::Build, output).unwrap())
+            .collect::<Vec<_>>();
+        let mut arguments = vec![
+            CommandArgument::Literal("-c".to_string()),
+            CommandArgument::Literal(script.to_string()),
+            CommandArgument::Literal("nia-build-tool".to_string()),
+        ];
+        arguments.extend(outputs.iter().cloned().map(CommandArgument::OutputPath));
         BuildPlan::freeze(BuildPlanDraft {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
@@ -2231,12 +2468,7 @@ mod tests {
                 key: action("tool"),
                 kind: ActionKind::ExternalCommand {
                     program: CommandProgram::Search("sh".to_string()),
-                    arguments: vec![
-                        CommandArgument::Literal("-c".to_string()),
-                        CommandArgument::Literal(script.to_string()),
-                        CommandArgument::Literal("nia-build-tool".to_string()),
-                        CommandArgument::OutputPath(output.clone()),
-                    ],
+                    arguments,
                     working_directory: LogicalPath::new(
                         LogicalPathRoot::Package(PackageKey::root()),
                         "",
@@ -2244,7 +2476,7 @@ mod tests {
                     .unwrap(),
                     environment: Vec::new(),
                     inputs: Vec::new(),
-                    outputs: vec![output],
+                    outputs,
                 },
             }],
             steps: vec![PlanStep {
@@ -2281,6 +2513,133 @@ mod tests {
         assert_eq!(report.actions, [action("tool")]);
         assert_eq!(fs::read(&output).unwrap(), b"new");
         assert_no_staged_command_directories(output.parent().unwrap());
+    }
+
+    #[test]
+    fn external_command_publishes_multiple_outputs_as_one_transaction() {
+        let invocation = test_invocation();
+        let first = invocation.build_dir.join("tool/first.txt");
+        let second = invocation.build_dir.join("other/second.txt");
+        fs::create_dir_all(first.parent().unwrap()).unwrap();
+        fs::create_dir_all(second.parent().unwrap()).unwrap();
+        fs::write(&first, b"old first").unwrap();
+        fs::write(&second, b"old second").unwrap();
+        let plan = staged_command_plan_outputs(
+            &invocation,
+            "printf 'new first' > \"$1\"; printf 'new second' > \"$2\"",
+            &["tool/first.txt", "other/second.txt"],
+        );
+
+        let report = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(report.actions, [action("tool")]);
+        assert_eq!(fs::read(&first).unwrap(), b"new first");
+        assert_eq!(fs::read(&second).unwrap(), b"new second");
+        assert_no_staged_command_directories(second.parent().unwrap());
+    }
+
+    #[test]
+    fn missing_transaction_output_preserves_every_previous_output() {
+        let invocation = test_invocation();
+        let first = invocation.build_dir.join("first.txt");
+        let second = invocation.build_dir.join("second.txt");
+        fs::create_dir_all(&invocation.build_dir).unwrap();
+        fs::write(&first, b"accepted first").unwrap();
+        fs::write(&second, b"accepted second").unwrap();
+        let plan = staged_command_plan_outputs(
+            &invocation,
+            "printf 'rejected first' > \"$1\"",
+            &["first.txt", "second.txt"],
+        );
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::StagedOutput {
+                operation: "inspect command-produced",
+                ..
+            }
+        ));
+        assert_eq!(fs::read(&first).unwrap(), b"accepted first");
+        assert_eq!(fs::read(&second).unwrap(), b"accepted second");
+        assert_no_staged_command_directories(&invocation.build_dir);
+    }
+
+    #[test]
+    fn partial_transaction_commit_restores_old_and_absent_destinations() {
+        let invocation = test_invocation();
+        let first = invocation.build_dir.join("first.txt");
+        let absent = invocation.build_dir.join("absent.txt");
+        let last = invocation.build_dir.join("last.txt");
+        fs::create_dir_all(&invocation.build_dir).unwrap();
+        fs::write(&first, b"old first").unwrap();
+        fs::write(&last, b"old last").unwrap();
+        let staged = prepare_staged_outputs(
+            &external_action(),
+            &[first.clone(), absent.clone(), last.clone()],
+        )
+        .unwrap();
+        fs::write(&staged.outputs[0].temporary, b"new first").unwrap();
+        fs::write(&staged.outputs[1].temporary, b"new absent").unwrap();
+        fs::write(&staged.outputs[2].temporary, b"new last").unwrap();
+
+        let error = publish_staged_outputs_with(&external_action(), staged, |index| {
+            if index == 2 {
+                Err(io::Error::other("injected transaction commit failure"))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::StagedOutput {
+                operation: "commit transaction entry for",
+                ..
+            }
+        ));
+        assert_eq!(fs::read(&first).unwrap(), b"old first");
+        assert!(!absent.exists());
+        assert_eq!(fs::read(&last).unwrap(), b"old last");
+        assert_no_staged_command_directories(&invocation.build_dir);
+    }
+
+    #[test]
+    fn failed_transaction_acceptance_restores_every_destination() {
+        let invocation = test_invocation();
+        let first = invocation.build_dir.join("first.txt");
+        let second = invocation.build_dir.join("second.txt");
+        fs::create_dir_all(&invocation.build_dir).unwrap();
+        fs::write(&first, b"old first").unwrap();
+        fs::write(&second, b"old second").unwrap();
+        let staged =
+            prepare_staged_outputs(&external_action(), &[first.clone(), second.clone()]).unwrap();
+        fs::write(&staged.outputs[0].temporary, b"new first").unwrap();
+        fs::write(&staged.outputs[1].temporary, b"new second").unwrap();
+        let committed_directory = staged.committed_directory.clone();
+
+        let error = publish_staged_outputs_with(&external_action(), staged, |index| {
+            if index == 1 {
+                fs::create_dir(&committed_directory)?;
+                fs::write(committed_directory.join("occupied"), b"occupied")?;
+            }
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::StagedOutput {
+                operation: "mark transaction committed at",
+                ..
+            }
+        ));
+        assert_eq!(fs::read(&first).unwrap(), b"old first");
+        assert_eq!(fs::read(&second).unwrap(), b"old second");
+        fs::remove_dir_all(committed_directory).unwrap();
+        assert_no_staged_command_directories(&invocation.build_dir);
     }
 
     #[test]
