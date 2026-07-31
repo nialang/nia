@@ -101,10 +101,7 @@ fn run_typed_link_cache(initial: &Path, edit: &Path) {
         std::fs::read(&first).expect("read first"),
         std::fs::read(&second).expect("read second")
     );
-    let keys = std::fs::read_dir(cache.join("artifacts/links/v2"))
-        .expect("read link cache keys")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("collect link cache keys");
+    let keys = cache_keys_across_schemas(&cache.join("artifacts/links"));
     assert_eq!(keys.len(), 1);
     assert_eq!(
         std::fs::read_dir(keys[0].path())
@@ -167,6 +164,28 @@ fn run_typed_link_cache(initial: &Path, edit: &Path) {
 
 #[cfg(not(unix))]
 fn run_typed_link_cache(_initial: &Path, _edit: &Path) {}
+
+#[cfg(unix)]
+fn cache_keys_across_schemas(root: &Path) -> Vec<std::fs::DirEntry> {
+    let mut keys = Vec::new();
+    for schema in std::fs::read_dir(root).expect("read link cache schemas") {
+        let schema = schema.expect("read link cache schema entry");
+        assert!(
+            schema
+                .file_type()
+                .expect("inspect link cache schema entry")
+                .is_dir(),
+            "link cache schema entry is not a directory: {}",
+            schema.path().display()
+        );
+        keys.extend(
+            std::fs::read_dir(schema.path())
+                .expect("read link cache keys")
+                .map(|entry| entry.expect("read link cache key entry")),
+        );
+    }
+    keys
+}
 
 #[cfg(unix)]
 fn cached_link(source: &Path, cache: &Path, linker: &Path, output: &Path) -> std::process::Output {
