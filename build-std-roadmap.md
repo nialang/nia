@@ -1667,6 +1667,42 @@ Validation passes all 68 `nia-build` tests, workspace all-target/all-feature
 check, strict Clippy, formatting, and the 14-case production CLI build matrix
 (`1154.19s`).
 
+Phase F progress (2026-08-01, interrupted-output recovery batch): multi-output
+external-command publication now writes a versioned, length-bounded,
+checksummed journal under `.nia-build/.nia-transactions/v1/`, rather than under
+the disposable cache. The journal records the stable action identity, ordered
+logical Build outputs, and logical staging/acceptance paths and is published and
+synced before the command can mutate staging. After all staged regular files
+are synced, a separate checksummed prepared marker records which destinations
+previously existed and is durably published before any destination rename. The
+existing stage-to-committed directory rename remains the acceptance point.
+
+Every coordinator invocation scans recovery state before action dispatch,
+acquires the complete output set in canonical lock order, and rereads the
+journal under those locks. It discards unprepared staging without changing
+destinations, reverses prepared but unaccepted installs, and preserves accepted
+outputs while retiring backup state. Recovery rollback moves installed outputs
+back into staging so another interruption remains repeatable. Corrupt,
+truncated, trailing, non-regular, contradictory, or lock-raced state blocks the
+build with typed action/package/path context rather than guessing. Linux
+temporary journals include PID/start-time identity for dead-owner collection;
+live publishers are retained. Plan validation reserves `.nia-transactions` as
+coordinator-owned Build space.
+
+Focused tests cover unprepared cleanup, partial old/absent-output rollback,
+repeatable partially completed rollback, accepted-output preservation, corrupt
+journal and prepared-marker failure, output-owner waiting, locked journal
+revalidation, dead/live temporary collection, strict codec rejection, startup
+recovery before dispatch, and ordinary success/failure cleanup. Compiler action
+caching remains blocked on a complete recursively discovered source manifest;
+external-command caching remains blocked on inherited environment and arbitrary
+working-directory reads. Phase F therefore remains open for those input
+closures, dependency-artifact propagation, declared resource classes,
+deterministic single-worker and concurrent stress acceptance, and the complete
+warm-build measurement. Validation passes all 80 `nia-build` tests, workspace
+all-target/all-feature check, strict Clippy, formatting, and the 14-case
+production CLI build matrix (`1162.18s`).
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

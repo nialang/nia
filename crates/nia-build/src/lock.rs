@@ -7,8 +7,55 @@ use std::{
     time::{Duration, Instant},
 };
 
+use nia_query::QueryFingerprintBuilder;
+
+use crate::LogicalPath;
+
 const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 static LOCK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProcessIdentity {
+    pub(crate) pid: u32,
+    pub(crate) start_time: u64,
+}
+
+impl ProcessIdentity {
+    pub(crate) fn current() -> Self {
+        let pid = std::process::id();
+        Self {
+            pid,
+            start_time: process_start_time(pid).unwrap_or(0),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn is_alive(self) -> bool {
+        if self.start_time == 0 {
+            let Ok(pid) = i32::try_from(self.pid) else {
+                return false;
+            };
+            let result = unsafe { libc::kill(pid, 0) };
+            return result == 0
+                || io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied;
+        }
+        process_start_time(self.pid) == Some(self.start_time)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn is_alive(self) -> bool {
+        true
+    }
+}
+
+pub(crate) fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBuf {
+    let mut builder = QueryFingerprintBuilder::new("nia.build.output-lock.v1");
+    builder.write_str(&output.protocol_path());
+    let [first, second] = builder.finish().parts();
+    cache_dir
+        .join("coordination/output-locks")
+        .join(format!("{first:016x}{second:016x}.lock"))
+}
 
 pub(crate) struct ScopedFileLock {
     path: PathBuf,
@@ -76,10 +123,9 @@ impl Drop for ScopedFileLock {
 }
 
 fn write_lock_owner(mut file: fs::File) -> io::Result<String> {
-    let pid = std::process::id();
-    let start_time = process_start_time(pid).unwrap_or(0);
+    let identity = ProcessIdentity::current();
     let sequence = LOCK_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let token = format!("{pid}:{start_time}:{sequence}");
+    let token = format!("{}:{}:{sequence}", identity.pid, identity.start_time);
     writeln!(file, "{token}")?;
     file.sync_all()?;
     Ok(token)
@@ -108,10 +154,10 @@ fn lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
 
 #[cfg(unix)]
 fn lock_owner_is_alive(path: &Path) -> bool {
-    let Some((pid, expected_start_time)) = read_lock_owner(path) else {
+    let Some(identity) = read_lock_owner(path) else {
         return false;
     };
-    process_is_alive(pid, expected_start_time)
+    identity.is_alive()
 }
 
 #[cfg(not(unix))]
@@ -126,24 +172,14 @@ fn lock_owner_is_alive(path: &Path) -> bool {
         .is_some_and(|age| age < STALE_AFTER)
 }
 
-fn read_lock_owner(path: &Path) -> Option<(u32, u64)> {
+fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
     let owner = fs::read_to_string(path).ok()?;
     let token = owner.split_whitespace().next()?;
     let mut parts = token.split(':');
-    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
-}
-
-#[cfg(target_os = "linux")]
-fn process_is_alive(pid: u32, expected_start_time: u64) -> bool {
-    let Some(start_time) = process_start_time(pid) else {
-        return false;
-    };
-    expected_start_time == start_time
-}
-
-#[cfg(all(unix, not(target_os = "linux")))]
-fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
-    true
+    Some(ProcessIdentity {
+        pid: parts.next()?.parse().ok()?,
+        start_time: parts.next()?.parse().ok()?,
+    })
 }
 
 #[cfg(target_os = "linux")]

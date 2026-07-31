@@ -18,16 +18,17 @@ use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, LinkExecutableRequest, ModuleMap,
     NiaOptimizationLevel, Runtime as DriverRuntime, SourcePath,
 };
-use nia_query::{QueryFingerprintBuilder, QuerySession};
+use nia_query::QuerySession;
 use nia_target_config::TargetConfig;
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
     ArtifactKey, BuildInvocation, BuildPlan, CommandArgument, CommandProgram, LogicalPath,
-    LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey, PlanAction, PlanArtifact, PlanModule,
-    Runtime, StepKey, TargetSpec,
+    LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
+    PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup},
-    lock::ScopedFileLock,
+    lock::{ScopedFileLock, output_lock_path},
+    output_recovery::{OutputTransactionJournal, recover_interrupted_output_transactions},
 };
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
@@ -142,6 +143,7 @@ pub enum CoordinatorError {
         lock: PathBuf,
         error: io::Error,
     },
+    OutputRecovery(Box<OutputRecoveryError>),
     UnsupportedAction {
         action: ActionKey,
         kind: &'static str,
@@ -249,6 +251,7 @@ impl fmt::Display for CoordinatorError {
                 output.display(),
                 lock.display()
             ),
+            Self::OutputRecovery(error) => error.fmt(f),
             Self::UnsupportedAction { action, kind } => write!(
                 f,
                 "build action `{}` uses unsupported coordinator action kind `{kind}`",
@@ -272,6 +275,8 @@ pub fn execute_build_plan(
     invocation: &BuildInvocation,
 ) -> Result<ExecutionReport, CoordinatorError> {
     validate_invocation_targets(plan, invocation)?;
+    recover_interrupted_output_transactions(&invocation.cache_dir, &invocation.build_dir)
+        .map_err(|error| CoordinatorError::OutputRecovery(Box::new(error)))?;
     let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
     let session = QuerySession::new();
     execute_selected_closure(plan, |actions| {
@@ -585,10 +590,8 @@ impl DriverActionExecutor {
                 } else {
                     Some(prepare_staged_outputs(
                         action,
-                        &resolved_outputs
-                            .iter()
-                            .map(|(_, output)| output.clone())
-                            .collect::<Vec<_>>(),
+                        &self.invocation.build_dir,
+                        &resolved_outputs,
                     )?)
                 };
                 let resolved_arguments = arguments
@@ -1232,21 +1235,13 @@ fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorErro
         })
 }
 
-fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBuf {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.output-lock.v1");
-    builder.write_str(&output.protocol_path());
-    let [first, second] = builder.finish().parts();
-    cache_dir
-        .join("coordination/output-locks")
-        .join(format!("{first:016x}{second:016x}.lock"))
-}
-
 static STAGED_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct StagedOutputTransaction {
     directory: PathBuf,
     committed_directory: PathBuf,
     outputs: Vec<StagedOutputEntry>,
+    journal: OutputTransactionJournal,
 }
 
 struct StagedOutputEntry {
@@ -1263,9 +1258,10 @@ struct StagedOutputPublication {
 
 fn prepare_staged_outputs(
     action: &PlanAction,
-    destinations: &[PathBuf],
+    build_dir: &Path,
+    resolved_outputs: &[(&LogicalPath, PathBuf)],
 ) -> Result<StagedOutputTransaction, CoordinatorError> {
-    let first = destinations.first().ok_or_else(|| {
+    let (_, first) = resolved_outputs.first().ok_or_else(|| {
         staged_output_io(
             action,
             Path::new(""),
@@ -1304,19 +1300,43 @@ fn prepare_staged_outputs(
         }
         match fs::create_dir(&directory) {
             Ok(()) => {
-                let outputs = destinations
+                let outputs = resolved_outputs
                     .iter()
                     .enumerate()
-                    .map(|(index, destination)| StagedOutputEntry {
+                    .map(|(index, (_, destination))| StagedOutputEntry {
                         destination: destination.clone(),
                         temporary: directory.join(format!("output-{index}")),
                         backup: directory.join(format!("backup-{index}")),
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
+                let logical_outputs = resolved_outputs
+                    .iter()
+                    .map(|(output, _)| (*output).clone())
+                    .collect::<Vec<_>>();
+                let journal = match OutputTransactionJournal::create(
+                    build_dir,
+                    &action.key,
+                    &logical_outputs,
+                    &directory,
+                    &committed_directory,
+                ) {
+                    Ok(journal) => journal,
+                    Err(error) => {
+                        let _ = fs::remove_dir_all(&directory);
+                        return Err(staged_output_io(
+                            action,
+                            &directory,
+                            "create recovery journal for",
+                            error,
+                            None,
+                        ));
+                    }
+                };
                 return Ok(StagedOutputTransaction {
                     directory,
                     committed_directory,
                     outputs,
+                    journal,
                 });
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -1448,6 +1468,23 @@ fn publish_staged_outputs_with(
                     None,
                 )
             })?;
+        staged
+            .journal
+            .mark_prepared(
+                &publications
+                    .iter()
+                    .map(|publication| publication.had_previous)
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|error| {
+                staged_output_io(
+                    action,
+                    staged.journal.path(),
+                    "persist prepared recovery state for",
+                    error,
+                    None,
+                )
+            })?;
         Ok(publications)
     })();
     let mut publications = match prepared {
@@ -1516,9 +1553,16 @@ fn publish_staged_outputs_with(
             if let Some(parent) = staged.committed_directory.parent() {
                 let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
             }
-            let _ = fs::remove_dir_all(&staged.committed_directory);
+            let committed_cleaned = match fs::remove_dir_all(&staged.committed_directory) {
+                Ok(()) => true,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+                Err(_) => false,
+            };
             if let Some(parent) = staged.committed_directory.parent() {
                 let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+            }
+            if committed_cleaned {
+                let _ = staged.journal.cleanup();
             }
             Ok(())
         }
@@ -1601,6 +1645,15 @@ fn cleanup_staged_outputs(
             action,
             parent,
             "sync cleanup directory for",
+            error,
+            cause,
+        ));
+    }
+    if let Err(error) = staged.journal.cleanup() {
+        return Err(staged_output_io(
+            action,
+            staged.journal.path(),
+            "clean up recovery journal for",
             error,
             cause,
         ));
@@ -2419,8 +2472,12 @@ mod tests {
     #[test]
     fn output_coordination_failure_retains_action_and_paths() {
         let invocation = test_invocation();
-        fs::create_dir_all(&invocation.cache_dir).unwrap();
-        fs::write(invocation.cache_dir.join("coordination"), b"occupied").unwrap();
+        fs::create_dir_all(invocation.cache_dir.join("coordination")).unwrap();
+        fs::write(
+            invocation.cache_dir.join("coordination/output-locks"),
+            b"occupied",
+        )
+        .unwrap();
         let plan = generated_plan(&invocation, "generated/output.txt", b"contents");
 
         let error = execute_build_plan(&plan, &invocation).unwrap_err();
@@ -2643,6 +2700,36 @@ mod tests {
         }));
     }
 
+    fn assert_no_output_transaction_journals(invocation: &BuildInvocation) {
+        let root = invocation.build_dir.join(".nia-transactions/v1");
+        if root.is_dir() {
+            assert!(fs::read_dir(root).unwrap().next().is_none());
+        }
+    }
+
+    fn prepare_test_staged_outputs(
+        invocation: &BuildInvocation,
+        destinations: &[PathBuf],
+    ) -> Result<StagedOutputTransaction, CoordinatorError> {
+        let logical = destinations
+            .iter()
+            .map(|destination| {
+                let relative = destination.strip_prefix(&invocation.build_dir).unwrap();
+                let path = relative
+                    .components()
+                    .map(|component| component.as_os_str().to_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                LogicalPath::new(LogicalPathRoot::Build, &path).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let resolved = logical
+            .iter()
+            .zip(destinations.iter().cloned())
+            .collect::<Vec<_>>();
+        prepare_staged_outputs(&external_action(), &invocation.build_dir, &resolved)
+    }
+
     #[test]
     fn external_command_publishes_one_declared_output_atomically() {
         let invocation = test_invocation();
@@ -2656,6 +2743,7 @@ mod tests {
         assert_eq!(report.actions, [action("tool")]);
         assert_eq!(fs::read(&output).unwrap(), b"new");
         assert_no_staged_command_directories(output.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[test]
@@ -2679,6 +2767,7 @@ mod tests {
         assert_eq!(fs::read(&first).unwrap(), b"new first");
         assert_eq!(fs::read(&second).unwrap(), b"new second");
         assert_no_staged_command_directories(second.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[test]
@@ -2707,6 +2796,7 @@ mod tests {
         assert_eq!(fs::read(&first).unwrap(), b"accepted first");
         assert_eq!(fs::read(&second).unwrap(), b"accepted second");
         assert_no_staged_command_directories(&invocation.build_dir);
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[test]
@@ -2718,8 +2808,8 @@ mod tests {
         fs::create_dir_all(&invocation.build_dir).unwrap();
         fs::write(&first, b"old first").unwrap();
         fs::write(&last, b"old last").unwrap();
-        let staged = prepare_staged_outputs(
-            &external_action(),
+        let staged = prepare_test_staged_outputs(
+            &invocation,
             &[first.clone(), absent.clone(), last.clone()],
         )
         .unwrap();
@@ -2747,6 +2837,36 @@ mod tests {
         assert!(!absent.exists());
         assert_eq!(fs::read(&last).unwrap(), b"old last");
         assert_no_staged_command_directories(&invocation.build_dir);
+        assert_no_output_transaction_journals(&invocation);
+    }
+
+    #[test]
+    fn coordinator_recovers_interrupted_transaction_before_dispatch() {
+        let invocation = test_invocation();
+        let previous = invocation.build_dir.join("tool/previous.txt");
+        let absent = invocation.build_dir.join("other/absent.txt");
+        fs::create_dir_all(previous.parent().unwrap()).unwrap();
+        fs::create_dir_all(absent.parent().unwrap()).unwrap();
+        fs::write(&previous, b"old").unwrap();
+        let staged =
+            prepare_test_staged_outputs(&invocation, &[previous.clone(), absent.clone()]).unwrap();
+        fs::write(&staged.outputs[0].temporary, b"new old").unwrap();
+        fs::write(&staged.outputs[1].temporary, b"new absent").unwrap();
+        staged.journal.mark_prepared(&[true, false]).unwrap();
+        fs::rename(&previous, &staged.outputs[0].backup).unwrap();
+        fs::rename(&staged.outputs[0].temporary, &previous).unwrap();
+        fs::rename(&staged.outputs[1].temporary, &absent).unwrap();
+        let plan = generated_plan(&invocation, "after-recovery.txt", b"continued");
+
+        execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(fs::read(previous).unwrap(), b"old");
+        assert!(!absent.exists());
+        assert_eq!(
+            fs::read(invocation.build_dir.join("after-recovery.txt")).unwrap(),
+            b"continued"
+        );
+        assert_no_staged_command_directories(&invocation.build_dir.join("tool"));
     }
 
     #[test]
@@ -2758,7 +2878,7 @@ mod tests {
         fs::write(&first, b"old first").unwrap();
         fs::write(&second, b"old second").unwrap();
         let staged =
-            prepare_staged_outputs(&external_action(), &[first.clone(), second.clone()]).unwrap();
+            prepare_test_staged_outputs(&invocation, &[first.clone(), second.clone()]).unwrap();
         fs::write(&staged.outputs[0].temporary, b"new first").unwrap();
         fs::write(&staged.outputs[1].temporary, b"new second").unwrap();
         let committed_directory = staged.committed_directory.clone();
@@ -2783,6 +2903,7 @@ mod tests {
         assert_eq!(fs::read(&second).unwrap(), b"old second");
         fs::remove_dir_all(committed_directory).unwrap();
         assert_no_staged_command_directories(&invocation.build_dir);
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[test]
@@ -2807,6 +2928,7 @@ mod tests {
         ));
         assert_eq!(fs::read(&output).unwrap(), b"accepted");
         assert_no_staged_command_directories(output.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[test]
@@ -2827,6 +2949,7 @@ mod tests {
         ));
         assert!(!output.exists());
         assert_no_staged_command_directories(output.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[cfg(unix)]
