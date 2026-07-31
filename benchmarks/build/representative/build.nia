@@ -4,10 +4,12 @@ pub fn build(b: &mut build::Build) build::Error!void {
     let helperName = "helper";
     let helperPath = "deps/helper.nia";
     let sourcePath = "src/main.nia";
+    let generatedPath = "generated.nia";
     let sourceName = "source-app";
-    let secondaryName = "secondary-app";
+    let generatedName = "generated-app";
+    let generateName = "generate-source";
     let emitSourceName = "emit-source";
-    let emitSecondaryName = "emit-secondary";
+    let emitGeneratedName = "emit-generated";
     let allName = "all";
     let failName = "fail";
 
@@ -18,22 +20,31 @@ pub fn build(b: &mut build::Build) build::Error!void {
         build::ModuleOptions::init(&"source", fs::PathView::init(&sourcePath))
             .withImports(&imports[..]),
     ).?;
-    let secondaryModule = b.addModule(
-        build::ModuleOptions::init(&"secondary", fs::PathView::init(&sourcePath))
-            .withImports(&imports[..]),
+    let generatedModule = b.addModule(
+        build::ModuleOptions::fromBuild(
+            &"generated",
+            build::BuildPathView::init(&generatedPath),
+        ),
     ).?;
     let sourceApp = b.addExecutable(
         build::ExecutableOptions::init(&sourceName, sourceModule),
     ).?;
-    let secondaryApp = b.addExecutable(
-        build::ExecutableOptions::init(&secondaryName, secondaryModule),
+    let generatedApp = b.addExecutable(
+        build::ExecutableOptions::init(&generatedName, generatedModule),
+    ).?;
+    let generatedSource = b"using std::process;\npub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }\n";
+    let generate = b.addGeneratedFileStep(
+        &generateName,
+        build::BuildPathView::init(&generatedPath),
+        &generatedSource[..],
     ).?;
     let emitSource = b.addEmitExecutableStep(&emitSourceName, sourceApp).?;
-    let emitSecondary = b.addEmitExecutableStep(&emitSecondaryName, secondaryApp).?;
+    let emitGenerated = b.addEmitExecutableStep(&emitGeneratedName, generatedApp).?;
     let all = b.addAggregateStep(&allName).?;
     _ = b.addUncacheableStep(&failName, &"intentional benchmark failure").?;
     b.dependOn(all, emitSource).?;
-    b.dependOn(all, emitSecondary).?;
+    b.dependOn(emitGenerated, generate).?;
+    b.dependOn(all, emitGenerated).?;
     b.setDefaultStep(all).?;
     !{}
 }

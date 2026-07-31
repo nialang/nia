@@ -154,6 +154,17 @@ fn isExecutableRetainOom(error: build::Error) bool {
     }
 }
 
+fn isGeneratedFileRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Step(0usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
 fn isPlanValidationOom(error: build::Error) bool {
     switch error {
         build::Error::Failure {
@@ -367,6 +378,28 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     if allocator.activeAllocations != beforeTarget {
         return (9 as process::ExitCode)!;
     }
+    allocator.disableFailure();
+    let beforeGenerated = allocator.activeAllocations;
+    allocator.failAfter(1usize);
+    switch api.addGeneratedFileStep(
+        &"generate",
+        build::BuildPathView::init(&"generated/source.nia"),
+        &b"contents"[..],
+    ) {
+        !handle => {
+            _ = handle;
+            return (27 as process::ExitCode)!;
+        },
+        err! => {
+            if not isGeneratedFileRetainOom(err) {
+                return (28 as process::ExitCode)!;
+            }
+        },
+    }
+    if allocator.activeAllocations != beforeGenerated {
+        return (29 as process::ExitCode)!;
+    }
+    allocator.disableFailure();
     cleaned = true;
     api.deinit().exit().?;
     if allocator.activeAllocations != 0usize {

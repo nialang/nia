@@ -3047,29 +3047,34 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 outputs under `.nia-build/` separate from reusable `.nia-cache/` entries.
 Both directories are created before the build script runs. `build.nia` is
 compiled and run as ordinary Nia code through a generated toolchain-owned
-runner, so it can use the standard library. The runner passes a `std::build::Build`
-value with explicit `packageRoot()`, `buildDir()`, `cacheDir()`, and
-`toolchainExecutable()` accessors instead of requiring scripts to infer those
-paths.
+runner, so it can use the standard library. The runner passes a
+`std::build::Build` value with explicit `packageRoot()`, `buildDir()`,
+`cacheDir()`, and `toolchainExecutable()` accessors instead of requiring scripts
+to infer those paths. It only configures, validates, and encodes an immutable
+plan; the Rust coordinator validates that frozen plan and executes the selected
+dependency closure.
 `Build::hostTarget()` and `Build::artifactTarget()` return borrowed
 `TargetView` descriptors containing architecture, vendor, OS, environment, ABI,
 endian, and pointer width. Their text remains valid for the lifetime of the
 `Build`; the generated runner's temporary decoding buffers are not retained.
-The bootstrap accepts a distinct artifact declaration but rejects executing it
-until the typed coordinator can pass that target directly to a compiler action;
-it never silently emits a host artifact instead.
-`Build::addModule(ModuleOptions::init(rootSource))` declares a root source
-module and returns a module handle. `ModuleOptions::withOptimization(mode)`
-overrides the default optimization mode. `Build::addExecutable(
-ExecutableOptions::init(name, rootModule))` declares an executable artifact and
-returns an executable handle; `ExecutableOptions::withOutputName(name)` and
+`Build::addModule(ModuleOptions::init(name, rootSource))` declares a
+package-rooted source module and returns a module handle.
+`ModuleOptions::fromBuild(name, BuildPathView::init(path))` instead declares a
+build-rooted source, including a source produced by a generated-file action,
+without aliasing its logical identity as a package path.
+`ModuleOptions::withOptimization(mode)` overrides the default optimization
+mode. `Build::addExecutable(ExecutableOptions::init(name, rootModule))`
+declares an executable artifact and returns an executable handle;
+`ExecutableOptions::withOutputName(name)` and
 `ExecutableOptions::withRuntime(runtime)` customize it.
 `Build::addCheckExecutableStep(name, target)` adds a graph step that checks
 that artifact through the freestanding executable runtime with the package root
 as the working directory. `Build::addEmitExecutableStep(name, target)` adds
 a graph step that emits the artifact to
-`.nia-build/<output-name-or-target-name>` through the same toolchain as
-`nia emit --exe <path> -o ...`.
+`.nia-build/<output-name-or-target-name>` through a typed Driver request.
+`Build::addAggregateStep(name)` declares a dependency-only graph node.
+`Build::addGeneratedFileStep(name, BuildPathView::init(path), contents)`
+declares atomic publication of the supplied bytes under `.nia-build/`.
 Names, paths, imports, and options passed to these methods are borrowed only for
 the duration of the call. `Build` copies retained values into allocator-owned
 storage, so local arrays may leave scope before a selected step executes.

@@ -2,9 +2,13 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
+    fmt, fs, io,
+    io::Write as _,
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use nia_driver::{
@@ -55,6 +59,12 @@ pub enum CoordinatorError {
     NonUtf8Path {
         action: ActionKey,
         path: PathBuf,
+    },
+    GeneratedFileIo {
+        action: ActionKey,
+        path: PathBuf,
+        operation: &'static str,
+        error: io::Error,
     },
     UnsupportedAction {
         action: ActionKey,
@@ -112,6 +122,17 @@ impl fmt::Display for CoordinatorError {
             Self::NonUtf8Path { action, path } => write!(
                 f,
                 "build action `{}` resolved non-UTF-8 path `{}`",
+                action.name(),
+                path.display()
+            ),
+            Self::GeneratedFileIo {
+                action,
+                path,
+                operation,
+                error,
+            } => write!(
+                f,
+                "build action `{}` failed to {operation} generated file `{}`: {error}",
                 action.name(),
                 path.display()
             ),
@@ -285,7 +306,10 @@ impl<'a> DriverActionExecutor<'a> {
                     })
             }
             ActionKind::ExternalCommand { .. } => Err(unsupported(action, "external-command")),
-            ActionKind::GeneratedFile { .. } => Err(unsupported(action, "generated-file")),
+            ActionKind::GeneratedFile { output, contents } => {
+                let output = self.resolve_path(action, output)?;
+                write_generated_file(action, &output, contents)
+            }
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
         }
     }
@@ -389,6 +413,106 @@ impl<'a> DriverActionExecutor<'a> {
             path.push(component);
         }
         Ok(path)
+    }
+}
+
+static GENERATED_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn write_generated_file(
+    action: &PlanAction,
+    output: &std::path::Path,
+    contents: &[u8],
+) -> Result<(), CoordinatorError> {
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| {
+            generated_io(
+                action,
+                output,
+                "resolve parent for",
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "generated output has no parent",
+                ),
+            )
+        })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| generated_io(action, parent, "create parent directory for", error))?;
+    let (temporary_path, mut temporary) = create_generated_temporary(action, parent)?;
+    let result = (|| {
+        temporary
+            .write_all(contents)
+            .map_err(|error| generated_io(action, &temporary_path, "write", error))?;
+        temporary
+            .sync_all()
+            .map_err(|error| generated_io(action, &temporary_path, "sync", error))?;
+        drop(temporary);
+        fs::rename(&temporary_path, output)
+            .map_err(|error| generated_io(action, output, "publish", error))?;
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| generated_io(action, parent, "sync parent directory for", error))
+    })();
+    if result.is_err() {
+        match fs::remove_file(&temporary_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(generated_io(
+                    action,
+                    &temporary_path,
+                    "clean up temporary",
+                    error,
+                ));
+            }
+        }
+    }
+    result
+}
+
+fn create_generated_temporary(
+    action: &PlanAction,
+    parent: &std::path::Path,
+) -> Result<(PathBuf, fs::File), CoordinatorError> {
+    for _ in 0..128 {
+        let sequence = GENERATED_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(
+            ".nia-generated-{}-{sequence}.tmp",
+            std::process::id()
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(generated_io(action, &path, "create temporary", error)),
+        }
+    }
+    Err(generated_io(
+        action,
+        parent,
+        "create unique temporary in",
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "exhausted generated-file temporary names",
+        ),
+    ))
+}
+
+fn generated_io(
+    action: &PlanAction,
+    path: &std::path::Path,
+    operation: &'static str,
+    error: io::Error,
+) -> CoordinatorError {
+    CoordinatorError::GeneratedFileIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
     }
 }
 
@@ -557,7 +681,11 @@ mod tests {
                 .expect("test toolchain"),
             )
         }));
-        let package_root = std::env::temp_dir().join("nia-build-coordinator-test");
+        let sequence = GENERATED_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let package_root = std::env::temp_dir().join(format!(
+            "nia-build-coordinator-test-{}-{sequence}",
+            std::process::id()
+        ));
         let build_dir = package_root.join(".nia-build");
         BuildInvocation {
             toolchain,
@@ -785,5 +913,80 @@ mod tests {
             CoordinatorError::TargetMismatch(details)
                 if details.role == "host" && details.found.arch == "mismatched"
         ));
+    }
+
+    fn generated_plan(invocation: &BuildInvocation, output: &str, contents: &[u8]) -> BuildPlan {
+        let host = target_spec(invocation.toolchain.host_target());
+        let artifact = target_spec(invocation.toolchain.artifact_target());
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: host,
+            artifact_target: artifact,
+            modules: Vec::new(),
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: action("generate"),
+                kind: ActionKind::GeneratedFile {
+                    output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
+                    contents: contents.to_vec(),
+                },
+            }],
+            steps: vec![PlanStep {
+                key: step("generate"),
+                action: action("generate"),
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(step("generate")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn generated_file_replaces_previous_content_atomically() {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("generated/source.nia");
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&output, b"old").unwrap();
+        let plan = generated_plan(&invocation, "generated/source.nia", b"new contents");
+
+        let report = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(report.actions, [action("generate")]);
+        assert_eq!(fs::read(&output).unwrap(), b"new contents");
+        assert!(
+            fs::read_dir(output.parent().unwrap())
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".nia-generated-"))
+        );
+    }
+
+    #[test]
+    fn failed_generated_file_publication_cleans_temporary_output() {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("occupied");
+        fs::create_dir_all(&output).unwrap();
+        let plan = generated_plan(&invocation, "occupied", b"contents");
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+        assert!(
+            matches!(error, CoordinatorError::GeneratedFileIo { action, .. } if action.name() == "generate")
+        );
+        assert!(output.is_dir());
+        assert!(fs::read_dir(&invocation.build_dir).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".nia-generated-")
+        }));
     }
 }

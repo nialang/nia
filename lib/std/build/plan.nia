@@ -17,6 +17,7 @@ using types::{
     Runtime,
     Step,
     StepKind,
+    ModuleSourceRoot,
     TargetView,
 };
 
@@ -162,7 +163,11 @@ extend PlanEncoder {
 
     fn writeModule(&mut self, moduleRecord: Module) Error!void {
         self.writeNodeKey(moduleRecord.name.view()).?;
-        self.writePackagePath(moduleRecord.rootSource.view()).?;
+        switch moduleRecord.sourceRoot {
+            ModuleSourceRoot::Package => self.writePackagePath(moduleRecord.rootSource.view()).?,
+            ModuleSourceRoot::Build => self.writeBuildPath(moduleRecord.rootSource.string()).?,
+            _ => return invalidPlan(),
+        }
         self.writeOptimization(moduleRecord.optimization).?;
         self.writeCount(moduleRecord.imports.len()).?;
         for &import in moduleRecord.imports.iter() {
@@ -190,6 +195,12 @@ extend PlanEncoder {
         self.writeNodeKey(step.name.view()).?;
         switch step.kind {
             StepKind::Aggregate => self.writeU8(4u8),
+            StepKind::GeneratedFile => {
+                self.writeU8(3u8).?;
+                self.writeBuildPath(step.payload.generatedFile.output.view()).?;
+                self.writeU32(step.payload.generatedFile.contents.len() as u32).?;
+                self.writeBytes(step.payload.generatedFile.contents.as_slice())
+            },
             StepKind::Uncacheable => {
                 self.writeU8(5u8).?;
                 self.writeString(step.payload.uncacheable.description.view())

@@ -224,6 +224,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not rejectsInvalidStep(api.addAggregateStep(&"bad name"), 1usize) {
         return (9 as process::ExitCode)!;
     }
+    if not rejectsInvalidStep(
+        api.addGeneratedFileStep(
+            &"generate",
+            build::BuildPathView::init(&"../escape"),
+            &b"contents"[..],
+        ),
+        1usize,
+    ) {
+        return (11 as process::ExitCode)!;
+    }
     let duplicateImports = [
         build::ModuleImport::init(&"dep", fs::PathView::init(&"first.nia")),
         build::ModuleImport::init(&"dep", fs::PathView::init(&"second.nia")),

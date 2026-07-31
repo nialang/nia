@@ -1862,23 +1862,27 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 `nia build` is the package-build entry point and searches for `build.nia` from
 the selected root directory and then each parent directory. Build outputs belong
 under `.nia-build/`; reusable package or compiler cache entries belong under
-`.nia-cache/`. The build runner is part of the Nia toolchain boundary so package
-build scripts do not spell out LLVM, C runtime, or linker dependency details.
-The build runner is implemented inside the Rust toolchain crates and calls the
-compiler through `nia-driver`; it does not embed the compiler through a separate
-ABI bridge.
+`.nia-cache/`. The generated build runner is part of the Nia toolchain boundary
+so package build scripts do not spell out LLVM, C runtime, or linker dependency
+details. It configures, validates, and encodes an immutable plan, but does not
+execute that plan. The Rust coordinator validates the frozen plan, computes the
+selected dependency closure, and calls the compiler through typed `nia-driver`
+requests; it does not embed the compiler through a separate ABI bridge or
+reconstruct compiler work as raw CLI arguments.
 
-`build.nia` is compiled and run as ordinary Nia code. The Rust toolchain only
-owns package-root discovery, runner generation, and compiler invocation; build
-logic stays in the Nia build script and can use `std`, including
-`std::process`. The generated runner injects package-root context into
+`build.nia` is compiled and run as ordinary Nia code. The Rust toolchain owns
+package-root discovery, runner generation, plan validation, scheduling, and
+action execution; declarative build configuration stays in the Nia build script
+and can use `std`. The generated runner injects package-root context into
 `std::build::Build`: `packageRoot()` is the directory containing `build.nia`,
 `buildDir()` is `.nia-build/`, `cacheDir()` is `.nia-cache/`, and
 `toolchainExecutable()` is the `nia` executable that launched the build. The
 toolchain creates the build and cache directories before executing the runner.
 The current `std::build` surface is intentionally small:
-`addModule(ModuleOptions::init(rootSource))` records a root source module and
-`addExecutable(ExecutableOptions::init(name, rootModule))` records a
+`addModule(ModuleOptions::init(name, rootSource))` records a package-rooted
+source module, while `ModuleOptions::fromBuild(name,
+BuildPathView::init(path))` records a build-rooted source such as generated
+code. `addExecutable(ExecutableOptions::init(name, rootModule))` records a
 script-owned executable artifact. `ModuleOptions::withOptimization`,
 `ExecutableOptions::withOutputName`, and `ExecutableOptions::withRuntime`
 customize those records without exposing raw compiler argv assembly.
@@ -1887,13 +1891,17 @@ customize those records without exposing raw compiler argv assembly.
 artifact through the current toolchain. Emitted executables currently land at
 `.nia-build/<output-name-or-target-name>`, with target names validated so
 artifact paths cannot escape the build directory.
+`addAggregateStep(name)` groups dependencies without work of its own.
+`addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
+publishes the supplied bytes under `.nia-build/`; generated consumers refer to
+that output through its build-rooted logical identity.
 The options and `ModuleImport` values are borrowed call descriptors. Every value
 retained by `Build` is copied into `StringBuf`, `PathBuf`, or an owned import
 record before the call returns. Fallible ownership transfer uses conditional
 `defer` rollback; deep records are released in reverse order, all cleanup is
 attempted, and the first cleanup error is returned. `setDefaultStep(step)` makes
-the no-argument build entry explicit; the runner
-does not infer a default from step registration order.
+the no-argument build entry explicit; the runner does not infer a default from
+step registration order and contains no recursive action executor.
 This surface grows the build system through explicit step and artifact APIs
 rather than a Rust-side manifest parser.
 

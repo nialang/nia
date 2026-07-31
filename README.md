@@ -158,28 +158,28 @@ library. The `std::build::Build` value passed to
 `hostTarget()` and `artifactTarget()` expose borrowed `TargetView` descriptors
 whose text is owned by `Build`, so build scripts can configure declarations
 without confusing host services with artifact runtime facts.
-The initial build API includes `addModule(ModuleOptions::init(rootSource))`
+The build API includes `addModule(ModuleOptions::init(name, rootSource))`
 for declaring a root source module, `withOptimization(mode)` for overriding
 the default optimization mode, and `addExecutable(ExecutableOptions::init(name,
 rootModule))` for declaring an executable artifact. `withOutputName(name)`
 and `withRuntime(runtime)` customize the artifact. `addCheckExecutableStep`
 and `addEmitExecutableStep` add compiler-backed graph steps. Those steps use
-the current toolchain from the package root and emit executable artifacts to
+typed Driver requests and emit executable artifacts to
 `.nia-build/<output-name-or-target-name>` without hand-written subprocess setup.
+`addAggregateStep(name)` groups dependencies without executing work.
+`addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
+publishes bytes under `.nia-build/`; `ModuleOptions::fromBuild` consumes such a
+build-rooted source without aliasing it as a package path.
 Builder calls copy retained text, paths, and imports, so local input arrays may
 leave scope before execution. `setDefaultStep(step)` selects the step used by
 `nia build` when no step name is passed; otherwise users must request a named
 step explicitly.
 
-The callback bootstrap can retain a distinct artifact declaration, but rejects
-executing it until the typed coordinator can pass that target directly to the
-compiler. It never silently emits a host artifact for a distinct target.
-
-This is an experimental bootstrap API, not a compatibility promise. Its current
-callbacks, index handles, raw compiler command bridge, and coarse error enum are
-migration inputs for the immutable build-plan design. The build-host
-standard-library surface is likewise under API and layering review rather than
-being frozen because the bootstrap can run it.
+The runner only configures and encodes the immutable plan. The Rust coordinator
+validates the plan before executing its selected dependency closure; no callback
+or raw compiler command bridge remains. This is still an experimental API, not
+a compatibility promise, and the build-host standard-library surface remains
+under API and layering review.
 
 The bounded Phase A build baseline can be run explicitly after building a
 release compiler:

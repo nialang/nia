@@ -22,10 +22,12 @@ using types::{
     StepDependency,
     StepKind,
     AggregateStep,
+    GeneratedFileStep,
     UncacheableStep,
     ExecutableHandle,
     ExecutableStep,
     Module,
+    ModuleSourceRoot,
     ModuleHandle,
     ModuleImport,
     OwnedModuleImport,
@@ -38,6 +40,7 @@ using types::{
     ExecutableOptions,
     ExecutableTarget,
     BuildPaths,
+    BuildPathView,
     StepPayload,
 };
 
@@ -235,6 +238,24 @@ extend Build {
         !result
     }
 
+    pub fn addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        if not output.isValid() or contents.len() > 67108864usize {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(handle.index()),
+            }!;
+        }
+        let mut payload = GeneratedFileStep::init(self.allocator, output, contents, handle.index()).?;
+        let mut transferred = false;
+        defer if not transferred {
+            payload.deinit(self.allocator, handle.index()).?;
+        };
+        let result = self.addStepRecord(string::StringView::init(name), StepKind::GeneratedFile, { generatedFile: payload }).?;
+        transferred = true;
+        !result
+    }
+
     pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
         self.addStepRecord(string::StringView::init(name), StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
@@ -277,6 +298,14 @@ extend Build {
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
         validateModuleImports(options.imports).?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
+        if options.sourceRoot == ModuleSourceRoot::Build
+            and not isValidBuildPath(options.rootSource.string())
+        {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Module(handle.index()),
+            }!;
+        }
         if not isValidStableName(options.name) {
             return Error::Invalid {
                 operation: Operation::Validate,
@@ -627,6 +656,35 @@ extend UncacheableStep {
     }
 }
 
+extend GeneratedFileStep {
+    fn init(
+        allocator: &mut mem::Allocator,
+        output: BuildPathView,
+        contents: &[u8],
+        index: usize,
+    ) Error!GeneratedFileStep {
+        let mut generated: GeneratedFileStep = {
+            output: string::StringBuf::init(),
+            contents: collections::ArrayList[u8]::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            generated.deinit(allocator, index).?;
+        };
+        generated.output = string::StringBuf::from_slice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        generated.contents.append_slice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        transferred = true;
+        !generated
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.contents.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)));
+        rememberCleanupError(&mut firstError, self.output.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)));
+        cleanupResult(firstError)
+    }
+}
+
 extend ExecutableStep {
     fn init(target: ExecutableHandle) ExecutableStep {
         { target: target }
@@ -655,6 +713,9 @@ extend Step {
         if self.kind == StepKind::Uncacheable {
             rememberCleanupError(&mut firstError, self.payload.uncacheable.deinit(allocator, self.index));
         }
+        if self.kind == StepKind::GeneratedFile {
+            rememberCleanupError(&mut firstError, self.payload.generatedFile.deinit(allocator, self.index));
+        }
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(self.index)));
         cleanupResult(firstError)
     }
@@ -664,7 +725,18 @@ extend ModuleOptions {
     pub fn init(name: &[char], rootSource: fs::PathView) ModuleOptions {
         {
             name: string::StringView::init(name),
+            sourceRoot: ModuleSourceRoot::Package,
             rootSource: rootSource,
+            optimization: OptimizationMode::O2,
+            imports: null,
+        }
+    }
+
+    pub fn fromBuild(name: &[char], rootSource: BuildPathView) ModuleOptions {
+        {
+            name: string::StringView::init(name),
+            sourceRoot: ModuleSourceRoot::Build,
+            rootSource: fs::PathView::init(rootSource.text()),
             optimization: OptimizationMode::O2,
             imports: null,
         }
@@ -673,6 +745,7 @@ extend ModuleOptions {
     pub fn withOptimization(self, optimization: OptimizationMode) ModuleOptions {
         {
             name: self.name,
+            sourceRoot: self.sourceRoot,
             rootSource: self.rootSource,
             optimization: optimization,
             imports: self.imports,
@@ -682,10 +755,25 @@ extend ModuleOptions {
     pub fn withImports(self, imports: &[ModuleImport]) ModuleOptions {
         {
             name: self.name,
+            sourceRoot: self.sourceRoot,
             rootSource: self.rootSource,
             optimization: self.optimization,
             imports: ?imports,
         }
+    }
+}
+
+extend BuildPathView {
+    pub fn init(path: &[char]) BuildPathView {
+        { path: string::StringView::init(path) }
+    }
+
+    pub fn text(&self) &[char] {
+        self.path.text()
+    }
+
+    fn isValid(&self) bool {
+        isValidBuildPath(self.path)
     }
 }
 
@@ -694,6 +782,7 @@ extend Module {
         let mut moduleRecord: Module = {
             index: index,
             name: string::StringBuf::init(),
+            sourceRoot: options.sourceRoot,
             rootSource: fs::PathBuf::init(),
             optimization: options.optimization,
             imports: collections::ArrayList[OwnedModuleImport]::init(),
@@ -1001,6 +1090,33 @@ fn isValidOutputName(name: string::StringView) bool {
         if code == 0u32 or code == 47u32 or code == 92u32 {
             return false;
         }
+    }
+    true
+}
+
+fn isValidBuildPath(path: string::StringView) bool {
+    let text = path.text();
+    if text.len() == 0usize or text[0usize] == '/' or text[text.len() - 1usize] == '/' {
+        return false;
+    }
+    let mut componentStart = 0usize;
+    let mut index = 0usize;
+    while index <= text.len() {
+        if index == text.len() or text[index] == '/' {
+            let componentLen = index - componentStart;
+            if componentLen == 0usize
+                or (componentLen == 1usize and text[componentStart] == '.')
+                or (componentLen == 2usize
+                    and text[componentStart] == '.'
+                    and text[componentStart + 1usize] == '.')
+            {
+                return false;
+            }
+            componentStart = index + 1usize;
+        } else if text[index] == '\\' or text[index] == '\0' {
+            return false;
+        }
+        index += 1usize;
     }
     true
 }
