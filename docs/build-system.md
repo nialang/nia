@@ -107,9 +107,10 @@ selected dependency closure. The closure uses iterative deterministic Kahn
 traversal and executes a shared action at most once. Aggregate actions are
 no-ops; compiler check and executable emission call `nia-driver` directly with
 typed module maps, optimization, runtime, target, cache, and output values.
-External-command, generated-file, and explicit uncacheable actions currently
-fail with an action-keyed unsupported-action error rather than falling back to
-runner callbacks.
+Generated-file actions publish declared bytes atomically under the build root.
+External-command and explicit uncacheable actions currently fail with an
+action-keyed unsupported-action error rather than falling back to runner
+callbacks.
 
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a
@@ -206,7 +207,7 @@ The representative fixture covers multiple requirements in one real package:
 
 | Workload state | Evidence |
 | --- | --- |
-| clean build | runner configuration, two artifacts, coordinator compiler/link execution |
+| clean build | runner configuration, generated source, two artifacts, coordinator compiler/link execution |
 | warm build | no-op package state and exact compiler/link cache counters |
 | source edit | invalidation of one source-dependent artifact |
 | module-map edit | runner/plan change and changed explicit module input |

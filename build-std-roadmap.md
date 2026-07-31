@@ -1299,9 +1299,21 @@ uncacheable declarations replace callback-shaped graph nodes. The complete
 14-case build matrix passes through the coordinator, including typed check and
 emit, deterministic dependencies, selected-step replacement, full-graph cycle
 rejection, and pre-action invalid-plan failures. This closes every Phase D
-acceptance gate. Phase E remains open for generated-file and external-command
-execution, process capture/cancellation policy, scoped publication replacing
+acceptance gate. Phase E remains open for external-command execution, process
+capture/cancellation policy, scoped publication replacing
 the package-wide lock, and deterministic multi-worker execution.
+
+Phase E progress (2026-07-31, generated-file batch): reviewed `BuildPathView`
+values now distinguish build-rooted paths from package paths in the public
+builder, and modules can explicitly consume a build-rooted generated source.
+Generated-file payloads retain output text and bytes with allocator rollback,
+encode as the existing bounded blob action, and execute through the coordinator
+with exclusive temporary creation, full write, file sync, atomic rename, parent
+directory sync, and temporary cleanup on failure. Focused Rust tests replace
+previous contents atomically and reject a failed publication without a
+leftover temporary file. The representative workload again generates a source,
+then compiles and launches both source and generated artifacts through typed
+dependencies; no package/build logical-path alias or runner callback is used.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

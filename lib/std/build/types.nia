@@ -9,7 +9,8 @@ pub enum StepKind: i32 {
     Aggregate = 1,
     CheckExecutable = 2,
     EmitExecutable = 3,
-    Uncacheable = 4,
+    GeneratedFile = 4,
+    Uncacheable = 5,
 }
 
 pub enum OptimizationMode: i32 {
@@ -31,6 +32,16 @@ pub enum Runtime: i32 {
 pub(pkg) enum TargetRole: i32 {
     Artifact = 1,
     _
+}
+
+pub(pkg) enum ModuleSourceRoot: i32 {
+    Package = 1,
+    Build = 2,
+    _
+}
+
+pub struct BuildPathView {
+    path: string::StringView,
 }
 
 pub struct TargetView {
@@ -76,6 +87,11 @@ pub struct UncacheableStep {
     description: string::StringBuf,
 }
 
+pub struct GeneratedFileStep {
+    output: string::StringBuf,
+    contents: collections::ArrayList[u8],
+}
+
 pub struct ExecutableStep {
     target: ExecutableHandle,
 }
@@ -83,6 +99,7 @@ pub struct ExecutableStep {
 pub union StepPayload {
     aggregate: AggregateStep,
     executable: ExecutableStep,
+    generatedFile: GeneratedFileStep,
     uncacheable: UncacheableStep,
 }
 
@@ -100,6 +117,7 @@ pub struct StepDependency {
 
 pub struct ModuleOptions {
     name: string::StringView,
+    sourceRoot: ModuleSourceRoot,
     rootSource: fs::PathView,
     optimization: OptimizationMode,
     imports: ?&[ModuleImport],
@@ -108,6 +126,7 @@ pub struct ModuleOptions {
 pub struct Module {
     index: usize,
     name: string::StringBuf,
+    sourceRoot: ModuleSourceRoot,
     rootSource: fs::PathBuf,
     optimization: OptimizationMode,
     imports: collections::ArrayList[OwnedModuleImport],
