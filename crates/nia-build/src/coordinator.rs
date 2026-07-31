@@ -22,9 +22,12 @@ use nia_query::{QueryFingerprintBuilder, QuerySession};
 use nia_target_config::TargetConfig;
 
 use crate::{
-    ActionKey, ActionKind, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument,
-    CommandProgram, LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey,
-    PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec, lock::ScopedFileLock,
+    ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
+    ArtifactKey, BuildInvocation, BuildPlan, CommandArgument, CommandProgram, LogicalPath,
+    LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey, PlanAction, PlanArtifact, PlanModule,
+    Runtime, StepKey, TargetSpec,
+    action_cache::{GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup},
+    lock::ScopedFileLock,
 };
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
@@ -35,6 +38,7 @@ const EXTERNAL_WAIT_POLL: Duration = Duration::from_millis(10);
 pub struct ExecutionReport {
     pub steps: Vec<StepKey>,
     pub actions: Vec<ActionKey>,
+    pub action_cache: Vec<ActionCacheReport>,
 }
 
 #[derive(Debug)]
@@ -285,7 +289,7 @@ pub fn execute_build_plan(
 }
 
 enum ActionOutcome {
-    Succeeded,
+    Succeeded(Option<ActionCacheOutcome>),
     Cancelled,
     Failed(CoordinatorError),
 }
@@ -315,7 +319,7 @@ fn execute_scheduled_action(
         return ActionOutcome::Cancelled;
     }
     match executor.execute(action, cancellation) {
-        Ok(()) => ActionOutcome::Succeeded,
+        Ok(cache) => ActionOutcome::Succeeded(cache),
         Err(error) if is_cancellation_error(&error) => ActionOutcome::Cancelled,
         Err(error) => {
             cancellation.cancel_later_actions();
@@ -332,6 +336,7 @@ fn execute_selected_closure(
         return Ok(ExecutionReport {
             steps: Vec::new(),
             actions: Vec::new(),
+            action_cache: Vec::new(),
         });
     };
 
@@ -380,6 +385,7 @@ fn execute_selected_closure(
     let mut report = ExecutionReport {
         steps: Vec::with_capacity(closure.len()),
         actions: Vec::new(),
+        action_cache: Vec::new(),
     };
 
     while !ready.is_empty() {
@@ -405,9 +411,16 @@ fn execute_selected_closure(
             ));
         }
         let mut cancelled = false;
-        for outcome in outcomes {
+        for (action, outcome) in wave_actions.iter().zip(outcomes) {
             match outcome {
-                ActionOutcome::Succeeded => {}
+                ActionOutcome::Succeeded(cache) => {
+                    if let Some(outcome) = cache {
+                        report.action_cache.push(ActionCacheReport {
+                            action: action.key.clone(),
+                            outcome,
+                        });
+                    }
+                }
                 ActionOutcome::Cancelled => cancelled = true,
                 ActionOutcome::Failed(error) => return Err(error),
             }
@@ -486,7 +499,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         cancellation: &ActionCancellation,
-    ) -> Result<(), CoordinatorError> {
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let Some(_output_locks) = self.acquire_output_locks(action, cancellation)? else {
             return Err(CoordinatorError::Cancelled {
                 action: action.key.clone(),
@@ -504,8 +517,8 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         cancellation: &ActionCancellation,
-    ) -> Result<(), CoordinatorError> {
-        match &action.kind {
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let result = match &action.kind {
             ActionKind::Aggregate => Ok(()),
             ActionKind::CompilerCheck {
                 module,
@@ -622,7 +635,8 @@ impl DriverActionExecutor {
                                 cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
                             }
                             None => Err(cause),
-                        };
+                        }
+                        .map(|()| None);
                     }
                 };
                 let execution = execute_external_command(
@@ -663,10 +677,49 @@ impl DriverActionExecutor {
                 }
             }
             ActionKind::GeneratedFile { output, contents } => {
-                let output = self.resolve_path(action, output)?;
-                write_generated_file(action, &output, contents)
+                return self.execute_generated_file(action, output, contents);
             }
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
+        };
+        result.map(|()| None)
+    }
+
+    fn execute_generated_file(
+        &self,
+        action: &PlanAction,
+        logical_output: &LogicalPath,
+        contents: &[u8],
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let output = self.resolve_path(action, logical_output)?;
+        let cache = GeneratedFileCache::new(self.invocation.cache_dir.clone());
+        let identity = GeneratedFileCacheIdentity::new(
+            &action.key,
+            logical_output,
+            contents,
+            self.invocation.toolchain.identity(),
+        );
+        let lookup = match cache.lookup(&identity) {
+            Ok(lookup) => lookup,
+            Err(_) => {
+                write_generated_file(action, &output, contents)?;
+                return Ok(Some(ActionCacheOutcome::Miss(
+                    ActionCacheMissReason::ReadError,
+                )));
+            }
+        };
+        match lookup {
+            GeneratedFileCacheLookup::Hit(payload) => {
+                write_generated_file(action, &output, &payload)?;
+                Ok(Some(ActionCacheOutcome::Hit))
+            }
+            GeneratedFileCacheLookup::Miss(reason) => {
+                write_generated_file(action, &output, contents)?;
+                let reason = match cache.publish(&identity, contents) {
+                    Ok(()) => reason,
+                    Err(_) => ActionCacheMissReason::WriteError,
+                };
+                Ok(Some(ActionCacheOutcome::Miss(reason)))
+            }
         }
     }
 
@@ -1581,6 +1634,11 @@ fn write_generated_file(
     output: &std::path::Path,
     contents: &[u8],
 ) -> Result<(), CoordinatorError> {
+    if fs::symlink_metadata(output).is_ok_and(|metadata| metadata.file_type().is_file())
+        && fs::read(output).is_ok_and(|current| current == contents)
+    {
+        return Ok(());
+    }
     let parent = output
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -1927,7 +1985,10 @@ mod tests {
                     .map(|item| item.key.name().to_string())
                     .collect::<Vec<_>>(),
             );
-            items.iter().map(|_| ActionOutcome::Succeeded).collect()
+            items
+                .iter()
+                .map(|_| ActionOutcome::Succeeded(None))
+                .collect()
         })
         .unwrap();
 
@@ -1961,7 +2022,10 @@ mod tests {
 
         let report = execute_selected_closure(&plan, |items| {
             observed.extend(items.iter().map(|item| item.key.name().to_string()));
-            items.iter().map(|_| ActionOutcome::Succeeded).collect()
+            items
+                .iter()
+                .map(|_| ActionOutcome::Succeeded(None))
+                .collect()
         })
         .unwrap();
 
@@ -2034,7 +2098,10 @@ mod tests {
             "final",
         );
         let sequential = execute_selected_closure(&plan, |items| {
-            items.iter().map(|_| ActionOutcome::Succeeded).collect()
+            items
+                .iter()
+                .map(|_| ActionOutcome::Succeeded(None))
+                .collect()
         })
         .unwrap();
         let completion_order = Arc::new(Mutex::new(Vec::new()));
@@ -2057,7 +2124,7 @@ mod tests {
                                 .lock()
                                 .expect("completion order lock poisoned")
                                 .push(item.key.name().to_string());
-                            ActionOutcome::Succeeded
+                            ActionOutcome::Succeeded(None)
                         })
                     })
                     .collect::<Vec<_>>()
@@ -2128,7 +2195,7 @@ mod tests {
                             } else {
                                 std::thread::sleep(Duration::from_millis(25));
                                 active_settled.store(true, Ordering::Release);
-                                ActionOutcome::Succeeded
+                                ActionOutcome::Succeeded(None)
                             }
                         })
                     })
@@ -2392,6 +2459,82 @@ mod tests {
                     .file_name()
                     .to_string_lossy()
                     .starts_with(".nia-generated-"))
+        );
+    }
+
+    #[test]
+    fn generated_file_cache_reports_miss_hit_and_restores_output() {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("generated/source.nia");
+        let plan = generated_plan(&invocation, "generated/source.nia", b"source");
+
+        let cold = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            cold.action_cache,
+            [ActionCacheReport {
+                action: action("generate"),
+                outcome: ActionCacheOutcome::Miss(ActionCacheMissReason::NotFound),
+            }]
+        );
+        fs::remove_file(&output).unwrap();
+
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            warm.action_cache,
+            [ActionCacheReport {
+                action: action("generate"),
+                outcome: ActionCacheOutcome::Hit,
+            }]
+        );
+        assert_eq!(fs::read(output).unwrap(), b"source");
+        assert_no_output_locks(&invocation);
+    }
+
+    #[test]
+    fn generated_file_cache_reports_content_and_output_invalidation() {
+        let invocation = test_invocation();
+        let baseline = generated_plan(&invocation, "generated/source.nia", b"source");
+        execute_build_plan(&baseline, &invocation).unwrap();
+
+        let changed_contents =
+            generated_plan(&invocation, "generated/source.nia", b"changed source");
+        let content_report = execute_build_plan(&changed_contents, &invocation).unwrap();
+        assert_eq!(
+            content_report.action_cache[0].outcome,
+            ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Contents,
+            ]))
+        );
+
+        let other_invocation = test_invocation();
+        let first_output = generated_plan(&other_invocation, "generated/first.nia", b"source");
+        execute_build_plan(&first_output, &other_invocation).unwrap();
+        let changed_output = generated_plan(&other_invocation, "generated/second.nia", b"source");
+        let output_report = execute_build_plan(&changed_output, &other_invocation).unwrap();
+        assert_eq!(
+            output_report.action_cache[0].outcome,
+            ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Output,
+            ]))
+        );
+    }
+
+    #[test]
+    fn generated_file_cache_read_failure_is_an_explicit_nonfatal_miss() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.cache_dir).unwrap();
+        fs::write(invocation.cache_dir.join("actions"), b"occupied").unwrap();
+        let plan = generated_plan(&invocation, "generated/source.nia", b"source");
+
+        let report = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(
+            report.action_cache[0].outcome,
+            ActionCacheOutcome::Miss(ActionCacheMissReason::ReadError)
+        );
+        assert_eq!(
+            fs::read(invocation.build_dir.join("generated/source.nia")).unwrap(),
+            b"source"
         );
     }
 

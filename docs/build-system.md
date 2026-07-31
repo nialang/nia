@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phases A-E complete; Phase F incremental cache and resource scheduling next
+Status: Phases A-E complete; Phase F incremental cache and resource scheduling in progress
 
 The Rust-side `BuildInvocation` is resolved bootstrap state: package and
 toolchain paths, requested step, runner locations, and timing options. It is not
@@ -47,6 +47,7 @@ the coordinator's only execution input.
 | Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; delete compile-time checkout lookup |
 | Compiler actions and compiler cache | `nia-driver` and compiler query/codegen crates | remain compiler-owned typed actions/work products |
 | Link execution and link-result reuse | `nia-linker` and `nia-driver` | remain linker/Driver-owned; build references declared artifacts |
+| Build-action cache | `nia-build` | generated-file slice implemented; compiler and external-command slices remain gated on complete typed identities |
 | End-to-end build contracts | `crates/nia-cli/tests/build_cases.rs` | remain resource-accounted integration evidence |
 | Build performance evidence | `tools/build_baseline.py` and `benchmarks/build/representative` | observational only; never cache truth |
 
@@ -216,16 +217,37 @@ and final deinitialization failures without collapsing them to an unexplained
 exit code. Coordinator errors add package/action identity to target mismatch,
 logical-root, module-map, unsupported-action, and Driver failures.
 
-Build-cache entries are immutable and content-addressed. Their identity includes
-action schema, semantic inputs, toolchain/std identity, host/target, declared
-environment, and dependency artifact identities. Corruption is retired and
-reported as a miss reason. Timing and latest-run metadata never participate in
-cache correctness.
+Build-cache entries are immutable and content-addressed. The first Phase F
+slice admits only generated-file actions because their complete semantic input
+is already typed: stable action key, logical output identity, byte contents,
+and separate compiler, resource-layout, std, and build-protocol compatibility
+components. Compiler and external-command actions do not report action-cache
+hits until their source/dependency and executable/environment identities are
+complete.
+
+Generated-file entries live in a versioned action-kind namespace under
+`.nia-cache/actions/`. Their envelope repeats the action key fingerprint,
+complete action fingerprint, component fingerprints, canonical logical output,
+payload length, and payload checksum. Reads reject truncation, trailing data,
+identity mismatch, and payload corruption. Corruption is retired under the same
+entry-mutation key used by publishers, so a stale reader cannot remove a newer
+valid entry.
+
+Publication writes and syncs a same-directory temporary regular file, then
+installs it with a no-overwrite hard link. Duplicate publishers either install
+the identical immutable entry or validate the already accepted entry; ordinary
+readers remain lock-free and can observe only absence or a complete validated
+envelope. A hit validates the current destination and restores it through the
+existing generated-output atomic publication path when it is absent or stale.
+Cache read/write failures remain explicit nonfatal miss outcomes and never
+replace the output correctness path. Timing and latest-run metadata do not
+participate in cache correctness.
 
 ## 4. Execution Telemetry
 
 With `--timings=detail --timings-format=json`, the outer CLI emits the existing
-`nia-timing` schema. Coordinator step/action totals, failures, and Driver
+`nia-timing` schema. Coordinator step/action totals, failures, generated-file
+action-cache hits and typed miss/invalidation reasons, and Driver
 compiler/link/cache counters share that report because compiler actions now run
 in the coordinator process. These observational counters are not `BuildPlan`,
 are not persisted as cache truth, and gain no compatibility promise.

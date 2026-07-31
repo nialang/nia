@@ -18,10 +18,14 @@ use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 use nia_timing::{TimingFormat, TimingOptions};
 
+mod action_cache;
 mod coordinator;
 mod lock;
 mod plan;
 
+pub use action_cache::{
+    ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
+};
 pub use coordinator::*;
 pub use plan::*;
 
@@ -300,12 +304,77 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
             if let Ok(report) = &result {
                 nia_timing::emit_counter("build.steps_executed", report.steps.len() as u64);
                 nia_timing::emit_counter("build.actions_executed", report.actions.len() as u64);
+                emit_action_cache_counters(report);
             } else {
                 nia_timing::emit_counter("build.action_failures", 1);
             }
             result.map(|_| ())
         },
     )
+}
+
+fn emit_action_cache_counters(report: &ExecutionReport) {
+    nia_timing::emit_counter(
+        "build.action_cache_lookups",
+        report.action_cache.len() as u64,
+    );
+    for entry in &report.action_cache {
+        match &entry.outcome {
+            ActionCacheOutcome::Hit => nia_timing::emit_counter("build.action_cache_hits", 1),
+            ActionCacheOutcome::Miss(reason) => {
+                nia_timing::emit_counter("build.action_cache_misses", 1);
+                match reason {
+                    ActionCacheMissReason::NotFound => {
+                        nia_timing::emit_counter("build.action_cache_miss_not_found", 1);
+                    }
+                    ActionCacheMissReason::Invalidated(reasons) => {
+                        nia_timing::emit_counter("build.action_cache_miss_invalidated", 1);
+                        for reason in reasons {
+                            match reason {
+                                ActionCacheInvalidation::Contents => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_contents",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Output => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_output",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Compiler => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_compiler",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::ResourceLayout => {
+                                    nia_timing::emit_counter(
+                                        "build.action_cache_invalidation_resource_layout",
+                                        1,
+                                    )
+                                }
+                                ActionCacheInvalidation::StandardLibrary => {
+                                    nia_timing::emit_counter(
+                                        "build.action_cache_invalidation_standard_library",
+                                        1,
+                                    )
+                                }
+                                ActionCacheInvalidation::BuildProtocol => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_build_protocol",
+                                    1,
+                                ),
+                            }
+                        }
+                    }
+                    ActionCacheMissReason::Corrupt => {
+                        nia_timing::emit_counter("build.action_cache_miss_corrupt", 1);
+                    }
+                    ActionCacheMissReason::ReadError => {
+                        nia_timing::emit_counter("build.action_cache_miss_read_error", 1);
+                    }
+                    ActionCacheMissReason::WriteError => {
+                        nia_timing::emit_counter("build.action_cache_miss_write_error", 1);
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation, BuildError> {
