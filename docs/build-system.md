@@ -2,6 +2,10 @@
 
 Status: Phase D immutable build-plan migration in progress
 
+The Rust-side `BuildInvocation` is resolved bootstrap state: package and
+toolchain paths, requested step, runner locations, and timing options. It is not
+the graph protocol and no longer uses the `BuildPlan` name.
+
 This document owns the durable build-system boundary. The active migration and
 acceptance sequence remains in `../build-std-roadmap.md`.
 
@@ -75,6 +79,13 @@ validatable. It contains no function pointer, borrowed runner memory, raw
 allocator, process handle, or opaque command callback. Local builder handles
 include an owner identity; serialized identities derive from canonical plan
 content rather than allocation order.
+
+The graph plan is created only by freezing a `BuildPlanDraft`. Package, module,
+artifact, action, and step keys combine a package key with a validated visible
+name. Package-rooted logical paths also carry their package key, preventing
+equal relative paths in different packages from aliasing. Freeze canonicalizes
+node and reference order and validates references, cycles, output roots, and
+single-producer ownership before returning an immutable value.
 
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a

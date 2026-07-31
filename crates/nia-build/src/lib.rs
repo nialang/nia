@@ -17,6 +17,10 @@ use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 use nia_timing::{TimingFormat, TimingOptions};
 
+mod plan;
+
+pub use plan::*;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -59,7 +63,7 @@ impl BuildRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuildPlan {
+pub struct BuildInvocation {
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
     pub package_root: PathBuf,
     pub build_script: PathBuf,
@@ -218,25 +222,26 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
         TimingOptions::new(request.timings).with_format(request.timing_format),
         || {
             let timings = request.timings;
-            let plan = time_summary_stage(timings, "build_resolve_plan", || {
-                resolve_build_plan(request)
+            let invocation = time_summary_stage(timings, "build_resolve_invocation", || {
+                resolve_build_invocation(request)
             })?;
             time_summary_stage(timings, "build_prepare_directories", || {
-                prepare_build_directories(&plan)
+                prepare_build_directories(&invocation)
             })?;
             nia_timing::emit_counter("build.runner_compilations", 1);
             let runner_executable = time_summary_stage(timings, "build_compile_runner", || {
-                compile_build_runner(&plan)
+                compile_build_runner(&invocation)
             });
             if runner_executable.is_err() {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
             let runner_executable = runner_executable?;
-            let _lock =
-                time_summary_stage(timings, "build_acquire_lock", || BuildLock::acquire(&plan))?;
+            let _lock = time_summary_stage(timings, "build_acquire_lock", || {
+                BuildLock::acquire(&invocation)
+            })?;
             nia_timing::emit_counter("build.runner_executions", 1);
             let result = time_summary_stage(timings, "build_run_runner", || {
-                run_build_runner(&plan, &runner_executable)
+                run_build_runner(&invocation, &runner_executable)
             });
             if result.is_err() {
                 nia_timing::emit_counter("build.runner_failures", 1);
@@ -246,7 +251,7 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     )
 }
 
-pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError> {
+pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation, BuildError> {
     let start = match request.root {
         Some(root) => root,
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
@@ -255,7 +260,7 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
     let build_script = package_root.join("build.nia");
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
-    Ok(BuildPlan {
+    Ok(BuildInvocation {
         toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
         runner_executable: runner_dir.join("nia-build-runner"),
@@ -272,20 +277,20 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
     })
 }
 
-pub fn build_runner_source(plan: &BuildPlan) -> Result<BuildRunnerSource, BuildError> {
-    let path = plan
+pub fn build_runner_source(invocation: &BuildInvocation) -> Result<BuildRunnerSource, BuildError> {
+    let path = invocation
         .runner_dir
         .join("root.nia")
         .to_string_lossy()
         .into_owned();
-    build_runner_source_for_path(plan, path)
+    build_runner_source_for_path(invocation, path)
 }
 
 fn build_runner_source_for_path(
-    plan: &BuildPlan,
+    invocation: &BuildInvocation,
     path: String,
 ) -> Result<BuildRunnerSource, BuildError> {
-    let _ = plan;
+    let _ = invocation;
     let mut source = String::new();
     source.push_str(
         r#"
@@ -574,66 +579,73 @@ pub fn main(init: process::Init) process::ExitCode!void {
     Ok(BuildRunnerSource { path, source })
 }
 
-fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
-    fs::create_dir_all(&plan.runner_dir).map_err(|error| BuildError::CreateRunnerDirectory {
-        path: plan.runner_dir.clone(),
-        error,
+fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildError> {
+    fs::create_dir_all(&invocation.runner_dir).map_err(|error| {
+        BuildError::CreateRunnerDirectory {
+            path: invocation.runner_dir.clone(),
+            error,
+        }
     })?;
-    let runner = build_runner_source(plan)?;
-    if let Some(parent) = plan.runner_executable.parent() {
+    let runner = build_runner_source(invocation)?;
+    if let Some(parent) = invocation.runner_executable.parent() {
         fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
             path: parent.to_path_buf(),
             error,
         })?;
     }
-    let driver = Driver::with_config(build_runner_driver_config(plan));
+    let driver = Driver::with_config(build_runner_driver_config(invocation));
     driver.set_source(runner.path.clone(), runner.source.clone());
     let output = driver.link_executable(LinkExecutableRequest::new(
         CheckRequest::new(runner.path.clone())
-            .with_module_map(build_runner_module_map(plan))
-            .with_timings(plan.timings),
-        &plan.runner_executable,
+            .with_module_map(build_runner_module_map(invocation))
+            .with_timings(invocation.timings),
+        &invocation.runner_executable,
     ));
     output.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path,
         source: runner.source,
         error: Box::new(error),
     })?;
-    Ok(plan.runner_executable.clone())
+    Ok(invocation.runner_executable.clone())
 }
 
-fn build_runner_driver_config(plan: &BuildPlan) -> DriverConfig {
+fn build_runner_driver_config(invocation: &BuildInvocation) -> DriverConfig {
     DriverConfig {
-        artifact_cache_dir: Some(plan.cache_dir.clone()),
-        ..DriverConfig::new(Arc::clone(&plan.toolchain))
+        artifact_cache_dir: Some(invocation.cache_dir.clone()),
+        ..DriverConfig::new(Arc::clone(&invocation.toolchain))
     }
-    .with_artifact_target(plan.toolchain.host_target().clone())
+    .with_artifact_target(invocation.toolchain.host_target().clone())
 }
 
-fn build_runner_module_map(plan: &BuildPlan) -> ModuleMap {
+fn build_runner_module_map(invocation: &BuildInvocation) -> ModuleMap {
     let mut module_map = ModuleMap::new();
     module_map.insert(
         "buildScript",
-        SourcePath::new(plan.build_script.to_string_lossy().into_owned()),
+        SourcePath::new(invocation.build_script.to_string_lossy().into_owned()),
     );
     module_map
 }
 
-fn prepare_build_directories(plan: &BuildPlan) -> Result<(), BuildError> {
-    fs::create_dir_all(&plan.build_dir).map_err(|error| BuildError::CreateBuildDirectory {
-        path: plan.build_dir.clone(),
-        error,
+fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildError> {
+    fs::create_dir_all(&invocation.build_dir).map_err(|error| {
+        BuildError::CreateBuildDirectory {
+            path: invocation.build_dir.clone(),
+            error,
+        }
     })?;
-    fs::create_dir_all(&plan.cache_dir).map_err(|error| BuildError::CreateCacheDirectory {
-        path: plan.cache_dir.clone(),
+    fs::create_dir_all(&invocation.cache_dir).map_err(|error| BuildError::CreateCacheDirectory {
+        path: invocation.cache_dir.clone(),
         error,
     })
 }
 
-fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), BuildError> {
+fn run_build_runner(
+    invocation: &BuildInvocation,
+    runner_executable: &Path,
+) -> Result<(), BuildError> {
     let mut command = Command::new(runner_executable);
-    command.current_dir(&plan.package_root);
-    command.args(build_runner_args(plan));
+    command.current_dir(&invocation.package_root);
+    command.args(build_runner_args(invocation));
     match command.status() {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(BuildError::RunnerFailed {
@@ -647,24 +659,30 @@ fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), Bu
     }
 }
 
-fn build_runner_args(plan: &BuildPlan) -> Vec<OsString> {
+fn build_runner_args(invocation: &BuildInvocation) -> Vec<OsString> {
     let mut args = vec![
-        plan.package_root.as_os_str().to_owned(),
-        plan.build_dir.as_os_str().to_owned(),
-        plan.cache_dir.as_os_str().to_owned(),
-        plan.toolchain.compiler_executable().as_os_str().to_owned(),
-        plan.toolchain.resource_root().as_os_str().to_owned(),
+        invocation.package_root.as_os_str().to_owned(),
+        invocation.build_dir.as_os_str().to_owned(),
+        invocation.cache_dir.as_os_str().to_owned(),
+        invocation
+            .toolchain
+            .compiler_executable()
+            .as_os_str()
+            .to_owned(),
+        invocation.toolchain.resource_root().as_os_str().to_owned(),
         OsString::from(
-            if plan.timings == TimingMode::Detail && plan.timing_format == TimingFormat::Json {
+            if invocation.timings == TimingMode::Detail
+                && invocation.timing_format == TimingFormat::Json
+            {
                 "json"
             } else {
                 "off"
             },
         ),
     ];
-    args.extend(target_runner_args(plan.toolchain.host_target()).map(OsString::from));
-    args.extend(target_runner_args(plan.toolchain.artifact_target()).map(OsString::from));
-    if let Some(step) = plan.step.as_runner_arg() {
+    args.extend(target_runner_args(invocation.toolchain.host_target()).map(OsString::from));
+    args.extend(target_runner_args(invocation.toolchain.artifact_target()).map(OsString::from));
+    if let Some(step) = invocation.step.as_runner_arg() {
         args.push(OsString::from(step));
     }
     args
@@ -688,14 +706,16 @@ struct BuildLock {
 }
 
 impl BuildLock {
-    fn acquire(plan: &BuildPlan) -> Result<Self, BuildError> {
+    fn acquire(invocation: &BuildInvocation) -> Result<Self, BuildError> {
         const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 
-        fs::create_dir_all(&plan.build_dir).map_err(|error| BuildError::CreateBuildDirectory {
-            path: plan.build_dir.clone(),
-            error,
+        fs::create_dir_all(&invocation.build_dir).map_err(|error| {
+            BuildError::CreateBuildDirectory {
+                path: invocation.build_dir.clone(),
+                error,
+            }
         })?;
-        let path = plan.build_dir.join(".lock");
+        let path = invocation.build_dir.join(".lock");
         let start = Instant::now();
         let mut sleep = Duration::from_millis(10);
         loop {
@@ -895,8 +915,9 @@ mod tests {
         std::fs::create_dir_all(&child).expect("create child");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
 
-        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&child))
-            .expect("build plan");
+        let plan =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&child))
+                .expect("build invocation");
 
         assert_eq!(plan.package_root, root);
         assert_eq!(plan.build_script, plan.package_root.join("build.nia"));
@@ -916,8 +937,9 @@ mod tests {
     fn generated_runner_invokes_build_script_as_normal_nia_module() {
         let root = temp_root("generated_runner_invokes_build_script_as_normal_nia_module");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-            .expect("build plan");
+        let plan =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
 
         let runner = build_runner_source(&plan).expect("build runner source");
 
@@ -1000,12 +1022,12 @@ mod tests {
         let toolchain = test_toolchain_layout_for(artifact_target.clone());
         let root = temp_root("build_runner_compiles_for_host_and_transports_both_targets");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(
+        let plan = resolve_build_invocation(
             BuildRequest::new(Arc::clone(&toolchain))
                 .with_root(&root)
                 .with_step("inspect"),
         )
-        .expect("build plan");
+        .expect("build invocation");
 
         let config = build_runner_driver_config(&plan);
         let args = build_runner_args(&plan);
@@ -1033,12 +1055,12 @@ mod tests {
         let root = temp_root("preserves_named_step");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
 
-        let plan = resolve_build_plan(
+        let plan = resolve_build_invocation(
             BuildRequest::new(test_toolchain_layout())
                 .with_root(&root)
                 .with_step("install"),
         )
-        .expect("build plan");
+        .expect("build invocation");
 
         assert_eq!(plan.step, BuildStepSelection::Named("install".to_string()));
         assert_eq!(plan.step.as_runner_arg(), Some("install"));
@@ -1048,8 +1070,9 @@ mod tests {
     fn reports_missing_build_script_from_start_directory() {
         let root = temp_root("reports_missing_build_script_from_start_directory");
 
-        let error = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-            .expect_err("missing build script");
+        let error =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect_err("missing build script");
 
         assert!(matches!(error, BuildError::MissingBuildScript { start } if start == root));
     }
@@ -1058,8 +1081,9 @@ mod tests {
     fn prepares_build_and_cache_directories() {
         let root = temp_root("prepares_build_and_cache_directories");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-            .expect("build plan");
+        let plan =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
 
         prepare_build_directories(&plan).expect("prepare build directories");
 
@@ -1071,8 +1095,9 @@ mod tests {
     fn build_lock_serializes_same_package_root() {
         let root = temp_root("build_lock_serializes_same_package_root");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-            .expect("build plan");
+        let plan =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
         let first = BuildLock::acquire(&plan).expect("first build lock");
         let second_plan = plan.clone();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -1139,9 +1164,10 @@ mod tests {
         std::fs::create_dir_all(&package_root).expect("create package root");
         std::fs::write(package_root.join("build.nia"), "").expect("write build script");
 
-        let plan =
-            resolve_build_plan(BuildRequest::new(test_toolchain_layout()).with_root(&package_root))
-                .expect("build plan");
+        let plan = resolve_build_invocation(
+            BuildRequest::new(test_toolchain_layout()).with_root(&package_root),
+        )
+        .expect("build invocation");
         let runner = build_runner_source(&plan).expect("build runner source");
 
         assert!(
