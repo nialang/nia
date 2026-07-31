@@ -16,13 +16,25 @@ pub(crate) struct ScopedFileLock {
 }
 
 impl ScopedFileLock {
+    #[cfg(test)]
     pub(crate) fn acquire(path: PathBuf) -> io::Result<Self> {
+        Self::acquire_interruptible(path, || false)
+            .map(|lock| lock.expect("an unset cancellation flag must allow lock acquisition"))
+    }
+
+    pub(crate) fn acquire_interruptible(
+        path: PathBuf,
+        mut is_cancelled: impl FnMut() -> bool,
+    ) -> io::Result<Option<Self>> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let start = Instant::now();
         let mut sleep = Duration::from_millis(10);
         loop {
+            if is_cancelled() {
+                return Ok(None);
+            }
             match fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -36,7 +48,7 @@ impl ScopedFileLock {
                             return Err(error);
                         }
                     };
-                    return Ok(Self { path, token });
+                    return Ok(Some(Self { path, token }));
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     reclaim_stale_lock(&path, STALE_AFTER);
@@ -45,6 +57,9 @@ impl ScopedFileLock {
             }
             if start.elapsed() >= STALE_AFTER {
                 reclaim_stale_lock(&path, Duration::ZERO);
+            }
+            if is_cancelled() {
+                return Ok(None);
             }
             thread::sleep(sleep);
             sleep = (sleep * 2).min(Duration::from_millis(250));
@@ -150,6 +165,7 @@ fn process_start_time(_pid: u32) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
 
     static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -193,6 +209,32 @@ mod tests {
         assert_ne!(first.token, second.token);
         drop(second);
         drop(first);
+    }
+
+    #[test]
+    fn cancelled_lock_wait_returns_without_acquiring() {
+        let path = test_root("cancelled").join("output.lock");
+        let held = ScopedFileLock::acquire(path.clone()).unwrap();
+        let cancellation = std::sync::Arc::new(AtomicBool::new(false));
+        let worker_cancellation = std::sync::Arc::clone(&cancellation);
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let result = ScopedFileLock::acquire_interruptible(path, || {
+                worker_cancellation.load(Ordering::Acquire)
+            });
+            finished_tx.send(result.map(|lock| lock.is_none())).unwrap();
+        });
+
+        cancellation.store(true, Ordering::Release);
+
+        assert!(
+            finished_rx
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap()
+        );
+        handle.join().unwrap();
+        drop(held);
     }
 
     #[test]

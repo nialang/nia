@@ -142,6 +142,25 @@ process identity, process start time, and an acquisition sequence; dead owners
 are reclaimed without allowing an older same-process guard to remove a newer
 lock.
 
+The selected closure executes in deterministic readiness waves. Each wave is
+submitted to a `QuerySession`, so build actions share the process-wide
+Cargo/GNU Make jobserver budget with compiler queries instead of creating a
+private worker pool. Target-specific Drivers are constructed once per
+coordinator invocation and shared by actions in the wave. Completion order is
+not observable: steps, actions, and failures are merged in canonical plan order,
+and single-worker and multi-worker executions therefore produce the same
+report.
+
+Each wave also owns an ordered failure token. A failing action prevents all
+dependent waves and cancels later canonical actions, while earlier actions are
+allowed to settle so that the first reported failure cannot change with worker
+timing. Cancellation is checked before execution, while waiting for an output
+publication lock, and in the external-process wait loop. Cancelled process
+actions terminate their owned process group and retire staged output; active
+in-process compiler work settles under its existing resource budgets before the
+coordinator returns. Successful independent output that completed before the
+failure remains accepted.
+
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a
 handle rejects a different live builder before indexing its collections. The
