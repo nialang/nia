@@ -1011,8 +1011,8 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phases A, B, and C are complete. The project is ready to execute Phase D. Later
-implementation phases are not marked complete by roadmap text.
+Phases A, B, C, and D are complete. Phase E coordinator execution is active.
+Later implementation phases are not marked complete by roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
 product maturity remains early. The first proof of progress is not a new build
@@ -1282,6 +1282,26 @@ callbacks still execute before the runner returns, so coordinator decode is not
 yet universally prior to side effects. The next batch must execute the selected
 closure from the decoded plan and physically remove runner-side recursive
 execution and raw compiler argv assembly.
+
+Phase D completion and Phase E progress (2026-07-31, coordinator execution
+batch): `nia-build` now computes the selected dependency closure with iterative,
+deterministic Kahn traversal and executes a shared action at most once. Typed
+compiler check and executable-emission actions resolve package/build/cache/
+toolchain/artifact logical paths, construct module maps, and call the Driver
+directly with plan optimization, runtime, target, cache, timing, and output
+values. Invocation host/artifact targets are checked against the frozen plan
+before action execution, and package-root, import-map, path, unsupported-action,
+and Driver failures retain action/package context without panic. The generated
+runner now stops after validating and exclusively writing its draft. `StepFn`,
+step runtime state, recursive execution, compiler subprocess argv assembly, and
+runner action telemetry were physically deleted; explicit aggregate and
+uncacheable declarations replace callback-shaped graph nodes. The complete
+14-case build matrix passes through the coordinator, including typed check and
+emit, deterministic dependencies, selected-step replacement, full-graph cycle
+rejection, and pre-action invalid-plan failures. This closes every Phase D
+acceptance gate. Phase E remains open for generated-file and external-command
+execution, process capture/cancellation policy, scoped publication replacing
+the package-wide lock, and deterministic multi-worker execution.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

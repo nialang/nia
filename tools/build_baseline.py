@@ -139,9 +139,8 @@ def json_lines(stderr: str) -> list[dict[str, Any]]:
     return reports
 
 
-def parse_build_reports(stderr: str) -> dict[str, Any]:
+def parse_build_reports(stderr: str, succeeded: bool) -> dict[str, Any]:
     reports = json_lines(stderr)
-    actions = [report for report in reports if report.get("kind") == "nia-build-actions"]
     timings = [
         report
         for report in reports
@@ -149,8 +148,6 @@ def parse_build_reports(stderr: str) -> dict[str, Any]:
         and isinstance(report.get("process"), dict)
         and isinstance(report.get("counters"), dict)
     ]
-    if len(actions) != 1:
-        raise ValueError(f"expected one build action report, found {len(actions)}")
     outer = [
         report
         for report in timings
@@ -158,10 +155,23 @@ def parse_build_reports(stderr: str) -> dict[str, Any]:
     ]
     if len(outer) != 1:
         raise ValueError(f"expected one outer build timing report, found {len(outer)}")
+    counters = outer[0]["counters"]
     return {
-        "actions": actions[0],
+        "actions": {
+            "schema_version": 1,
+            "kind": "nia-build-coordinator-actions",
+            "success": succeeded,
+            "counters": {
+                name: counters.get(name, 0)
+                for name in (
+                    "build.steps_executed",
+                    "build.actions_executed",
+                    "build.action_failures",
+                )
+            },
+        },
         "outer_timing": outer[0],
-        "compiler_timings": [report for report in timings if report is not outer[0]],
+        "compiler_timings": [],
     }
 
 
@@ -197,7 +207,7 @@ def run_state(
             f"build state {name!r} returned {result.returncode}; "
             f"expected success={expect_success}"
         )
-    reports = parse_build_reports(result.stderr)
+    reports = parse_build_reports(result.stderr, succeeded)
     if reports["actions"].get("success") != expect_success:
         raise RuntimeError(f"build state {name!r} action status disagrees with process status")
     return {

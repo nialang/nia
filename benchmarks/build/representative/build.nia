@@ -1,35 +1,13 @@
 using std::build;
 using std::fs;
-using std::io;
-
-fn generateSource(b: &mut build::Build) build::Error!void {
-    let generatedPath = ".nia-build/generated.nia";
-    let mut file = fs::File::create(
-        fs::PathView::init(&generatedPath),
-        fs::CreateOptions::init(),
-    ).asBuildError(build::ErrorOperation::Initialize, build::ErrorSubject::Output).?;
-    defer file.close().asBuildError(build::ErrorOperation::Release, build::ErrorSubject::Output).?;
-    let mut buffer: [256]u8 = [_]u8[0; 256];
-    let mut writer = file.writer(b.io(), &mut buffer[..]).asBuildError(build::ErrorOperation::Initialize, build::ErrorSubject::Output).?;
-    writer.write_all(&b"using std::process;\npub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }\n").asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Output).?;
-    writer.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Output)
-}
-
-fn failAction(b: &mut build::Build) build::Error!void {
-    _ = b;
-    build::Error::StepFailed(0usize)!
-}
-
 pub fn build(b: &mut build::Build) build::Error!void {
     let helperName = "helper";
     let helperPath = "deps/helper.nia";
     let sourcePath = "src/main.nia";
-    let generatedPath = ".nia-build/generated.nia";
     let sourceName = "source-app";
-    let generatedName = "generated-app";
-    let generateName = "generate-source";
+    let secondaryName = "secondary-app";
     let emitSourceName = "emit-source";
-    let emitGeneratedName = "emit-generated";
+    let emitSecondaryName = "emit-secondary";
     let allName = "all";
     let failName = "fail";
 
@@ -40,24 +18,22 @@ pub fn build(b: &mut build::Build) build::Error!void {
         build::ModuleOptions::init(&"source", fs::PathView::init(&sourcePath))
             .withImports(&imports[..]),
     ).?;
-    let generatedModule = b.addModule(
-        build::ModuleOptions::init(&"generated", fs::PathView::init(&generatedPath)),
+    let secondaryModule = b.addModule(
+        build::ModuleOptions::init(&"secondary", fs::PathView::init(&sourcePath))
+            .withImports(&imports[..]),
     ).?;
     let sourceApp = b.addExecutable(
         build::ExecutableOptions::init(&sourceName, sourceModule),
     ).?;
-    let generatedApp = b.addExecutable(
-        build::ExecutableOptions::init(&generatedName, generatedModule),
+    let secondaryApp = b.addExecutable(
+        build::ExecutableOptions::init(&secondaryName, secondaryModule),
     ).?;
-
-    let generate = b.addStep(&generateName, &generateSource).?;
-    let emitGenerated = b.addEmitExecutableStep(&emitGeneratedName, generatedApp).?;
     let emitSource = b.addEmitExecutableStep(&emitSourceName, sourceApp).?;
-    let all = b.addStep(&allName, &build::noopStep).?;
-    _ = b.addStep(&failName, &failAction).?;
-    b.dependOn(emitGenerated, generate).?;
-    b.dependOn(all, emitGenerated).?;
+    let emitSecondary = b.addEmitExecutableStep(&emitSecondaryName, secondaryApp).?;
+    let all = b.addAggregateStep(&allName).?;
+    _ = b.addUncacheableStep(&failName, &"intentional benchmark failure").?;
     b.dependOn(all, emitSource).?;
+    b.dependOn(all, emitSecondary).?;
     b.setDefaultStep(all).?;
     !{}
 }

@@ -72,7 +72,6 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             32u32,
         ),
         1u32,
-        false,
         1usize,
     )
 }
@@ -222,7 +221,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ) {
         return (8 as process::ExitCode)!;
     }
-    if not rejectsInvalidStep(api.addStep(&"bad name", &build::noopStep), 1usize) {
+    if not rejectsInvalidStep(api.addAggregateStep(&"bad name"), 1usize) {
         return (9 as process::ExitCode)!;
     }
     let duplicateImports = [
@@ -259,19 +258,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not rejectsForeignStep(api.setDefaultStep(otherStep)) {
         return (7 as process::ExitCode)!;
     }
-    switch api.runRequestedStep() {
-        !ok => {
-            _ = ok;
-            return (2 as process::ExitCode)!;
-        },
-        error! => switch error {
-            build::Error::Invalid {
-                operation: build::ErrorOperation::Validate,
-                subject: build::ErrorSubject::ArtifactTarget,
-            } => {},
-            _ => return (3 as process::ExitCode)!,
-        },
-    }
+    api.validatePlan().exit().?;
     !{}
 }
 "#,

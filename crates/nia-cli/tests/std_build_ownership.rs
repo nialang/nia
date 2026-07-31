@@ -154,20 +154,6 @@ fn isExecutableRetainOom(error: build::Error) bool {
     }
 }
 
-fn isCommandAssemblyOom(error: build::Error) bool {
-    switch error {
-        build::Error::Failure {
-            operation: build::ErrorOperation::AssembleCommand,
-            subject,
-            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
-        } => {
-            _ = subject;
-            true
-        },
-        _ => false,
-    }
-}
-
 fn isPlanValidationOom(error: build::Error) bool {
     switch error {
         build::Error::Failure {
@@ -215,7 +201,6 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
         target,
         target,
         1u32,
-        false,
         1usize,
     ) {
         !value => {
@@ -252,7 +237,6 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         target,
         target,
         1u32,
-        false,
         1usize,
     ) {
         !value => {
@@ -291,7 +275,6 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
         target,
         target,
         1u32,
-        false,
         1usize,
     ) {
         !value => {
@@ -328,7 +311,6 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         target,
         target,
         1u32,
-        false,
         1usize,
     ).exit().?;
     let mut cleaned = false;
@@ -409,7 +391,6 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
         target,
         target,
         1u32,
-        false,
         1usize,
     ).exit().?;
     let mut cleaned = false;
@@ -459,21 +440,6 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     }
     if allocator.activeAllocations != beforeEncode {
         return (26 as process::ExitCode)!;
-    }
-    allocator.disableFailure();
-    let beforeRun = allocator.activeAllocations;
-    allocator.failAfter(1usize);
-    switch api.runRequestedStep() {
-        !ok => {
-            _ = ok;
-            return (17 as process::ExitCode)!;
-        },
-        err! => if not isCommandAssemblyOom(err) {
-            return (18 as process::ExitCode)!;
-        },
-    }
-    if allocator.activeAllocations != beforeRun {
-        return (19 as process::ExitCode)!;
     }
     allocator.disableFailure();
     cleaned = true;

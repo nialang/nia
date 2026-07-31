@@ -1,16 +1,5 @@
 using std::build;
 using std::fs;
-using std::fmt;
-using std::io;
-
-fn verify(b: &mut build::Build) build::Error!void {
-    let mut buffer: [128]u8 = [_]u8[0; 128];
-    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
-    stdout.print(&"verified\n", &[]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    stdout.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    !{}
-}
-
 pub fn build(b: &mut build::Build) build::Error!void {
     static srcMain = "src/main.nia";
     static appName = "app";
@@ -19,7 +8,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     let rootModule = b.addModule(build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))).?;
     let app = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;
     let emit = b.addEmitExecutableStep(&emitName, app).?;
-    let verifyStep = b.addStep(&verifyName, &verify).?;
+    let verifyStep = b.addAggregateStep(&verifyName).?;
     b.dependOn(verifyStep, emit).?;
     !{}
 }

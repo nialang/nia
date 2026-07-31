@@ -1,14 +1,9 @@
 using std::build;
 
-fn noop(b: &mut build::Build) build::Error!void {
-    _ = b;
-    !{}
-}
-
 pub fn build(b: &mut build::Build) build::Error!void {
-    let selected = b.addStep(&"selected", &noop).?;
-    let first = b.addStep(&"first", &noop).?;
-    let second = b.addStep(&"second", &noop).?;
+    let selected = b.addAggregateStep(&"selected").?;
+    let first = b.addAggregateStep(&"first").?;
+    let second = b.addAggregateStep(&"second").?;
     b.dependOn(first, second).?;
     b.dependOn(second, first).?;
     b.setDefaultStep(selected).?;
