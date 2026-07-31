@@ -17,7 +17,7 @@ fn main(init: process::Init, allocator: &mut mem::Allocator) build::Error!build:
 let path = fs::PathView::init(&"");
 let text = string::StringView::init(&"");
 let target = build::TargetView::init(text, text, text, text, text, text, 64u32);
-build::Build::init(init, allocator, path, path, path, path, path, target, target, false, 1usize)
+build::Build::init(init, allocator, path, path, path, path, path, target, target, 1u32, false, 1usize)
 }
 "#,
     );
@@ -29,6 +29,7 @@ build::Build::init(init, allocator, path, path, path, path, path, target, target
     assert_module_loaded(&program, "lib/std/build.nia");
     assert_module_loaded(&program, "lib/std/build/core.nia");
     assert_module_loaded(&program, "lib/std/build/types.nia");
+    assert_module_not_loaded(&program, "lib/std/build/plan.nia");
 }
 
 #[test]

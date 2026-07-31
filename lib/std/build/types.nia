@@ -162,6 +162,7 @@ pub struct Build {
     paths: BuildPaths,
     hostTarget: TargetStorage,
     artifactTarget: TargetStorage,
+    planSchemaVersion: u32,
     actionReporting: bool,
     stepArgIndex: usize,
     defaultStep: ?StepHandle,

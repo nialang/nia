@@ -179,6 +179,17 @@ fn isPlanValidationOom(error: build::Error) bool {
     }
 }
 
+fn isPlanEncodingOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Encode,
+            subject: build::ErrorSubject::BuildPlan,
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
 fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!void {
     let mut buffer: [512]u8 = [_]u8[0; 512];
     let mut stderr = io::FileWriter::stderr(init.io(), &mut buffer[..]);
@@ -203,6 +214,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
         path,
         target,
         target,
+        1u32,
         false,
         1usize,
     ) {
@@ -239,6 +251,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         path,
         target,
         target,
+        1u32,
         false,
         1usize,
     ) {
@@ -277,6 +290,7 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
         path,
         target,
         target,
+        1u32,
         false,
         1usize,
     ) {
@@ -313,6 +327,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         emptyPath,
         target,
         target,
+        1u32,
         false,
         1usize,
     ).exit().?;
@@ -322,10 +337,11 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     };
 
     let shortName = "a";
+    let secondName = "c";
     let shortPath = "b";
     let rootSource = "m";
     let imports = [
-        build::ModuleImport::init(&shortName, fs::PathView::init(&shortPath)),
+        build::ModuleImport::init(&secondName, fs::PathView::init(&shortPath)),
         build::ModuleImport::init(&shortName, fs::PathView::init(&shortPath)),
     ];
     let beforeModule = allocator.activeAllocations;
@@ -392,6 +408,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
         emptyPath,
         target,
         target,
+        1u32,
         false,
         1usize,
     ).exit().?;
@@ -429,6 +446,21 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     }
     allocator.disableFailure();
     api.validatePlan().exit().?;
+    let beforeEncode = allocator.activeAllocations;
+    allocator.failAfter(0usize);
+    switch api.writePlanDraft(fs::PathView::init(&"plan.draft")) {
+        !ok => {
+            _ = ok;
+            return (24 as process::ExitCode)!;
+        },
+        err! => if not isPlanEncodingOom(err) {
+            return (25 as process::ExitCode)!;
+        },
+    }
+    if allocator.activeAllocations != beforeEncode {
+        return (26 as process::ExitCode)!;
+    }
+    allocator.disableFailure();
     let beforeRun = allocator.activeAllocations;
     allocator.failAfter(1usize);
     switch api.runRequestedStep() {
@@ -480,8 +512,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert_eq!(
         Command::new(&exe)
+            .current_dir(&root)
             .status_timeout("run build ownership rollback fixture")
             .code(),
         Some(0)
     );
+    assert!(!root.join("plan.draft").exists());
 }

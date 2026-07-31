@@ -44,6 +44,7 @@ fn initBuild(
         emptyPath,
         currentTarget,
         currentTarget,
+        1u32,
         false,
         1024usize,
     )

@@ -71,6 +71,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             &artifactEndian,
             32u32,
         ),
+        1u32,
         false,
         1usize,
     )
@@ -128,6 +129,54 @@ fn rejectsForeignStep(result: build::Error!void) bool {
     }
 }
 
+fn rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Module(actual),
+            } => actual == index,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsInvalidStep(result: build::Error!build::StepHandle, index: usize) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Step(actual),
+            } => actual == index,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::ModuleImport(1usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
@@ -164,6 +213,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ).exit().?;
     let emit = api.addEmitExecutableStep(&"emit", executable).exit().?;
     api.setDefaultStep(emit).exit().?;
+    if not rejectsInvalidModule(
+        api.addModule(build::ModuleOptions::init(
+            &"bad name",
+            fs::PathView::init(&"bad.nia"),
+        )),
+        1usize,
+    ) {
+        return (8 as process::ExitCode)!;
+    }
+    if not rejectsInvalidStep(api.addStep(&"bad name", &build::noopStep), 1usize) {
+        return (9 as process::ExitCode)!;
+    }
+    let duplicateImports = [
+        build::ModuleImport::init(&"dep", fs::PathView::init(&"first.nia")),
+        build::ModuleImport::init(&"dep", fs::PathView::init(&"second.nia")),
+    ];
+    if not rejectsDuplicateImport(api.addModule(
+        build::ModuleOptions::init(&"duplicate-imports", fs::PathView::init(&"dup.nia"))
+            .withImports(&duplicateImports[..]),
+    )) {
+        return (10 as process::ExitCode)!;
+    }
 
     let mut other = initBuild(init, &mut allocator).exit().?;
     defer other.deinit().exit().?;

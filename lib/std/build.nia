@@ -1,8 +1,10 @@
 pub(pkg) module core;
 pub(pkg) module error;
+pub(pkg) module plan;
 pub(pkg) module types;
 
 using pkg::build::core;
+using pkg::build::plan;
 
 pub using core::noopStep;
 pub using error::{

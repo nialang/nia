@@ -71,6 +71,8 @@ pub struct BuildInvocation {
     pub cache_dir: PathBuf,
     pub runner_dir: PathBuf,
     pub runner_executable: PathBuf,
+    pub plan_draft: PathBuf,
+    pub plan_path: PathBuf,
     pub step: BuildStepSelection,
     pub timings: TimingMode,
     pub timing_format: TimingFormat,
@@ -124,6 +126,22 @@ pub enum BuildError {
         error: Box<DriverError>,
     },
     RunRunner {
+        path: PathBuf,
+        error: io::Error,
+    },
+    PreparePlanDraft {
+        path: PathBuf,
+        error: io::Error,
+    },
+    ReadPlanDraft {
+        path: PathBuf,
+        error: PlanHandoffError,
+    },
+    PublishBuildPlan {
+        path: PathBuf,
+        error: PlanHandoffError,
+    },
+    CleanupPlanDraft {
         path: PathBuf,
         error: io::Error,
     },
@@ -192,6 +210,26 @@ impl fmt::Display for BuildError {
                     path.display()
                 )
             }
+            Self::PreparePlanDraft { path, error } => write!(
+                f,
+                "failed to prepare build-plan draft `{}`: {error}",
+                path.display()
+            ),
+            Self::ReadPlanDraft { path, error } => write!(
+                f,
+                "failed to read build-plan draft `{}`: {error}",
+                path.display()
+            ),
+            Self::PublishBuildPlan { path, error } => write!(
+                f,
+                "failed to publish canonical build plan `{}`: {error}",
+                path.display()
+            ),
+            Self::CleanupPlanDraft { path, error } => write!(
+                f,
+                "failed to remove build-plan draft `{}`: {error}",
+                path.display()
+            ),
             Self::AcquireBuildLock { path, error } => {
                 write!(
                     f,
@@ -264,6 +302,8 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
         runner_executable: runner_dir.join("nia-build-runner"),
+        plan_draft: build_dir.join("build-plan.draft"),
+        plan_path: build_dir.join("build-plan.bin"),
         runner_dir,
         build_dir,
         package_root,
@@ -451,6 +491,31 @@ fn targetArg(
     !build::TargetView::init(arch, vendor, os, env, abi, endian, pointerWidth)
 }
 
+fn u32Arg(
+    init: process::Init,
+    index: usize,
+    subject: build::ErrorSubject,
+) build::Error!u32 {
+    let arg = switch init.args().get(index) {
+        ?value => {
+            value
+        },
+        null => {
+            return build::Error::Internal(build::ErrorOperation::Initialize)!;
+        },
+    };
+    switch fmt::parse[u32](arg) {
+        !value => !value,
+        error! => {
+            _ = error;
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: subject,
+            }!
+        },
+    }
+}
+
 fn actionReportEnabled(init: process::Init) bool {
     switch init.args().get(6usize) {
         ?arg => {
@@ -494,6 +559,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut artifactTargetText = TargetText::init();
     defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
     let artifactTarget = targetArg(init, &mut allocator, 14usize, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
+    let planSchemaVersion = u32Arg(init, 21usize, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let mut planDraftText = collections::ArrayList[char]::init();
+    defer planDraftText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let planDraft = pathArg(init, &mut allocator, 22usize, &mut planDraftText, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
 
     let mut api = build::Build::init(
         init,
@@ -508,8 +577,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         toolchainResourceRoot,
         hostTarget,
         artifactTarget,
+        planSchemaVersion,
         actionReportEnabled(init),
-        21usize,
+        23usize,
 "#,
     );
     source.push_str(
@@ -535,6 +605,22 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 },
                 reportError! => {
                     _ = reportError;
+                },
+            }
+            return error.asExitCode()!;
+        },
+    }
+    switch api.writePlanDraft(planDraft) {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            switch api.reportError(error) {
+                !reported => {
+                    _ = reported;
+                },
+                reportError! => {
+                    return reportError.asExitCode()!;
                 },
             }
             return error.asExitCode()!;
@@ -643,11 +729,32 @@ fn run_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
 ) -> Result<(), BuildError> {
+    match fs::remove_file(&invocation.plan_draft) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(BuildError::PreparePlanDraft {
+                path: invocation.plan_draft.clone(),
+                error,
+            });
+        }
+    }
     let mut command = Command::new(runner_executable);
     command.current_dir(&invocation.package_root);
     command.args(build_runner_args(invocation));
-    match command.status() {
-        Ok(status) if status.success() => Ok(()),
+    let result = match command.status() {
+        Ok(status) if status.success() => match read_build_plan(&invocation.plan_draft) {
+            Ok(plan) => publish_build_plan(&invocation.plan_path, &plan).map_err(|error| {
+                BuildError::PublishBuildPlan {
+                    path: invocation.plan_path.clone(),
+                    error,
+                }
+            }),
+            Err(error) => Err(BuildError::ReadPlanDraft {
+                path: invocation.plan_draft.clone(),
+                error,
+            }),
+        },
         Ok(status) => Err(BuildError::RunnerFailed {
             path: runner_executable.to_path_buf(),
             status,
@@ -656,6 +763,18 @@ fn run_build_runner(
             path: runner_executable.to_path_buf(),
             error,
         }),
+    };
+    let cleanup = match fs::remove_file(&invocation.plan_draft) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(BuildError::CleanupPlanDraft {
+            path: invocation.plan_draft.clone(),
+            error,
+        }),
+    };
+    match result {
+        Ok(()) => cleanup,
+        Err(error) => Err(error),
     }
 }
 
@@ -682,6 +801,8 @@ fn build_runner_args(invocation: &BuildInvocation) -> Vec<OsString> {
     ];
     args.extend(target_runner_args(invocation.toolchain.host_target()).map(OsString::from));
     args.extend(target_runner_args(invocation.toolchain.artifact_target()).map(OsString::from));
+    args.push(OsString::from(BUILD_PLAN_SCHEMA_VERSION.to_string()));
+    args.push(invocation.plan_draft.as_os_str().to_owned());
     if let Some(step) = invocation.step.as_runner_arg() {
         args.push(OsString::from(step));
     }
@@ -930,6 +1051,14 @@ mod tests {
             plan.runner_executable,
             plan.package_root.join(".nia-build/runner/nia-build-runner")
         );
+        assert_eq!(
+            plan.plan_draft,
+            plan.package_root.join(".nia-build/build-plan.draft")
+        );
+        assert_eq!(
+            plan.plan_path,
+            plan.package_root.join(".nia-build/build-plan.bin")
+        );
         assert_eq!(plan.step, BuildStepSelection::Default);
     }
 
@@ -995,7 +1124,19 @@ mod tests {
         );
         assert!(runner.source.contains("hostTarget,"));
         assert!(runner.source.contains("artifactTarget,"));
-        assert!(runner.source.contains("21usize,"));
+        assert!(
+            runner
+                .source
+                .contains("let planSchemaVersion = u32Arg(init, 21usize")
+        );
+        assert!(
+            runner
+                .source
+                .contains("pathArg(init, &mut allocator, 22usize")
+        );
+        assert!(runner.source.contains("planSchemaVersion,"));
+        assert!(runner.source.contains("23usize,"));
+        assert!(runner.source.contains("api.writePlanDraft(planDraft)"));
         assert!(runner.source.contains("api.reportError(error)"));
         assert!(runner.source.contains(").reportAndExit(init).?;"));
         assert!(runner.source.contains("api.reportActions(false)"));
@@ -1034,7 +1175,7 @@ mod tests {
 
         assert_eq!(config.artifact_target, *toolchain.host_target());
         assert_ne!(config.artifact_target, *toolchain.artifact_target());
-        assert_eq!(args.len(), 21);
+        assert_eq!(args.len(), 23);
         assert_eq!(args[6], OsString::from(&toolchain.host_target().arch));
         assert_eq!(
             args[12],
@@ -1047,7 +1188,12 @@ mod tests {
         assert_eq!(args[17], OsString::from("artifact-abi"));
         assert_eq!(args[18], OsString::from("big"));
         assert_eq!(args[19], OsString::from("32"));
-        assert_eq!(args[20], OsString::from("inspect"));
+        assert_eq!(
+            args[20],
+            OsString::from(BUILD_PLAN_SCHEMA_VERSION.to_string())
+        );
+        assert_eq!(args[21], plan.plan_draft.as_os_str());
+        assert_eq!(args[22], OsString::from("inspect"));
     }
 
     #[test]

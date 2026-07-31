@@ -91,11 +91,20 @@ The binary codec uses `ToolchainLayout`'s build-protocol schema as its sole
 version source. It bounds the full envelope, collection counts, strings, and
 generated-content blobs separately; rejects bad magic, unknown versions/tags,
 invalid UTF-8/names/paths, truncation, trailing bytes, and semantic invalidity;
-and always routes decoded drafts back through freeze. A file handoff writes and
-syncs a same-directory temporary file, atomically renames it, syncs the parent
-directory, and removes the temporary file on pre-publication failure. These are
-coordinator primitives; the generated Nia runner does not publish this protocol
-yet.
+and always routes decoded drafts back through freeze. The runner receives that
+schema value as data and writes an exclusive, synced Nia-encoded draft after
+builder validation. The coordinator decodes and freezes the draft, re-encodes
+canonical allocation-order-independent bytes, writes and syncs a same-directory
+temporary file, atomically renames it, syncs the parent directory, and removes
+the runner draft on every normal success or failure path. The durable handoff is
+`.nia-build/build-plan.bin`; a failed runner cannot replace its last valid
+contents.
+
+This connected handoff is still transitional. The callback runner currently
+executes the selected legacy action before its process returns, so coordinator
+decode cannot yet be the pre-side-effect gate. Coordinator execution must
+consume the published plan and replace the callback path before the immutable
+plan becomes the sole production graph truth.
 
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a
@@ -105,7 +114,9 @@ serialization, diagnostics, fingerprints, and future stable plan keys.
 
 Bootstrap modules also carry an explicit retained name. Graph construction
 rejects invalid or duplicate module names instead of deriving identity from a
-root-source path or insertion index. Before any callback or compiler process is
+root-source path or insertion index. Module, executable, and step names use the
+same stable-name alphabet as protocol keys, and duplicate module imports are
+rejected before retention. Before any callback or compiler process is
 started, the builder resolves the requested/default step and validates the
 entire dependency graph, including unselected components. A successful result
 is cached only until the next graph mutation. This is a migration guard for the
@@ -195,6 +206,8 @@ argv assembly is allocator-backed and ordinary allocation failure is typed.
 The bootstrap additionally rejects duplicate module names and cycles anywhere
 in the declared graph before starting the selected action. These checks remain
 defense during migration and do not create a second serialized graph model.
+An explicit selected step is sufficient when a script intentionally has no
+default; a nonempty plan with neither selection nor default is invalid.
 
 ## 6. Representative Workloads
 

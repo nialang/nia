@@ -1,0 +1,359 @@
+using pkg::collections;
+using pkg::fs;
+using pkg::io;
+using pkg::mem;
+using pkg::string;
+using pkg::build::error;
+using pkg::build::types;
+
+using error::Error;
+using error::ErrorOperation as Operation;
+using error::ErrorSubject as Subject;
+using types::{
+    Build,
+    ExecutableTarget,
+    Module,
+    OptimizationMode,
+    Runtime,
+    Step,
+    StepKind,
+    TargetView,
+};
+
+const maxPlanBytes: usize = 67108864usize;
+const maxItems: usize = 100000usize;
+const maxStringBytes: usize = 1048576usize;
+
+struct PlanEncoder {
+    allocator: &mut mem::Allocator,
+    bytes: collections::ArrayList[u8],
+}
+
+extend PlanEncoder {
+    fn init(allocator: &mut mem::Allocator) PlanEncoder {
+        {
+            allocator: allocator,
+            bytes: collections::ArrayList[u8]::init(),
+        }
+    }
+
+    fn deinit(&mut self) Error!void {
+        self.bytes.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan)
+    }
+
+    fn data(&self) &[u8] {
+        self.bytes.as_slice()
+    }
+
+    fn writeBytes(&mut self, value: &[u8]) Error!void {
+        if value.len() > maxPlanBytes - self.bytes.len() {
+            return invalidPlan();
+        }
+        self.bytes.append_slice(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
+    }
+
+    fn writeU8(&mut self, value: u8) Error!void {
+        if self.bytes.len() == maxPlanBytes {
+            return invalidPlan();
+        }
+        self.bytes.push(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
+    }
+
+    fn writeU32(&mut self, value: u32) Error!void {
+        let encoded: [4]u8 = [
+            value as u8,
+            (value >> 8u32) as u8,
+            (value >> 16u32) as u8,
+            (value >> 24u32) as u8,
+        ];
+        self.writeBytes(&encoded[..])
+    }
+
+    fn writeCount(&mut self, value: usize) Error!void {
+        if value > maxItems {
+            return invalidPlan();
+        }
+        self.writeU32(value as u32)
+    }
+
+    fn writeString(&mut self, value: string::StringView) Error!void {
+        let byteLen = utf8Length(value.text()).?;
+        self.writeU32(byteLen as u32).?;
+        for &ch in value.text().iter() {
+            self.writeBytes(ch.encode_utf8().bytes()).?;
+        }
+        !{}
+    }
+
+    fn writeRootPackage(&mut self) Error!void {
+        self.writeString(string::StringView::init(&"root"))
+    }
+
+    fn writeNodeKey(&mut self, name: string::StringView) Error!void {
+        self.writeRootPackage().?;
+        self.writeString(name)
+    }
+
+    fn writePackagePath(&mut self, path: fs::PathView) Error!void {
+        self.writeU8(0u8).?;
+        self.writeRootPackage().?;
+        self.writeLogicalPathText(path.string())
+    }
+
+    fn writeBuildPath(&mut self, path: string::StringView) Error!void {
+        self.writeU8(1u8).?;
+        self.writeLogicalPathText(path)
+    }
+
+    fn writeLogicalPathText(&mut self, path: string::StringView) Error!void {
+        if not isValidLogicalPath(path.text()) {
+            return invalidPlan();
+        }
+        self.writeString(path)
+    }
+
+    fn writeTarget(&mut self, target: TargetView) Error!void {
+        if target.arch().len() == 0usize
+            or target.os().len() == 0usize
+            or containsNul(target.arch().text())
+            or containsNul(target.vendor().text())
+            or containsNul(target.os().text())
+            or containsNul(target.env().text())
+            or containsNul(target.abi().text())
+            or containsNul(target.endian().text())
+            or not (textEquals(target.endian().text(), &"little")
+                or textEquals(target.endian().text(), &"big"))
+            or not (target.pointerWidth() == 8u32
+                or target.pointerWidth() == 16u32
+                or target.pointerWidth() == 32u32
+                or target.pointerWidth() == 64u32
+                or target.pointerWidth() == 128u32)
+        {
+            return invalidPlan();
+        }
+        self.writeString(target.arch()).?;
+        self.writeString(target.vendor()).?;
+        self.writeString(target.os()).?;
+        self.writeString(target.env()).?;
+        self.writeString(target.abi()).?;
+        self.writeString(target.endian()).?;
+        self.writeU32(target.pointerWidth())
+    }
+
+    fn writeOptimization(&mut self, optimization: OptimizationMode) Error!void {
+        self.writeU8(switch optimization {
+            OptimizationMode::O0 => 0u8,
+            OptimizationMode::O1 => 1u8,
+            OptimizationMode::O2 => 2u8,
+            OptimizationMode::O3 => 3u8,
+            OptimizationMode::Os => 4u8,
+            OptimizationMode::Oz => 5u8,
+            _ => return invalidPlan(),
+        })
+    }
+
+    fn writeRuntime(&mut self, runtime: Runtime) Error!void {
+        self.writeU8(switch runtime {
+            Runtime::Bare => 0u8,
+            Runtime::Freestanding => 1u8,
+            _ => return invalidPlan(),
+        })
+    }
+
+    fn writeModule(&mut self, moduleRecord: Module) Error!void {
+        self.writeNodeKey(moduleRecord.name.view()).?;
+        self.writePackagePath(moduleRecord.rootSource.view()).?;
+        self.writeOptimization(moduleRecord.optimization).?;
+        self.writeCount(moduleRecord.imports.len()).?;
+        for &import in moduleRecord.imports.iter() {
+            self.writeString(import.name.view()).?;
+            self.writePackagePath(import.path.view()).?;
+        }
+        !{}
+    }
+
+    fn writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module]) Error!void {
+        let moduleRecord = modules[target.rootModule.index];
+        self.writeNodeKey(target.name.view()).?;
+        self.writeNodeKey(moduleRecord.name.view()).?;
+        self.writeBuildPath(target.outputName.view()).?;
+        self.writeRuntime(target.runtime)
+    }
+
+    fn writeAction(
+        &mut self,
+        step: Step,
+        modules: &[Module],
+        executables: &[ExecutableTarget],
+        artifactTarget: TargetView,
+    ) Error!void {
+        self.writeNodeKey(step.name.view()).?;
+        switch step.kind {
+            StepKind::Custom => {
+                self.writeU8(5u8).?;
+                self.writeString(step.name.view())
+            },
+            StepKind::CheckExecutable => {
+                let target = executables[step.payload.executable.target.index];
+                let moduleRecord = modules[target.rootModule.index];
+                self.writeU8(0u8).?;
+                self.writeNodeKey(moduleRecord.name.view()).?;
+                self.writeTarget(artifactTarget).?;
+                self.writeRuntime(target.runtime)
+            },
+            StepKind::EmitExecutable => {
+                let target = executables[step.payload.executable.target.index];
+                self.writeU8(1u8).?;
+                self.writeNodeKey(target.name.view()).?;
+                self.writeTarget(artifactTarget)
+            },
+            _ => invalidPlan(),
+        }
+    }
+
+    fn writeStep(&mut self, build: &Build, step: Step) Error!void {
+        self.writeNodeKey(step.name.view()).?;
+        self.writeNodeKey(step.name.view()).?;
+        let mut dependencyCount = 0usize;
+        for &edge in build.dependencies.iter() {
+            if edge.step.index == step.index {
+                dependencyCount += 1usize;
+            }
+        }
+        self.writeCount(dependencyCount).?;
+        for &edge in build.dependencies.iter() {
+            if edge.step.index == step.index {
+                let dependency = build.steps.as_slice()[edge.dependency.index];
+                self.writeNodeKey(dependency.name.view()).?;
+            }
+        }
+        !{}
+    }
+
+    fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle) Error!void {
+        switch handle {
+            ?step => {
+                self.writeU8(1u8).?;
+                self.writeNodeKey(build.steps.as_slice()[step.index].name.view())
+            },
+            null => self.writeU8(0u8),
+        }
+    }
+
+    fn writeBuild(&mut self, build: &Build) Error!void {
+        self.writeBytes(&b"NIA-PLN\0"[..]).?;
+        self.writeU32(build.planSchemaVersion).?;
+        self.writeRootPackage().?;
+        self.writeCount(1usize).?;
+        self.writeRootPackage().?;
+        self.writeTarget(build.hostTarget()).?;
+        self.writeTarget(build.artifactTarget()).?;
+        self.writeCount(build.modules.len()).?;
+        for &moduleRecord in build.modules.iter() {
+            self.writeModule(moduleRecord).?;
+        }
+        self.writeCount(build.executables.len()).?;
+        for &target in build.executables.iter() {
+            self.writeArtifact(target, build.modules.as_slice()).?;
+        }
+        self.writeCount(build.steps.len()).?;
+        for &step in build.steps.iter() {
+            self.writeAction(
+                step,
+                build.modules.as_slice(),
+                build.executables.as_slice(),
+                build.artifactTarget(),
+            ).?;
+        }
+        self.writeCount(build.steps.len()).?;
+        for &step in build.steps.iter() {
+            self.writeStep(build, step).?;
+        }
+        self.writeOptionalStep(build, build.defaultStep).?;
+        self.writeOptionalStep(build, build.selectedStep)
+    }
+}
+
+extend Build {
+    pub fn writePlanDraft(&mut self, path: fs::PathView) Error!void {
+        self.validatePlan().?;
+        let mut encoder = PlanEncoder::init(self.allocator);
+        defer encoder.deinit().?;
+        encoder.writeBuild(self).?;
+
+        let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        let mut fileOpen = true;
+        defer if fileOpen {
+            file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
+        };
+        let mut buffer: [4096]u8 = [_]u8[0; 4096];
+        let mut writer = file.writer(self.init.io(), &mut buffer[..]).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        writer.write_all(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        file.sync().asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
+        fileOpen = false;
+        !{}
+    }
+}
+
+fn utf8Length(text: &[char]) Error!usize {
+    let mut len = 0usize;
+    for &ch in text.iter() {
+        let encodedLen = ch.encode_utf8().bytes().len();
+        if encodedLen > maxStringBytes - len {
+            return invalidPlan();
+        }
+        len += encodedLen;
+    }
+    !len
+}
+
+fn isValidLogicalPath(text: &[char]) bool {
+    if text.len() == 0usize {
+        return true;
+    }
+    if text[0usize] == '/' or text[text.len() - 1usize] == '/' {
+        return false;
+    }
+    let mut componentStart = 0usize;
+    let mut index = 0usize;
+    while index <= text.len() {
+        if index == text.len() or text[index] == '/' {
+            let componentLen = index - componentStart;
+            if componentLen == 0usize
+                or (componentLen == 1usize and text[componentStart] == '.')
+                or (componentLen == 2usize
+                    and text[componentStart] == '.'
+                    and text[componentStart + 1usize] == '.')
+            {
+                return false;
+            }
+            componentStart = index + 1usize;
+        } else if text[index] == '\\' or text[index] == '\0' {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+fn containsNul(text: &[char]) bool {
+    for &ch in text.iter() {
+        if ch == '\0' {
+            return true;
+        }
+    }
+    false
+}
+
+fn textEquals(left: &[char], right: &[char]) bool {
+    mem::equal[char](left, right)
+}
+
+fn invalidPlan[T]() Error!T {
+    Error::Invalid {
+        operation: Operation::Validate,
+        subject: Subject::BuildPlan,
+    }!
+}
