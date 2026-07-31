@@ -1634,6 +1634,39 @@ all accepted, Phase E is complete. This does not claim the action cache,
 fingerprints, restoration, miss diagnostics, or resource classes assigned to
 Phase F.
 
+Phase F progress (2026-07-31, generated-file action-cache batch): the
+coordinator now owns a versioned immutable cache slice for `GeneratedFile`
+actions. Its typed fingerprint covers the stable package/action key, canonical
+logical output, exact contents, and resolved toolchain compatibility identity;
+the latter carries compiler, resource-layout, std, and build-protocol identity.
+Compiler and external-command actions deliberately remain outside this slice,
+so incomplete source/dependency or executable/environment identity can never be
+reported as an action-cache hit.
+
+Entries are partitioned by stable action key and addressed by the complete
+fingerprint. Their envelope repeats key, component, output, length, checksum,
+and payload facts. Reads reject truncation, trailing bytes, mismatched paths,
+and corrupt payloads, retire corruption, and distinguish absent, contents,
+output, compiler, resource-layout, std, build-protocol, corruption, read-I/O,
+and write-I/O miss outcomes. A cache hit validates or atomically restores the
+generated destination; an already matching regular destination avoids
+publication work.
+
+Publication syncs a same-directory temporary file and installs it through a
+no-overwrite hard link. Duplicate publishers validate the same immutable entry,
+ordinary readers remain lock-free, and mutation locks cover only install and
+corruption retirement. Revalidation under that lock prevents a stale corrupt
+reader from deleting a newly published valid entry. Focused tests cover cold
+and warm restoration, component-exact invalidation, nonfatal cache I/O failure,
+corruption retirement and republish, duplicate publishers, stale retirement,
+and concurrent readers that never accept partial bytes. Phase F remains open
+for compiler/external action closure caching, dependency artifact propagation,
+resource classes and inherited capacity policy, interrupted output-transaction
+recovery, stress matrices, and the full no-change acceptance measurement.
+Validation passes all 68 `nia-build` tests, workspace all-target/all-feature
+check, strict Clippy, formatting, and the 14-case production CLI build matrix
+(`1154.19s`).
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
