@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phase D complete; Phase E coordinator execution in progress
+Status: Phases A-E complete; Phase F incremental cache and resource scheduling next
 
 The Rust-side `BuildInvocation` is resolved bootstrap state: package and
 toolchain paths, requested step, runner locations, and timing options. It is not
@@ -125,9 +125,15 @@ seven-minute timeout, and retires the owned process group on timeout or after
 the leader exits. Spawn, wait, timeout, capture, and nonzero-exit failures retain
 action, program, cwd, argument count, status, and output context.
 External-command arguments distinguish literals, declared inputs, and declared
-outputs. An output argument resolves to a coordinator-owned same-filesystem
-staging path and one regular-file output is synced and atomically published;
-multi-output commands remain invalid until transactional publication exists.
+outputs. Every output argument resolves to its own path in one
+coordinator-owned same-filesystem transaction directory. Before publication,
+all produced values must be regular files and are synced. The coordinator holds
+all destination locks, backs up every accepted destination, installs the new
+files, syncs every affected parent, and marks the transaction accepted only
+after the complete set is present. Any ordinary failure before that acceptance
+point restores backups in reverse order and removes destinations that did not
+previously exist. This is a recoverable multi-path transaction, not a claim that
+separate filesystem directory entries switch in one indivisible rename.
 Explicit uncacheable actions remain unsupported; no path falls back to a runner
 callback.
 

@@ -722,12 +722,6 @@ fn canonicalize_actions(
                         });
                     }
                 }
-                if outputs.len() > 1 {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "multiple command outputs require transactional publication",
-                    });
-                }
                 if outputs.iter().any(|output| {
                     !arguments.iter().any(
                         |argument| matches!(argument, CommandArgument::OutputPath(path) if path == output),
@@ -1200,7 +1194,7 @@ mod tests {
     }
 
     #[test]
-    fn freeze_rejects_unbound_or_transactional_command_outputs() {
+    fn freeze_rejects_unbound_command_outputs_and_accepts_multiple_outputs() {
         let output = LogicalPath::new(LogicalPathRoot::Build, "first.txt").unwrap();
         let mut unbound = draft(false);
         unbound.actions.push(PlanAction {
@@ -1246,13 +1240,16 @@ mod tests {
                 outputs: vec![output, second],
             },
         });
-        assert!(matches!(
-            BuildPlan::freeze(multiple),
-            Err(PlanError::InvalidCommand {
-                reason: "multiple command outputs require transactional publication",
-                ..
-            })
-        ));
+        let plan = BuildPlan::freeze(multiple).unwrap();
+        let multiple = plan
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "multiple")
+            .unwrap();
+        let ActionKind::ExternalCommand { outputs, .. } = &multiple.kind else {
+            panic!("expected external command action");
+        };
+        assert_eq!(outputs.len(), 2);
     }
 
     #[test]

@@ -249,22 +249,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"first.out")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"second.out")),
     ];
-    if not rejectsInvalidStep(
-        api.addExternalCommandStep(
-            &"invalid-tool",
-            build::ExternalCommandOptions::search(&"tool").withArguments(&commandOutputs),
-        ),
-        1usize,
-    ) {
-        return process::exit(14)!;
-    }
+    _ = api.addExternalCommandStep(
+        &"multi-output-tool",
+        build::ExternalCommandOptions::search(&"tool").withArguments(&commandOutputs),
+    ).exit().?;
     if not rejectsInvalidStep(
         api.addExternalCommandStep(
             &"invalid-cwd",
             build::ExternalCommandOptions::search(&"tool")
                 .withPackageWorkingDirectory(fs::PathView::init(&"../escape")),
         ),
-        1usize,
+        2usize,
     ) {
         return process::exit(15)!;
     }

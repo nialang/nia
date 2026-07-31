@@ -240,12 +240,11 @@ deep-copies them; a view supplied by runner-local decoding storage is never
 retained. The backing `TargetStorage` and executable target role are
 package-private implementation details, not a second public target model.
 
-The current bootstrap can declare a distinct artifact target, but its legacy
-callback executor still launches the public CLI, which has no explicit target
-selection surface. It therefore rejects execution when host and artifact target
-differ instead of silently producing a host artifact. Phase D/E typed compiler
-actions replace that bootstrap boundary; no temporary arbitrary-target setter
-is exposed from `ExecutableOptions`.
+The build API can declare a distinct artifact target. The runner retains and
+encodes that descriptor, while the Rust coordinator executes typed compiler
+actions through a target-specific Driver; no callback executor or reconstructed
+public CLI invocation remains. No temporary arbitrary-target setter is exposed
+from `ExecutableOptions`.
 
 Build command assembly has no import-count or argv-count sentinel. Module-map
 arguments are UTF-8 encoded into allocator-owned contiguous storage; offsets are
@@ -264,18 +263,18 @@ working directory, and every argument before returning. Partial allocation is
 rolled back through the same propagating `defer` cleanup used by other retained
 plan values.
 
-The current publication contract accepts zero outputs or one build-rooted
-regular-file output. The coordinator syncs the staged file and atomically
-renames it; that rename is the single-output commit boundary. Spawn, timeout,
-exit, missing-output, invalid-output, and argument-resolution failures happen
-before commit, retire staging, and cannot replace an accepted old output.
-Directory-sync or staging-retirement failure after rename reports the precise
-publication state and prevents dependent actions, but does not claim to restore
-the previous file. Multiple outputs are rejected during plan freeze until a
-publication transaction or journal can restore every prior destination after a
-partial commit. The protocol retains separate input/output declarations and
-typed argument bindings so fingerprinting and execution cannot disagree about
-which paths a tool receives.
+The publication contract accepts zero or multiple build-rooted regular-file
+outputs. Each `buildOutput` argument receives a distinct same-filesystem staging
+path. The coordinator validates and syncs the complete produced set while
+holding every destination lock, backs up accepted files, installs all new
+values, syncs affected parents, and marks the transaction accepted only after
+the set is complete. Spawn, timeout, exit, cancellation, missing/invalid output,
+argument resolution, and pre-acceptance publication failures retire staging;
+partial installation rolls back in reverse order, restoring old files and
+removing paths that were previously absent. Separate directory entries are not
+claimed to switch simultaneously. The protocol retains separate input/output
+declarations and typed argument bindings so fingerprinting and execution cannot
+disagree about which paths a tool receives.
 
 ## 7. Proposal Decision Gates
 

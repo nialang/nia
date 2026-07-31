@@ -258,9 +258,13 @@ fn assert_configured_build_success(
                 arguments,
                 &[
                     nia_build::CommandArgument::Literal("-c".to_string()),
-                    nia_build::CommandArgument::Literal("tr a-z A-Z < \"$1\" > \"$2\"".to_string()),
+                    nia_build::CommandArgument::Literal(
+                        "tr a-z A-Z < \"$1\" > \"$2\"; printf 'source=tool-input\\n' > \"$3\""
+                            .to_string()
+                    ),
                     nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
                     nia_build::CommandArgument::InputPath(inputs[0].clone()),
+                    nia_build::CommandArgument::OutputPath(outputs[1].clone()),
                     nia_build::CommandArgument::OutputPath(outputs[0].clone()),
                 ]
             );
@@ -276,12 +280,13 @@ fn assert_configured_build_success(
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
             ));
             assert_eq!(inputs[0].protocol_path(), "tool-input.txt");
-            assert_eq!(outputs.len(), 1);
+            assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),
                 nia_build::LogicalPathRoot::Build
             ));
-            assert_eq!(outputs[0].protocol_path(), "transformed.txt");
+            assert_eq!(outputs[0].protocol_path(), "transformed.meta");
+            assert_eq!(outputs[1].protocol_path(), "transformed.txt");
         }
         other => panic!("expected staged external tool action, found {other:?}"),
     }
@@ -325,6 +330,10 @@ fn assert_configured_build_success(
     assert_eq!(
         std::fs::read(workspace.join(".nia-build/transformed.txt")).unwrap(),
         b"ROADMAP\n"
+    );
+    assert_eq!(
+        std::fs::read(workspace.join(".nia-build/transformed.meta")).unwrap(),
+        b"source=tool-input\n"
     );
     assert!(
         std::fs::read_dir(workspace.join(".nia-build"))

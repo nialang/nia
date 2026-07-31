@@ -33,10 +33,11 @@ fn configure(b: &mut build::Build) build::Error!void {
     ).?;
     let toolArguments = [
         build::CommandArgument::literal(&"-c"),
-        build::CommandArgument::literal(&"tr a-z A-Z < \"$1\" > \"$2\""),
+        build::CommandArgument::literal(&"tr a-z A-Z < \"$1\" > \"$2\"; printf 'source=tool-input\\n' > \"$3\""),
         build::CommandArgument::literal(&"nia-build-tool"),
         build::CommandArgument::packageInput(fs::PathView::init(&"tool-input.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
     ];
     let toolStep = b.addExternalCommandStep(
         &toolStepName,

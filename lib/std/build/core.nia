@@ -1047,7 +1047,6 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
     {
         return invalidStep(index);
     }
-    let mut outputCount: usize = 0;
     switch options.arguments {
         ?arguments => {
             for &argument in arguments.iter() {
@@ -1066,10 +1065,6 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
                 }
                 if argument.kind == CommandArgumentKind::BuildOutput {
                     if not isValidBuildPath(argument.value) {
-                        return invalidStep(index);
-                    }
-                    outputCount += 1;
-                    if outputCount > 1 {
                         return invalidStep(index);
                     }
                 }

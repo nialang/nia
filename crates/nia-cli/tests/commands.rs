@@ -255,7 +255,7 @@ fn invalid_toolchain_layout_fails_before_source_loading() {
     std::fs::create_dir_all(&incompatible).expect("create incompatible resource root");
     std::fs::write(
         incompatible.join("toolchain.meta"),
-        "resource-layout-schema=1\ncompiler-version=0.0.0\nstd-schema=1\nbuild-protocol-schema=2\n",
+        "resource-layout-schema=1\ncompiler-version=0.0.0\nstd-schema=1\nbuild-protocol-schema=3\n",
     )
     .expect("write incompatible resource manifest");
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
