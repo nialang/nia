@@ -46,20 +46,20 @@ using types::{
     StepPayload,
 };
 
-static mut nextBuildOwnerId: usize = 1usize;
+static mut nextBuildOwnerId: usize = 1;
 
 fn allocateBuildOwnerId() usize {
     let ownerId = atomicBuiltin::atomic_rmw[usize](
         &mut nextBuildOwnerId,
         atomic::Add,
-        1usize,
+        1,
         atomic::Monotonic,
     );
-    if ownerId == 0usize {
+    if ownerId == 0 {
         atomicBuiltin::atomic_rmw[usize](
             &mut nextBuildOwnerId,
             atomic::Add,
-            1usize,
+            1,
             atomic::Monotonic,
         )
     } else {
@@ -168,21 +168,21 @@ extend Build {
     pub fn deinit(&mut self) Error!void {
         let mut firstError: ?Error = null;
         let mut index = self.steps.len();
-        while index != 0usize {
-            index -= 1usize;
+        while index != 0 {
+            index -= 1;
             rememberCleanupError(&mut firstError, self.steps.as_mut_slice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError(Operation::Release, Subject::Steps));
         rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         index = self.executables.len();
-        while index != 0usize {
-            index -= 1usize;
+        while index != 0 {
+            index -= 1;
             rememberCleanupError(&mut firstError, self.executables.as_mut_slice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError(Operation::Release, Subject::Executables));
         index = self.modules.len();
-        while index != 0usize {
-            index -= 1usize;
+        while index != 0 {
+            index -= 1;
             rememberCleanupError(&mut firstError, self.modules.as_mut_slice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError(Operation::Release, Subject::Modules));
@@ -242,7 +242,7 @@ extend Build {
 
     pub fn addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
         let handle = StepHandle::init(self.ownerId, self.steps.len());
-        if not output.isValid() or contents.len() > 67108864usize {
+        if not output.isValid() or contents.len() > 67108864 {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(handle.index()),
@@ -432,7 +432,7 @@ extend Build {
                         self.selectedStep = ?handle;
                     },
                     null => {
-                        if self.steps.len() != 0usize {
+                        if self.steps.len() != 0 {
                             return Error::MissingDefaultStep!;
                         }
                     },
@@ -450,13 +450,13 @@ extend Build {
             self.steps.len(),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
         defer indegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < self.steps.len() {
-            indegree.push(self.allocator, 0usize).asBuildError(Operation::Retain, Subject::Dependencies).?;
-            index += 1usize;
+            indegree.push(self.allocator, 0).asBuildError(Operation::Retain, Subject::Dependencies).?;
+            index += 1;
         }
         for &edge in self.dependencies.iter() {
-            indegree.as_mut_slice()[edge.step.index()] += 1usize;
+            indegree.as_mut_slice()[edge.step.index()] += 1;
         }
 
         let mut ready = collections::ArrayList[usize]::init_capacity(
@@ -464,23 +464,23 @@ extend Build {
             self.steps.len(),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
         defer ready.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
-        index = 0usize;
+        index = 0;
         while index < indegree.len() {
-            if indegree.as_slice()[index] == 0usize {
+            if indegree.as_slice()[index] == 0 {
                 ready.push(self.allocator, index).asBuildError(Operation::Retain, Subject::Dependencies).?;
             }
-            index += 1usize;
+            index += 1;
         }
 
-        let mut cursor = 0usize;
+        let mut cursor: usize = 0;
         while cursor < ready.len() {
             let completed = ready.as_slice()[cursor];
-            cursor += 1usize;
+            cursor += 1;
             for &edge in self.dependencies.iter() {
                 if edge.dependency.index() == completed {
                     let dependent = edge.step.index();
-                    indegree.as_mut_slice()[dependent] -= 1usize;
-                    if indegree.as_slice()[dependent] == 0usize {
+                    indegree.as_mut_slice()[dependent] -= 1;
+                    if indegree.as_slice()[dependent] == 0 {
                         ready.push(self.allocator, dependent).asBuildError(Operation::Retain, Subject::Dependencies).?;
                     }
                 }
@@ -488,8 +488,8 @@ extend Build {
         }
         if cursor != self.steps.len() {
             for &edge in self.dependencies.iter() {
-                if indegree.as_slice()[edge.step.index()] != 0usize
-                    and indegree.as_slice()[edge.dependency.index()] != 0usize
+                if indegree.as_slice()[edge.step.index()] != 0
+                    and indegree.as_slice()[edge.dependency.index()] != 0
                 {
                     return Error::StepCycle {
                         step: edge.step.index(),
@@ -507,7 +507,7 @@ extend Build {
 
     pub fn reportError(&mut self, error: Error) Error!void {
         let mut buffer: [1024]u8 = [_]u8[0; 1024];
-        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
+        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer);
         stderr.print(
             &"build error: {}\n",
             &[&error],
@@ -525,12 +525,12 @@ extend Build {
     }
 
     fn findStepArg(&self, arg: process::Arg) ?StepHandle {
-        let mut index = 0usize;
+        let mut index: usize = 0;
         for &step in self.steps.iter() {
             if argMatchesText(arg, step.name.text()) {
                 return ?StepHandle::init(self.ownerId, index);
             }
-            index += 1usize;
+            index += 1;
         }
         null
     }
@@ -610,7 +610,7 @@ extend Build {
 
     fn reportUnknownStep(&mut self, step: process::Arg) Error!void {
         let mut buffer: [256]u8 = [_]u8[0; 256];
-        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
+        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer);
         stderr.print(&"unknown build step `{}`\n", &[&step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
         stderr.flush().asBuildError(Operation::Report, Subject::RequestedStep)
     }
@@ -695,7 +695,7 @@ extend StepDependency {
 
 extend AggregateStep {
     fn init() AggregateStep {
-        { marker: 0u8 }
+        { marker: 0 }
     }
 }
 
@@ -803,8 +803,8 @@ extend RunExecutableStep {
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
         let mut firstError: ?Error = null;
         let mut argumentIndex = self.arguments.len();
-        while argumentIndex != 0usize {
-            argumentIndex -= 1usize;
+        while argumentIndex != 0 {
+            argumentIndex -= 1;
             rememberCleanupError(
                 &mut firstError,
                 self.arguments.as_mut_slice()[argumentIndex]
@@ -959,8 +959,8 @@ extend Module {
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
         let mut firstError: ?Error = null;
         let mut index = self.imports.len();
-        while index != 0usize {
-            index -= 1usize;
+        while index != 0 {
+            index -= 1;
             rememberCleanupError(&mut firstError, self.imports.as_mut_slice()[index].deinit(allocator));
         }
         rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
@@ -1220,18 +1220,18 @@ extend Runtime {
 }
 
 fn isValidStableName(name: string::StringView) bool {
-    if name.len() == 0usize {
+    if name.len() == 0 {
         return false;
     }
     let text = name.text();
     for &ch in text.iter() {
         let code = ch as u32;
-        let valid = (code >= 48u32 and code <= 57u32)
-            or (code >= 65u32 and code <= 90u32)
-            or (code >= 97u32 and code <= 122u32)
-            or code == 45u32
-            or code == 46u32
-            or code == 95u32;
+        let valid = (code >= 48 and code <= 57)
+            or (code >= 65 and code <= 90)
+            or (code >= 97 and code <= 122)
+            or code == 45
+            or code == 46
+            or code == 95;
         if not valid {
             return false;
         }
@@ -1240,12 +1240,12 @@ fn isValidStableName(name: string::StringView) bool {
 }
 
 fn isValidOutputName(name: string::StringView) bool {
-    if name.len() == 0usize {
+    if name.len() == 0 {
         return false;
     }
     for &ch in name.text().iter() {
         let code = ch as u32;
-        if code == 0u32 or code == 47u32 or code == 92u32 {
+        if code == 0 or code == 47 or code == 92 {
             return false;
         }
     }
@@ -1254,27 +1254,27 @@ fn isValidOutputName(name: string::StringView) bool {
 
 fn isValidBuildPath(path: string::StringView) bool {
     let text = path.text();
-    if text.len() == 0usize or text[0usize] == '/' or text[text.len() - 1usize] == '/' {
+    if text.len() == 0 or text[0] == '/' or text[text.len() - 1] == '/' {
         return false;
     }
-    let mut componentStart = 0usize;
-    let mut index = 0usize;
+    let mut componentStart: usize = 0;
+    let mut index: usize = 0;
     while index <= text.len() {
         if index == text.len() or text[index] == '/' {
             let componentLen = index - componentStart;
-            if componentLen == 0usize
-                or (componentLen == 1usize and text[componentStart] == '.')
-                or (componentLen == 2usize
+            if componentLen == 0
+                or (componentLen == 1 and text[componentStart] == '.')
+                or (componentLen == 2
                     and text[componentStart] == '.'
-                    and text[componentStart + 1usize] == '.')
+                    and text[componentStart + 1] == '.')
             {
                 return false;
             }
-            componentStart = index + 1usize;
+            componentStart = index + 1;
         } else if text[index] == '\\' or text[index] == '\0' {
             return false;
         }
-        index += 1usize;
+        index += 1;
     }
     true
 }
@@ -1282,7 +1282,7 @@ fn isValidBuildPath(path: string::StringView) bool {
 fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
     switch imports {
         ?items => {
-            let mut index = 0usize;
+            let mut index: usize = 0;
             for &import in items.iter() {
                 if not isValidModuleImportName(import.name) {
                     return Error::Invalid {
@@ -1290,7 +1290,7 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
                         subject: Subject::ModuleImport(index),
                     }!;
                 }
-                let mut oldIndex = 0usize;
+                let mut oldIndex: usize = 0;
                 while oldIndex < index {
                     if mem::equal[char](items[oldIndex].name.text(), import.name.text()) {
                         return Error::Invalid {
@@ -1298,9 +1298,9 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
                             subject: Subject::ModuleImport(index),
                         }!;
                     }
-                    oldIndex += 1usize;
+                    oldIndex += 1;
                 }
-                index += 1usize;
+                index += 1;
             }
         },
         null => {},
@@ -1325,7 +1325,7 @@ fn cloneModuleImports(
     defer if not transferred {
         deinitModuleImports(&mut owned, allocator).?;
     };
-    let mut index = 0usize;
+    let mut index: usize = 0;
     for &import in items.iter() {
         let mut ownedImport = OwnedModuleImport::init(allocator, import, index).?;
         let mut importTransferred = false;
@@ -1334,7 +1334,7 @@ fn cloneModuleImports(
         };
         owned.push(allocator, ownedImport).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         importTransferred = true;
-        index += 1usize;
+        index += 1;
     }
     transferred = true;
     !owned
@@ -1346,8 +1346,8 @@ fn deinitModuleImports(
 ) Error!void {
     let mut firstError: ?Error = null;
     let mut index = imports.len();
-    while index != 0usize {
-        index -= 1usize;
+    while index != 0 {
+        index -= 1;
         rememberCleanupError(&mut firstError, imports.as_mut_slice()[index].deinit(allocator));
     }
     rememberCleanupError(&mut firstError, imports.deinit(allocator).asBuildError(Operation::Release, Subject::Modules));
@@ -1355,7 +1355,7 @@ fn deinitModuleImports(
 }
 
 fn isValidModuleImportName(name: string::StringView) bool {
-    if name.len() == 0usize {
+    if name.len() == 0 {
         return false;
     }
     let text = name.text();
@@ -1364,11 +1364,11 @@ fn isValidModuleImportName(name: string::StringView) bool {
     }
     for &ch in text.iter() {
         let code = ch as u32;
-        let valid = (code >= 48u32 and code <= 57u32)
-            or (code >= 65u32 and code <= 90u32)
-            or (code >= 97u32 and code <= 122u32)
-            or code == 95u32
-            or code == 45u32;
+        let valid = (code >= 48 and code <= 57)
+            or (code >= 65 and code <= 90)
+            or (code >= 97 and code <= 122)
+            or code == 95
+            or code == 45;
         if not valid {
             return false;
         }
@@ -1378,7 +1378,7 @@ fn isValidModuleImportName(name: string::StringView) bool {
 
 fn argMatchesText(arg: process::Arg, text: &[char]) bool {
     let bytes = arg.bytes();
-    let mut byteIndex = 0usize;
+    let mut byteIndex: usize = 0;
     for &ch in text.iter() {
         let encoded = ch.encode_utf8();
         let encodedBytes = encoded.bytes();
@@ -1386,7 +1386,7 @@ fn argMatchesText(arg: process::Arg, text: &[char]) bool {
             if byteIndex >= bytes.len() or bytes[byteIndex] != encodedByte {
                 return false;
             }
-            byteIndex += 1usize;
+            byteIndex += 1;
         }
     }
     byteIndex == bytes.len()

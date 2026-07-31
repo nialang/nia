@@ -68,9 +68,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
 ```
 
 Returning `!{}` means process success. `process::ExitCode` is an open enum
-backed by `i32`; `process::ExitCode::Success` names status `0`, and unnamed
-status values may be constructed with `process::exit(code)` or an explicit
-`code as process::ExitCode` cast. Returning an error payload such as
+backed by `i32`; `process::ExitCode::Success` names status `0`, and the
+standard-library constructor for an unnamed status is `process::exit(code)`.
+The language also permits an explicit `code as process::ExitCode` cast because
+`ExitCode` is an open integer-backed enum, but ordinary executable code uses
+the constructor so the conversion remains visible and searchable at one API
+boundary. Returning an error payload such as
 `process::exit(1)!` asks the startup layer to terminate with that exit status:
 
 ```nia

@@ -31,16 +31,16 @@ fn read_error(value: i32!i32) i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     if read_optional(?4) != 4 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if read_optional(null) != 0 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     if read_error(!7) != 7 {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     if read_error(5!) != 5 {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     !{}
 }

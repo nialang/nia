@@ -238,6 +238,64 @@ pub fn unreachable(self) i32 {
 }
 
 #[test]
+fn executable_backend_signatures_include_checked_shallow_provider_impls() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+module provider;
+using entry::provider;
+
+fn main() i32 {
+'a'.activate()
+}
+"#,
+    );
+    let entry_id = fixture.entry_id();
+    let provider_id = fixture.add_shallow_child(
+        entry_id,
+        "provider",
+        "provider.nia",
+        r#"
+pub trait Value {
+fn value(self) i32;
+}
+
+extend char : Value {
+fn value(self) i32 {
+_ = self;
+1
+}
+}
+
+extend[T] T
+where T: Value
+{
+pub fn activate(self) i32 {
+self.value()
+}
+}
+"#,
+    );
+    fixture.graph.mark_semantic_selected(provider_id);
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    assert!(
+        modules.iter().any(|module| module.id == provider_id),
+        "the selected shallow provider should be executable-reachable"
+    );
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(
+        backend.diagnostics.is_empty(),
+        "checked provider trait methods should lower without diagnostics: {:?}",
+        backend.diagnostics
+    );
+}
+
+#[test]
 fn executable_backend_lowering_includes_cross_module_trait_default_vtable_instances() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

@@ -32,3 +32,53 @@ tests only because they increase test count or preserve development history.
 
 When reviewing tests, delete obsolete cases or rewrite them into explicit
 current-language rejection tests.
+
+## User-Representative Nia Source
+
+Nia source in standard-library modules, examples, benchmarks, and integration
+fixtures should resemble ordinary user code. Do not add numeric suffixes merely
+to make compiler tests more explicit when the surrounding signature, field,
+place, or expression already determines the type. Such annotations reduce the
+repository's routine coverage of contextual inference and can hide regressions.
+
+Keep explicit literal types where width is the contract: ABI and layout values,
+serialization, hashes and bit operations, overflow boundaries, mixed-width
+arithmetic, otherwise unconstrained literals, and tests specifically about
+literal typing or casts.
+
+Executable fixtures return numeric failures with `process::exit(code)!` and map
+reviewed error unions with `.exit().?`. A direct `as process::ExitCode` is for
+the implementation of that conversion or a test explicitly exercising an enum
+cast, not ordinary control flow.
+
+Write aggregate type information once in ordinary code. Prefer a left-hand
+annotation for a named value whose type is part of its local contract:
+
+```nia
+let point: Point = { x: 10, y: 20 };
+let values: [3]i32 = [1, 2, 3];
+```
+
+Prefer an explicit expression type when the value stands alone, is nested, or
+the length should be inferred at the construction site:
+
+```nia
+consume(Point { x: 10, y: 20 });
+let values = [_]i32[1, 2, 3];
+```
+
+Do not spell the same inferred array element type on both sides unless the test
+is specifically about contextual and explicit array literal syntax.
+
+When a call or binding already expects a slice, take the array's address and let
+the pointer-array-to-slice coercion apply:
+
+```nia
+consume(&values);
+let writable: &mut [i32] = &mut values;
+```
+
+Use `&values[..]` for an intentionally explicit whole-slice value and range
+syntax for an actual subrange. Maintained examples should exercise adjacent and
+multiline strings, contextual aggregate literals, pointer-array coercion, and
+`if ... is`; parser-only coverage does not establish a usable idiom.

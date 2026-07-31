@@ -90,17 +90,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
             value
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     };
     if cwd.len() == 0usize {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     if cwd[0] != b'/' {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     if cwd[cwd.len() - 1usize] == 0u8 {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     !{}
 }
@@ -149,7 +149,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (90 as process::ExitCode)!;
+            return process::exit(90)!;
         },
     }
     defer {
@@ -166,7 +166,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
     let mut write_buffer: [64]u8 = [0; 64];
@@ -176,7 +176,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch writer.flush() {
@@ -184,7 +184,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
     switch file.close() {
@@ -192,7 +192,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
     }
 
@@ -202,7 +202,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             opened = value;
         },
         error! => {
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
     }
     let mut read_buffer: [64]u8 = [0; 64];
@@ -213,7 +213,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (6 as process::ExitCode)!;
+            return process::exit(6)!;
         },
     }
     switch opened.close() {
@@ -221,14 +221,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     }
     let mut expected: &[u8] = &b"nia fs";
     let mut index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return (8 as process::ExitCode)!;
+            return process::exit(8)!;
         }
         index += 1usize;
     }
@@ -283,7 +283,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
     let mut write_buffer: [16]u8 = [0; 16];
@@ -293,7 +293,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch writer.flush() {
@@ -301,7 +301,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
     switch file.close() {
@@ -309,7 +309,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
     }
 
@@ -319,7 +319,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             opened = value;
         },
         error! => {
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
     }
     let mut read_buffer: [16]u8 = [0; 16];
@@ -330,7 +330,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (6 as process::ExitCode)!;
+            return process::exit(6)!;
         },
     }
     switch opened.close() {
@@ -338,14 +338,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     }
     let mut expected: &[u8] = &b"open close";
     let mut index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return (8 as process::ExitCode)!;
+            return process::exit(8)!;
         }
         index += 1usize;
     }
@@ -397,7 +397,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             value
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     };
     switch file.close() {
@@ -405,28 +405,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch file.borrow_handle() {
         !handle => {
             _ = handle;
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return (4 as process::ExitCode)!;
+                return process::exit(4)!;
             }
         },
     }
     switch file.close() {
         !ok => {
             _ = ok;
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return (6 as process::ExitCode)!;
+                return process::exit(6)!;
             }
         },
     }
@@ -434,11 +434,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch file.writer(init.io(), &mut buffer[..]) {
         !writer => {
             _ = writer;
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return (8 as process::ExitCode)!;
+                return process::exit(8)!;
             }
         },
     }
@@ -485,7 +485,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             value
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     };
     switch cwd.close() {
@@ -493,39 +493,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch cwd.borrow_handle() {
         !handle => {
             _ = handle;
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return (4 as process::ExitCode)!;
+                return process::exit(4)!;
             }
         },
     }
     switch cwd.close() {
         !ok => {
             _ = ok;
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return (6 as process::ExitCode)!;
+                return process::exit(6)!;
             }
         },
     }
     switch cwd.create_file(fs::PathView::init(&"bad.txt"), fs::CreateOptions::init()) {
         !file => {
             _ = file;
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return (8 as process::ExitCode)!;
+                return process::exit(8)!;
             }
         },
     }
@@ -575,7 +575,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
 
@@ -586,7 +586,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch writer.flush() {
@@ -594,58 +594,58 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
 
     switch file.len() {
         !value => {
             if value != 6u64 {
-                return (4 as process::ExitCode)!;
+                return process::exit(4)!;
             }
         },
         error! => {
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
     }
     switch file.seek_by(0) {
         !value => {
             if value != 6u64 {
-                return (6 as process::ExitCode)!;
+                return process::exit(6)!;
             }
         },
         error! => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     }
     switch file.seek_to(2u64) {
         !value => {
             if value != 2u64 {
-                return (8 as process::ExitCode)!;
+                return process::exit(8)!;
             }
         },
         error! => {
-            return (9 as process::ExitCode)!;
+            return process::exit(9)!;
         },
     }
     switch file.seek_by(1i64) {
         !value => {
             if value != 3u64 {
-                return (10 as process::ExitCode)!;
+                return process::exit(10)!;
             }
         },
         error! => {
-            return (11 as process::ExitCode)!;
+            return process::exit(11)!;
         },
     }
     switch file.seek_from_end(-2i64) {
         !value => {
             if value != 4u64 {
-                return (12 as process::ExitCode)!;
+                return process::exit(12)!;
             }
         },
         error! => {
-            return (13 as process::ExitCode)!;
+            return process::exit(13)!;
         },
     }
 
@@ -654,39 +654,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (14 as process::ExitCode)!;
+            return process::exit(14)!;
         },
     }
     switch file.seek_to(9223372036854775808u64) {
         !value => {
             _ = value;
-            return (20 as process::ExitCode)!;
+            return process::exit(20)!;
         },
         err! => {
             if err != fs::Error::OutOfRange {
-                return (21 as process::ExitCode)!;
+                return process::exit(21)!;
             }
         },
     }
     switch file.truncate(9223372036854775808u64) {
         !ok => {
             _ = ok;
-            return (22 as process::ExitCode)!;
+            return process::exit(22)!;
         },
         err! => {
             if err != fs::Error::OutOfRange {
-                return (23 as process::ExitCode)!;
+                return process::exit(23)!;
             }
         },
     }
     switch file.len() {
         !value => {
             if value != 4u64 {
-                return (15 as process::ExitCode)!;
+                return process::exit(15)!;
             }
         },
         error! => {
-            return (16 as process::ExitCode)!;
+            return process::exit(16)!;
         },
     }
     switch file.sync_data() {
@@ -694,7 +694,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (17 as process::ExitCode)!;
+            return process::exit(17)!;
         },
     }
     switch file.sync() {
@@ -702,7 +702,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (18 as process::ExitCode)!;
+            return process::exit(18)!;
         },
     }
     switch file.close() {
@@ -710,7 +710,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (19 as process::ExitCode)!;
+            return process::exit(19)!;
         },
     }
     !{}
@@ -760,7 +760,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
 
@@ -771,7 +771,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch writer.flush() {
@@ -779,32 +779,32 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
 
     switch file.metadata() {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
-                return (4 as process::ExitCode)!;
+                return process::exit(4)!;
             }
             if metadata.size() != 8u64 {
-                return (5 as process::ExitCode)!;
+                return process::exit(5)!;
             }
             switch metadata.link_count() {
                 ?value => {
                     if value == 0u32 {
-                        return (6 as process::ExitCode)!;
+                        return process::exit(6)!;
                     }
                 },
                 null => {},
             }
             if metadata.preferred_block_size() == 0u32 {
-                return (7 as process::ExitCode)!;
+                return process::exit(7)!;
             }
         },
         error! => {
-            return (8 as process::ExitCode)!;
+            return process::exit(8)!;
         },
     }
 
@@ -814,16 +814,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (9 as process::ExitCode)!;
+            return process::exit(9)!;
         },
     }
     switch cwd.metadata(path, fs::MetadataOptions::init()) {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
-                return (10 as process::ExitCode)!;
+                return process::exit(10)!;
             }
             if metadata.size() != 8u64 {
-                return (11 as process::ExitCode)!;
+                return process::exit(11)!;
             }
             switch metadata.accessed() {
                 ?time => {
@@ -841,7 +841,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             }
         },
         error! => {
-            return (12 as process::ExitCode)!;
+            return process::exit(12)!;
         },
     }
 
@@ -850,7 +850,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (13 as process::ExitCode)!;
+            return process::exit(13)!;
         },
     }
     switch file.close() {
@@ -858,7 +858,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (14 as process::ExitCode)!;
+            return process::exit(14)!;
         },
     }
     !{}
@@ -962,7 +962,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (90 as process::ExitCode)!;
+            return process::exit(90)!;
         },
     }
     defer {
@@ -979,7 +979,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
     let mut buffer: [64]u8 = [0; 64];
@@ -989,7 +989,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch writer.flush() {
@@ -997,7 +997,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
     switch file.close() {
@@ -1005,7 +1005,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
     }
     !{}
@@ -1055,7 +1055,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (90 as process::ExitCode)!;
+            return process::exit(90)!;
         },
     }
     defer {
@@ -1069,11 +1069,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch cwd.open_file(path, fs::OpenOptions::read_only()) {
         !file => {
             _ = file;
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
         err! => {
             if err != fs::Error::Invalid {
-                return (2 as process::ExitCode)!;
+                return process::exit(2)!;
             }
         },
     }
@@ -1082,11 +1082,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => {
             let mut file = value;
             file.close().exit().?;
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
         err! => {
             if err != fs::Error::NotFound {
-                return (4 as process::ExitCode)!;
+                return process::exit(4)!;
             }
         },
     }
@@ -1136,7 +1136,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (90 as process::ExitCode)!;
+            return process::exit(90)!;
         },
     }
     defer {
@@ -1153,7 +1153,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
     switch file.close() {
@@ -1161,7 +1161,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch cwd.delete_file(fs::PathView::init(&"delete-me.txt")) {
@@ -1169,13 +1169,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
     switch cwd.open_file(fs::PathView::init(&"delete-me.txt"), fs::OpenOptions::read_only()) {
         !file => {
             _ = file;
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
         error! => {
         },
@@ -1184,7 +1184,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch cwd.delete_file(fs::PathView::init(&"bad\0path")) {
         !ok => {
             _ = ok;
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
         error! => {
         },
@@ -1238,7 +1238,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (90 as process::ExitCode)!;
+            return process::exit(90)!;
         },
     }
     defer {
@@ -1255,7 +1255,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
 
@@ -1265,7 +1265,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
     switch file.close() {
@@ -1273,7 +1273,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
 
@@ -1282,14 +1282,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
     }
 
     switch cwd.open_file(fs::PathView::init(&"old-name.txt"), fs::OpenOptions::read_only()) {
         !value => {
             _ = value;
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
         error! => {
         },
@@ -1300,7 +1300,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (6 as process::ExitCode)!;
+            return process::exit(6)!;
         },
     }
     switch file.close() {
@@ -1308,14 +1308,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     }
 
     switch cwd.delete_dir(fs::PathView::init(&"subdir")) {
         !ok => {
             _ = ok;
-            return (8 as process::ExitCode)!;
+            return process::exit(8)!;
         },
         error! => {
         },
@@ -1326,7 +1326,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (9 as process::ExitCode)!;
+            return process::exit(9)!;
         },
     }
     switch cwd.delete_dir(fs::PathView::init(&"subdir")) {
@@ -1334,14 +1334,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (10 as process::ExitCode)!;
+            return process::exit(10)!;
         },
     }
 
     switch cwd.create_dir(fs::PathView::init(&"bad\0path"), fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
-            return (11 as process::ExitCode)!;
+            return process::exit(11)!;
         },
         error! => {
         },
@@ -1395,7 +1395,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (90 as process::ExitCode)!;
+            return process::exit(90)!;
         },
     }
     defer {
@@ -1411,7 +1411,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
 
@@ -1421,7 +1421,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             subdir = value;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
 
@@ -1431,7 +1431,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
     switch file.close() {
@@ -1439,7 +1439,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
     }
 
@@ -1448,7 +1448,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             file = value;
         },
         error! => {
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
     }
     switch file.close() {
@@ -1456,7 +1456,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (6 as process::ExitCode)!;
+            return process::exit(6)!;
         },
     }
 
@@ -1465,14 +1465,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     }
 
     switch cwd.open_dir(fs::PathView::init(&"subdir/inside.txt"), fs::OpenDirOptions::init()) {
         !value => {
             _ = value;
-            return (8 as process::ExitCode)!;
+            return process::exit(8)!;
         },
         error! => {
         },
@@ -1483,7 +1483,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (9 as process::ExitCode)!;
+            return process::exit(9)!;
         },
     }
     switch cwd.delete_dir(fs::PathView::init(&"subdir")) {
@@ -1491,7 +1491,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (10 as process::ExitCode)!;
+            return process::exit(10)!;
         },
     }
     !{}
@@ -1545,7 +1545,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             cwd = value;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     }
 
@@ -1554,7 +1554,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::exit(2)!;
         },
     }
 
@@ -1564,7 +1564,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             first = value;
         },
         error! => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     }
     switch first.close() {
@@ -1572,7 +1572,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
     }
 
@@ -1582,7 +1582,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             second = value;
         },
         error! => {
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
     }
     switch second.close() {
@@ -1590,7 +1590,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (6 as process::ExitCode)!;
+            return process::exit(6)!;
         },
     }
 
@@ -1600,7 +1600,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             dir = value;
         },
         error! => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     }
 
@@ -1611,7 +1611,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             iter = value;
         },
         error! => {
-            return (8 as process::ExitCode)!;
+            return process::exit(8)!;
         },
     }
 
@@ -1624,13 +1624,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 entry
             },
             error! => {
-                return (10 as process::ExitCode)!;
+                return process::exit(10)!;
             },
         };
         if not value.is_dot() and not value.is_dot_dot() {
             count += 1usize;
             if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
-                return (9 as process::ExitCode)!;
+                return process::exit(9)!;
             }
             if bytes_equal(value.name(), &b"alpha.txt") {
                 saw_alpha = true;
@@ -1641,10 +1641,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     if count != 2usize {
-        return (11 as process::ExitCode)!;
+        return process::exit(11)!;
     }
     if not saw_alpha or not saw_beta {
-        return (12 as process::ExitCode)!;
+        return process::exit(12)!;
     }
 
     switch dir.close() {
@@ -1652,7 +1652,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (13 as process::ExitCode)!;
+            return process::exit(13)!;
         },
     }
     switch cwd.delete_file(fs::PathView::init(&"entries/alpha.txt")) {
@@ -1660,7 +1660,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (14 as process::ExitCode)!;
+            return process::exit(14)!;
         },
     }
     switch cwd.delete_file(fs::PathView::init(&"entries/beta.txt")) {
@@ -1668,7 +1668,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (15 as process::ExitCode)!;
+            return process::exit(15)!;
         },
     }
     switch cwd.delete_dir(fs::PathView::init(&"entries")) {
@@ -1676,7 +1676,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (16 as process::ExitCode)!;
+            return process::exit(16)!;
         },
     }
     switch cwd.close() {
@@ -1684,7 +1684,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         },
         error! => {
-            return (17 as process::ExitCode)!;
+            return process::exit(17)!;
         },
     }
     !{}

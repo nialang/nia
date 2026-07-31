@@ -21,12 +21,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let values: u8x16 = std::builtin::insert(std::builtin::insert(std::builtin::insert(std::builtin::splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
     let mask = std::builtin::bitmask(values == std::builtin::splat[u8x16](7u8));
     if mask != 0x8012usize {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
 
     let other = std::builtin::bitmask(values == std::builtin::splat[u8x16](0u8));
     if other != 0x7fedusize {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
 
     !{}
@@ -67,19 +67,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
     if std::builtin::ctz[usize](0usize) != 64usize {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if std::builtin::clz[usize](0usize) != 64usize {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     if std::builtin::ctz[usize](0x8010usize) != 4usize {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     if std::builtin::clz[usize](0x8010usize) != 48usize {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     if std::builtin::popcount[usize](0x8010usize) != 2usize {
-        return (5 as process::ExitCode)!;
+        return process::exit(5)!;
     }
 
     !{}
@@ -130,11 +130,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
             ch
         },
         null => {
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
     };
     if ascii.codepoint() != 65u32 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
 
     let generic_ascii = switch generic_char(66u32) {
@@ -142,11 +142,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
             ch
         },
         null => {
-            return (10 as process::ExitCode)!;
+            return process::exit(10)!;
         },
     };
     if generic_ascii.codepoint() != 66u32 {
-        return (11 as process::ExitCode)!;
+        return process::exit(11)!;
     }
 
     let max = switch [char]::from_u32(0x10ffffu32) {
@@ -154,24 +154,24 @@ pub fn main(init: process::Init) process::ExitCode!void {
             ch
         },
         null => {
-            return (3 as process::ExitCode)!;
+            return process::exit(3)!;
         },
     };
     if max.codepoint() != 0x10ffffu32 {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
 
     switch 0xd800u32.char() {
         ?ch => {
             _ = ch;
-            return (5 as process::ExitCode)!;
+            return process::exit(5)!;
         },
         null => {},
     }
     switch 0x110000u32.char() {
         ?ch => {
             _ = ch;
-            return (6 as process::ExitCode)!;
+            return process::exit(6)!;
         },
         null => {},
     }
@@ -182,18 +182,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
             decoded
         },
         null => {
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
     };
     if euro.len() != 3usize or euro.char().codepoint() != 0x20acu32 {
-        return (8 as process::ExitCode)!;
+        return process::exit(8)!;
     }
 
     let overlong: [2]u8 = [0xc0u8, 0x80u8];
     switch unicode::utf8_decode_first(&overlong) {
         ?decoded => {
             _ = decoded;
-            return (9 as process::ExitCode)!;
+            return process::exit(9)!;
         },
         null => {},
     }
@@ -238,14 +238,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let bytes: [10]u8 = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
     let vec = std::builtin::load_unaligned[u8x8](&bytes[1]);
     if std::builtin::extract(vec, 0usize) != 1u8 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if std::builtin::extract(vec, 7usize) != 8u8 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     let mask = std::builtin::bitmask(vec == std::builtin::splat[u8x8](4u8));
     if mask != 0x08usize {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
 
     !{}

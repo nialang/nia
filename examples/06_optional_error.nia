@@ -37,27 +37,19 @@ pub fn main(init: Init) ExitCode!void {
 
     let mut values: [3]i32 = [10, 20, 32];
     let mut pair_sum = 0;
-    // if destructures success and error-union cases explicitly.
-    switch checked_pair(&values) {
-        !sum => {
-            pair_sum = sum;
-            if sum != 42 {
-                return exit(1)!;
-            }
-        },
-        error! => {
-            return exit(2)!;
-        },
+    // if-pattern is the concise form for one refutable success path.
+    if checked_pair(&values) is !sum {
+        pair_sum = sum;
+        if sum != 42 {
+            return exit(1)!;
+        }
+    } else {
+        return exit(2)!;
     }
 
-    switch require_at(&values, 9usize) {
-        !value => {
-            _ = value;
-            return exit(3)!;
-        },
-        error! => {
-            _ = error;
-        },
+    if require_at(&values, 9) is !value {
+        _ = value;
+        return exit(3)!;
     }
 
     debug::print(&"optional/error pair_sum={} missing=error\n", &[&pair_sum]);
