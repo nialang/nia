@@ -8,7 +8,7 @@ use std::{
     process::{Command, ExitStatus, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -18,7 +18,7 @@ use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, LinkExecutableRequest, ModuleMap,
     NiaOptimizationLevel, Runtime as DriverRuntime, SourcePath,
 };
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{QueryFingerprintBuilder, QuerySession};
 use nia_target_config::TargetConfig;
 
 use crate::{
@@ -88,6 +88,10 @@ pub enum ExternalCommandFailure {
         stdout: Vec<u8>,
         stderr: Vec<u8>,
     },
+    Cancelled {
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
     Exit {
         status: ExitStatus,
         stdout: Vec<u8>,
@@ -97,6 +101,9 @@ pub enum ExternalCommandFailure {
 
 #[derive(Debug)]
 pub enum CoordinatorError {
+    Cancelled {
+        action: ActionKey,
+    },
     TargetMismatch(Box<TargetMismatch>),
     InconsistentPlan {
         owner: String,
@@ -144,6 +151,12 @@ pub enum CoordinatorError {
 impl fmt::Display for CoordinatorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled { action } => write!(
+                f,
+                "build action `{}` in package `{}` was cancelled after another action failed",
+                action.name(),
+                action.package().as_str()
+            ),
             Self::TargetMismatch(details) => {
                 let TargetMismatch {
                     role,
@@ -255,13 +268,65 @@ pub fn execute_build_plan(
     invocation: &BuildInvocation,
 ) -> Result<ExecutionReport, CoordinatorError> {
     validate_invocation_targets(plan, invocation)?;
-    let mut executor = DriverActionExecutor::new(plan, invocation);
-    execute_selected_closure(plan, |action| executor.execute(action))
+    let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
+    let session = QuerySession::new();
+    execute_selected_closure(plan, |actions| {
+        let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
+        session.run_tasks(actions.iter().enumerate().map(|(position, action)| {
+            let executor = executor.clone();
+            let cancellation = ActionCancellation {
+                earliest_failure: Arc::clone(&earliest_failure),
+                position,
+            };
+            let action = (*action).clone();
+            move || execute_scheduled_action(&executor, &action, &cancellation)
+        }))
+    })
+}
+
+enum ActionOutcome {
+    Succeeded,
+    Cancelled,
+    Failed(CoordinatorError),
+}
+
+struct ActionCancellation {
+    earliest_failure: Arc<AtomicUsize>,
+    position: usize,
+}
+
+impl ActionCancellation {
+    fn is_cancelled(&self) -> bool {
+        self.earliest_failure.load(Ordering::Acquire) < self.position
+    }
+
+    fn cancel_later_actions(&self) {
+        self.earliest_failure
+            .fetch_min(self.position, Ordering::AcqRel);
+    }
+}
+
+fn execute_scheduled_action(
+    executor: &DriverActionExecutor,
+    action: &PlanAction,
+    cancellation: &ActionCancellation,
+) -> ActionOutcome {
+    if cancellation.is_cancelled() {
+        return ActionOutcome::Cancelled;
+    }
+    match executor.execute(action, cancellation) {
+        Ok(()) => ActionOutcome::Succeeded,
+        Err(error) if is_cancellation_error(&error) => ActionOutcome::Cancelled,
+        Err(error) => {
+            cancellation.cancel_later_actions();
+            ActionOutcome::Failed(error)
+        }
+    }
 }
 
 fn execute_selected_closure(
     plan: &BuildPlan,
-    mut execute: impl FnMut(&PlanAction) -> Result<(), CoordinatorError>,
+    mut execute_batch: impl FnMut(&[&PlanAction]) -> Vec<ActionOutcome>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     let Some(selected) = plan.selected_step().or_else(|| plan.default_step()) else {
         return Ok(ExecutionReport {
@@ -317,28 +382,58 @@ fn execute_selected_closure(
         actions: Vec::new(),
     };
 
-    while let Some(index) = ready.pop_first() {
-        let step = &steps[index];
-        if executed_actions.insert(step.action.clone()) {
-            let action = find_action(plan.actions(), &step.action).ok_or_else(|| {
-                inconsistent(
-                    format!("step `{}`", step.key.name()),
-                    format!("action `{}`", step.action.name()),
-                )
-            })?;
-            execute(action)?;
-            report.actions.push(action.key.clone());
+    while !ready.is_empty() {
+        let wave = std::mem::take(&mut ready);
+        let mut wave_actions = Vec::new();
+        for &index in &wave {
+            let step = &steps[index];
+            if executed_actions.insert(step.action.clone()) {
+                let action = find_action(plan.actions(), &step.action).ok_or_else(|| {
+                    inconsistent(
+                        format!("step `{}`", step.key.name()),
+                        format!("action `{}`", step.action.name()),
+                    )
+                })?;
+                wave_actions.push(action);
+            }
         }
-        report.steps.push(step.key.clone());
-        for &dependent in &dependents[index] {
-            indegree[dependent] = indegree[dependent].checked_sub(1).ok_or_else(|| {
-                inconsistent(
-                    format!("step `{}`", steps[dependent].key.name()),
-                    "valid dependency degree".to_string(),
-                )
-            })?;
-            if indegree[dependent] == 0 {
-                ready.insert(dependent);
+        let outcomes = execute_batch(&wave_actions);
+        if outcomes.len() != wave_actions.len() {
+            return Err(inconsistent(
+                "coordinator action batch",
+                "one outcome per scheduled action".to_string(),
+            ));
+        }
+        let mut cancelled = false;
+        for outcome in outcomes {
+            match outcome {
+                ActionOutcome::Succeeded => {}
+                ActionOutcome::Cancelled => cancelled = true,
+                ActionOutcome::Failed(error) => return Err(error),
+            }
+        }
+        if cancelled {
+            return Err(inconsistent(
+                "coordinator action batch",
+                "failure cause for cancelled actions".to_string(),
+            ));
+        }
+        report
+            .actions
+            .extend(wave_actions.iter().map(|action| action.key.clone()));
+        for index in wave {
+            let step = &steps[index];
+            report.steps.push(step.key.clone());
+            for &dependent in &dependents[index] {
+                indegree[dependent] = indegree[dependent].checked_sub(1).ok_or_else(|| {
+                    inconsistent(
+                        format!("step `{}`", steps[dependent].key.name()),
+                        "valid dependency degree".to_string(),
+                    )
+                })?;
+                if indegree[dependent] == 0 {
+                    ready.insert(dependent);
+                }
             }
         }
     }
@@ -352,29 +447,63 @@ fn execute_selected_closure(
     Ok(report)
 }
 
-struct DriverActionExecutor<'a> {
-    plan: &'a BuildPlan,
-    invocation: &'a BuildInvocation,
-    drivers: BTreeMap<TargetSpec, Driver>,
+#[derive(Clone)]
+struct DriverActionExecutor {
+    plan: Arc<BuildPlan>,
+    invocation: Arc<BuildInvocation>,
+    drivers: Arc<BTreeMap<TargetSpec, Arc<Driver>>>,
 }
 
-impl<'a> DriverActionExecutor<'a> {
-    fn new(plan: &'a BuildPlan, invocation: &'a BuildInvocation) -> Self {
+impl DriverActionExecutor {
+    fn new(plan: BuildPlan, invocation: BuildInvocation) -> Self {
+        let plan = Arc::new(plan);
+        let invocation = Arc::new(invocation);
+        let mut drivers = BTreeMap::new();
+        for action in plan.actions() {
+            let target = match &action.kind {
+                ActionKind::CompilerCheck { target, .. }
+                | ActionKind::CompilerEmit { target, .. } => target,
+                _ => continue,
+            };
+            drivers.entry(target.clone()).or_insert_with(|| {
+                Arc::new(Driver::with_config(
+                    DriverConfig {
+                        artifact_cache_dir: Some(invocation.cache_dir.clone()),
+                        ..DriverConfig::new(Arc::clone(&invocation.toolchain))
+                    }
+                    .with_artifact_target(target_config(target)),
+                ))
+            });
+        }
         Self {
             plan,
             invocation,
-            drivers: BTreeMap::new(),
+            drivers: Arc::new(drivers),
         }
     }
 
-    fn execute(&mut self, action: &PlanAction) -> Result<(), CoordinatorError> {
-        let _output_locks = self.acquire_output_locks(action)?;
-        self.execute_with_output_ownership(action)
+    fn execute(
+        &self,
+        action: &PlanAction,
+        cancellation: &ActionCancellation,
+    ) -> Result<(), CoordinatorError> {
+        let Some(_output_locks) = self.acquire_output_locks(action, cancellation)? else {
+            return Err(CoordinatorError::Cancelled {
+                action: action.key.clone(),
+            });
+        };
+        if cancellation.is_cancelled() {
+            return Err(CoordinatorError::Cancelled {
+                action: action.key.clone(),
+            });
+        }
+        self.execute_with_output_ownership(action, cancellation)
     }
 
     fn execute_with_output_ownership(
-        &mut self,
+        &self,
         action: &PlanAction,
+        cancellation: &ActionCancellation,
     ) -> Result<(), CoordinatorError> {
         match &action.kind {
             ActionKind::Aggregate => Ok(()),
@@ -384,7 +513,7 @@ impl<'a> DriverActionExecutor<'a> {
                 runtime,
             } => {
                 let request = self.check_request(action, module, *runtime)?;
-                let driver = self.driver(target);
+                let driver = self.driver(action, target)?;
                 driver
                     .check_entry(request)
                     .result
@@ -399,7 +528,7 @@ impl<'a> DriverActionExecutor<'a> {
                 let request =
                     self.check_request(action, &artifact.root_module, artifact.runtime)?;
                 let output = self.resolve_path(action, &artifact.output)?;
-                let driver = self.driver(target);
+                let driver = self.driver(action, target)?;
                 driver
                     .link_executable(LinkExecutableRequest::new(request, output))
                     .result
@@ -499,9 +628,24 @@ impl<'a> DriverActionExecutor<'a> {
                     ExternalExecutionPolicy {
                         timeout: EXTERNAL_COMMAND_TIMEOUT,
                         forward_output: true,
+                        cancellation: Some(cancellation),
                     },
                 );
                 match (execution, staged) {
+                    (Ok(()), Some(staged)) if cancellation.is_cancelled() => {
+                        let cause =
+                            CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
+                                action: action.key.clone(),
+                                program,
+                                arguments: resolved_arguments,
+                                working_directory,
+                                failure: ExternalCommandFailure::Cancelled {
+                                    stdout: Vec::new(),
+                                    stderr: Vec::new(),
+                                },
+                            }));
+                        cleanup_staged_output(action, staged, Some(Box::new(cause)))
+                    }
                     (Ok(()), Some(staged)) => publish_staged_output(action, staged),
                     (Ok(()), None) => Ok(()),
                     (Err(cause), Some(staged)) => {
@@ -521,7 +665,8 @@ impl<'a> DriverActionExecutor<'a> {
     fn acquire_output_locks(
         &self,
         action: &PlanAction,
-    ) -> Result<Vec<ScopedFileLock>, CoordinatorError> {
+        cancellation: &ActionCancellation,
+    ) -> Result<Option<Vec<ScopedFileLock>>, CoordinatorError> {
         let mut outputs: Vec<&LogicalPath> = match &action.kind {
             ActionKind::CompilerEmit { artifact, .. } => {
                 vec![&self.artifact(action, artifact)?.output]
@@ -532,21 +677,24 @@ impl<'a> DriverActionExecutor<'a> {
         };
         outputs.sort();
         outputs.dedup();
-        outputs
-            .into_iter()
-            .map(|output| {
-                let resolved = self.resolve_path(action, output)?;
-                let lock = output_lock_path(&self.invocation.cache_dir, output);
-                ScopedFileLock::acquire(lock.clone()).map_err(|error| {
-                    CoordinatorError::AcquireOutputLock {
+        let mut acquired = Vec::with_capacity(outputs.len());
+        for output in outputs {
+            let resolved = self.resolve_path(action, output)?;
+            let lock = output_lock_path(&self.invocation.cache_dir, output);
+            let Some(output_lock) =
+                ScopedFileLock::acquire_interruptible(lock.clone(), || cancellation.is_cancelled())
+                    .map_err(|error| CoordinatorError::AcquireOutputLock {
                         action: action.key.clone(),
                         output: resolved,
                         lock,
                         error,
-                    }
-                })
-            })
-            .collect()
+                    })?
+            else {
+                return Ok(None);
+            };
+            acquired.push(output_lock);
+        }
+        Ok(Some(acquired))
     }
 
     fn check_request(
@@ -596,14 +744,15 @@ impl<'a> DriverActionExecutor<'a> {
         })
     }
 
-    fn driver(&mut self, target: &TargetSpec) -> &Driver {
-        self.drivers.entry(target.clone()).or_insert_with(|| {
-            Driver::with_config(
-                DriverConfig {
-                    artifact_cache_dir: Some(self.invocation.cache_dir.clone()),
-                    ..DriverConfig::new(Arc::clone(&self.invocation.toolchain))
-                }
-                .with_artifact_target(target_config(target)),
+    fn driver(
+        &self,
+        action: &PlanAction,
+        target: &TargetSpec,
+    ) -> Result<&Driver, CoordinatorError> {
+        self.drivers.get(target).map(Arc::as_ref).ok_or_else(|| {
+            inconsistent(
+                format!("action `{}`", action.key.name()),
+                format!("compiler driver for target `{}`", display_target(target)),
             )
         })
     }
@@ -659,9 +808,10 @@ struct ResolvedExternalCommand<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct ExternalExecutionPolicy {
+struct ExternalExecutionPolicy<'a> {
     timeout: Duration,
     forward_output: bool,
+    cancellation: Option<&'a ActionCancellation>,
 }
 
 fn execute_external_command(
@@ -745,7 +895,16 @@ fn execute_external_command(
 
     let started = Instant::now();
     let mut timed_out = false;
+    let mut cancelled = false;
     let status = loop {
+        if policy
+            .cancellation
+            .is_some_and(ActionCancellation::is_cancelled)
+        {
+            cancelled = true;
+            terminate_process_tree(&mut child);
+            break child.wait();
+        }
         match child.try_wait() {
             Ok(Some(status)) => {
                 terminate_external_descendants(child.id());
@@ -779,6 +938,12 @@ fn execute_external_command(
         }));
     }
     let status = status.map_err(|source| error(ExternalCommandFailure::Wait { error: source }))?;
+    if cancelled {
+        return Err(error(ExternalCommandFailure::Cancelled {
+            stdout: stdout.tail,
+            stderr: stderr.tail,
+        }));
+    }
     if timed_out {
         return Err(error(ExternalCommandFailure::TimedOut {
             timeout: policy.timeout,
@@ -959,6 +1124,10 @@ fn display_external_command_error(
             write!(f, "timed out after {timeout:?}")?;
             display_output_tails(f, stdout, stderr)
         }
+        ExternalCommandFailure::Cancelled { stdout, stderr } => {
+            f.write_str("cancelled after another build action failed")?;
+            display_output_tails(f, stdout, stderr)
+        }
         ExternalCommandFailure::Exit {
             status,
             stdout,
@@ -967,6 +1136,19 @@ fn display_external_command_error(
             write!(f, "exited with status {status}")?;
             display_output_tails(f, stdout, stderr)
         }
+    }
+}
+
+fn is_cancellation_error(error: &CoordinatorError) -> bool {
+    match error {
+        CoordinatorError::Cancelled { .. } => true,
+        CoordinatorError::ExternalCommand(details) => {
+            matches!(details.failure, ExternalCommandFailure::Cancelled { .. })
+        }
+        CoordinatorError::StagedOutput {
+            cause: Some(cause), ..
+        } => is_cancellation_error(cause),
+        _ => false,
     }
 }
 
@@ -1397,7 +1579,7 @@ fn display_target(target: &TargetSpec) -> String {
 mod tests {
     use super::*;
     use crate::{BuildPlanDraft, PlanAction, PlanPackage, PlanStep};
-    use std::sync::{Arc, OnceLock};
+    use std::sync::{Arc, Barrier, Mutex, OnceLock, atomic::AtomicBool};
 
     fn action(name: &str) -> ActionKey {
         ActionKey::new(PackageKey::root(), name).unwrap()
@@ -1421,6 +1603,7 @@ mod tests {
 
     fn test_invocation() -> BuildInvocation {
         static TOOLCHAIN: OnceLock<Arc<nia_toolchain::ToolchainLayout>> = OnceLock::new();
+        static TEST_RUN_ID: OnceLock<u128> = OnceLock::new();
         let toolchain = Arc::clone(TOOLCHAIN.get_or_init(|| {
             let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             let workspace = manifest_dir
@@ -1437,10 +1620,16 @@ mod tests {
                 .expect("test toolchain"),
             )
         }));
+        let test_run_id = TEST_RUN_ID.get_or_init(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("test clock must follow the Unix epoch")
+                .as_nanos()
+        });
         let sequence = GENERATED_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let package_root = std::env::temp_dir().join(format!(
-            "nia-build-coordinator-test-{}-{sequence}",
-            std::process::id()
+            "nia-build-coordinator-test-{}-{test_run_id}-{sequence}",
+            std::process::id(),
         ));
         let build_dir = package_root.join(".nia-build");
         BuildInvocation {
@@ -1508,14 +1697,29 @@ mod tests {
             "final",
         );
         let mut observed = Vec::new();
+        let mut waves = Vec::new();
 
-        let report = execute_selected_closure(&plan, |item| {
-            observed.push(item.key.name().to_string());
-            Ok(())
+        let report = execute_selected_closure(&plan, |items| {
+            observed.extend(items.iter().map(|item| item.key.name().to_string()));
+            waves.push(
+                items
+                    .iter()
+                    .map(|item| item.key.name().to_string())
+                    .collect::<Vec<_>>(),
+            );
+            items.iter().map(|_| ActionOutcome::Succeeded).collect()
         })
         .unwrap();
 
         assert_eq!(observed, ["shared", "left", "right", "final"]);
+        assert_eq!(
+            waves,
+            [
+                vec!["shared".to_string()],
+                vec!["left".to_string(), "right".to_string()],
+                vec!["final".to_string()],
+            ]
+        );
         assert_eq!(
             report.steps.iter().map(StepKey::name).collect::<Vec<_>>(),
             ["shared", "left", "right", "final"]
@@ -1535,9 +1739,9 @@ mod tests {
         );
         let mut observed = Vec::new();
 
-        let report = execute_selected_closure(&plan, |item| {
-            observed.push(item.key.name().to_string());
-            Ok(())
+        let report = execute_selected_closure(&plan, |items| {
+            observed.extend(items.iter().map(|item| item.key.name().to_string()));
+            items.iter().map(|_| ActionOutcome::Succeeded).collect()
         })
         .unwrap();
 
@@ -1557,13 +1761,171 @@ mod tests {
             "second",
         );
 
-        let error = execute_selected_closure(&plan, |item| Err(unsupported(item, "test-failure")))
-            .unwrap_err();
+        let error = execute_selected_closure(&plan, |items| {
+            items
+                .iter()
+                .map(|item| ActionOutcome::Failed(unsupported(item, "test-failure")))
+                .collect()
+        })
+        .unwrap_err();
 
         assert!(matches!(
             error,
             CoordinatorError::UnsupportedAction { action, kind: "test-failure" }
                 if action.name() == "first"
+        ));
+    }
+
+    #[test]
+    fn cancellation_preserves_earlier_canonical_failure_candidates() {
+        let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
+        let earlier = ActionCancellation {
+            earliest_failure: Arc::clone(&earliest_failure),
+            position: 0,
+        };
+        let first_failure = ActionCancellation {
+            earliest_failure: Arc::clone(&earliest_failure),
+            position: 1,
+        };
+        let later = ActionCancellation {
+            earliest_failure,
+            position: 2,
+        };
+
+        first_failure.cancel_later_actions();
+
+        assert!(!earlier.is_cancelled());
+        assert!(!first_failure.is_cancelled());
+        assert!(later.is_cancelled());
+        earlier.cancel_later_actions();
+        assert!(first_failure.is_cancelled());
+    }
+
+    #[test]
+    fn concurrent_completion_order_does_not_change_visible_order() {
+        let plan = aggregate_plan(
+            &["shared", "left", "right", "final"],
+            vec![
+                ("final", "final", vec!["left", "right"]),
+                ("right", "right", vec!["shared"]),
+                ("left", "left", vec!["shared"]),
+                ("shared", "shared", vec![]),
+            ],
+            "final",
+        );
+        let sequential = execute_selected_closure(&plan, |items| {
+            items.iter().map(|_| ActionOutcome::Succeeded).collect()
+        })
+        .unwrap();
+        let completion_order = Arc::new(Mutex::new(Vec::new()));
+
+        let concurrent = execute_selected_closure(&plan, |items| {
+            let barrier = Arc::new(Barrier::new(items.len()));
+            std::thread::scope(|scope| {
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        let barrier = Arc::clone(&barrier);
+                        let completion_order = Arc::clone(&completion_order);
+                        scope.spawn(move || {
+                            barrier.wait();
+                            if items.len() > 1 && index == 0 {
+                                std::thread::sleep(Duration::from_millis(25));
+                            }
+                            completion_order
+                                .lock()
+                                .expect("completion order lock poisoned")
+                                .push(item.key.name().to_string());
+                            ActionOutcome::Succeeded
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|handle| handle.join().expect("synthetic action worker"))
+                    .collect()
+            })
+        })
+        .unwrap();
+
+        let completion_order = completion_order
+            .lock()
+            .expect("completion order lock poisoned");
+        let left = completion_order
+            .iter()
+            .position(|name| name == "left")
+            .unwrap();
+        let right = completion_order
+            .iter()
+            .position(|name| name == "right")
+            .unwrap();
+        assert!(right < left);
+        assert_eq!(concurrent, sequential);
+        assert_eq!(
+            concurrent
+                .actions
+                .iter()
+                .map(ActionKey::name)
+                .collect::<Vec<_>>(),
+            ["shared", "left", "right", "final"]
+        );
+    }
+
+    #[test]
+    fn failure_waits_for_active_wave_and_never_dispatches_dependents() {
+        let plan = aggregate_plan(
+            &["active", "active-next", "fail", "blocked", "final"],
+            vec![
+                ("active", "active", vec![]),
+                ("fail", "fail", vec![]),
+                ("active-next", "active-next", vec!["active"]),
+                ("blocked", "blocked", vec!["fail"]),
+                ("final", "final", vec!["active-next", "blocked"]),
+            ],
+            "final",
+        );
+        let active_settled = Arc::new(AtomicBool::new(false));
+        let mut dispatched = Vec::new();
+
+        let error = execute_selected_closure(&plan, |items| {
+            dispatched.push(
+                items
+                    .iter()
+                    .map(|item| item.key.name().to_string())
+                    .collect::<Vec<_>>(),
+            );
+            let barrier = Arc::new(Barrier::new(items.len()));
+            std::thread::scope(|scope| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let barrier = Arc::clone(&barrier);
+                        let active_settled = Arc::clone(&active_settled);
+                        scope.spawn(move || {
+                            barrier.wait();
+                            if item.key.name() == "fail" {
+                                ActionOutcome::Failed(unsupported(item, "wave-failure"))
+                            } else {
+                                std::thread::sleep(Duration::from_millis(25));
+                                active_settled.store(true, Ordering::Release);
+                                ActionOutcome::Succeeded
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|handle| handle.join().expect("synthetic action worker"))
+                    .collect()
+            })
+        })
+        .unwrap_err();
+
+        assert!(active_settled.load(Ordering::Acquire));
+        assert_eq!(dispatched, [vec!["active".to_string(), "fail".to_string()]]);
+        assert!(matches!(
+            error,
+            CoordinatorError::UnsupportedAction { action, kind: "wave-failure" }
+                if action.name() == "fail"
         ));
     }
 
@@ -2001,6 +2363,7 @@ mod tests {
             ExternalExecutionPolicy {
                 timeout,
                 forward_output: false,
+                cancellation: None,
             },
         )
     }
@@ -2067,6 +2430,59 @@ mod tests {
             error,
             CoordinatorError::ExternalCommand(details)
                 if matches!(details.failure, ExternalCommandFailure::TimedOut { .. })
+        ));
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn external_command_cancellation_terminates_owned_process_group() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let marker = invocation.package_root.join("command-started");
+        let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
+        let cancellation = ActionCancellation {
+            earliest_failure: Arc::clone(&earliest_failure),
+            position: 1,
+        };
+        let working_directory = invocation.package_root.clone();
+        let action = external_action();
+        let worker = std::thread::spawn(move || {
+            let arguments = vec![
+                "-c".to_string(),
+                "touch \"$1\"; sleep 30".to_string(),
+                "nia-build-test".to_string(),
+                marker.to_string_lossy().into_owned(),
+            ];
+            execute_external_command(
+                &action,
+                ResolvedExternalCommand {
+                    program: "sh",
+                    arguments: &arguments,
+                    working_directory: &working_directory,
+                    environment: &[],
+                },
+                ExternalExecutionPolicy {
+                    timeout: Duration::from_secs(30),
+                    forward_output: false,
+                    cancellation: Some(&cancellation),
+                },
+            )
+        });
+        let started = Instant::now();
+        let marker = invocation.package_root.join("command-started");
+        while !marker.exists() && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let command_started = marker.exists();
+        earliest_failure.store(0, Ordering::Release);
+
+        let error = worker.join().expect("external command worker").unwrap_err();
+
+        assert!(command_started);
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommand(details)
+                if matches!(details.failure, ExternalCommandFailure::Cancelled { .. })
         ));
         assert!(started.elapsed() < Duration::from_secs(5));
     }

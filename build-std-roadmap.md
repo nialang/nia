@@ -1583,6 +1583,27 @@ publication. Phase E remains open for coordinator-wide failure cancellation,
 deterministic multi-worker execution, and a real multi-output publication
 transaction.
 
+Phase E progress (2026-07-31, deterministic-scheduler batch): selected closure
+execution now advances in canonical readiness waves and submits each wave to a
+`QuerySession`. Build actions therefore inherit the same process-wide
+Cargo/GNU Make jobserver capacity as compiler queries, with no coordinator-owned
+worker pool. Target-specific Drivers are created once per invocation and shared
+across concurrent compiler actions. Submission-order outcome merge keeps step,
+action, and failure reporting identical when completion order changes.
+
+Failure state is ordered by canonical action position. A later failure cancels
+later work immediately but allows earlier positions to settle and supersede it,
+so worker timing cannot choose a different first diagnostic. No dependent wave
+is submitted after failure, all active work is joined, output-lock acquisition
+is interruptible, and external commands observe cancellation in their wait loop,
+terminate the owned process group, preserve captured output context, and retire
+staged output. Focused tests cover reversed completion order, stable visible
+reports, dependency suppression, active-wave settlement, ordered cancellation,
+interruptible lock waits, and real child-process termination. Phase E remains
+open for the previously identified multi-output publication transaction; this
+batch does not claim that later cache/resource-class scheduling in Phase F is
+implemented.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
