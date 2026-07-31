@@ -4,7 +4,7 @@ use std::{fmt, fs, io, path::PathBuf};
 
 pub const RESOURCE_LAYOUT_SCHEMA: u32 = 1;
 pub const STD_SCHEMA: u32 = 1;
-pub const BUILD_PROTOCOL_SCHEMA: u32 = 1;
+pub const BUILD_PROTOCOL_SCHEMA: u32 = 2;
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -601,7 +601,7 @@ mod tests {
         let executable = write_layout(&root);
         fs::write(
             root.join("lib/nia/toolchain.meta"),
-            "resource-layout-schema=1\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=1\n",
+            "resource-layout-schema=1\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=2\n",
         )
         .expect("replace manifest");
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
@@ -619,7 +619,7 @@ mod tests {
         let path = PathBuf::from("toolchain.meta");
         let error = parse_manifest(
             &path,
-            "# identity\ncompiler-version=0.4.3\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=1\n",
+            "# identity\ncompiler-version=0.4.3\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=2\n",
         )
         .expect_err("invalid numeric schema");
 

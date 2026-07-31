@@ -18,6 +18,7 @@ using types::{
     Step,
     StepKind,
     ModuleSourceRoot,
+    CommandArgumentKind,
     TargetView,
 };
 
@@ -239,12 +240,68 @@ extend PlanEncoder {
                 self.writeArtifactPath(target.name.view()).?;
                 self.writeCount(run.arguments.len()).?;
                 for &argument in run.arguments.iter() {
+                    self.writeU8(0).?;
                     self.writeString(argument.view()).?;
                 }
                 self.writePackageRootPath().?;
                 self.writeCount(0).?;
                 self.writeCount(0).?;
                 self.writeCount(0)
+            },
+            StepKind::ExternalCommand => {
+                let command = step.payload.externalCommand;
+                self.writeU8(2).?;
+                self.writeU8(1).?;
+                self.writeString(command.program.view()).?;
+                self.writeCount(command.arguments.len()).?;
+                for &argument in command.arguments.iter() {
+                    if argument.kind == CommandArgumentKind::Literal {
+                        self.writeU8(0).?;
+                        self.writeString(argument.value.view()).?;
+                    } else if argument.kind == CommandArgumentKind::PackageInput {
+                        self.writeU8(1).?;
+                        self.writePackagePath(fs::PathView::init(argument.value.as_slice())).?;
+                    } else if argument.kind == CommandArgumentKind::BuildInput {
+                        self.writeU8(1).?;
+                        self.writeBuildPath(argument.value.view()).?;
+                    } else if argument.kind == CommandArgumentKind::BuildOutput {
+                        self.writeU8(2).?;
+                        self.writeBuildPath(argument.value.view()).?;
+                    } else {
+                        return invalidPlan();
+                    }
+                }
+                self.writePackagePath(command.workingDirectory.view()).?;
+                self.writeCount(0).?;
+                let mut inputCount: usize = 0;
+                for &argument in command.arguments.iter() {
+                    if argument.kind == CommandArgumentKind::PackageInput
+                        or argument.kind == CommandArgumentKind::BuildInput
+                    {
+                        inputCount += 1;
+                    }
+                }
+                self.writeCount(inputCount).?;
+                for &argument in command.arguments.iter() {
+                    if argument.kind == CommandArgumentKind::PackageInput {
+                        self.writePackagePath(fs::PathView::init(argument.value.as_slice())).?;
+                    } else if argument.kind == CommandArgumentKind::BuildInput {
+                        self.writeBuildPath(argument.value.view()).?;
+                    }
+                }
+                let mut outputCount: usize = 0;
+                for &argument in command.arguments.iter() {
+                    if argument.kind == CommandArgumentKind::BuildOutput {
+                        outputCount += 1;
+                    }
+                }
+                self.writeCount(outputCount).?;
+                for &argument in command.arguments.iter() {
+                    if argument.kind == CommandArgumentKind::BuildOutput {
+                        self.writeBuildPath(argument.value.view()).?;
+                    }
+                }
+                !{}
             },
             _ => invalidPlan(),
         }

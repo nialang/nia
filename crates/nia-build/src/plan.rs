@@ -239,6 +239,13 @@ pub enum CommandProgram {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CommandArgument {
+    Literal(String),
+    InputPath(LogicalPath),
+    OutputPath(LogicalPath),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EnvironmentInput {
     pub name: String,
     pub value: Option<String>,
@@ -257,7 +264,7 @@ pub enum ActionKind {
     },
     ExternalCommand {
         program: CommandProgram,
-        arguments: Vec<String>,
+        arguments: Vec<CommandArgument>,
         working_directory: LogicalPath,
         environment: Vec<EnvironmentInput>,
         inputs: Vec<LogicalPath>,
@@ -658,7 +665,9 @@ fn canonicalize_actions(
                         reason: "program contains NUL",
                     });
                 }
-                if arguments.iter().any(|value| value.contains('\0')) {
+                if arguments.iter().any(
+                    |argument| matches!(argument, CommandArgument::Literal(value) if value.contains('\0')),
+                ) {
                     return Err(PlanError::InvalidCommand {
                         action: action.key.clone(),
                         reason: "argument contains NUL",
@@ -690,6 +699,45 @@ fn canonicalize_actions(
                 }
                 inputs.sort();
                 outputs.sort();
+                inputs.dedup();
+                outputs.dedup();
+                for argument in arguments.iter() {
+                    let (path, declared, reason) = match argument {
+                        CommandArgument::Literal(_) => continue,
+                        CommandArgument::InputPath(path) => (
+                            path,
+                            inputs.as_slice(),
+                            "input argument path is not declared as an input",
+                        ),
+                        CommandArgument::OutputPath(path) => (
+                            path,
+                            outputs.as_slice(),
+                            "output argument path is not declared as an output",
+                        ),
+                    };
+                    if declared.binary_search(path).is_err() {
+                        return Err(PlanError::InvalidCommand {
+                            action: action.key.clone(),
+                            reason,
+                        });
+                    }
+                }
+                if outputs.len() > 1 {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "multiple command outputs require transactional publication",
+                    });
+                }
+                if outputs.iter().any(|output| {
+                    !arguments.iter().any(
+                        |argument| matches!(argument, CommandArgument::OutputPath(path) if path == output),
+                    )
+                }) {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "declared output has no staged command argument",
+                    });
+                }
             }
             _ => {}
         }
@@ -1118,6 +1166,96 @@ mod tests {
     }
 
     #[test]
+    fn freeze_requires_command_path_arguments_to_match_declarations() {
+        let mut value = draft(false);
+        let input =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "input.txt").unwrap();
+        let output = LogicalPath::new(LogicalPathRoot::Build, "output.txt").unwrap();
+        value.actions.push(PlanAction {
+            key: action_key("tool"),
+            kind: ActionKind::ExternalCommand {
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: vec![
+                    CommandArgument::InputPath(input),
+                    CommandArgument::OutputPath(output.clone()),
+                ],
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: vec![output],
+            },
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidCommand {
+                reason: "input argument path is not declared as an input",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn freeze_rejects_unbound_or_transactional_command_outputs() {
+        let output = LogicalPath::new(LogicalPathRoot::Build, "first.txt").unwrap();
+        let mut unbound = draft(false);
+        unbound.actions.push(PlanAction {
+            key: action_key("unbound"),
+            kind: ActionKind::ExternalCommand {
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: vec![output.clone()],
+            },
+        });
+        assert!(matches!(
+            BuildPlan::freeze(unbound),
+            Err(PlanError::InvalidCommand {
+                reason: "declared output has no staged command argument",
+                ..
+            })
+        ));
+
+        let second = LogicalPath::new(LogicalPathRoot::Build, "second.txt").unwrap();
+        let mut multiple = draft(false);
+        multiple.actions.push(PlanAction {
+            key: action_key("multiple"),
+            kind: ActionKind::ExternalCommand {
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: vec![
+                    CommandArgument::OutputPath(output.clone()),
+                    CommandArgument::OutputPath(second.clone()),
+                ],
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: vec![output, second],
+            },
+        });
+        assert!(matches!(
+            BuildPlan::freeze(multiple),
+            Err(PlanError::InvalidCommand {
+                reason: "multiple command outputs require transactional publication",
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn artifact_program_requires_its_emit_step_in_the_dependency_closure() {
         let mut value = draft(false);
         let artifact = artifact_key("app");
@@ -1129,7 +1267,7 @@ mod tests {
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Artifact(artifact), "").unwrap(),
                 ),
-                arguments: vec!["argument".to_string()],
+                arguments: vec![CommandArgument::Literal("argument".to_string())],
                 working_directory: LogicalPath::new(
                     LogicalPathRoot::Package(PackageKey::root()),
                     "",

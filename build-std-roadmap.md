@@ -1504,6 +1504,33 @@ not return. Phase E remains open for typed staging of output-producing external
 tools, coordinator-wide failure cancellation, scoped publication replacing the
 package lock, and deterministic multi-worker execution.
 
+Phase E progress (2026-07-31, staged external-tool batch): build-plan schema 2
+replaces opaque command strings with typed `Literal`, `InputPath`, and
+`OutputPath` arguments. Freeze requires every path argument to match its
+input/output declaration and rejects unbound outputs. The reviewed
+`CommandArgument`/`ExternalCommandOptions` std API derives declarations from
+`packageInput`, `buildInput`, and `buildOutput` arguments, retains all values in
+builder-owned storage, and proves partial-allocation rollback with the fault
+allocator.
+
+The coordinator resolves input arguments to accepted paths and output
+arguments to a unique same-filesystem staging directory. A successful tool
+must create a regular file; the coordinator syncs it, atomically renames it,
+syncs the destination parent, and retires staging. Nonzero exit and
+missing-output regressions preserve the previous accepted destination and
+leave no stage directory. The configured production build now executes
+compiler emit, artifact run, and a package-input-to-build-output external tool
+through one decoded plan, and asserts the typed protocol fields and published
+contents. The versioned toolchain manifest moved with the schema, so old plans
+are rejected rather than heuristically decoded.
+
+This batch deliberately limits external commands to at most one output file.
+Publishing several destinations requires a transaction that can restore every
+old destination after a partial commit; sequential renames are not presented
+as atomic. Phase E remains open for that multi-output transaction,
+coordinator-wide failure cancellation, scoped output/cache publication in
+place of the package lock, and deterministic multi-worker execution.
+
 Cross-cutting progress (2026-07-31, representative-source and provider-signature
 batch): repository executable fixtures now use `process::exit(code)!`,
 `process::ExitCode::Success`, or reviewed `.exit().?` conversion instead of

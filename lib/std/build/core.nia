@@ -28,6 +28,11 @@ using types::{
     ExecutableStep,
     RunOptions,
     RunExecutableStep,
+    CommandArgument,
+    CommandArgumentKind,
+    ExternalCommandOptions,
+    ExternalCommandStep,
+    OwnedCommandArgument,
     Module,
     ModuleSourceRoot,
     ModuleHandle,
@@ -292,6 +297,23 @@ extend Build {
         };
         self.dependOn(result, producer).?;
         committed = true;
+        !result
+    }
+
+    pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
+        validateExternalCommand(options, self.steps.len()).?;
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        let mut payload = ExternalCommandStep::init(self.allocator, options, handle.index()).?;
+        let mut transferred = false;
+        defer if not transferred {
+            payload.deinit(self.allocator, handle.index()).?;
+        };
+        let result = self.addStepRecord(
+            string::StringView::init(name),
+            StepKind::ExternalCommand,
+            { externalCommand: payload },
+        ).?;
+        transferred = true;
         !result
     }
 
@@ -820,6 +842,151 @@ extend RunExecutableStep {
     }
 }
 
+extend CommandArgument {
+    pub fn literal(value: &[char]) CommandArgument {
+        {
+            kind: CommandArgumentKind::Literal,
+            value: string::StringView::init(value),
+        }
+    }
+
+    pub fn packageInput(path: fs::PathView) CommandArgument {
+        {
+            kind: CommandArgumentKind::PackageInput,
+            value: path.string(),
+        }
+    }
+
+    pub fn buildInput(path: BuildPathView) CommandArgument {
+        {
+            kind: CommandArgumentKind::BuildInput,
+            value: string::StringView::init(path.text()),
+        }
+    }
+
+    pub fn buildOutput(path: BuildPathView) CommandArgument {
+        {
+            kind: CommandArgumentKind::BuildOutput,
+            value: string::StringView::init(path.text()),
+        }
+    }
+}
+
+extend ExternalCommandOptions {
+    pub fn search(program: &[char]) ExternalCommandOptions {
+        {
+            program: string::StringView::init(program),
+            arguments: null,
+            workingDirectory: fs::PathView::init(&""),
+        }
+    }
+
+    pub fn withArguments(self, arguments: &[CommandArgument]) ExternalCommandOptions {
+        {
+            program: self.program,
+            arguments: ?arguments,
+            workingDirectory: self.workingDirectory,
+        }
+    }
+
+    pub fn withPackageWorkingDirectory(self, workingDirectory: fs::PathView) ExternalCommandOptions {
+        {
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: workingDirectory,
+        }
+    }
+}
+
+extend OwnedCommandArgument {
+    fn init(
+        allocator: &mut mem::Allocator,
+        argument: CommandArgument,
+        index: usize,
+    ) Error!OwnedCommandArgument {
+        let value = string::StringBuf::from_slice(
+            allocator,
+            argument.value.text(),
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        !{ kind: argument.kind, value: value }
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        self.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+    }
+}
+
+extend ExternalCommandStep {
+    fn init(
+        allocator: &mut mem::Allocator,
+        options: ExternalCommandOptions,
+        index: usize,
+    ) Error!ExternalCommandStep {
+        let mut command: ExternalCommandStep = {
+            program: string::StringBuf::init(),
+            arguments: collections::ArrayList[OwnedCommandArgument]::init(),
+            workingDirectory: fs::PathBuf::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            command.deinit(allocator, index).?;
+        };
+        command.program = string::StringBuf::from_slice(
+            allocator,
+            options.program.text(),
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        command.workingDirectory = fs::PathBuf::from_path(
+            allocator,
+            options.workingDirectory,
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        switch options.arguments {
+            ?arguments => {
+                command.arguments = collections::ArrayList[OwnedCommandArgument]::init_capacity(
+                    allocator,
+                    arguments.len(),
+                ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                for &argument in arguments.iter() {
+                    let mut owned = OwnedCommandArgument::init(allocator, argument, index).?;
+                    let mut argumentTransferred = false;
+                    defer if not argumentTransferred {
+                        owned.deinit(allocator, index).?;
+                    };
+                    command.arguments.push(allocator, owned).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                    argumentTransferred = true;
+                }
+            },
+            null => {},
+        }
+        transferred = true;
+        !command
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        let mut firstError: ?Error = null;
+        let mut argumentIndex = self.arguments.len();
+        while argumentIndex != 0 {
+            argumentIndex -= 1;
+            rememberCleanupError(
+                &mut firstError,
+                self.arguments.as_mut_slice()[argumentIndex].deinit(allocator, index),
+            );
+        }
+        rememberCleanupError(
+            &mut firstError,
+            self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
+        rememberCleanupError(
+            &mut firstError,
+            self.workingDirectory.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
+        rememberCleanupError(
+            &mut firstError,
+            self.program.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
+        cleanupResult(firstError)
+    }
+}
+
 extend Step {
     fn init(
         allocator: &mut mem::Allocator,
@@ -848,6 +1015,9 @@ extend Step {
         if self.kind == StepKind::RunExecutable {
             rememberCleanupError(&mut firstError, self.payload.runExecutable.deinit(allocator, self.index));
         }
+        if self.kind == StepKind::ExternalCommand {
+            rememberCleanupError(&mut firstError, self.payload.externalCommand.deinit(allocator, self.index));
+        }
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(self.index)));
         cleanupResult(firstError)
     }
@@ -868,6 +1038,60 @@ fn validateRunArguments(arguments: ?&[string::StringView], index: usize) Error!v
         null => {},
     }
     !{}
+}
+
+fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!void {
+    if options.program.text().len() == 0
+        or runArgumentContainsNul(options.program.text())
+        or not isValidPackagePath(options.workingDirectory.string(), true)
+    {
+        return invalidStep(index);
+    }
+    let mut outputCount: usize = 0;
+    switch options.arguments {
+        ?arguments => {
+            for &argument in arguments.iter() {
+                if runArgumentContainsNul(argument.value.text()) {
+                    return invalidStep(index);
+                }
+                if argument.kind == CommandArgumentKind::PackageInput
+                    and not isValidPackagePath(argument.value, false)
+                {
+                    return invalidStep(index);
+                }
+                if argument.kind == CommandArgumentKind::BuildInput
+                    and not isValidBuildPath(argument.value)
+                {
+                    return invalidStep(index);
+                }
+                if argument.kind == CommandArgumentKind::BuildOutput {
+                    if not isValidBuildPath(argument.value) {
+                        return invalidStep(index);
+                    }
+                    outputCount += 1;
+                    if outputCount > 1 {
+                        return invalidStep(index);
+                    }
+                }
+            }
+        },
+        null => {},
+    }
+    !{}
+}
+
+fn invalidStep(index: usize) Error!void {
+    Error::Invalid {
+        operation: Operation::Validate,
+        subject: Subject::Step(index),
+    }!
+}
+
+fn isValidPackagePath(path: string::StringView, allowEmpty: bool) bool {
+    if path.text().len() == 0 {
+        return allowEmpty;
+    }
+    isValidBuildPath(path)
 }
 
 fn runArgumentContainsNul(text: &[char]) bool {

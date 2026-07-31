@@ -15,6 +15,8 @@ pub using error::{
 pub using types::{
     Build,
     BuildPathView,
+    CommandArgument,
+    ExternalCommandOptions,
     ExecutableHandle,
     ExecutableOptions,
     ModuleHandle,
