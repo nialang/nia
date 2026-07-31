@@ -201,7 +201,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         or not textIs(artifact.endian(), &"big")
         or artifact.pointerWidth() != 32u32
     {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
 
     let moduleHandle = api.addModule(
@@ -219,10 +219,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         )),
         1usize,
     ) {
-        return (8 as process::ExitCode)!;
+        return process::exit(8)!;
     }
     if not rejectsInvalidStep(api.addAggregateStep(&"bad name"), 1usize) {
-        return (9 as process::ExitCode)!;
+        return process::exit(9)!;
     }
     if not rejectsInvalidStep(
         api.addGeneratedFileStep(
@@ -232,7 +232,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         ),
         1usize,
     ) {
-        return (11 as process::ExitCode)!;
+        return process::exit(11)!;
     }
     let invalidArgument: [3]char = ['a', '\0', 'b'];
     let invalidArguments = [string::StringView::init(&invalidArgument[..])];
@@ -243,7 +243,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         ),
         1usize,
     ) {
-        return (13 as process::ExitCode)!;
+        return process::exit(13)!;
     }
     let duplicateImports = [
         build::ModuleImport::init(&"dep", fs::PathView::init(&"first.nia")),
@@ -253,7 +253,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build::ModuleOptions::init(&"duplicate-imports", fs::PathView::init(&"dup.nia"))
             .withImports(&duplicateImports[..]),
     )) {
-        return (10 as process::ExitCode)!;
+        return process::exit(10)!;
     }
 
     let mut other = initBuild(init, &mut allocator).exit().?;
@@ -268,22 +268,22 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not rejectsForeignModule(api.addExecutable(
         build::ExecutableOptions::init(&"foreign-module", otherModule),
     )) {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     if not rejectsForeignExecutable(api.addEmitExecutableStep(&"foreign-executable", otherExecutable)) {
-        return (5 as process::ExitCode)!;
+        return process::exit(5)!;
     }
     if not rejectsForeignExecutable(api.addRunExecutableStep(
         &"foreign-run",
         build::RunOptions::init(otherExecutable),
     )) {
-        return (12 as process::ExitCode)!;
+        return process::exit(12)!;
     }
     if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
-        return (6 as process::ExitCode)!;
+        return process::exit(6)!;
     }
     if not rejectsForeignStep(api.setDefaultStep(otherStep)) {
-        return (7 as process::ExitCode)!;
+        return process::exit(7)!;
     }
     api.validatePlan().exit().?;
     !{}

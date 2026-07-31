@@ -26,5 +26,5 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut y = x;
     y = identity[i32](y);
     let mut unused = plus_two(99);
-    (pick(true, plus_two(y), unused) as process::ExitCode)!
+    process::exit(pick(true, plus_two(y), unused))!
 }

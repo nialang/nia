@@ -258,7 +258,39 @@ from registries is not.
 - Inputs under package, toolchain, build, and cache roots use canonical logical
   identities; absolute checkout paths are not hashed as project identity.
 
-### 4.6 Determinism and resources are architectural
+### 4.6 Repository Nia must exercise the language users receive
+
+- Standard-library, example, benchmark, and integration-fixture source follows
+  the same idioms expected in user packages. Bootstrap history is not a reason
+  to preserve cast-heavy or annotation-heavy source.
+- Executable entries use `process::exit(code)!` for a numeric failure status,
+  `process::ExitCode::Success` when an `ExitCode` success value is directly
+  required, and `.exit().?` for reviewed error-union conversion. A raw
+  `as process::ExitCode` belongs only inside the conversion implementation or a
+  test whose stated subject is enum casting.
+- Numeric literal types are inferred from function parameters, return types,
+  fields, places, operators, and peer branches. A suffix remains only when it
+  establishes otherwise absent type information or documents a required ABI,
+  layout, serialization, bit-width, overflow, or mixed-width algorithm rule.
+- Source cleanup is reviewed by subsystem rather than implemented as a blind
+  repository-wide suffix deletion. Literal typing/coercion tests retain the
+  explicit forms that they intentionally test; production-path std builds
+  provide continuing inference evidence for ordinary unsuffixed forms.
+- Aggregate type information is normally written once. A named local may use
+  `let value: Point = { ... }` or `let values: [3]i32 = [1, 2, 3]`; an
+  expression that must stand alone may use `Point { ... }` or
+  `[_]i32[...]`. Repeating an inferred array type on both sides is reserved for
+  tests of that syntax, not ordinary style.
+- When a slice is already expected, code takes `&array` or `&mut array` and
+  relies on the ordinary pointer-array-to-slice coercion. `&array[..]` remains
+  meaningful for an explicitly materialized slice value or an actual subrange;
+  it is not boilerplate required at every call.
+- Representative maintained programs exercise adjacent and multiline strings,
+  aggregate contextual typing, pointer-array coercion, and `if ... is`. A
+  language feature documented only in parser tests is not sufficient ergonomic
+  evidence for std design.
+
+### 4.7 Determinism and resources are architectural
 
 - Plan encoding, graph validation, ready-queue ordering, diagnostics, and output
   manifests are deterministic for equivalent inputs.
@@ -270,7 +302,7 @@ from registries is not.
 - Parallelism is not accepted until failure cancellation, output ownership, and
   memory bounds are defined.
 
-### 4.7 Migration has a deletion boundary
+### 4.8 Migration has a deletion boundary
 
 - No permanent reader for the experimental plan shape is required.
 - The current recursive `run_step`, raw compiler argv construction, `StepFn`
@@ -338,6 +370,79 @@ artifacts.
 The initial std work is limited to contracts exercised by build-plan evaluation
 and toolchain relocation. Other std modules change only when a concrete defect,
 layer violation, ABI issue, or missing acceptance test is found.
+
+### 5.2.1 Standard-library usability reconstruction
+
+The completion of the build-host foundation does not freeze its bootstrap-era
+API shapes. A standard-library reconstruction track runs beside Phases E and F
+and gates the public artifact/path surface in Phase G. Phase H verifies and
+removes leftovers; it is too late to begin the design there.
+
+The first reconstruction slice is text because build plans, paths, diagnostics,
+formatting, process arguments, and environment values all cross it. The current
+surface has capability but no single ergonomic contract:
+
+- a string literal is an addressed fixed `[N]char` value and naturally coerces
+  to `&[char]`;
+- `StringView` is currently a one-field wrapper around `&[char]` with duplicate
+  `text()` and `as_slice()` accessors, so it must either enforce a real nominal
+  invariant or retire in favor of the slice;
+- `StringBuf` is an owned `ArrayList[char]`, but allocation ownership is repeated
+  at construction, every growth operation, extraction, and deinitialization;
+- adjacent and multiline literals cover compile-time construction, while
+  runtime concatenation is split between append and formatting without one
+  documented choice;
+- UTF-8 decoding currently uses optional absence for empty, truncated, and
+  invalid input, while path conversion then mixes encoding, NUL, allocation,
+  capacity, filesystem, and OS errors;
+- comparison, search, hashing, splitting, replacement, parsing, and formatting
+  must work consistently across borrowed literals and owned text rather than
+  requiring wrapper-specific adapters.
+
+The redesign starts from user workflows, not from renaming the existing two
+types. Its required decisions and acceptance order are:
+
+1. make `&[char]` the provisional canonical borrowed text unless a wrapper
+   demonstrates an invariant beyond storage shape; define exactly one public
+   owned/mutable scalar-text type before deciding whether the surviving name is
+   `String` or `StringBuf`;
+2. specify scalar length versus UTF-8 byte length, validation, truncation, and
+   invalid-sequence errors. Validated UTF-8 views/buffers, if introduced, remain
+   distinct from arbitrary bytes and from scalar text;
+3. choose one allocator ownership model. Explicit allocator parameters may
+   remain when they preserve Nia's transparent memory model, but common
+   construction/mutation must compose with `defer expr;` without repeated
+   unsafe ownership reconstruction or hidden allocator lifetimes;
+4. align literal coercion, adjacent and multiline literal construction,
+   runtime append/format construction, comparison/hash/search, and path/process
+   conversion around those roles;
+5. migrate one vertical build workflow from literal through owned plan storage,
+   formatting, path encoding, process execution, and `defer` cleanup before
+   broad std renaming.
+
+Legal aggregate and literal forms are not removed to manufacture style
+uniformity. Ordinary repository code writes type information once and uses
+direct array-pointer coercion when a slice is expected; alternate legal forms
+remain covered by syntax and semantic tests.
+
+Compiler-known convenience traits are a separate dependency-complete audit,
+not a search-and-replace in `lib/std/builtin/place.nia`:
+
+| Trait | Current structural role | Initial disposition |
+| --- | --- | --- |
+| `Len` | array length and slice metadata | ordinary trait candidate with compiler-provided array/slice impl bodies |
+| `Start` / `End` | range field projection | ordinary trait or inherent range API candidate |
+| `Ptr` / `PtrMut` | slice data-pointer projection and associated target | may retain intrinsic impl bodies, but builtin trait identity is unproven |
+| `Char` | checked `u32` to `char` conversion | move to reviewed Unicode/inherent API; builtin trait identity is unjustified |
+
+For each trait, the audit traces parser/symbol identity, type resolution,
+projection solving, const evaluation, executable reachability, backend
+dispatch, validation, LLVM lowering, and std declarations. Removal is accepted
+only after user-defined implementations and structural compiler-provided
+implementations share one ordinary trait-selection path, with const/runtime and
+facade-closure regressions. A trait is retained as builtin only with a recorded
+language-semantic or representation reason that an ordinary trait plus
+intrinsic implementation cannot express.
 
 ### 5.3 Plan construction and protocol
 
@@ -791,6 +896,52 @@ Acceptance:
 - fixed workloads demonstrate bounded CPU/RSS and useful concurrency without a
   global package execution lock.
 
+### Standard-library reconstruction track: Text And Convenience Traits
+
+Goal: replace bootstrap-era string/path friction and unjustified compiler-known
+convenience dispatch before the broader artifact API depends on it.
+
+This track starts during Phase E and can proceed beside Phase F. It must close
+before Phase G freezes generated-source, run/test, install, environment, or
+external-tool text/path contracts.
+
+Tasks:
+
+- publish the current text/path/Unicode/format/process API and error-flow matrix;
+- settle borrowed scalar text, owned scalar text, validated UTF-8, arbitrary
+  bytes, C strings, and OS paths as distinct roles with explicit conversions;
+- redesign and sample construction, append/format concatenation, comparison,
+  hashing, search, parsing, UTF-8 conversion, and path/process boundaries;
+- prove allocator failure and normal cleanup with Nia's conditional and
+  propagating `defer` forms, including cleanup-error precedence;
+- migrate reviewed APIs to `lowerCamelCase` only after their role and error
+  contract is accepted, with no compatibility aliases for experimental names;
+- audit `Len`, `Start`, `End`, `Ptr`, `PtrMut`, and `Char` through every compiler
+  layer listed in 5.2.1, removing builtin identity where ordinary trait
+  selection plus compiler-provided structural impls is sufficient;
+- keep aggregate/literal/coercion alternatives legal while making maintained
+  std and examples exercise the canonical one-annotation style.
+
+Acceptance:
+
+- one maintained program carries non-ASCII literal text through owned mutation,
+  runtime concatenation, formatting, UTF-8 encoding/decoding, path/process use,
+  and deterministic `defer` cleanup with typed invalid/truncated/allocation
+  failures;
+- borrowed and owned text have one obvious conversion and comparison path, and
+  no public wrapper duplicates `&[char]` without a documented invariant;
+- literal scalar count, encoded byte count, embedded NUL, invalid UTF-8, and OS
+  path representation are distinct tested contracts;
+- std facade/provider tests show the redesigned workflow loads only the
+  implementations demanded by behavior, independent of broad/narrow `using`
+  spelling;
+- each audited convenience trait is either ordinary or has a documented
+  irreducible builtin reason, with structural, generic, const, IR, LLVM, and
+  executable regressions;
+- syntax tests retain all accepted aggregate, adjacent/multiline string, and
+  array-pointer-to-slice forms while ordinary examples avoid redundant type
+  annotations.
+
 ### Phase G: Artifact And Package-Boundary Surface
 
 Goal: make the graph useful for ordinary multi-artifact Nia projects without
@@ -808,6 +959,9 @@ Tasks:
   explicit override rules;
 - define local/external package inputs without registry resolution or network
   policy;
+- consume the closed text/path roles from the standard-library reconstruction
+  track rather than freezing bootstrap `StringView`/`StringBuf` accidents into
+  artifact, environment, or command APIs;
 - document the boundary between `nia build` and a future package manager.
 
 Acceptance:
@@ -835,6 +989,11 @@ Tasks:
   reporting, duplicate caches, and obsolete locks/adapters;
 - audit all ordinary build/std failure paths for explicit result/diagnostic flow
   and all remaining traps/panics for true unchecked or invariant semantics;
+- complete the text-model and convenience-trait migrations accepted by the
+  reconstruction track and remove rejected wrappers, aliases, builtin
+  identities, and bootstrap adapters;
+- migrate maintained std/examples/fixtures to the source idiom matrix in 4.6
+  and retain explicit syntax-focused cases for every alternative legal form;
 - fuzz/model-check plan codec and graph transitions where practical;
 - run installed-layout, relocation, corruption, concurrent build, process
   lifecycle, allocator failure, std facade/provider, runtime, and representative
@@ -858,6 +1017,13 @@ Acceptance:
   failure/corruption recovery, and artifact execution;
 - architecture and user docs describe the implemented single path rather than
   roadmap intent;
+- representative examples compile with user-facing string, pattern, aggregate,
+  and coercion idioms, while structural checks show that raw exit-code casts and
+  redundant contextual literal annotations have not returned;
+- every remaining builtin trait has a recorded semantic reason that cannot be
+  represented by an ordinary trait plus compiler-provided structural impl, and
+  the reviewed string surface has end-to-end construction/mutation/format/path
+  conformance rather than isolated capability tests;
 - build/std follow-on feature work has a separate bounded scope and this file no
   longer contains an open acceptance item.
 
@@ -871,7 +1037,8 @@ Phase A
   -> Phase C build-host std contracts
   -> Phase D immutable plan
   -> Phase E coordinator execution
-  -> Phase F cache/resources
+     +-> Phase F cache/resources
+     +-> std reconstruction
   -> Phase G artifact surface
   -> Phase H closure
 ```
@@ -1011,8 +1178,9 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phases A, B, C, and D are complete. Phase E coordinator execution is active.
-Later implementation phases are not marked complete by roadmap text.
+Phases A, B, C, and D are complete. Phase E coordinator execution and the
+standard-library reconstruction track are active. Later implementation phases
+are not marked complete by roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
 product maturity remains early. The first proof of progress is not a new build
@@ -1335,6 +1503,38 @@ executes 32 imports and 32 run arguments, proving the old fixed argv limit did
 not return. Phase E remains open for typed staging of output-producing external
 tools, coordinator-wide failure cancellation, scoped publication replacing the
 package lock, and deterministic multi-worker execution.
+
+Cross-cutting progress (2026-07-31, representative-source and provider-signature
+batch): repository executable fixtures now use `process::exit(code)!`,
+`process::ExitCode::Success`, or reviewed `.exit().?` conversion instead of
+scattered raw exit-code casts. A structural guard rejects qualified raw casts,
+and ordinary build/std numeric literals rely on contextual inference while ABI,
+layout, bit-width, and syntax-test annotations remain explicit. Maintained
+examples now exercise adjacent and multiline strings, `if value is pattern`,
+contextual struct/array literals, and direct array-pointer-to-slice coercion;
+all 11 examples parse and seven representative examples pass semantic checks.
+
+The expanded examples exposed a clean-baseline executable defect rather than a
+std import workaround: a shallow provider selected into checked/codegen modules
+was present in the extension-method index but absent from monomorphization and
+backend non-function signatures. Direct dispatch could therefore work while a
+nested generic `where` chain such as
+`Take[Rev[SliceIterMut[i32]]] : Iterator` lost its
+`SliceIterMut : DoubleEndedIterator` witness and produced unresolved method and
+layout ICE diagnostics. The executable signature snapshot now merges exactly
+the actually checked modules with the base semantic set, deduplicates impl
+identity, and rebuilds trait indexes. A focused shallow-provider generic
+regression, the ArrayList nested-adapter executable, and the std-root
+CString/path executable all pass. Equivalent `using` spelling remains a
+namespace choice; no provider-path import narrowing or std-specific loader
+branch was introduced.
+
+The same batch promotes text ergonomics and convenience-trait removal from a
+late Phase H audit into the active reconstruction track in 5.2.1. Current
+`StringView`/`StringBuf` names and builtin `Len`/`Start`/`End`/`Ptr`/`PtrMut`/
+`Char` identities are explicitly unfrozen. This records direction and
+acceptance evidence; it does not claim that the text or builtin-trait migration
+is implemented.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

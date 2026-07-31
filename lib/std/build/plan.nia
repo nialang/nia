@@ -21,9 +21,9 @@ using types::{
     TargetView,
 };
 
-const maxPlanBytes: usize = 67108864usize;
-const maxItems: usize = 100000usize;
-const maxStringBytes: usize = 1048576usize;
+const maxPlanBytes: usize = 67108864;
+const maxItems: usize = 100000;
+const maxStringBytes: usize = 1048576;
 
 struct PlanEncoder {
     allocator: &mut mem::Allocator,
@@ -63,11 +63,11 @@ extend PlanEncoder {
     fn writeU32(&mut self, value: u32) Error!void {
         let encoded: [4]u8 = [
             value as u8,
-            (value >> 8u32) as u8,
-            (value >> 16u32) as u8,
-            (value >> 24u32) as u8,
+            (value >> 8) as u8,
+            (value >> 16) as u8,
+            (value >> 24) as u8,
         ];
-        self.writeBytes(&encoded[..])
+        self.writeBytes(&encoded)
     }
 
     fn writeCount(&mut self, value: usize) Error!void {
@@ -96,24 +96,24 @@ extend PlanEncoder {
     }
 
     fn writePackagePath(&mut self, path: fs::PathView) Error!void {
-        self.writeU8(0u8).?;
+        self.writeU8(0).?;
         self.writeRootPackage().?;
         self.writeLogicalPathText(path.string())
     }
 
     fn writeBuildPath(&mut self, path: string::StringView) Error!void {
-        self.writeU8(1u8).?;
+        self.writeU8(1).?;
         self.writeLogicalPathText(path)
     }
 
     fn writeArtifactPath(&mut self, name: string::StringView) Error!void {
-        self.writeU8(4u8).?;
+        self.writeU8(4).?;
         self.writeNodeKey(name).?;
         self.writeString(string::StringView::init(&""))
     }
 
     fn writePackageRootPath(&mut self) Error!void {
-        self.writeU8(0u8).?;
+        self.writeU8(0).?;
         self.writeRootPackage().?;
         self.writeString(string::StringView::init(&""))
     }
@@ -126,8 +126,8 @@ extend PlanEncoder {
     }
 
     fn writeTarget(&mut self, target: TargetView) Error!void {
-        if target.arch().len() == 0usize
-            or target.os().len() == 0usize
+        if target.arch().len() == 0
+            or target.os().len() == 0
             or containsNul(target.arch().text())
             or containsNul(target.vendor().text())
             or containsNul(target.os().text())
@@ -136,11 +136,11 @@ extend PlanEncoder {
             or containsNul(target.endian().text())
             or not (textEquals(target.endian().text(), &"little")
                 or textEquals(target.endian().text(), &"big"))
-            or not (target.pointerWidth() == 8u32
-                or target.pointerWidth() == 16u32
-                or target.pointerWidth() == 32u32
-                or target.pointerWidth() == 64u32
-                or target.pointerWidth() == 128u32)
+            or not (target.pointerWidth() == 8
+                or target.pointerWidth() == 16
+                or target.pointerWidth() == 32
+                or target.pointerWidth() == 64
+                or target.pointerWidth() == 128)
         {
             return invalidPlan();
         }
@@ -155,20 +155,20 @@ extend PlanEncoder {
 
     fn writeOptimization(&mut self, optimization: OptimizationMode) Error!void {
         self.writeU8(switch optimization {
-            OptimizationMode::O0 => 0u8,
-            OptimizationMode::O1 => 1u8,
-            OptimizationMode::O2 => 2u8,
-            OptimizationMode::O3 => 3u8,
-            OptimizationMode::Os => 4u8,
-            OptimizationMode::Oz => 5u8,
+            OptimizationMode::O0 => 0,
+            OptimizationMode::O1 => 1,
+            OptimizationMode::O2 => 2,
+            OptimizationMode::O3 => 3,
+            OptimizationMode::Os => 4,
+            OptimizationMode::Oz => 5,
             _ => return invalidPlan(),
         })
     }
 
     fn writeRuntime(&mut self, runtime: Runtime) Error!void {
         self.writeU8(switch runtime {
-            Runtime::Bare => 0u8,
-            Runtime::Freestanding => 1u8,
+            Runtime::Bare => 0,
+            Runtime::Freestanding => 1,
             _ => return invalidPlan(),
         })
     }
@@ -206,45 +206,45 @@ extend PlanEncoder {
     ) Error!void {
         self.writeNodeKey(step.name.view()).?;
         switch step.kind {
-            StepKind::Aggregate => self.writeU8(4u8),
+            StepKind::Aggregate => self.writeU8(4),
             StepKind::GeneratedFile => {
-                self.writeU8(3u8).?;
+                self.writeU8(3).?;
                 self.writeBuildPath(step.payload.generatedFile.output.view()).?;
                 self.writeU32(step.payload.generatedFile.contents.len() as u32).?;
                 self.writeBytes(step.payload.generatedFile.contents.as_slice())
             },
             StepKind::Uncacheable => {
-                self.writeU8(5u8).?;
+                self.writeU8(5).?;
                 self.writeString(step.payload.uncacheable.description.view())
             },
             StepKind::CheckExecutable => {
                 let target = executables[step.payload.executable.target.index];
                 let moduleRecord = modules[target.rootModule.index];
-                self.writeU8(0u8).?;
+                self.writeU8(0).?;
                 self.writeNodeKey(moduleRecord.name.view()).?;
                 self.writeTarget(artifactTarget).?;
                 self.writeRuntime(target.runtime)
             },
             StepKind::EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
-                self.writeU8(1u8).?;
+                self.writeU8(1).?;
                 self.writeNodeKey(target.name.view()).?;
                 self.writeTarget(artifactTarget)
             },
             StepKind::RunExecutable => {
                 let run = step.payload.runExecutable;
                 let target = executables[run.target.index];
-                self.writeU8(2u8).?;
-                self.writeU8(0u8).?;
+                self.writeU8(2).?;
+                self.writeU8(0).?;
                 self.writeArtifactPath(target.name.view()).?;
                 self.writeCount(run.arguments.len()).?;
                 for &argument in run.arguments.iter() {
                     self.writeString(argument.view()).?;
                 }
                 self.writePackageRootPath().?;
-                self.writeCount(0usize).?;
-                self.writeCount(0usize).?;
-                self.writeCount(0usize)
+                self.writeCount(0).?;
+                self.writeCount(0).?;
+                self.writeCount(0)
             },
             _ => invalidPlan(),
         }
@@ -253,10 +253,10 @@ extend PlanEncoder {
     fn writeStep(&mut self, build: &Build, step: Step) Error!void {
         self.writeNodeKey(step.name.view()).?;
         self.writeNodeKey(step.name.view()).?;
-        let mut dependencyCount = 0usize;
+        let mut dependencyCount: usize = 0;
         for &edge in build.dependencies.iter() {
             if edge.step.index == step.index {
-                dependencyCount += 1usize;
+                dependencyCount += 1;
             }
         }
         self.writeCount(dependencyCount).?;
@@ -272,10 +272,10 @@ extend PlanEncoder {
     fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle) Error!void {
         switch handle {
             ?step => {
-                self.writeU8(1u8).?;
+                self.writeU8(1).?;
                 self.writeNodeKey(build.steps.as_slice()[step.index].name.view())
             },
-            null => self.writeU8(0u8),
+            null => self.writeU8(0),
         }
     }
 
@@ -283,7 +283,7 @@ extend PlanEncoder {
         self.writeBytes(&b"NIA-PLN\0"[..]).?;
         self.writeU32(build.planSchemaVersion).?;
         self.writeRootPackage().?;
-        self.writeCount(1usize).?;
+        self.writeCount(1).?;
         self.writeRootPackage().?;
         self.writeTarget(build.hostTarget()).?;
         self.writeTarget(build.artifactTarget()).?;
@@ -326,7 +326,7 @@ extend Build {
             file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
         };
         let mut buffer: [4096]u8 = [_]u8[0; 4096];
-        let mut writer = file.writer(self.init.io(), &mut buffer[..]).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        let mut writer = file.writer(self.init.io(), &mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan).?;
         writer.write_all(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
         writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan).?;
         file.sync().asBuildError(Operation::Publish, Subject::BuildPlan).?;
@@ -337,7 +337,7 @@ extend Build {
 }
 
 fn utf8Length(text: &[char]) Error!usize {
-    let mut len = 0usize;
+    let mut len: usize = 0;
     for &ch in text.iter() {
         let encodedLen = ch.encode_utf8().bytes().len();
         if encodedLen > maxStringBytes - len {
@@ -349,30 +349,30 @@ fn utf8Length(text: &[char]) Error!usize {
 }
 
 fn isValidLogicalPath(text: &[char]) bool {
-    if text.len() == 0usize {
+    if text.len() == 0 {
         return true;
     }
-    if text[0usize] == '/' or text[text.len() - 1usize] == '/' {
+    if text[0] == '/' or text[text.len() - 1] == '/' {
         return false;
     }
-    let mut componentStart = 0usize;
-    let mut index = 0usize;
+    let mut componentStart: usize = 0;
+    let mut index: usize = 0;
     while index <= text.len() {
         if index == text.len() or text[index] == '/' {
             let componentLen = index - componentStart;
-            if componentLen == 0usize
-                or (componentLen == 1usize and text[componentStart] == '.')
-                or (componentLen == 2usize
+            if componentLen == 0
+                or (componentLen == 1 and text[componentStart] == '.')
+                or (componentLen == 2
                     and text[componentStart] == '.'
-                    and text[componentStart + 1usize] == '.')
+                    and text[componentStart + 1] == '.')
             {
                 return false;
             }
-            componentStart = index + 1usize;
+            componentStart = index + 1;
         } else if text[index] == '\\' or text[index] == '\0' {
             return false;
         }
-        index += 1usize;
+        index += 1;
     }
     true
 }

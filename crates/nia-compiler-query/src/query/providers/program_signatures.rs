@@ -256,6 +256,55 @@ pub(super) fn executable_program_non_function_signatures(
     })
 }
 
+pub(super) fn executable_program_non_function_signatures_for_modules(
+    db: &QueryDb<CompilerContext>,
+    module_ids: impl IntoIterator<Item = ModuleId>,
+) -> QueryResult<ProgramExecutableNonFunctionSignatures> {
+    let mut signatures = executable_program_non_function_signatures(db)?;
+    let mut seen_impls = signatures
+        .trait_impls
+        .iter()
+        .map(|signature| (signature.module_id, signature.impl_id))
+        .collect::<HashSet<_>>();
+
+    for module_id in module_ids {
+        let values = db.get(ModuleProgramSignatureFactsQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        ))?;
+        signatures.globals.extend(values.globals.clone());
+        signatures.consts.extend(values.consts.clone());
+
+        let types = db.get(ModuleProgramSignatureFactsQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))?;
+        signatures.structs.extend(types.structs.clone());
+        signatures.unions.extend(types.unions.clone());
+        signatures.enums.extend(types.enums.clone());
+        signatures.type_aliases.extend(types.type_aliases.clone());
+
+        let traits = db.get(ModuleProgramSignatureFactsQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ))?;
+        signatures.traits.extend(traits.traits.clone());
+        signatures.trait_impls.extend(
+            traits
+                .trait_impls
+                .iter()
+                .filter(|signature| seen_impls.insert((signature.module_id, signature.impl_id)))
+                .cloned(),
+        );
+    }
+
+    signatures.trait_impl_index =
+        nia_item_signatures::ProgramTraitImplIndex::new(&signatures.trait_impls);
+    signatures.trait_method_index =
+        nia_program_signatures::ProgramTraitMethodIndex::from_traits(&signatures.traits);
+    Ok(signatures)
+}
+
 pub(super) fn executable_program_functions_for_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: impl IntoIterator<Item = ModuleId>,

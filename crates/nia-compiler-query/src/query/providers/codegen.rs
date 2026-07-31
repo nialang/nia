@@ -122,7 +122,10 @@ pub(super) fn monomorphization_for_checked_modules(
         .modules()
         .map(|module| (module.id, module.stable_key.source_identity().clone()))
         .collect::<Vec<_>>();
-    let executable_signatures = executable_program_non_function_signatures(db)?;
+    let executable_signatures = executable_program_non_function_signatures_for_modules(
+        db,
+        checked_modules.iter().map(|module| module.id),
+    )?;
     let program_enums = &executable_signatures.enums;
     let trait_impls = executable_signatures.trait_impls.as_slice();
     let trait_impl_index = &executable_signatures.trait_impl_index;
@@ -555,7 +558,10 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 .bundle(function_lowering_diagnostics),
         });
     }
-    let non_function_signatures = executable_program_non_function_signatures(db)?;
+    let non_function_signatures = executable_program_non_function_signatures_for_modules(
+        db,
+        checked_modules.iter().map(|module| module.id),
+    )?;
     let functions = executable_program_functions_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),

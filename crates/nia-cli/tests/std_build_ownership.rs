@@ -239,16 +239,16 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
         !value => {
             let mut unexpected = value;
             unexpected.deinit().exit().?;
-            return (1 as process::ExitCode)!;
+            return process::exit(1)!;
         },
         err! => {
             if not isBuildDirRetainOom(err) {
-                return (2 as process::ExitCode)!;
+                return process::exit(2)!;
             }
         },
     }
     if allocator.activeAllocations != 0usize {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     !{}
 }
@@ -275,17 +275,17 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         !value => {
             let mut unexpected = value;
             unexpected.deinit().exit().?;
-            return (14 as process::ExitCode)!;
+            return process::exit(14)!;
         },
         err! => {
             let host = successfulAllocations == 7usize;
             if not isTargetRetainOom(err, host) {
-                return (15 as process::ExitCode)!;
+                return process::exit(15)!;
             }
         },
     }
     if allocator.activeAllocations != 0usize {
-        return (16 as process::ExitCode)!;
+        return process::exit(16)!;
     }
     !{}
 }
@@ -313,17 +313,17 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
         !value => {
             let mut unexpected = value;
             unexpected.deinit().exit().?;
-            return (11 as process::ExitCode)!;
+            return process::exit(11)!;
         },
         err! => {
             if not isPackageRootReleaseInvalid(err) {
                 reportUnexpected(init, err).?;
-                return (12 as process::ExitCode)!;
+                return process::exit(12)!;
             }
         },
     }
     if allocator.activeAllocations != 0usize {
-        return (13 as process::ExitCode)!;
+        return process::exit(13)!;
     }
     !{}
 }
@@ -366,16 +366,16 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     ) {
         !handle => {
             _ = handle;
-            return (4 as process::ExitCode)!;
+            return process::exit(4)!;
         },
         err! => {
             if not isImportRetainOom(err) {
-                return (5 as process::ExitCode)!;
+                return process::exit(5)!;
             }
         },
     }
     if allocator.activeAllocations != beforeModule {
-        return (6 as process::ExitCode)!;
+        return process::exit(6)!;
     }
 
     allocator.disableFailure();
@@ -389,16 +389,16 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     ) {
         !handle => {
             _ = handle;
-            return (7 as process::ExitCode)!;
+            return process::exit(7)!;
         },
         err! => {
             if not isExecutableRetainOom(err) {
-                return (8 as process::ExitCode)!;
+                return process::exit(8)!;
             }
         },
     }
     if allocator.activeAllocations != beforeTarget {
-        return (9 as process::ExitCode)!;
+        return process::exit(9)!;
     }
     allocator.disableFailure();
     let executable = api.addExecutable(
@@ -417,16 +417,16 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     ) {
         !handle => {
             _ = handle;
-            return (30 as process::ExitCode)!;
+            return process::exit(30)!;
         },
         err! => {
             if not isRunRetainOom(err) {
-                return (31 as process::ExitCode)!;
+                return process::exit(31)!;
             }
         },
     }
     if allocator.activeAllocations != beforeRun {
-        return (32 as process::ExitCode)!;
+        return process::exit(32)!;
     }
     allocator.disableFailure();
     let beforeDependency = allocator.activeAllocations;
@@ -437,16 +437,16 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     ) {
         !handle => {
             _ = handle;
-            return (33 as process::ExitCode)!;
+            return process::exit(33)!;
         },
         err! => {
             if not isDependencyRetainOom(err) {
-                return (34 as process::ExitCode)!;
+                return process::exit(34)!;
             }
         },
     }
     if allocator.activeAllocations != beforeDependency {
-        return (35 as process::ExitCode)!;
+        return process::exit(35)!;
     }
     allocator.disableFailure();
     let beforeGenerated = allocator.activeAllocations;
@@ -458,22 +458,22 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     ) {
         !handle => {
             _ = handle;
-            return (27 as process::ExitCode)!;
+            return process::exit(27)!;
         },
         err! => {
             if not isGeneratedFileRetainOom(err) {
-                return (28 as process::ExitCode)!;
+                return process::exit(28)!;
             }
         },
     }
     if allocator.activeAllocations != beforeGenerated {
-        return (29 as process::ExitCode)!;
+        return process::exit(29)!;
     }
     allocator.disableFailure();
     cleaned = true;
     api.deinit().exit().?;
     if allocator.activeAllocations != 0usize {
-        return (10 as process::ExitCode)!;
+        return process::exit(10)!;
     }
     !{}
 }
@@ -519,14 +519,14 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     switch api.validatePlan() {
         !ok => {
             _ = ok;
-            return (21 as process::ExitCode)!;
+            return process::exit(21)!;
         },
         err! => if not isPlanValidationOom(err) {
-            return (22 as process::ExitCode)!;
+            return process::exit(22)!;
         },
     }
     if allocator.activeAllocations != beforeValidate {
-        return (23 as process::ExitCode)!;
+        return process::exit(23)!;
     }
     allocator.disableFailure();
     api.validatePlan().exit().?;
@@ -535,20 +535,20 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     switch api.writePlanDraft(fs::PathView::init(&"plan.draft")) {
         !ok => {
             _ = ok;
-            return (24 as process::ExitCode)!;
+            return process::exit(24)!;
         },
         err! => if not isPlanEncodingOom(err) {
-            return (25 as process::ExitCode)!;
+            return process::exit(25)!;
         },
     }
     if allocator.activeAllocations != beforeEncode {
-        return (26 as process::ExitCode)!;
+        return process::exit(26)!;
     }
     allocator.disableFailure();
     cleaned = true;
     api.deinit().exit().?;
     if allocator.activeAllocations != 0usize {
-        return (20 as process::ExitCode)!;
+        return process::exit(20)!;
     }
     !{}
 }

@@ -1715,7 +1715,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    (7 as process::ExitCode)!
+    process::exit(7)!
 }
 "#,
     )
@@ -1766,7 +1766,7 @@ fn read(source: & Source) i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut values: [3]i32 = [1, 2, 3];
-    (read(&values[..]) as process::ExitCode)!
+    process::exit(read(&values[..]))!
 }
 "#,
     )
@@ -1896,7 +1896,7 @@ fn read(source: & Source) i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut values: [3]i32 = [1, 2, 3];
-    (read(&values[..]) as process::ExitCode)!
+    process::exit(read(&values[..]))!
 }
 "#,
     )
@@ -1937,10 +1937,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let q = value / by;
     let r = value % by;
     if q * by + r != value {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if r >= by {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     !{}
 }
@@ -1984,39 +1984,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let q0 = base / divisor;
     let r0 = base % divisor;
     if q0 * divisor + r0 != base {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if r0 < 0i128 or r0 >= divisor {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
 
     let neg_base = -base;
     let q1 = neg_base / divisor;
     let r1 = neg_base % divisor;
     if q1 * divisor + r1 != neg_base {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     if r1 > 0i128 or r1 <= -divisor {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
 
     let neg_divisor = -divisor;
     let q2 = base / neg_divisor;
     let r2 = base % neg_divisor;
     if q2 * neg_divisor + r2 != base {
-        return (5 as process::ExitCode)!;
+        return process::exit(5)!;
     }
     if r2 < 0i128 or r2 >= divisor {
-        return (6 as process::ExitCode)!;
+        return process::exit(6)!;
     }
 
     let q3 = neg_base / neg_divisor;
     let r3 = neg_base % neg_divisor;
     if q3 * neg_divisor + r3 != neg_base {
-        return (7 as process::ExitCode)!;
+        return process::exit(7)!;
     }
     if r3 > 0i128 or r3 <= -divisor {
-        return (8 as process::ExitCode)!;
+        return process::exit(8)!;
     }
 
     !{}
@@ -2129,10 +2129,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut writer = io::DiscardingWriter::init();
     switch writer.write_all(&b"nia") {
         !ok => { _ = ok; },
-        error! => { return (1 as process::ExitCode)!; },
+        error! => { return process::exit(1)!; },
     }
     if writer.len() != 3 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     !{}
 }
@@ -2172,42 +2172,42 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     if 0usize.is_power_of_two() {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if not 4096usize.is_power_of_two() {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     switch 10usize.checked_add(5usize) {
         ?value => { if value != 15usize {
-                    return (3 as process::ExitCode)!;
+                    return process::exit(3)!;
                 } },
-        null => { return (4 as process::ExitCode)!; },
+        null => { return process::exit(4)!; },
     }
     switch 18446744073709551615usize.checked_add(1usize) {
         ?value => { _ = value;
-                return (5 as process::ExitCode)!; },
+                return process::exit(5)!; },
         null => { },
     }
     switch 12usize.checked_mul(3usize) {
         ?value => { if value != 36usize {
-                    return (6 as process::ExitCode)!;
+                    return process::exit(6)!;
                 } },
-        null => { return (7 as process::ExitCode)!; },
+        null => { return process::exit(7)!; },
     }
     switch 4611686018427387904usize.checked_mul(4usize) {
         ?value => { _ = value;
-                return (8 as process::ExitCode)!; },
+                return process::exit(8)!; },
         null => { },
     }
     switch 17usize.align_forward(8usize) {
         ?value => { if value != 24usize {
-                    return (9 as process::ExitCode)!;
+                    return process::exit(9)!;
                 } },
-        null => { return (10 as process::ExitCode)!; },
+        null => { return process::exit(10)!; },
     }
     switch 17usize.align_forward(3usize) {
         ?value => { _ = value;
-                return (11 as process::ExitCode)!; },
+                return process::exit(11)!; },
         null => { },
     }
     !{}
@@ -2391,90 +2391,90 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut args = init.args();
     if args.len() != 3 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     switch args.program() {
         ?program => { if program.is_empty() {
-                return (9 as process::ExitCode)!;
+                return process::exit(9)!;
             } },
-        null => { return (10 as process::ExitCode)!; },
+        null => { return process::exit(10)!; },
     }
     let mut iter = args.skip_program();
     if iter.remaining() != 2usize {
-        return (11 as process::ExitCode)!;
+        return process::exit(11)!;
     }
     let mut first_arg = switch iter.next() {
         ?value => { value },
-        null => { return (2 as process::ExitCode)!; },
+        null => { return process::exit(2)!; },
     };
     if iter.remaining() != 1usize {
-        return (12 as process::ExitCode)!;
+        return process::exit(12)!;
     }
     let mut second_arg = switch iter.next() {
         ?value => { value },
-        null => { return (3 as process::ExitCode)!; },
+        null => { return process::exit(3)!; },
     };
     if iter.remaining() != 0usize {
-        return (13 as process::ExitCode)!;
+        return process::exit(13)!;
     }
     let mut for_count = 0usize;
     for arg in args.skip_program() {
         if for_count == 0usize {
             if arg.len() != 3usize {
-                return (18 as process::ExitCode)!;
+                return process::exit(18)!;
             }
         } else if for_count == 1usize {
             switch fmt::parse[u16](arg) {
                 !value => {
                     if value != 1234u16 {
-                        return (19 as process::ExitCode)!;
+                        return process::exit(19)!;
                     }
                 },
                 error! => {
-                    return (20 as process::ExitCode)!;
+                    return process::exit(20)!;
                 },
             }
         } else {
-            return (21 as process::ExitCode)!;
+            return process::exit(21)!;
         }
         for_count += 1usize;
     }
     if for_count != 2usize {
-        return (22 as process::ExitCode)!;
+        return process::exit(22)!;
     }
     let mut first = first_arg.bytes();
     let mut second = second_arg.bytes();
     if first.len() != 3 {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     if first[0] != 110u8 or first[1] != 105u8 or first[2] != 97u8 {
-        return (5 as process::ExitCode)!;
+        return process::exit(5)!;
     }
     if second.len() != 4 {
-        return (6 as process::ExitCode)!;
+        return process::exit(6)!;
     }
     switch fmt::parse[u16](second_arg) {
         !value => { if value != 1234u16 {
-                return (14 as process::ExitCode)!;
+                return process::exit(14)!;
             } },
-        error! => { return (15 as process::ExitCode)!; },
+        error! => { return process::exit(15)!; },
     }
     switch fmt::parse_radix[u16](second_arg, 16u32) {
         !value => { if value != 0x1234u16 {
-                return (16 as process::ExitCode)!;
+                return process::exit(16)!;
             } },
-        error! => { return (17 as process::ExitCode)!; },
+        error! => { return process::exit(17)!; },
     }
     let mut storage: [16]u8 = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print(&"{:_>5.2}", &[&first_arg]).exit().?;
     let written = writer.written();
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
-        return (8 as process::ExitCode)!;
+        return process::exit(8)!;
     }
     switch iter.next() {
         ?value => { _ = value;
-                return (7 as process::ExitCode)!; },
+                return process::exit(7)!; },
         null => { },
     }
     !{}
@@ -2535,7 +2535,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return !{};
         }
     }
-    return (2 as process::ExitCode)!;
+    return process::exit(2)!;
 }
 "#,
     )
@@ -2602,8 +2602,8 @@ extend[T] ParseError!T {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     switch parse().as_app_error() {
-        !value => { return (value as process::ExitCode)!; },
-        err! => { return (err as i32 as process::ExitCode)!; },
+        !value => { return process::exit(value)!; },
+        err! => { return process::exit(err as i32)!; },
     }
 }
 "#,
@@ -2648,10 +2648,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     y += 1;
 
     if x + y != 43 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if right != 22 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     !{}
 }
@@ -2729,16 +2729,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     if calls != 1 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if total != 7 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
     if classify(next(false)) != 5 {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     if calls != 2 {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     !{}
 }
@@ -2797,7 +2797,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut counter = Counter::init();
     counter.add(7);
     if counter.get() != 7 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     !{}
 }
@@ -2848,18 +2848,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut left_again = slot[i32]();
     let mut right_again = slot[u64]();
     if left_again.* != 11 {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     if right_again.* != 99u64 {
-        return (2 as process::ExitCode)!;
+        return process::exit(2)!;
     }
 
     left_again.* = 7;
     if slot[i32]().* != 7 {
-        return (3 as process::ExitCode)!;
+        return process::exit(3)!;
     }
     if slot[u64]().* != 99u64 {
-        return (4 as process::ExitCode)!;
+        return process::exit(4)!;
     }
     !{}
 }

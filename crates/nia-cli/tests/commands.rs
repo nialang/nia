@@ -6,6 +6,43 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn repository_nia_uses_the_exit_conversion_boundary() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("nia-cli lives under crates/");
+    for relative in ["lib", "examples", "benchmarks", "crates/nia-cli/tests"] {
+        assert_no_direct_exit_code_casts(&workspace.join(relative));
+    }
+}
+
+fn assert_no_direct_exit_code_casts(path: &std::path::Path) {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+        {
+            let entry = entry.expect("read repository source entry");
+            assert_no_direct_exit_code_casts(&entry.path());
+        }
+        return;
+    }
+    if !matches!(
+        path.extension().and_then(|value| value.to_str()),
+        Some("nia" | "rs")
+    ) {
+        return;
+    }
+    let source = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    let forbidden = ["as process", "::ExitCode"].concat();
+    assert!(
+        !source.contains(&forbidden),
+        "{} bypasses process::exit; direct open-enum casts belong only in explicit cast tests",
+        path.display()
+    );
+}
+
+#[test]
 fn readme_nia_examples_check_as_freestanding_programs() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let readme_path = manifest_dir
@@ -80,7 +117,15 @@ fn repository_examples_parse_and_representative_examples_check() {
         );
     }
 
-    for example in ["00_minimal.nia", "09_hash_map.nia", "modules/main.nia"] {
+    for example in [
+        "00_minimal.nia",
+        "01_values_control_flow.nia",
+        "02_slices_and_strings.nia",
+        "03_stdout.nia",
+        "06_optional_error.nia",
+        "09_hash_map.nia",
+        "modules/main.nia",
+    ] {
         let path = examples_dir.join(example);
         let output = support::nia_command()
             .arg("check")

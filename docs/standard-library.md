@@ -98,6 +98,70 @@ unchecked contract and must become a typed error. Genuine impossible compiler
 or runtime invariants use the project ICE boundary rather than ad hoc panic in
 normal std logic.
 
+Repository std code is also part of the public design evidence. It should use
+the same type inference and error idioms expected from user packages rather
+than preserving bootstrap-era explicitness:
+
+- numeric process failure statuses are constructed with `process::exit(code)`;
+  direct casts to `process::ExitCode` are confined to that conversion boundary
+  and explicit enum-cast conformance tests;
+- `.exit().?` is used when a reviewed std error mapping is being propagated
+  through an executable entry;
+- a numeric literal suffix is omitted when a parameter, return type, field,
+  place, operator, or peer expression already supplies its type;
+- suffixes remain when they define ABI or layout width, serialization or bit
+  arithmetic, intentional mixed-width behavior, otherwise ambiguous literals,
+  or the behavior under test.
+
+This is a semantic review rule, not a formatter rewrite. Removing a suffix must
+leave an authoritative inference source, while retaining one must communicate
+information that the surrounding type context does not already say.
+
+The std review also treats language ergonomics as a system rather than a list of
+working primitives. Text must be sampled end to end from string literals and
+UTF-8 conversion through borrowed/owned values, formatting, mutation,
+comparison, paths, OS boundaries, allocation failure, and defer cleanup. The
+current existence of `[char]`, `StringView`, `StringBuf`, Unicode helpers, and
+formatting traits does not by itself establish a coherent string API.
+
+Compiler-known traits receive the same scrutiny. Operators and structural place
+semantics may require compiler participation, but convenience methods do not
+automatically require builtin trait identity. `Len`, `Start`, `End`, `Ptr`,
+`PtrMut`, and `Char` must each justify why an ordinary trait with
+compiler-provided structural implementations or intrinsic bodies is
+insufficient. Their current cross-compiler implementation is audit evidence,
+not a reason to preserve it.
+
+The current audit sets this design direction:
+
+- borrowed scalar text is provisionally `&[char]`; `StringView` survives only if
+  it gains a checked nominal invariant that a slice does not express;
+- there will be one public owned/mutable scalar-text type, not parallel view,
+  buffer, and string wrappers with equivalent semantics;
+- arbitrary bytes, validated UTF-8, scalar text, C strings, and OS paths remain
+  separate roles with explicit, typed conversion failures;
+- adjacent and multiline literals are compile-time text construction; runtime
+  concatenation must have one obvious append/format path shared by borrowed and
+  owned text;
+- scalar length and encoded byte length are named and tested separately;
+- allocator ownership remains visible, but construction, growth, transfer, and
+  `defer` cleanup must form one reviewable protocol rather than requiring users
+  to reconstruct ownership at each call.
+
+The current `utf8_decode_first` optional result is not an acceptable final error
+contract because empty input, truncation, invalid leading bytes, invalid
+continuations, overlong forms, and invalid scalar values are different states.
+Likewise, converting all text/path failures directly into `fs::Error` loses
+information needed by build diagnostics and process boundaries.
+
+Initial convenience-trait dispositions are deliberately asymmetric. `Char` is
+a Unicode conversion API rather than polymorphic language dispatch.
+`Start`/`End` are range accessors. `Len` and `Ptr`/`PtrMut` need compiler-created
+implementations for structural arrays, slices, or data pointers, but that does
+not require builtin trait identity. Each migration must trace symbol identity,
+type/projection solving, const evaluation, reachability, backend dispatch, and
+LLVM before deleting its builtin declaration.
+
 ## 5. Ownership And Error Baseline
 
 Build-plan text and paths must be owned by the builder/plan arena or copied into

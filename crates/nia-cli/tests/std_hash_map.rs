@@ -19,7 +19,7 @@ using std::process;
 fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!void {
     let actual = hash::wyhash(seed, input);
     if actual != expected {
-        return (code as process::ExitCode)!;
+        return process::exit(code)!;
     }
     !{}
 }
@@ -30,14 +30,14 @@ fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::E
     let mut one = hash::Wyhash::init(seed);
     one.update(input);
     if one.finish() != expected or one.finish() != expected {
-        return (code as process::ExitCode)!;
+        return process::exit(code)!;
     }
 
     let mut split = hash::Wyhash::init(seed);
     split.update(&input[0usize..split_at]);
     split.update(&input[split_at..]);
     if split.finish() != expected {
-        return ((code + 1) as process::ExitCode)!;
+        return process::exit(code + 1)!;
     }
 
     let mut bytewise = hash::Wyhash::init(seed);
@@ -47,7 +47,7 @@ fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::E
         i += 1usize;
     }
     if bytewise.finish() != expected {
-        return ((code + 2) as process::ExitCode)!;
+        return process::exit(code + 2)!;
     }
 
     let mut chunks = hash::Wyhash::init(seed);
@@ -61,7 +61,7 @@ fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::E
         i = end;
     }
     if chunks.finish() != expected {
-        return ((code + 3) as process::ExitCode)!;
+        return process::exit(code + 3)!;
     }
     !{}
 }
@@ -99,7 +99,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut one = hash::Wyhash::init(6u64);
     one.update(&long);
     if one.finish() != expected or one.finish() != expected {
-        return (8 as process::ExitCode)!;
+        return process::exit(8)!;
     }
 
     let mut split = hash::Wyhash::init(6u64);
@@ -109,7 +109,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     split.update(&long[48usize..49usize]);
     split.update(&long[49usize..]);
     if split.finish() != expected {
-        return (9 as process::ExitCode)!;
+        return process::exit(9)!;
     }
 
     let mut bytewise = hash::Wyhash::init(6u64);
@@ -119,7 +119,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         i += 1usize;
     }
     if bytewise.finish() != expected {
-        return (10 as process::ExitCode)!;
+        return process::exit(10)!;
     }
 
     let boundary = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/";
@@ -140,21 +140,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_hasher = hash::Wyhash::init(12u64);
     raw_hasher.write(&pair);
     if slice_hash == raw_hasher.finish() {
-        return (70 as process::ExitCode)!;
+        return process::exit(70)!;
     }
 
     let mut manual_slice_hasher = hash::Wyhash::init(12u64);
     (2usize).hash(&mut manual_slice_hasher);
     manual_slice_hasher.write(&pair);
     if slice_hash != manual_slice_hasher.finish() {
-        return (71 as process::ExitCode)!;
+        return process::exit(71)!;
     }
 
     let mut int_hasher = hash::Wyhash::init(13u64);
     (0x01020304u32).hash(&mut int_hasher);
     let little_endian: [4]u8 = [4u8, 3u8, 2u8, 1u8];
     if int_hasher.finish() != hash::wyhash(13u64, &little_endian) {
-        return (72 as process::ExitCode)!;
+        return process::exit(72)!;
     }
 
     let mut bool_true = hash::Wyhash::init(14u64);
@@ -162,7 +162,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut one_byte = hash::Wyhash::init(14u64);
     (1u8).hash(&mut one_byte);
     if bool_true.finish() != one_byte.finish() {
-        return (73 as process::ExitCode)!;
+        return process::exit(73)!;
     }
 
     !{}
@@ -205,7 +205,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut empty: [0]u8 = [];
     switch os::random(&mut empty[..]) {
         !ok => { _ = ok; },
-        error! => { return (2 as process::ExitCode)!; },
+        error! => { return process::exit(2)!; },
     }
 
     let mut bytes: [32]u8 = [
@@ -216,7 +216,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ];
     switch os::random(&mut bytes[..]) {
         !ok => { _ = ok; },
-        error! => { return (3 as process::ExitCode)!; },
+        error! => { return process::exit(3)!; },
     }
 
     let mut any_nonzero = false;
@@ -228,7 +228,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         i += 1usize;
     }
     if not any_nonzero {
-        return (1 as process::ExitCode)!;
+        return process::exit(1)!;
     }
     !{}
 }
