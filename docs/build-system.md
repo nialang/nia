@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phase D immutable build-plan migration in progress
+Status: Phase D complete; Phase E coordinator execution in progress
 
 The Rust-side `BuildInvocation` is resolved bootstrap state: package and
 toolchain paths, requested step, runner locations, and timing options. It is not
@@ -31,8 +31,9 @@ nia build
   -> atomic artifacts, cache records, and diagnostics
 ```
 
-The current callback runner is a bootstrap implementation, not an alternative
-execution model that remains after migration.
+The generated runner is a configuration process: it constructs, validates, and
+encodes the graph, but it cannot execute an action. The decoded frozen plan is
+the coordinator's only execution input.
 
 ## 2. Current Owners
 
@@ -40,7 +41,7 @@ execution model that remains after migration.
 | --- | --- | --- |
 | CLI parsing and outer timing session | `crates/nia-cli/src/main.rs` | retain CLI ownership; pass typed layout/configuration |
 | Package discovery, runner compilation, package lock | `crates/nia-build/src/lib.rs` | evolve into coordinator; remove checkout and global-lock assumptions |
-| Build graph declaration and recursive execution | `lib/std/build/core.nia` | split builder from execution; physically delete recursive executor |
+| Build graph declaration | `lib/std/build/core.nia` and `plan.nia` | retain builder ownership and codec; execution is physically absent |
 | Build API records and handles | `lib/std/build/types.nia` | replace index-only callback records with plan-owned typed values |
 | Build-script error conversion | `lib/std/build/error.nia` | structured operation/subject/cause errors implemented; add package/action identity at frozen-plan handoff |
 | Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; delete compile-time checkout lookup |
@@ -100,11 +101,15 @@ the runner draft on every normal success or failure path. The durable handoff is
 `.nia-build/build-plan.bin`; a failed runner cannot replace its last valid
 contents.
 
-This connected handoff is still transitional. The callback runner currently
-executes the selected legacy action before its process returns, so coordinator
-decode cannot yet be the pre-side-effect gate. Coordinator execution must
-consume the published plan and replace the callback path before the immutable
-plan becomes the sole production graph truth.
+After the runner exits, the coordinator decodes and freezes the draft before
+any action can run. It publishes canonical plan bytes and executes only the
+selected dependency closure. The closure uses iterative deterministic Kahn
+traversal and executes a shared action at most once. Aggregate actions are
+no-ops; compiler check and executable emission call `nia-driver` directly with
+typed module maps, optimization, runtime, target, cache, and output values.
+External-command, generated-file, and explicit uncacheable actions currently
+fail with an action-keyed unsupported-action error rather than falling back to
+runner callbacks.
 
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a
@@ -116,12 +121,11 @@ Bootstrap modules also carry an explicit retained name. Graph construction
 rejects invalid or duplicate module names instead of deriving identity from a
 root-source path or insertion index. Module, executable, and step names use the
 same stable-name alphabet as protocol keys, and duplicate module imports are
-rejected before retention. Before any callback or compiler process is
-started, the builder resolves the requested/default step and validates the
-entire dependency graph, including unselected components. A successful result
-is cached only until the next graph mutation. This is a migration guard for the
-current callback runner; the immutable plan freeze remains the production
-validation owner.
+rejected before retention. Before the draft is written, the builder resolves
+the requested/default step and validates the entire dependency graph, including
+unselected components. A successful result is cached only until the next graph
+mutation. Decoder freeze remains the production validation owner, so malformed
+or semantically invalid bytes cannot reach coordinator execution.
 
 Every action has a typed kind, declared inputs, declared outputs, environment
 policy, working directory policy, target/host role, cache policy, and resource
@@ -138,11 +142,10 @@ from the layout-selected artifact target, while build-runner compilation
 explicitly overrides that value with the layout host target. The generated
 runner receives complete host and artifact descriptors as separate arguments
 and passes borrowed `TargetView` values into `std::build`; the builder retains
-owned copies. Bootstrap executable records carry only the selected artifact
-role. Because the current callback executor cannot pass a target through the
-public CLI, it rejects a distinct target at execution rather than substituting
-the host. The immutable plan and coordinator replace this temporary execution
-limit with typed target-bearing compiler actions.
+owned copies. Executable records carry only the selected artifact role. Before
+execution, the coordinator verifies that both plan-level targets match the
+resolved toolchain invocation, then creates target-specific Driver sessions
+from each compiler action's typed target rather than reconstructing CLI argv.
 
 Build diagnostics carry phase, action identity, package-relative subject,
 cause, and process/compiler detail where applicable. Invalid plan data, missing
@@ -150,16 +153,12 @@ resources, filesystem failures, process failures, and compiler diagnostics are
 ordinary typed failures. Panic is reserved for a genuine internal invariant and
 is caught by the existing ICE boundary.
 
-The bootstrap already preserves this shape within its available identities.
-`Error` distinguishes invalid input, internal invariants, cycles, prior step
-failure, and contextual failure. Contextual failures carry an operation, an
-indexed or named subject, and the original `mem`, `fmt`, `fs`, `process`, or
-child `Term` value. The generated runner reports failures both before and after
-`Build::init`; path decoding, target decoding, construction cleanup, build
-script execution, requested-step execution, and final deinitialization cannot
-silently collapse to an exit code. Frozen-plan work extends these subjects with
-stable package/action/artifact identity rather than introducing another error
-hierarchy.
+Builder `Error` values distinguish invalid input, internal invariants, cycles,
+and contextual construction/handoff failures. The generated runner reports
+path and target decoding, construction cleanup, build-script, plan encoding,
+and final deinitialization failures without collapsing them to an unexplained
+exit code. Coordinator errors add package/action identity to target mismatch,
+logical-root, module-map, unsupported-action, and Driver failures.
 
 Build-cache entries are immutable and content-addressed. Their identity includes
 action schema, semantic inputs, toolchain/std identity, host/target, declared
@@ -167,19 +166,13 @@ environment, and dependency artifact identities. Corruption is retired and
 reported as a miss reason. Timing and latest-run metadata never participate in
 cache correctness.
 
-## 4. Bootstrap Telemetry
+## 4. Execution Telemetry
 
-Phase A uses an explicitly temporary observational protocol. With
-`--timings=detail --timings-format=json`, the outer CLI emits the existing
-`nia-timing` schema and the bootstrap runner emits one JSON line with
-`kind="nia-build-actions"` and `schema_version=1`. It records declared graph
-counts, started/succeeded/failed steps, action kinds, and compiler invocations.
-Compiler subprocesses receive the same timing flags, so their wall/RSS and
-compiler/link/cache counters remain visible as separate reports.
-
-This report is not `BuildPlan`, is not persisted as cache truth, and gains no
-compatibility promise. It exists to compare migration behavior with the
-bootstrap before the bootstrap is deleted.
+With `--timings=detail --timings-format=json`, the outer CLI emits the existing
+`nia-timing` schema. Coordinator step/action totals, failures, and Driver
+compiler/link/cache counters share that report because compiler actions now run
+in the coordinator process. These observational counters are not `BuildPlan`,
+are not persisted as cache truth, and gain no compatibility promise.
 
 ## 5. Current Contract Migration Matrix
 
@@ -198,14 +191,12 @@ bootstrap before the bootstrap is deleted.
 | duplicate target | duplicate stable artifact identity diagnostic |
 | invalid output | path/output policy diagnostic; no partial directory or artifact |
 
-Opaque custom callbacks, raw compiler arguments, index-only handles, recursive
-`run_step`, and the package-wide executor lock are explicitly deleted rather
-than mapped as supported target behavior. The former fixed 16-import,
-48-build-argument, and 64-process-argument buffers are already gone: bootstrap
-argv assembly is allocator-backed and ordinary allocation failure is typed.
-The bootstrap additionally rejects duplicate module names and cycles anywhere
-in the declared graph before starting the selected action. These checks remain
-defense during migration and do not create a second serialized graph model.
+Opaque custom callbacks, raw compiler arguments, index-only handles, and
+recursive `run_step` are deleted rather than mapped as supported target
+behavior. The package-wide lock remains until Phase E introduces scoped output
+publication. Builder validation rejects duplicate module names and cycles
+anywhere in the declared graph before writing the draft; decoder freeze is the
+single production graph validation boundary.
 An explicit selected step is sufficient when a script intentionally has no
 default; a nonempty plan with neither selection nor default is invalid.
 
@@ -215,11 +206,11 @@ The representative fixture covers multiple requirements in one real package:
 
 | Workload state | Evidence |
 | --- | --- |
-| clean build | runner bootstrap, two artifacts, generated source, compiler/link execution |
+| clean build | runner configuration, two artifacts, coordinator compiler/link execution |
 | warm build | no-op package state and exact compiler/link cache counters |
 | source edit | invalidation of one source-dependent artifact |
 | module-map edit | runner/plan change and changed explicit module input |
-| failed action | typed failed step with no successful-build claim |
+| failed action | explicit uncacheable action rejection with no successful-build claim |
 | multi-artifact package | graph and artifact counts plus deterministic selected closure |
 
 `tools/build_baseline.py` copies the fixture to an isolated temporary directory,

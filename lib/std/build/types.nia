@@ -5,22 +5,11 @@ using pkg::process;
 using pkg::string;
 using pkg::build::error;
 
-using error::Error;
-
-pub type StepFn = &fn(&mut Build) Error!void;
-
 pub enum StepKind: i32 {
-    Custom = 1,
+    Aggregate = 1,
     CheckExecutable = 2,
     EmitExecutable = 3,
-}
-
-pub enum StepState: i32 {
-    Pending = 1,
-    Running = 2,
-    Done = 3,
-    Failed = 4,
-    _
+    Uncacheable = 4,
 }
 
 pub enum OptimizationMode: i32 {
@@ -79,8 +68,12 @@ pub struct ModuleHandle {
     index: usize,
 }
 
-pub struct CustomStep {
-    run: StepFn,
+pub struct AggregateStep {
+    marker: u8,
+}
+
+pub struct UncacheableStep {
+    description: string::StringBuf,
 }
 
 pub struct ExecutableStep {
@@ -88,8 +81,9 @@ pub struct ExecutableStep {
 }
 
 pub union StepPayload {
-    custom: CustomStep,
+    aggregate: AggregateStep,
     executable: ExecutableStep,
+    uncacheable: UncacheableStep,
 }
 
 pub struct Step {
@@ -97,7 +91,6 @@ pub struct Step {
     name: string::StringBuf,
     kind: StepKind,
     payload: StepPayload,
-    state: StepState,
 }
 
 pub struct StepDependency {
@@ -163,7 +156,6 @@ pub struct Build {
     hostTarget: TargetStorage,
     artifactTarget: TargetStorage,
     planSchemaVersion: u32,
-    actionReporting: bool,
     stepArgIndex: usize,
     defaultStep: ?StepHandle,
     selectedStep: ?StepHandle,
@@ -172,11 +164,4 @@ pub struct Build {
     dependencies: collections::ArrayList[StepDependency],
     modules: collections::ArrayList[Module],
     executables: collections::ArrayList[ExecutableTarget],
-    stepsStarted: usize,
-    stepsSucceeded: usize,
-    stepsFailed: usize,
-    customActions: usize,
-    checkActions: usize,
-    emitActions: usize,
-    compilerInvocations: usize,
 }

@@ -7,8 +7,8 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn build_errors_preserve_context_and_report_exact_causes() {
-    let root = temp_dir("build_errors_preserve_context_and_report_exact_causes");
+fn build_configuration_does_not_execute_compiler_actions() {
+    let root = temp_dir("build_configuration_does_not_execute_compiler_actions");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -45,7 +45,6 @@ fn initBuild(
         currentTarget,
         currentTarget,
         1u32,
-        false,
         1024usize,
     )
 }
@@ -57,7 +56,7 @@ fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!void {
     api.setDefaultStep(check)
 }
 
-fn checkMissingCompiler(
+fn checkConfigurationDoesNotExecuteCompiler(
     init: process::Init,
     allocator: &mut mem::Allocator,
 ) process::ExitCode!void {
@@ -68,94 +67,13 @@ fn checkMissingCompiler(
     ).exit().?;
     defer api.deinit().exit().?;
     addCheck(&mut api, fs::PathView::init(&"main.nia")).exit().?;
-    switch api.runRequestedStep() {
-        !ok => {
-            _ = ok;
-            return (1 as process::ExitCode)!;
-        },
-        error! => {
-            api.reportError(error).exit().?;
-            switch error {
-                build::Error::Failure {
-                    operation: build::ErrorOperation::ExecuteCommand,
-                    subject: build::ErrorSubject::Compiler,
-                    cause: build::ErrorCause::Process(process::Error::SpawnExec),
-                } => {},
-                _ => return (2 as process::ExitCode)!,
-            }
-        },
-    }
-    !{}
-}
-
-fn checkCompilerExit(
-    init: process::Init,
-    allocator: &mut mem::Allocator,
-) process::ExitCode!void {
-    let mut api = initBuild(init, allocator, fs::PathView::init(&"/bin/false")).exit().?;
-    defer api.deinit().exit().?;
-    addCheck(&mut api, fs::PathView::init(&"main.nia")).exit().?;
-    switch api.runRequestedStep() {
-        !ok => {
-            _ = ok;
-            return (3 as process::ExitCode)!;
-        },
-        error! => {
-            api.reportError(error).exit().?;
-            switch error {
-                build::Error::Failure {
-                    operation: build::ErrorOperation::ExecuteCommand,
-                    subject: build::ErrorSubject::Compiler,
-                    cause: build::ErrorCause::Exit(term),
-                } => {
-                    if term.exit_code() is ?code {
-                        if code != 1 {
-                            return (4 as process::ExitCode)!;
-                        }
-                    } else {
-                        return (5 as process::ExitCode)!;
-                    }
-                },
-                _ => return (6 as process::ExitCode)!,
-            }
-        },
-    }
-    !{}
-}
-
-fn checkInvalidPath(
-    init: process::Init,
-    allocator: &mut mem::Allocator,
-) process::ExitCode!void {
-    let mut api = initBuild(init, allocator, fs::PathView::init(&"/bin/false")).exit().?;
-    defer api.deinit().exit().?;
-    let invalidPath = ['m', '\0'];
-    addCheck(&mut api, fs::PathView::init(&invalidPath[..])).exit().?;
-    switch api.runRequestedStep() {
-        !ok => {
-            _ = ok;
-            return (7 as process::ExitCode)!;
-        },
-        error! => {
-            api.reportError(error).exit().?;
-            switch error {
-                build::Error::Failure {
-                    operation: build::ErrorOperation::Encode,
-                    subject: build::ErrorSubject::Module(0usize),
-                    cause: build::ErrorCause::FileSystem(fs::Error::Invalid),
-                } => {},
-                _ => return (8 as process::ExitCode)!,
-            }
-        },
-    }
+    api.validatePlan().exit().?;
     !{}
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut pageAllocator = mem::PageAllocator::init();
-    checkMissingCompiler(init, &mut pageAllocator).?;
-    checkCompilerExit(init, &mut pageAllocator).?;
-    checkInvalidPath(init, &mut pageAllocator).?;
+    checkConfigurationDoesNotExecuteCompiler(init, &mut pageAllocator).?;
     !{}
 }
 "#,
@@ -179,17 +97,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let output =
         Command::new(&exe).output_timeout_without_resources("run contextual build error fixture");
     assert_eq!(output.status.code(), Some(0));
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("build error: execute command compiler: process/spawn executable"),
-        "stderr:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("build error: execute command compiler: command/exit code 1"),
-        "stderr:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("build error: encode module[0]: filesystem/invalid"),
-        "stderr:\n{stderr}"
+        output.stderr.is_empty(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

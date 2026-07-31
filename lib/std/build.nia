@@ -6,7 +6,6 @@ pub(pkg) module types;
 using pkg::build::core;
 using pkg::build::plan;
 
-pub using core::noopStep;
 pub using error::{
     Error,
     ErrorCause,
@@ -23,6 +22,5 @@ pub using types::{
     OptimizationMode,
     Runtime,
     TargetView,
-    StepFn,
     StepHandle,
 };

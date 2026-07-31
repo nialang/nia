@@ -189,9 +189,10 @@ extend PlanEncoder {
     ) Error!void {
         self.writeNodeKey(step.name.view()).?;
         switch step.kind {
-            StepKind::Custom => {
+            StepKind::Aggregate => self.writeU8(4u8),
+            StepKind::Uncacheable => {
                 self.writeU8(5u8).?;
-                self.writeString(step.name.view())
+                self.writeString(step.payload.uncacheable.description.view())
             },
             StepKind::CheckExecutable => {
                 let target = executables[step.payload.executable.target.index];
