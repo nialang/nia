@@ -159,13 +159,15 @@ types or APIs exist.
   lesson in documentation or commit history, not dormant production code.
 
 Changes should be grouped into meaningful dependency-complete batches rather
-than one-symbol commits. Once a coherent batch passes its relevant gates, commit
-it promptly with a descriptive `feat: ...` subject instead of carrying it into
-an unrelated batch. Do not mix unrelated cleanup into the commit merely because
-a broad validation command exposed it. Temporary execution progress belongs in
-the active roadmap; durable ownership, validation, and maintenance lessons must
-be moved into the relevant stable document as part of the batch that establishes
-them.
+than one-symbol commits. Several coherent implementation waves may remain
+together while that batch is still advancing; do not create commits merely to
+snapshot partial movement. Once the delivery batch passes its relevant gates,
+commit it with a descriptive `feat: ...` subject before reporting or handing off
+the work, and do not carry it into an unrelated batch. Do not mix unrelated
+cleanup into the commit merely because a broad validation command exposed it.
+Temporary execution progress belongs in the active roadmap; durable ownership,
+validation, and maintenance lessons must be moved into the relevant stable
+document as part of the batch that establishes them.
 
 ## 7. Boundary And Test Reviews
 

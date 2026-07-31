@@ -40,7 +40,7 @@ the coordinator's only execution input.
 | Concern | Current owner | Migration disposition |
 | --- | --- | --- |
 | CLI parsing and outer timing session | `crates/nia-cli/src/main.rs` | retain CLI ownership; pass typed layout/configuration |
-| Package discovery, runner compilation, package lock | `crates/nia-build/src/lib.rs` | evolve into coordinator; remove checkout and global-lock assumptions |
+| Package discovery and runner compilation | `crates/nia-build/src/lib.rs` | retain invocation ownership with isolated transient paths |
 | Build graph declaration | `lib/std/build/core.nia` and `plan.nia` | retain builder ownership and codec; execution is physically absent |
 | Build API records and handles | `lib/std/build/types.nia` | replace index-only callback records with plan-owned typed values |
 | Build-script error conversion | `lib/std/build/error.nia` | structured operation/subject/cause errors implemented; add package/action identity at frozen-plan handoff |
@@ -101,6 +101,13 @@ the runner draft on every normal success or failure path. The durable handoff is
 `.nia-build/build-plan.bin`; a failed runner cannot replace its last valid
 contents.
 
+Each build invocation compiles to a process/sequence-qualified runner executable
+and writes a matching private draft. Both transient files are retired when the
+runner finishes. Concurrent invocations therefore never remove, execute, or
+decode one another's runner state; canonical `build-plan.bin` publication
+remains an atomic last-completed observation and is not the execution truth for
+an already decoded plan.
+
 After the runner exits, the coordinator decodes and freezes the draft before
 any action can run. It publishes canonical plan bytes and executes only the
 selected dependency closure. The closure uses iterative deterministic Kahn
@@ -117,9 +124,23 @@ stdout/stderr while retaining a bounded 64-KiB tail for each stream, enforces a
 seven-minute timeout, and retires the owned process group on timeout or after
 the leader exits. Spawn, wait, timeout, capture, and nonzero-exit failures retain
 action, program, cwd, argument count, status, and output context.
-Output-producing external commands are rejected before spawn until typed
-staged-output arguments are implemented. Explicit uncacheable actions likewise
-remain unsupported; neither path falls back to a runner callback.
+External-command arguments distinguish literals, declared inputs, and declared
+outputs. An output argument resolves to a coordinator-owned same-filesystem
+staging path and one regular-file output is synced and atomically published;
+multi-output commands remain invalid until transactional publication exists.
+Explicit uncacheable actions remain unsupported; no path falls back to a runner
+callback.
+
+The former package-wide executor lock is absent. Every output-producing action
+derives a stable coordination key from its validated build-root logical path and
+acquires that cross-process lock under `.nia-cache/coordination/output-locks/`
+for the action lifetime. Equal destinations serialize across concurrent builds;
+different destinations use different locks and may progress independently.
+Compiler object/link cache publication remains owned by the Driver cache rather
+than being folded into this build-output lock namespace. Owner records include
+process identity, process start time, and an acquisition sequence; dead owners
+are reclaimed without allowing an older same-process guard to remove a newer
+lock.
 
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a
@@ -203,10 +224,10 @@ are not persisted as cache truth, and gain no compatibility promise.
 
 Opaque custom callbacks, raw compiler arguments, index-only handles, and
 recursive `run_step` are deleted rather than mapped as supported target
-behavior. The package-wide lock remains until Phase E introduces scoped output
-publication. Builder validation rejects duplicate module names and cycles
-anywhere in the declared graph before writing the draft; decoder freeze is the
-single production graph validation boundary.
+behavior. Invocation-private runner/draft paths and stable per-output locks have
+replaced the package-wide executor lock. Builder validation rejects duplicate
+module names and cycles anywhere in the declared graph before writing the draft;
+decoder freeze is the single production graph validation boundary.
 An explicit selected step is sufficient when a script intentionally has no
 default; a nonempty plan with neither selection nor default is invalid.
 

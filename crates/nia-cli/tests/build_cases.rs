@@ -167,7 +167,7 @@ fn assert_configured_build_success(
     );
     assert!(workspace.join(".nia-build/runner").is_dir());
     assert!(workspace.join(".nia-cache").is_dir());
-    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert_no_transient_runner_files(workspace);
     let plan_path = workspace.join(".nia-build/build-plan.bin");
     let plan = nia_build::read_build_plan(&plan_path).expect("decode published build plan");
     assert_eq!(plan.schema_version(), nia_build::BUILD_PLAN_SCHEMA_VERSION);
@@ -354,7 +354,7 @@ fn assert_configured_build_success(
         "stderr:\n{}",
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert_no_transient_runner_files(workspace);
     let checked_plan = nia_build::read_build_plan(&plan_path).expect("decode replaced build plan");
     assert_eq!(
         checked_plan.selected_step().map(nia_build::StepKey::name),
@@ -368,7 +368,7 @@ fn assert_configured_build_success(
         .arg(workspace)
         .output_timeout_without_resources("run unknown step after published plan");
     assert!(!unknown.status.success());
-    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert_no_transient_runner_files(workspace);
     assert_eq!(
         std::fs::read(&plan_path).expect("read plan after rejected build"),
         checked_bytes,
@@ -383,7 +383,7 @@ fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::pro
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(workspace.join(".nia-build/build-plan.bin").is_file());
-    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert_no_transient_runner_files(workspace);
     match contract {
         "step-order" => assert!(output.stdout.is_empty()),
         "executable-dependency" => {
@@ -402,7 +402,7 @@ fn assert_runner_error(
     output: &std::process::Output,
 ) {
     assert!(!output.status.success());
-    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert_no_transient_runner_files(workspace);
     assert!(!workspace.join(".nia-build/build-plan.bin").exists());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("build runner"), "{stderr}");
@@ -419,6 +419,29 @@ fn assert_runner_error(
             "{} must not exist",
             forbidden.display()
         );
+    }
+}
+
+fn assert_no_transient_runner_files(workspace: &Path) {
+    let build_dir = workspace.join(".nia-build");
+    if build_dir.is_dir() {
+        assert!(std::fs::read_dir(&build_dir).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".build-plan-")
+        }));
+    }
+    let runner_dir = build_dir.join("runner");
+    if runner_dir.is_dir() {
+        assert!(std::fs::read_dir(runner_dir).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("nia-build-runner-")
+        }));
     }
 }
 
