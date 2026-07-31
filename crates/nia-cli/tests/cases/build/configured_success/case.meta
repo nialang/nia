@@ -2,4 +2,4 @@ mode=configured-build-success
 resource=build
 contract=configured-success
 step=default
-contracts=timings-json,runner-context,configured-output,module-imports,build-plan
+contracts=timings-json,runner-context,configured-output,module-imports,build-plan,external-run

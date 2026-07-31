@@ -158,7 +158,29 @@ fn isGeneratedFileRetainOom(error: build::Error) bool {
     switch error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
-            subject: build::ErrorSubject::Step(0usize),
+            subject: build::ErrorSubject::Step(1usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isRunRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Step(1usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isDependencyRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Dependencies,
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
@@ -377,6 +399,54 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     }
     if allocator.activeAllocations != beforeTarget {
         return (9 as process::ExitCode)!;
+    }
+    allocator.disableFailure();
+    let executable = api.addExecutable(
+        build::ExecutableOptions::init(&targetName, moduleHandle).withOutputName(&outputName),
+    ).exit().?;
+    _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
+    let runArguments = [
+        string::StringView::init(&"first"),
+        string::StringView::init(&"second"),
+    ];
+    let beforeRun = allocator.activeAllocations;
+    allocator.failAfter(1usize);
+    switch api.addRunExecutableStep(
+        &"run",
+        build::RunOptions::init(executable).withArguments(&runArguments[..]),
+    ) {
+        !handle => {
+            _ = handle;
+            return (30 as process::ExitCode)!;
+        },
+        err! => {
+            if not isRunRetainOom(err) {
+                return (31 as process::ExitCode)!;
+            }
+        },
+    }
+    if allocator.activeAllocations != beforeRun {
+        return (32 as process::ExitCode)!;
+    }
+    allocator.disableFailure();
+    let beforeDependency = allocator.activeAllocations;
+    allocator.failAfter(4usize);
+    switch api.addRunExecutableStep(
+        &"run",
+        build::RunOptions::init(executable).withArguments(&runArguments[..]),
+    ) {
+        !handle => {
+            _ = handle;
+            return (33 as process::ExitCode)!;
+        },
+        err! => {
+            if not isDependencyRetainOom(err) {
+                return (34 as process::ExitCode)!;
+            }
+        },
+    }
+    if allocator.activeAllocations != beforeDependency {
+        return (35 as process::ExitCode)!;
     }
     allocator.disableFailure();
     let beforeGenerated = allocator.activeAllocations;

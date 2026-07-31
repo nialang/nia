@@ -108,9 +108,18 @@ traversal and executes a shared action at most once. Aggregate actions are
 no-ops; compiler check and executable emission call `nia-driver` directly with
 typed module maps, optimization, runtime, target, cache, and output values.
 Generated-file actions publish declared bytes atomically under the build root.
-External-command and explicit uncacheable actions currently fail with an
-action-keyed unsupported-action error rather than falling back to runner
-callbacks.
+`addRunExecutableStep` requires an existing emit step for the declared artifact,
+adds that producer dependency, and encodes the artifact as an external-command
+program with a package-root working directory and no declared outputs. Freeze
+independently rejects an Artifact-root command lacking the matching compiler
+emit in its dependency closure. The coordinator closes stdin, forwards
+stdout/stderr while retaining a bounded 64-KiB tail for each stream, enforces a
+seven-minute timeout, and retires the owned process group on timeout or after
+the leader exits. Spawn, wait, timeout, capture, and nonzero-exit failures retain
+action, program, cwd, argument count, status, and output context.
+Output-producing external commands are rejected before spawn until typed
+staged-output arguments are implemented. Explicit uncacheable actions likewise
+remain unsupported; neither path falls back to a runner callback.
 
 Bootstrap `StepHandle`, `ModuleHandle`, and `ExecutableHandle` values already
 carry a private process-local owner id beside their index. Every API receiving a

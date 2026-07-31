@@ -26,6 +26,8 @@ using types::{
     UncacheableStep,
     ExecutableHandle,
     ExecutableStep,
+    RunOptions,
+    RunExecutableStep,
     Module,
     ModuleSourceRoot,
     ModuleHandle,
@@ -264,6 +266,33 @@ extend Build {
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
         self.addStepRecord(string::StringView::init(name), StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
+    }
+
+    pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
+        self.validateExecutableHandle(options.target).?;
+        let producer = switch self.findEmitStep(options.target) {
+            ?producer => producer,
+            null => return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!,
+        };
+        validateRunArguments(options.arguments, self.steps.len()).?;
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        let mut payload = RunExecutableStep::init(self.allocator, options, handle.index()).?;
+        let mut transferred = false;
+        defer if not transferred {
+            payload.deinit(self.allocator, handle.index()).?;
+        };
+        let result = self.addStepRecord(string::StringView::init(name), StepKind::RunExecutable, { runExecutable: payload }).?;
+        transferred = true;
+        let mut committed = false;
+        defer if not committed {
+            self.rollbackLastStep().?;
+        };
+        self.dependOn(result, producer).?;
+        committed = true;
+        !result
     }
 
     pub fn dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
@@ -524,6 +553,31 @@ extend Build {
         null
     }
 
+    fn findEmitStep(&self, target: ExecutableHandle) ?StepHandle {
+        for &step in self.steps.iter() {
+            if step.kind == StepKind::EmitExecutable
+                and step.payload.executable.target.ownerId() == target.ownerId()
+                and step.payload.executable.target.index() == target.index()
+            {
+                return ?StepHandle::init(self.ownerId, step.index);
+            }
+        }
+        null
+    }
+
+    fn rollbackLastStep(&mut self) Error!void {
+        switch self.steps.pop() {
+            ?step => {
+                let mut owned = step;
+                owned.deinit(self.allocator)
+            },
+            null => Error::Invalid {
+                operation: Operation::Release,
+                subject: Subject::Steps,
+            }!,
+        }
+    }
+
     fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!void {
         if handle.ownerId() != self.ownerId or handle.index() >= self.executables.len() {
             return Error::Invalid {
@@ -691,6 +745,81 @@ extend ExecutableStep {
     }
 }
 
+extend RunOptions {
+    pub fn init(target: ExecutableHandle) RunOptions {
+        {
+            target: target,
+            arguments: null,
+        }
+    }
+
+    pub fn withArguments(self, arguments: &[string::StringView]) RunOptions {
+        {
+            target: self.target,
+            arguments: ?arguments,
+        }
+    }
+}
+
+extend RunExecutableStep {
+    fn init(
+        allocator: &mut mem::Allocator,
+        options: RunOptions,
+        index: usize,
+    ) Error!RunExecutableStep {
+        let mut run: RunExecutableStep = {
+            target: options.target,
+            arguments: collections::ArrayList[string::StringBuf]::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            run.deinit(allocator, index).?;
+        };
+        switch options.arguments {
+            ?arguments => {
+                run.arguments = collections::ArrayList[string::StringBuf]::init_capacity(
+                    allocator,
+                    arguments.len(),
+                ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                for &argument in arguments.iter() {
+                    let mut owned = string::StringBuf::from_slice(
+                        allocator,
+                        argument.text(),
+                    ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                    let mut argumentTransferred = false;
+                    defer if not argumentTransferred {
+                        owned.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)).?;
+                    };
+                    run.arguments.push(allocator, owned).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                    argumentTransferred = true;
+                }
+            },
+            null => {},
+        }
+        transferred = true;
+        !run
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        let mut firstError: ?Error = null;
+        let mut argumentIndex = self.arguments.len();
+        while argumentIndex != 0usize {
+            argumentIndex -= 1usize;
+            rememberCleanupError(
+                &mut firstError,
+                self.arguments.as_mut_slice()[argumentIndex]
+                    .deinit(allocator)
+                    .asBuildError(Operation::Release, Subject::Step(index)),
+            );
+        }
+        rememberCleanupError(
+            &mut firstError,
+            self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
+        cleanupResult(firstError)
+    }
+}
+
 extend Step {
     fn init(
         allocator: &mut mem::Allocator,
@@ -716,9 +845,38 @@ extend Step {
         if self.kind == StepKind::GeneratedFile {
             rememberCleanupError(&mut firstError, self.payload.generatedFile.deinit(allocator, self.index));
         }
+        if self.kind == StepKind::RunExecutable {
+            rememberCleanupError(&mut firstError, self.payload.runExecutable.deinit(allocator, self.index));
+        }
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(self.index)));
         cleanupResult(firstError)
     }
+}
+
+fn validateRunArguments(arguments: ?&[string::StringView], index: usize) Error!void {
+    switch arguments {
+        ?values => {
+            for &value in values.iter() {
+                if runArgumentContainsNul(value.text()) {
+                    return Error::Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Step(index),
+                    }!;
+                }
+            }
+        },
+        null => {},
+    }
+    !{}
+}
+
+fn runArgumentContainsNul(text: &[char]) bool {
+    for &ch in text.iter() {
+        if ch == '\0' {
+            return true;
+        }
+    }
+    false
 }
 
 extend ModuleOptions {

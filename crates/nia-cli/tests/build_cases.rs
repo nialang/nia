@@ -109,6 +109,7 @@ fn assert_configured_build_success(
             "configured-output",
             "module-imports",
             "build-plan",
+            "external-run",
         ]
     );
     assert!(
@@ -123,6 +124,7 @@ fn assert_configured_build_success(
         format!("build={}\n", workspace.join(".nia-build").display()),
         format!("cache={}\n", workspace.join(".nia-cache").display()),
         format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia")),
+        "run=roadmap\n".to_string(),
     ] {
         assert!(
             stdout.contains(&expected),
@@ -149,13 +151,13 @@ fn assert_configured_build_success(
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.steps_executed\":1")),
+            .any(|line| line.contains("\"build.steps_executed\":2")),
         "{stderr}"
     );
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.actions_executed\":1")),
+            .any(|line| line.contains("\"build.actions_executed\":2")),
         "{stderr}"
     );
     assert!(
@@ -186,7 +188,7 @@ fn assert_configured_build_success(
     assert_eq!(plan.artifacts()[0].key.name(), "app");
     assert_eq!(plan.artifacts()[0].root_module.name(), "app");
     assert_eq!(plan.artifacts()[0].output.protocol_path(), "custom-app");
-    assert_eq!(plan.actions().len(), 2);
+    assert_eq!(plan.actions().len(), 3);
     assert!(matches!(
         plan.actions()[0].kind,
         nia_build::ActionKind::CompilerEmit { .. }
@@ -195,14 +197,53 @@ fn assert_configured_build_success(
         plan.actions()[1].kind,
         nia_build::ActionKind::CompilerCheck { .. }
     ));
-    assert_eq!(plan.steps().len(), 2);
+    match &plan.actions()[2].kind {
+        nia_build::ActionKind::ExternalCommand {
+            program,
+            arguments,
+            working_directory,
+            environment,
+            inputs,
+            outputs,
+        } => {
+            assert!(matches!(
+                program,
+                nia_build::CommandProgram::Path(path)
+                    if matches!(
+                        path.root(),
+                        nia_build::LogicalPathRoot::Artifact(artifact)
+                            if artifact.name() == "app"
+                    ) && path.components().is_empty()
+            ));
+            assert_eq!(arguments, &["roadmap"]);
+            assert!(matches!(
+                working_directory.root(),
+                nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
+            ));
+            assert!(working_directory.components().is_empty());
+            assert!(environment.is_empty());
+            assert!(inputs.is_empty());
+            assert!(outputs.is_empty());
+        }
+        other => panic!("expected external run action, found {other:?}"),
+    }
+    assert_eq!(plan.steps().len(), 3);
+    assert_eq!(plan.steps()[2].key.name(), "run");
+    assert_eq!(
+        plan.steps()[2]
+            .dependencies
+            .iter()
+            .map(nia_build::StepKey::name)
+            .collect::<Vec<_>>(),
+        ["build"]
+    );
     assert_eq!(
         plan.default_step().map(nia_build::StepKey::name),
-        Some("build")
+        Some("run")
     );
     assert_eq!(
         plan.selected_step().map(nia_build::StepKey::name),
-        Some("build")
+        Some("run")
     );
     assert!(workspace.join(".nia-build/custom-app").is_file());
     assert!(!workspace.join(".nia-build/app").exists());

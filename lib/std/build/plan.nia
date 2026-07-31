@@ -106,6 +106,18 @@ extend PlanEncoder {
         self.writeLogicalPathText(path)
     }
 
+    fn writeArtifactPath(&mut self, name: string::StringView) Error!void {
+        self.writeU8(4u8).?;
+        self.writeNodeKey(name).?;
+        self.writeString(string::StringView::init(&""))
+    }
+
+    fn writePackageRootPath(&mut self) Error!void {
+        self.writeU8(0u8).?;
+        self.writeRootPackage().?;
+        self.writeString(string::StringView::init(&""))
+    }
+
     fn writeLogicalPathText(&mut self, path: string::StringView) Error!void {
         if not isValidLogicalPath(path.text()) {
             return invalidPlan();
@@ -218,6 +230,21 @@ extend PlanEncoder {
                 self.writeU8(1u8).?;
                 self.writeNodeKey(target.name.view()).?;
                 self.writeTarget(artifactTarget)
+            },
+            StepKind::RunExecutable => {
+                let run = step.payload.runExecutable;
+                let target = executables[run.target.index];
+                self.writeU8(2u8).?;
+                self.writeU8(0u8).?;
+                self.writeArtifactPath(target.name.view()).?;
+                self.writeCount(run.arguments.len()).?;
+                for &argument in run.arguments.iter() {
+                    self.writeString(argument.view()).?;
+                }
+                self.writePackageRootPath().?;
+                self.writeCount(0usize).?;
+                self.writeCount(0usize).?;
+                self.writeCount(0usize)
             },
             _ => invalidPlan(),
         }

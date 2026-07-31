@@ -387,6 +387,7 @@ impl BuildPlan {
         canonicalize_steps(&mut draft.steps, &draft.actions)?;
         validate_step_selection(&draft)?;
         validate_step_cycles(&draft.steps)?;
+        validate_artifact_program_dependencies(&draft.actions, &draft.steps)?;
         validate_output_ownership(&draft.actions, &draft.artifacts)?;
 
         Ok(Self {
@@ -651,6 +652,12 @@ fn canonicalize_actions(
                         reason: "empty program",
                     });
                 }
+                if matches!(program, CommandProgram::Search(name) if name.contains('\0')) {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "program contains NUL",
+                    });
+                }
                 if arguments.iter().any(|value| value.contains('\0')) {
                     return Err(PlanError::InvalidCommand {
                         action: action.key.clone(),
@@ -658,6 +665,29 @@ fn canonicalize_actions(
                     });
                 }
                 environment.sort();
+                for input in environment.iter() {
+                    if input.name.is_empty()
+                        || input.name.contains(['\0', '='])
+                        || input
+                            .value
+                            .as_ref()
+                            .is_some_and(|value| value.contains('\0'))
+                    {
+                        return Err(PlanError::InvalidCommand {
+                            action: action.key.clone(),
+                            reason: "invalid environment input",
+                        });
+                    }
+                }
+                if environment
+                    .windows(2)
+                    .any(|pair| pair[0].name == pair[1].name)
+                {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "duplicate environment input",
+                    });
+                }
                 inputs.sort();
                 outputs.sort();
             }
@@ -752,6 +782,65 @@ fn validate_step_cycles(steps: &[PlanStep]) -> Result<(), PlanError> {
                 .filter_map(|(key, degree)| (degree != 0).then_some(key))
                 .collect(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_artifact_program_dependencies(
+    actions: &[PlanAction],
+    steps: &[PlanStep],
+) -> Result<(), PlanError> {
+    let action_by_key: BTreeMap<_, _> = actions
+        .iter()
+        .map(|action| (&action.key, &action.kind))
+        .collect();
+    let step_by_key: BTreeMap<_, _> = steps.iter().map(|step| (&step.key, step)).collect();
+    for step in steps {
+        let Some(ActionKind::ExternalCommand {
+            program: CommandProgram::Path(program),
+            ..
+        }) = action_by_key.get(&step.action).copied()
+        else {
+            continue;
+        };
+        let LogicalPathRoot::Artifact(required) = program.root() else {
+            continue;
+        };
+        if !program.components().is_empty() {
+            return Err(PlanError::InvalidCommand {
+                action: step.action.clone(),
+                reason: "artifact program path must name the artifact root",
+            });
+        }
+
+        let mut pending = step.dependencies.clone();
+        let mut visited = BTreeSet::new();
+        let mut found = false;
+        while let Some(dependency_key) = pending.pop() {
+            if !visited.insert(dependency_key.clone()) {
+                continue;
+            }
+            let dependency = step_by_key.get(&dependency_key).copied().ok_or_else(|| {
+                PlanError::MissingStep {
+                    owner: format!("step {}", step.key.name()),
+                    step: dependency_key.clone(),
+                }
+            })?;
+            if matches!(
+                action_by_key.get(&dependency.action).copied(),
+                Some(ActionKind::CompilerEmit { artifact, .. }) if artifact == required
+            ) {
+                found = true;
+                break;
+            }
+            pending.extend(dependency.dependencies.iter().cloned());
+        }
+        if !found {
+            return Err(PlanError::InvalidCommand {
+                action: step.action.clone(),
+                reason: "artifact program has no compiler emit dependency",
+            });
+        }
     }
     Ok(())
 }
@@ -989,5 +1078,90 @@ mod tests {
             BuildPlan::freeze(value),
             Err(PlanError::OutputCollision(_))
         ));
+    }
+
+    #[test]
+    fn freeze_rejects_ambiguous_external_command_environment() {
+        let mut value = draft(false);
+        value.actions.push(PlanAction {
+            key: action_key("run"),
+            kind: ActionKind::ExternalCommand {
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: vec![
+                    EnvironmentInput {
+                        name: "MODE".to_string(),
+                        value: Some("first".to_string()),
+                    },
+                    EnvironmentInput {
+                        name: "MODE".to_string(),
+                        value: Some("second".to_string()),
+                    },
+                ],
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidCommand {
+                reason: "duplicate environment input",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn artifact_program_requires_its_emit_step_in_the_dependency_closure() {
+        let mut value = draft(false);
+        let artifact = artifact_key("app");
+        let run_action = action_key("run");
+        let run_step = step_key("run");
+        value.actions.push(PlanAction {
+            key: run_action.clone(),
+            kind: ActionKind::ExternalCommand {
+                program: CommandProgram::Path(
+                    LogicalPath::new(LogicalPathRoot::Artifact(artifact), "").unwrap(),
+                ),
+                arguments: vec!["argument".to_string()],
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: run_step.clone(),
+            action: run_action,
+            dependencies: Vec::new(),
+        });
+        value.default_step = Some(run_step.clone());
+
+        assert!(matches!(
+            BuildPlan::freeze(value.clone()),
+            Err(PlanError::InvalidCommand {
+                reason: "artifact program has no compiler emit dependency",
+                ..
+            })
+        ));
+
+        value
+            .steps
+            .iter_mut()
+            .find(|step| step.key == run_step)
+            .unwrap()
+            .dependencies
+            .push(step_key("emit"));
+        assert!(BuildPlan::freeze(value).is_ok());
     }
 }

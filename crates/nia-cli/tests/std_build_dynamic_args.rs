@@ -28,6 +28,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         r#"
 using std::build;
 using std::fs;
+using std::string;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let imports = [
@@ -47,8 +48,22 @@ pub fn build(b: &mut build::Build) build::Error!void {
     let executable = b.addExecutable(
         build::ExecutableOptions::init(&"many-imports", rootModule),
     ).?;
-    let emit = b.addEmitExecutableStep(&"emit", executable).?;
-    b.setDefaultStep(emit)
+    _ = b.addEmitExecutableStep(&"emit", executable).?;
+    let runArguments = [
+"#,
+    );
+    for index in 0..32 {
+        build_source.push_str(&format!(
+            "        string::StringView::init(&\"argument-{index:02}\"),\n"
+        ));
+    }
+    build_source.push_str(
+        r#"    ];
+    let run = b.addRunExecutableStep(
+        &"run",
+        build::RunOptions::init(executable).withArguments(&runArguments[..]),
+    ).?;
+    b.setDefaultStep(run)
 }
 "#,
     );
@@ -65,6 +80,19 @@ pub fn build(b: &mut build::Build) build::Error!void {
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let plan = nia_build::read_build_plan(&root.join(".nia-build/build-plan.bin"))
+        .expect("decode dynamic argument build plan");
+    let arguments = plan
+        .actions()
+        .iter()
+        .find_map(|action| match &action.kind {
+            nia_build::ActionKind::ExternalCommand { arguments, .. } => Some(arguments),
+            _ => None,
+        })
+        .expect("run action in dynamic argument build plan");
+    assert_eq!(arguments.len(), 32);
+    assert_eq!(arguments.first().map(String::as_str), Some("argument-00"));
+    assert_eq!(arguments.last().map(String::as_str), Some("argument-31"));
     let executable = root.join(".nia-build/many-imports");
     assert_eq!(
         Command::new(&executable)

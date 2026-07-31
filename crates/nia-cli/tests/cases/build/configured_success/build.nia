@@ -2,6 +2,7 @@ using std::build;
 using std::fs;
 using std::fmt;
 using std::io;
+using std::string;
 
 fn configure(b: &mut build::Build) build::Error!void {
     let helperName = "helper";
@@ -11,6 +12,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     let outputName = "custom-app";
     let buildStepName = "build";
     let checkStepName = "check";
+    let runStepName = "run";
     let imports = [
         build::ModuleImport::init(&helperName, fs::PathView::init(&helperPath)),
     ];
@@ -21,9 +23,14 @@ fn configure(b: &mut build::Build) build::Error!void {
     let app = b.addExecutable(
         build::ExecutableOptions::init(&appName, rootModule).withOutputName(&outputName),
     ).?;
-    let buildStep = b.addEmitExecutableStep(&buildStepName, app).?;
+    _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
-    b.setDefaultStep(buildStep).?;
+    let runArguments = [string::StringView::init(&"roadmap")];
+    let runStep = b.addRunExecutableStep(
+        &runStepName,
+        build::RunOptions::init(app).withArguments(&runArguments[..]),
+    ).?;
+    b.setDefaultStep(runStep).?;
     !{}
 }
 

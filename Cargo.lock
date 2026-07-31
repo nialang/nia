@@ -228,6 +228,7 @@ dependencies = [
 name = "nia-build"
 version = "0.4.3"
 dependencies = [
+ "libc",
  "nia-driver",
  "nia-imports",
  "nia-loader-query",

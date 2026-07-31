@@ -234,6 +234,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ) {
         return (11 as process::ExitCode)!;
     }
+    let invalidArgument: [3]char = ['a', '\0', 'b'];
+    let invalidArguments = [string::StringView::init(&invalidArgument[..])];
+    if not rejectsInvalidStep(
+        api.addRunExecutableStep(
+            &"invalid-run",
+            build::RunOptions::init(executable).withArguments(&invalidArguments[..]),
+        ),
+        1usize,
+    ) {
+        return (13 as process::ExitCode)!;
+    }
     let duplicateImports = [
         build::ModuleImport::init(&"dep", fs::PathView::init(&"first.nia")),
         build::ModuleImport::init(&"dep", fs::PathView::init(&"second.nia")),
@@ -261,6 +272,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not rejectsForeignExecutable(api.addEmitExecutableStep(&"foreign-executable", otherExecutable)) {
         return (5 as process::ExitCode)!;
+    }
+    if not rejectsForeignExecutable(api.addRunExecutableStep(
+        &"foreign-run",
+        build::RunOptions::init(otherExecutable),
+    )) {
+        return (12 as process::ExitCode)!;
     }
     if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
         return (6 as process::ExitCode)!;
