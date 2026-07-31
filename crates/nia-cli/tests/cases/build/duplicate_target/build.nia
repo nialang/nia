@@ -5,8 +5,8 @@ pub fn build(b: &mut build::Build) build::Error!void {
     static srcMain = "src/main.nia";
     static srcOther = "src/other.nia";
     static appName = "app";
-    let rootModule = b.addModule(build::ModuleOptions::init(fs::PathView::init(&srcMain))).?;
-    let otherModule = b.addModule(build::ModuleOptions::init(fs::PathView::init(&srcOther))).?;
+    let rootModule = b.addModule(build::ModuleOptions::init(&"main", fs::PathView::init(&srcMain))).?;
+    let otherModule = b.addModule(build::ModuleOptions::init(&"other", fs::PathView::init(&srcOther))).?;
     _ = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;
     _ = b.addExecutable(build::ExecutableOptions::init(&appName, otherModule)).?;
     !{}

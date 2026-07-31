@@ -207,11 +207,16 @@ impl<'a> BodyChecker<'a> {
             },
             ExprKind::Field { lhs, .. } => self.not_addressable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
+                IndexArg::Expr(_) if self.indirect_index_base(lhs).is_some() => None,
                 IndexArg::Expr(_) => self.not_addressable_reason(lhs),
                 IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
             },
             ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr) => {
-                self.not_addressable_reason(callee)
+                if self.indirect_index_base(callee).is_some() {
+                    None
+                } else {
+                    self.not_addressable_reason(callee)
+                }
             }
             ExprKind::Unary {
                 op: UnaryOp::Deref,
@@ -245,12 +250,20 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Field { lhs, .. } => self.not_assignable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
+                IndexArg::Expr(index) if self.indirect_index_base(lhs).is_some() => {
+                    self.index_write_not_assignable_reason(lhs, index)
+                }
                 IndexArg::Expr(index) => self
                     .not_assignable_reason(lhs)
                     .or_else(|| self.index_write_not_assignable_reason(lhs, index)),
             },
             ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr) => {
-                self.not_assignable_reason(callee).or_else(|| {
+                let receiver_reason = if self.indirect_index_base(callee).is_some() {
+                    None
+                } else {
+                    self.not_assignable_reason(callee)
+                };
+                receiver_reason.or_else(|| {
                     args.first()
                         .and_then(|arg| arg.expr.as_ref())
                         .map_or(Some("index type is not known"), |index| {
@@ -653,7 +666,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Slice {
                 is_readonly: true, ..
             }) => Some("slice is read-only"),
-            _ => Some("expression does not implement Index"),
+            _ => Some("expression does not implement IndexMut"),
         }
     }
 
@@ -738,7 +751,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn is_place_expr(&self, expr: &Expr) -> bool {
+    pub(crate) fn is_place_expr(&mut self, expr: &Expr) -> bool {
         if self.qualified_value(expr).is_some() {
             return true;
         }
@@ -751,9 +764,9 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Index {
                 lhs,
                 index: IndexArg::Expr(_),
-            } => self.is_place_expr(lhs),
+            } => self.indirect_index_base(lhs).is_some() || self.is_place_expr(lhs),
             ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr) => {
-                self.is_place_expr(callee)
+                self.indirect_index_base(callee).is_some() || self.is_place_expr(callee)
             }
             ExprKind::Unary {
                 op: UnaryOp::Deref, ..
@@ -767,6 +780,16 @@ impl<'a> BodyChecker<'a> {
             self.bracket_suffix_resolution(expr),
             Some(BracketSuffixResolution::Index)
         )
+    }
+
+    pub(crate) fn indirect_index_base(&mut self, expr: &Expr) -> Option<bool> {
+        let ty = self.expr_ty(expr)?;
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Pointer { is_readonly, .. })
+            | Some(TyKind::VolatilePointer { is_readonly, .. })
+            | Some(TyKind::Slice { is_readonly, .. }) => Some(*is_readonly),
+            _ => None,
+        }
     }
 }
 

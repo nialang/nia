@@ -157,7 +157,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let moduleHandle = api.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&"main.nia")),
+        build::ModuleOptions::init(&"main", fs::PathView::init(&"main.nia")),
     ).exit().?;
     let executable = api.addExecutable(
         build::ExecutableOptions::init(&"app", moduleHandle),
@@ -168,7 +168,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut other = initBuild(init, &mut allocator).exit().?;
     defer other.deinit().exit().?;
     let otherModule = other.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&"other.nia")),
+        build::ModuleOptions::init(&"other", fs::PathView::init(&"other.nia")),
     ).exit().?;
     let otherExecutable = other.addExecutable(
         build::ExecutableOptions::init(&"other-app", otherModule),

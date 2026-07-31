@@ -2766,6 +2766,11 @@ impl<'a> BodyChecker<'a> {
                 if let IndexArg::Expr(index) = index {
                     let lhs_ty = self.expr_runtime_ty(lhs);
                     let index_ty = self.expr_ty(index).unwrap_or_else(|| self.error());
+                    if self.indirect_index_base(lhs).is_some() {
+                        return self.lower_indirect_index_place_base(
+                            expr, lhs, index, lhs_ty, index_ty, mutable,
+                        );
+                    }
                     if let Some(pointer) =
                         self.lower_builtin_index_method_call(lhs, index, lhs_ty, index_ty, mutable)
                     {
@@ -2785,6 +2790,11 @@ impl<'a> BodyChecker<'a> {
                     if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
                         let lhs_ty = self.expr_ty(callee).unwrap_or_else(|| self.error());
                         let index_ty = self.expr_ty(index).unwrap_or_else(|| self.error());
+                        if self.indirect_index_base(callee).is_some() {
+                            return self.lower_indirect_index_place_base(
+                                expr, callee, index, lhs_ty, index_ty, mutable,
+                            );
+                        }
                         if let Some(pointer) = self.lower_builtin_index_method_call(
                             callee, index, lhs_ty, index_ty, mutable,
                         ) {
@@ -2963,6 +2973,42 @@ impl<'a> BodyChecker<'a> {
                 args: vec![self.lower_expr(index)],
             },
         })
+    }
+
+    fn lower_indirect_index_place_base(
+        &mut self,
+        expr: &Expr,
+        receiver: &Expr,
+        index: &Expr,
+        receiver_ty: nia_ids::InternedTyId,
+        index_ty: nia_ids::InternedTyId,
+        mutable: bool,
+    ) -> PlaceBase {
+        let output_ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+        let indexed = TypedExpr {
+            span: expr.span,
+            ty: output_ty,
+            kind: TypedExprKind::Index {
+                lhs: Box::new(self.lower_expr_with_ty(receiver, Some(receiver_ty))),
+                index: Box::new(self.lower_expr_with_ty(index, Some(index_ty))),
+            },
+        };
+        let pointer_ty = self.interner.intern(TyKind::Pointer {
+            is_readonly: !mutable,
+            elem: output_ty,
+        });
+        PlaceBase::Deref(Box::new(TypedExpr {
+            span: expr.span,
+            ty: pointer_ty,
+            kind: TypedExprKind::Unary {
+                op: if mutable {
+                    UnaryOp::Ref
+                } else {
+                    UnaryOp::RefReadOnly
+                },
+                expr: Box::new(indexed),
+            },
+        }))
     }
 
     fn lower_slice_expr_readonly(&mut self, lhs: &Expr, range: &SliceRange) -> TypedExprKind {

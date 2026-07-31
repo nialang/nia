@@ -16,7 +16,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     static appName = "app";
     static emitName = "emit-app";
     static verifyName = "verify";
-    let rootModule = b.addModule(build::ModuleOptions::init(fs::PathView::init(&srcMain))).?;
+    let rootModule = b.addModule(build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))).?;
     let app = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;
     let emit = b.addEmitExecutableStep(&emitName, app).?;
     let verifyStep = b.addStep(&verifyName, &verify).?;

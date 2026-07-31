@@ -103,6 +103,15 @@ handle rejects a different live builder before indexing its collections. The
 owner id comes from a monotonic atomic counter and is deliberately absent from
 serialization, diagnostics, fingerprints, and future stable plan keys.
 
+Bootstrap modules also carry an explicit retained name. Graph construction
+rejects invalid or duplicate module names instead of deriving identity from a
+root-source path or insertion index. Before any callback or compiler process is
+started, the builder resolves the requested/default step and validates the
+entire dependency graph, including unselected components. A successful result
+is cached only until the next graph mutation. This is a migration guard for the
+current callback runner; the immutable plan freeze remains the production
+validation owner.
+
 Every action has a typed kind, declared inputs, declared outputs, environment
 policy, working directory policy, target/host role, cache policy, and resource
 class. Initial action kinds cover compiler check/emit, external process,
@@ -183,6 +192,9 @@ Opaque custom callbacks, raw compiler arguments, index-only handles, recursive
 than mapped as supported target behavior. The former fixed 16-import,
 48-build-argument, and 64-process-argument buffers are already gone: bootstrap
 argv assembly is allocator-backed and ordinary allocation failure is typed.
+The bootstrap additionally rejects duplicate module names and cycles anywhere
+in the declared graph before starting the selected action. These checks remain
+defense during migration and do not create a second serialized graph model.
 
 ## 6. Representative Workloads
 

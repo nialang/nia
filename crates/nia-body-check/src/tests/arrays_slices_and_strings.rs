@@ -1001,6 +1001,24 @@ fn main(ro_ptr: &i32, ro_slice: &[i32]) void {
 }
 
 #[test]
+fn indexes_mutable_pointer_values_as_indirect_places() {
+    let checked = pipeline(
+        r#"
+fn slice(xs: &mut [i32]) &mut [i32] {
+    xs
+}
+
+fn main(xs: &mut [i32]) i32 {
+    slice(xs)[0usize] = 41;
+    slice(xs)[0usize] += 1;
+    slice(xs)[0usize]
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"

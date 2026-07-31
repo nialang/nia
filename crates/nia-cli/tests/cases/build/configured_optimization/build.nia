@@ -6,7 +6,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     static appName = "app";
     static checkName = "check";
     let rootModule = b.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&srcMain))
+        build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))
             .withOptimization(build::OptimizationMode::O0),
     ).?;
     let app = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;

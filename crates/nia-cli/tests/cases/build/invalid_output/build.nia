@@ -5,7 +5,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     static srcMain = "src/main.nia";
     static appName = "app";
     static outputName = "nested/bad";
-    let rootModule = b.addModule(build::ModuleOptions::init(fs::PathView::init(&srcMain))).?;
+    let rootModule = b.addModule(build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))).?;
     let options = build::ExecutableOptions::init(&appName, rootModule).withOutputName(&outputName);
     _ = b.addExecutable(options).?;
     !{}

@@ -1,0 +1,12 @@
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    _ = b.addModule(
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"src/main.nia")),
+    ).?;
+    _ = b.addModule(
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"src/other.nia")),
+    ).?;
+    !{}
+}

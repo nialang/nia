@@ -542,8 +542,11 @@ fn write_reg(reg: ^mut u32, value: u32) void {
 
 `&place` takes a read-only pointer to a place. `&mut place` takes a writable
 pointer to a writable place. Identifiers, field access, array indexing, slice
-indexing, and pointer dereference may be places. Field access and indexing
-inherit place-ness from their left-hand side.
+indexing, and pointer dereference may be places. Field access and indexing into
+an aggregate value inherit place-ness from their left-hand side. Indexing a
+pointer or slice value is instead an indirect place: the pointer or slice
+expression need not itself be a place. Its pointee mutability determines whether
+the indexed place is writable.
 
 When the operand is a typed value expression rather than a place, address-of
 materializes a block-scoped temporary object and returns a pointer to that
@@ -815,7 +818,9 @@ For `&T` and `&mut T`, an omitted upper bound uses a base length of 1. An
 explicit upper bound uses the explicit range length.
 
 `slice[index]` accesses an element. Indexing `&[T]` produces an addressable but
-non-writable place. Indexing `&mut [T]` produces a writable place.
+non-writable place. Indexing `&mut [T]` produces a writable place even when the
+slice is returned by a call or another value expression; only the referenced
+element is assigned, not the slice value.
 
 ### 4.5 Optional And Error Union Types
 

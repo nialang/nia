@@ -165,6 +165,8 @@ extend Build {
             actionReporting: actionReporting,
             stepArgIndex: stepArgIndex,
             defaultStep: null,
+            selectedStep: null,
+            planValidated: false,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
             modules: collections::ArrayList[Module]::init(),
@@ -269,18 +271,37 @@ extend Build {
         self.dependencies.push(
             self.allocator,
             StepDependency::init(step, dependency),
-        ).asBuildError(Operation::Retain, Subject::Dependencies)
+        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        self.planValidated = false;
+        !{}
     }
 
     pub fn setDefaultStep(&mut self, step: StepHandle) Error!void {
         self.validateStepHandle(step).?;
         self.defaultStep = ?step;
+        self.planValidated = false;
         !{}
     }
 
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
         validateModuleImports(options.imports).?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
+        if not isValidTargetName(options.name) {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Module(handle.index()),
+            }!;
+        }
+        switch self.findModule(options.name) {
+            ?old => {
+                _ = old;
+                return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Module(handle.index()),
+                }!;
+            },
+            null => {},
+        }
         let mut moduleRecord = Module::init(self.allocator, options, handle.index()).?;
         let mut transferred = false;
         defer if not transferred {
@@ -288,6 +309,7 @@ extend Build {
         };
         self.modules.push(self.allocator, moduleRecord).asBuildError(Operation::Retain, Subject::Modules).?;
         transferred = true;
+        self.planValidated = false;
         !handle
     }
 
@@ -330,6 +352,7 @@ extend Build {
         };
         self.executables.push(self.allocator, target).asBuildError(Operation::Retain, Subject::Executables).?;
         transferred = true;
+        self.planValidated = false;
         !handle
     }
 
@@ -472,27 +495,107 @@ extend Build {
     }
 
     pub fn runRequestedStep(&mut self) Error!void {
+        if not self.planValidated {
+            self.validatePlan().?;
+        }
+        switch self.selectedStep {
+            ?handle => self.runStep(handle),
+            null => !{},
+        }
+    }
+
+    pub fn validatePlan(&mut self) Error!void {
+        if self.planValidated {
+            return !{};
+        }
+        self.selectedStep = null;
         switch self.requestedStep() {
             ?step => {
                 switch self.findStepArg(step) {
                     ?handle => {
-                        return self.runStep(handle);
+                        self.selectedStep = ?handle;
                     },
-                    null => {},
+                    null => {
+                        self.reportUnknownStep(step).?;
+                        return Error::UnknownStep!;
+                    },
                 }
-                self.reportUnknownStep(step).?;
-                return Error::UnknownStep!;
             },
-            null => {},
-        }
-        switch self.defaultStep {
-            ?handle => {
-                return self.runStep(handle);
+            null => {
+                switch self.defaultStep {
+                    ?handle => {
+                        self.selectedStep = ?handle;
+                    },
+                    null => {
+                        if self.steps.len() != 0usize {
+                            return Error::MissingDefaultStep!;
+                        }
+                    },
+                }
             },
-            null => {},
         }
-        if self.steps.len() != 0usize {
-            return Error::MissingDefaultStep!;
+        self.validateDependencyGraph().?;
+        self.planValidated = true;
+        !{}
+    }
+
+    fn validateDependencyGraph(&mut self) Error!void {
+        let mut indegree = collections::ArrayList[usize]::init_capacity(
+            self.allocator,
+            self.steps.len(),
+        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        defer indegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
+        let mut index = 0usize;
+        while index < self.steps.len() {
+            indegree.push(self.allocator, 0usize).asBuildError(Operation::Retain, Subject::Dependencies).?;
+            index += 1usize;
+        }
+        for &edge in self.dependencies.iter() {
+            indegree.as_mut_slice()[edge.step.index()] += 1usize;
+        }
+
+        let mut ready = collections::ArrayList[usize]::init_capacity(
+            self.allocator,
+            self.steps.len(),
+        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        defer ready.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
+        index = 0usize;
+        while index < indegree.len() {
+            if indegree.as_slice()[index] == 0usize {
+                ready.push(self.allocator, index).asBuildError(Operation::Retain, Subject::Dependencies).?;
+            }
+            index += 1usize;
+        }
+
+        let mut cursor = 0usize;
+        while cursor < ready.len() {
+            let completed = ready.as_slice()[cursor];
+            cursor += 1usize;
+            for &edge in self.dependencies.iter() {
+                if edge.dependency.index() == completed {
+                    let dependent = edge.step.index();
+                    indegree.as_mut_slice()[dependent] -= 1usize;
+                    if indegree.as_slice()[dependent] == 0usize {
+                        ready.push(self.allocator, dependent).asBuildError(Operation::Retain, Subject::Dependencies).?;
+                    }
+                }
+            }
+        }
+        if cursor != self.steps.len() {
+            for &edge in self.dependencies.iter() {
+                if indegree.as_slice()[edge.step.index()] != 0usize
+                    and indegree.as_slice()[edge.dependency.index()] != 0usize
+                {
+                    return Error::StepCycle {
+                        step: edge.step.index(),
+                        dependency: edge.dependency.index(),
+                    }!;
+                }
+            }
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Dependencies,
+            }!;
         }
         !{}
     }
@@ -643,6 +746,15 @@ extend Build {
         null
     }
 
+    fn findModule(&self, name: string::StringView) ?Module {
+        for &moduleRecord in self.modules.iter() {
+            if mem::equal[char](moduleRecord.name.text(), name.text()) {
+                return ?moduleRecord;
+            }
+        }
+        null
+    }
+
     fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!void {
         if handle.ownerId() != self.ownerId or handle.index() >= self.executables.len() {
             return Error::Invalid {
@@ -705,6 +817,7 @@ extend Build {
         };
         self.steps.push(self.allocator, step).asBuildError(Operation::Retain, Subject::Steps).?;
         transferred = true;
+        self.planValidated = false;
         !handle
     }
 }
@@ -793,8 +906,9 @@ extend Step {
 }
 
 extend ModuleOptions {
-    pub fn init(rootSource: fs::PathView) ModuleOptions {
+    pub fn init(name: &[char], rootSource: fs::PathView) ModuleOptions {
         {
+            name: string::StringView::init(name),
             rootSource: rootSource,
             optimization: OptimizationMode::O2,
             imports: null,
@@ -803,6 +917,7 @@ extend ModuleOptions {
 
     pub fn withOptimization(self, optimization: OptimizationMode) ModuleOptions {
         {
+            name: self.name,
             rootSource: self.rootSource,
             optimization: optimization,
             imports: self.imports,
@@ -811,6 +926,7 @@ extend ModuleOptions {
 
     pub fn withImports(self, imports: &[ModuleImport]) ModuleOptions {
         {
+            name: self.name,
             rootSource: self.rootSource,
             optimization: self.optimization,
             imports: ?imports,
@@ -822,6 +938,7 @@ extend Module {
     fn init(allocator: &mut mem::Allocator, options: ModuleOptions, index: usize) Error!Module {
         let mut moduleRecord: Module = {
             index: index,
+            name: string::StringBuf::init(),
             rootSource: fs::PathBuf::init(),
             optimization: options.optimization,
             imports: collections::ArrayList[OwnedModuleImport]::init(),
@@ -830,6 +947,7 @@ extend Module {
         defer if not transferred {
             moduleRecord.deinit(allocator).?;
         };
+        moduleRecord.name = string::StringBuf::from_slice(allocator, options.name.text()).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.rootSource = fs::PathBuf::from_path(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.imports = cloneModuleImports(allocator, options.imports).?;
         transferred = true;
@@ -845,6 +963,7 @@ extend Module {
         }
         rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
         rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
         cleanupResult(firstError)
     }
 }

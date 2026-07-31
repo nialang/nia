@@ -41,7 +41,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     build_source.push_str(
         r#"    ];
     let rootModule = b.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&"src/main.nia"))
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"src/main.nia"))
             .withImports(&imports[..]),
     ).?;
     let executable = b.addExecutable(
