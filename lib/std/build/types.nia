@@ -106,6 +106,7 @@ pub struct StepDependency {
 }
 
 pub struct ModuleOptions {
+    name: string::StringView,
     rootSource: fs::PathView,
     optimization: OptimizationMode,
     imports: ?&[ModuleImport],
@@ -113,6 +114,7 @@ pub struct ModuleOptions {
 
 pub struct Module {
     index: usize,
+    name: string::StringBuf,
     rootSource: fs::PathBuf,
     optimization: OptimizationMode,
     imports: collections::ArrayList[OwnedModuleImport],
@@ -163,6 +165,8 @@ pub struct Build {
     actionReporting: bool,
     stepArgIndex: usize,
     defaultStep: ?StepHandle,
+    selectedStep: ?StepHandle,
+    planValidated: bool,
     steps: collections::ArrayList[Step],
     dependencies: collections::ArrayList[StepDependency],
     modules: collections::ArrayList[Module],

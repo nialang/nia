@@ -37,11 +37,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
         build::ModuleImport::init(&helperName, fs::PathView::init(&helperPath)),
     ];
     let sourceModule = b.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&sourcePath))
+        build::ModuleOptions::init(&"source", fs::PathView::init(&sourcePath))
             .withImports(&imports[..]),
     ).?;
     let generatedModule = b.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&generatedPath)),
+        build::ModuleOptions::init(&"generated", fs::PathView::init(&generatedPath)),
     ).?;
     let sourceApp = b.addExecutable(
         build::ExecutableOptions::init(&sourceName, sourceModule),

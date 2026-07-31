@@ -217,6 +217,35 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_index_assignment_through_mutable_slice_call_result() {
+    let root = temp_dir("emits_index_assignment_through_mutable_slice_call_result");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn identity(xs: &mut [i32]) &mut [i32] {
+    xs
+}
+
+fn main(xs: &mut [i32]) i32 {
+    identity(xs)[0usize] = 41;
+    identity(xs)[0usize] += 1;
+    identity(xs)[0usize]
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("store i32 41"), "{ir}");
+    assert!(ir.contains("add i32"), "{ir}");
+}
+
+#[test]
 fn emits_struct_array_field_index_and_compound_assignment() {
     let root = temp_dir("emits_struct_array_field_index_and_compound_assignment");
     let main = root.join("main.nia");

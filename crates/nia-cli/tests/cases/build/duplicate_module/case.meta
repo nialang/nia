@@ -1,0 +1,6 @@
+mode=runner-error
+resource=build
+contract=duplicate-module
+step=default
+runner-status=22
+forbidden=none

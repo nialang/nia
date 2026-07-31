@@ -1,0 +1,6 @@
+mode=runner-error
+resource=build
+contract=unselected-dependency-cycle
+step=default
+runner-status=22
+forbidden=none

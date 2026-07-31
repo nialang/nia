@@ -50,7 +50,7 @@ fn initBuild(
 }
 
 fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!void {
-    let moduleHandle = api.addModule(build::ModuleOptions::init(source)).?;
+    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", source)).?;
     let executable = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).?;
     let check = api.addCheckExecutableStep(&"check", executable).?;
     api.setDefaultStep(check)

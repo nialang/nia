@@ -168,6 +168,17 @@ fn isCommandAssemblyOom(error: build::Error) bool {
     }
 }
 
+fn isPlanValidationOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Dependencies,
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
 fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!void {
     let mut buffer: [512]u8 = [_]u8[0; 512];
     let mut stderr = io::FileWriter::stderr(init.io(), &mut buffer[..]);
@@ -318,9 +329,9 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         build::ModuleImport::init(&shortName, fs::PathView::init(&shortPath)),
     ];
     let beforeModule = allocator.activeAllocations;
-    allocator.failAfter(5usize);
+    allocator.failAfter(6usize);
     switch api.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&rootSource)).withImports(&imports[..]),
+        build::ModuleOptions::init(&"root", fs::PathView::init(&rootSource)).withImports(&imports[..]),
     ) {
         !handle => {
             _ = handle;
@@ -337,7 +348,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     }
 
     allocator.disableFailure();
-    let moduleHandle = api.addModule(build::ModuleOptions::init(emptyPath)).exit().?;
+    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).exit().?;
     let beforeTarget = allocator.activeAllocations;
     let targetName = "app";
     let outputName = "output";
@@ -394,7 +405,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
         build::ModuleImport::init(&importName, fs::PathView::init(&importPath)),
     ];
     let moduleHandle = api.addModule(
-        build::ModuleOptions::init(fs::PathView::init(&"main.nia"))
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia"))
             .withImports(&imports[..]),
     ).exit().?;
     let executable = api.addExecutable(
@@ -402,6 +413,22 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     ).exit().?;
     let emit = api.addEmitExecutableStep(&"emit", executable).exit().?;
     api.setDefaultStep(emit).exit().?;
+    let beforeValidate = allocator.activeAllocations;
+    allocator.failAfter(1usize);
+    switch api.validatePlan() {
+        !ok => {
+            _ = ok;
+            return (21 as process::ExitCode)!;
+        },
+        err! => if not isPlanValidationOom(err) {
+            return (22 as process::ExitCode)!;
+        },
+    }
+    if allocator.activeAllocations != beforeValidate {
+        return (23 as process::ExitCode)!;
+    }
+    allocator.disableFailure();
+    api.validatePlan().exit().?;
     let beforeRun = allocator.activeAllocations;
     allocator.failAfter(1usize);
     switch api.runRequestedStep() {

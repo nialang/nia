@@ -1245,6 +1245,22 @@ not the production handoff acceptance gate: `std::build` still needs to freeze
 and publish the real Nia-built graph, after which the coordinator must decode it
 before any action executes.
 
+Phase D progress (2026-07-31, bootstrap graph-validation batch): Nia-side
+modules now retain an explicit validated name and reject duplicates rather than
+using root paths or builder indexes as identity. Before any action starts, the
+bootstrap resolves the requested/default step and validates the complete graph,
+including cycles outside the selected closure; successful validation is reused
+until a graph mutation invalidates it. Allocation-failure probes separately
+cover retained module/import rollback, validation rollback, and later command
+assembly. The real build matrix exposed a compiler defect where indexing a
+call-produced `&mut [T]` was rejected as a writable place. The checker and BIR
+now model pointer/slice indexing as indirect place formation, while arrays and
+user `IndexMut` receivers still require writable place bases; body-check and
+LLVM tests preserve that boundary. These bootstrap checks prevent pre-action
+side effects during migration, but do not complete Phase D: the Nia builder
+still must freeze and publish the immutable protocol, and the coordinator must
+become its sole consumer before recursive callbacks are removed.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
