@@ -1215,6 +1215,21 @@ closure from 92 to 93 modules; observed ordinary `ArrayList` semantic/body/backe
 work remains isolated. Phase D remains open for stable keys, typed plan values,
 deterministic freeze/codec, validation, and handoff.
 
+Phase D progress (2026-07-31): the outer Rust bootstrap request formerly named
+`BuildPlan` is now `BuildInvocation`; no alias preserves the misleading name.
+The actual immutable graph `BuildPlan` is constructed only through a validating
+freeze from `BuildPlanDraft`. Package, module, artifact, action, and step keys
+are structured stable identities rather than builder indices or integer hashes.
+Package-rooted logical paths include their package key and reject absolute,
+parent, current-directory, empty-component, NUL, and platform-separator
+ambiguity. Freeze canonicalizes node and reference order and rejects duplicate
+identities/imports, missing references, cycles, invalid output roots, and output
+collisions. Typed actions cover compiler check/emit, external command, generated
+file, aggregate, and explicit uncacheable semantics. Allocation-order
+equivalence is directly tested. The versioned codec and production runner
+handoff remain the next gate; this model is not yet claimed as the production
+graph truth source.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
