@@ -18,12 +18,13 @@ use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, LinkExecutableRequest, ModuleMap,
     NiaOptimizationLevel, Runtime as DriverRuntime, SourcePath,
 };
+use nia_query::QueryFingerprintBuilder;
 use nia_target_config::TargetConfig;
 
 use crate::{
     ActionKey, ActionKind, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument,
     CommandProgram, LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey,
-    PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
+    PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec, lock::ScopedFileLock,
 };
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
@@ -124,6 +125,12 @@ pub enum CoordinatorError {
         error: io::Error,
         cause: Option<Box<CoordinatorError>>,
     },
+    AcquireOutputLock {
+        action: ActionKey,
+        output: PathBuf,
+        lock: PathBuf,
+        error: io::Error,
+    },
     UnsupportedAction {
         action: ActionKey,
         kind: &'static str,
@@ -213,6 +220,18 @@ impl fmt::Display for CoordinatorError {
                 }
                 Ok(())
             }
+            Self::AcquireOutputLock {
+                action,
+                output,
+                lock,
+                error,
+            } => write!(
+                f,
+                "build action `{}` failed to coordinate publication of `{}` through `{}`: {error}",
+                action.name(),
+                output.display(),
+                lock.display()
+            ),
             Self::UnsupportedAction { action, kind } => write!(
                 f,
                 "build action `{}` uses unsupported coordinator action kind `{kind}`",
@@ -349,6 +368,14 @@ impl<'a> DriverActionExecutor<'a> {
     }
 
     fn execute(&mut self, action: &PlanAction) -> Result<(), CoordinatorError> {
+        let _output_locks = self.acquire_output_locks(action)?;
+        self.execute_with_output_ownership(action)
+    }
+
+    fn execute_with_output_ownership(
+        &mut self,
+        action: &PlanAction,
+    ) -> Result<(), CoordinatorError> {
         match &action.kind {
             ActionKind::Aggregate => Ok(()),
             ActionKind::CompilerCheck {
@@ -489,6 +516,37 @@ impl<'a> DriverActionExecutor<'a> {
             }
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
         }
+    }
+
+    fn acquire_output_locks(
+        &self,
+        action: &PlanAction,
+    ) -> Result<Vec<ScopedFileLock>, CoordinatorError> {
+        let mut outputs: Vec<&LogicalPath> = match &action.kind {
+            ActionKind::CompilerEmit { artifact, .. } => {
+                vec![&self.artifact(action, artifact)?.output]
+            }
+            ActionKind::ExternalCommand { outputs, .. } => outputs.iter().collect(),
+            ActionKind::GeneratedFile { output, .. } => vec![output],
+            _ => Vec::new(),
+        };
+        outputs.sort();
+        outputs.dedup();
+        outputs
+            .into_iter()
+            .map(|output| {
+                let resolved = self.resolve_path(action, output)?;
+                let lock = output_lock_path(&self.invocation.cache_dir, output);
+                ScopedFileLock::acquire(lock.clone()).map_err(|error| {
+                    CoordinatorError::AcquireOutputLock {
+                        action: action.key.clone(),
+                        output: resolved,
+                        lock,
+                        error,
+                    }
+                })
+            })
+            .collect()
     }
 
     fn check_request(
@@ -929,6 +987,15 @@ fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorErro
             action: action.key.clone(),
             path: path.to_path_buf(),
         })
+}
+
+fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBuf {
+    let mut builder = QueryFingerprintBuilder::new("nia.build.output-lock.v1");
+    builder.write_str(&output.protocol_path());
+    let [first, second] = builder.finish().parts();
+    cache_dir
+        .join("coordination/output-locks")
+        .join(format!("{first:016x}{second:016x}.lock"))
 }
 
 static STAGED_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -1634,6 +1701,94 @@ mod tests {
         .unwrap()
     }
 
+    fn assert_no_output_locks(invocation: &BuildInvocation) {
+        let root = invocation.cache_dir.join("coordination/output-locks");
+        if root.is_dir() {
+            assert!(fs::read_dir(root).unwrap().next().is_none());
+        }
+    }
+
+    #[test]
+    fn output_lock_keys_are_path_stable_and_domain_local() {
+        let invocation = test_invocation();
+        let first = LogicalPath::new(LogicalPathRoot::Build, "first/output").unwrap();
+        let same = LogicalPath::new(LogicalPathRoot::Build, "first/output").unwrap();
+        let second = LogicalPath::new(LogicalPathRoot::Build, "second/output").unwrap();
+
+        assert_eq!(
+            output_lock_path(&invocation.cache_dir, &first),
+            output_lock_path(&invocation.cache_dir, &same)
+        );
+        assert_ne!(
+            output_lock_path(&invocation.cache_dir, &first),
+            output_lock_path(&invocation.cache_dir, &second)
+        );
+        assert!(
+            output_lock_path(&invocation.cache_dir, &first)
+                .starts_with(invocation.cache_dir.join("coordination/output-locks"))
+        );
+    }
+
+    #[test]
+    fn output_coordination_serializes_conflicts_only() {
+        let invocation = test_invocation();
+        let blocked_output =
+            LogicalPath::new(LogicalPathRoot::Build, "blocked/output.txt").unwrap();
+        let held =
+            ScopedFileLock::acquire(output_lock_path(&invocation.cache_dir, &blocked_output))
+                .unwrap();
+
+        let independent = generated_plan(&invocation, "independent/output.txt", b"independent");
+        execute_build_plan(&independent, &invocation).unwrap();
+
+        let conflicting = generated_plan(&invocation, "blocked/output.txt", b"conflicting");
+        let concurrent_invocation = invocation.clone();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let result = execute_build_plan(&conflicting, &concurrent_invocation);
+            finished_tx.send(result).unwrap();
+        });
+
+        assert!(
+            finished_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err()
+        );
+        drop(held);
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        handle.join().unwrap();
+        assert_eq!(
+            fs::read(invocation.build_dir.join("blocked/output.txt")).unwrap(),
+            b"conflicting"
+        );
+        assert_no_output_locks(&invocation);
+    }
+
+    #[test]
+    fn output_coordination_failure_retains_action_and_paths() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.cache_dir).unwrap();
+        fs::write(invocation.cache_dir.join("coordination"), b"occupied").unwrap();
+        let plan = generated_plan(&invocation, "generated/output.txt", b"contents");
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::AcquireOutputLock {
+                action,
+                output,
+                lock,
+                ..
+            } if action.name() == "generate"
+                && output == invocation.build_dir.join("generated/output.txt")
+                && lock.starts_with(invocation.cache_dir.join("coordination/output-locks"))
+        ));
+    }
+
     #[test]
     fn generated_file_replaces_previous_content_atomically() {
         let invocation = test_invocation();
@@ -1646,6 +1801,7 @@ mod tests {
 
         assert_eq!(report.actions, [action("generate")]);
         assert_eq!(fs::read(&output).unwrap(), b"new contents");
+        assert_no_output_locks(&invocation);
         assert!(
             fs::read_dir(output.parent().unwrap())
                 .unwrap()
@@ -1670,6 +1826,7 @@ mod tests {
             matches!(error, CoordinatorError::GeneratedFileIo { action, .. } if action.name() == "generate")
         );
         assert!(output.is_dir());
+        assert_no_output_locks(&invocation);
         assert!(fs::read_dir(&invocation.build_dir).unwrap().all(|entry| {
             !entry
                 .unwrap()

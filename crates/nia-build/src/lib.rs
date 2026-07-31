@@ -5,9 +5,10 @@ use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
-    sync::Arc,
-    thread,
-    time::{Duration, Instant},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use nia_driver::{
@@ -18,6 +19,7 @@ use nia_source::SourcePath;
 use nia_timing::{TimingFormat, TimingOptions};
 
 mod coordinator;
+mod lock;
 mod plan;
 
 pub use coordinator::*;
@@ -150,7 +152,7 @@ pub enum BuildError {
         path: PathBuf,
         error: io::Error,
     },
-    AcquireBuildLock {
+    CleanupRunnerExecutable {
         path: PathBuf,
         error: io::Error,
     },
@@ -236,10 +238,10 @@ impl fmt::Display for BuildError {
                 "failed to remove build-plan draft `{}`: {error}",
                 path.display()
             ),
-            Self::AcquireBuildLock { path, error } => {
+            Self::CleanupRunnerExecutable { path, error } => {
                 write!(
                     f,
-                    "failed to acquire build lock `{}`: {error}",
+                    "failed to remove transient build runner `{}`: {error}",
                     path.display()
                 )
             }
@@ -280,12 +282,9 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
             let runner_executable = runner_executable?;
-            let _lock = time_summary_stage(timings, "build_acquire_lock", || {
-                BuildLock::acquire(&invocation)
-            })?;
             nia_timing::emit_counter("build.runner_executions", 1);
             let plan = time_summary_stage(timings, "build_run_runner", || {
-                run_build_runner(&invocation, &runner_executable)
+                run_and_cleanup_build_runner(&invocation, &runner_executable)
             });
             if plan.is_err() {
                 nia_timing::emit_counter("build.runner_failures", 1);
@@ -318,11 +317,12 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     let build_script = package_root.join("build.nia");
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
+    let transient_name = next_build_invocation_name();
     Ok(BuildInvocation {
         toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
-        runner_executable: runner_dir.join("nia-build-runner"),
-        plan_draft: build_dir.join("build-plan.draft"),
+        runner_executable: runner_dir.join(format!("nia-build-runner-{transient_name}")),
+        plan_draft: build_dir.join(format!(".build-plan-{transient_name}.draft")),
         plan_path: build_dir.join("build-plan.bin"),
         runner_dir,
         build_dir,
@@ -335,6 +335,13 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         timings: request.timings,
         timing_format: request.timing_format,
     })
+}
+
+static BUILD_INVOCATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn next_build_invocation_name() -> String {
+    let sequence = BUILD_INVOCATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{sequence}", std::process::id())
 }
 
 pub fn build_runner_source(invocation: &BuildInvocation) -> Result<BuildRunnerSource, BuildError> {
@@ -741,6 +748,25 @@ fn run_build_runner(
     }
 }
 
+fn run_and_cleanup_build_runner(
+    invocation: &BuildInvocation,
+    runner_executable: &Path,
+) -> Result<BuildPlan, BuildError> {
+    let result = run_build_runner(invocation, runner_executable);
+    let cleanup = match fs::remove_file(runner_executable) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(BuildError::CleanupRunnerExecutable {
+            path: runner_executable.to_path_buf(),
+            error,
+        }),
+    };
+    match result {
+        Ok(plan) => cleanup.map(|()| plan),
+        Err(error) => Err(error),
+    }
+}
+
 fn build_runner_args(invocation: &BuildInvocation) -> Vec<OsString> {
     let mut args = vec![
         invocation.package_root.as_os_str().to_owned(),
@@ -773,151 +799,6 @@ fn target_runner_args(target: &nia_target_config::TargetConfig) -> [String; 7] {
         target.endian.clone(),
         target.pointer_width.to_string(),
     ]
-}
-
-struct BuildLock {
-    path: PathBuf,
-    token: String,
-}
-
-impl BuildLock {
-    fn acquire(invocation: &BuildInvocation) -> Result<Self, BuildError> {
-        const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
-
-        fs::create_dir_all(&invocation.build_dir).map_err(|error| {
-            BuildError::CreateBuildDirectory {
-                path: invocation.build_dir.clone(),
-                error,
-            }
-        })?;
-        let path = invocation.build_dir.join(".lock");
-        let start = Instant::now();
-        let mut sleep = Duration::from_millis(10);
-        loop {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(file) => {
-                    let token = write_lock_owner(&path, file)?;
-                    return Ok(Self { path, token });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    reclaim_stale_build_lock(&path, STALE_AFTER);
-                }
-                Err(error) => {
-                    return Err(BuildError::AcquireBuildLock {
-                        path: path.clone(),
-                        error,
-                    });
-                }
-            }
-            if start.elapsed() >= STALE_AFTER {
-                reclaim_stale_build_lock(&path, Duration::ZERO);
-            }
-            thread::sleep(sleep);
-            sleep = (sleep * 2).min(Duration::from_millis(250));
-        }
-    }
-}
-
-impl Drop for BuildLock {
-    fn drop(&mut self) {
-        if fs::read_to_string(&self.path).is_ok_and(|current| current.trim_end() == self.token) {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
-fn write_lock_owner(path: &Path, mut file: fs::File) -> Result<String, BuildError> {
-    use std::io::Write as _;
-
-    let pid = std::process::id();
-    let start_time = process_start_time(pid).unwrap_or(0);
-    let token = format!("{}:{}", pid, start_time);
-    writeln!(file, "{token}").map_err(|error| BuildError::AcquireBuildLock {
-        path: path.to_path_buf(),
-        error,
-    })?;
-    Ok(token)
-}
-
-fn reclaim_stale_build_lock(path: &Path, stale_after: Duration) {
-    if build_lock_owner_is_alive(path) {
-        return;
-    };
-    if read_lock_owner(path).is_none() && !build_lock_is_stale_by_age(path, stale_after) {
-        return;
-    }
-    let _ = fs::remove_file(path);
-}
-
-fn build_lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
-    if stale_after == Duration::ZERO {
-        return true;
-    }
-    fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| modified.elapsed().ok())
-        .is_some_and(|age| age >= stale_after)
-}
-
-#[cfg(unix)]
-fn build_lock_owner_is_alive(path: &Path) -> bool {
-    let Some((pid, expected_start_time)) = read_lock_owner(path) else {
-        return false;
-    };
-    process_is_alive(pid, expected_start_time)
-}
-
-#[cfg(not(unix))]
-fn build_lock_owner_is_alive(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else {
-        return false;
-    };
-    metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.elapsed().ok())
-        .is_some_and(|age| age < Duration::from_secs(15 * 60))
-}
-
-fn read_lock_owner(path: &Path) -> Option<(u32, u64)> {
-    let owner = fs::read_to_string(path).ok()?;
-    let token = owner.split_whitespace().next()?;
-    let (pid, start_time) = token.split_once(':')?;
-    Some((pid.parse().ok()?, start_time.parse().ok()?))
-}
-
-#[cfg(target_os = "linux")]
-fn process_is_alive(pid: u32, expected_start_time: u64) -> bool {
-    let Some(start_time) = process_start_time(pid) else {
-        return false;
-    };
-    expected_start_time == start_time
-}
-
-#[cfg(all(unix, not(target_os = "linux")))]
-fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
-    true
-}
-
-#[cfg(target_os = "linux")]
-fn process_start_time(pid: u32) -> Option<u64> {
-    let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
-    stat.rsplit_once(") ")?
-        .1
-        .split_whitespace()
-        .nth(19)?
-        .parse()
-        .ok()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn process_start_time(_pid: u32) -> Option<u64> {
-    None
 }
 
 fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
@@ -1002,18 +883,48 @@ mod tests {
         assert_eq!(plan.cache_dir, plan.package_root.join(".nia-cache"));
         assert_eq!(plan.runner_dir, plan.package_root.join(".nia-build/runner"));
         assert_eq!(
-            plan.runner_executable,
-            plan.package_root.join(".nia-build/runner/nia-build-runner")
+            plan.runner_executable.parent(),
+            Some(plan.runner_dir.as_path())
         );
-        assert_eq!(
-            plan.plan_draft,
-            plan.package_root.join(".nia-build/build-plan.draft")
+        assert!(
+            plan.runner_executable
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("nia-build-runner-")
+        );
+        assert_eq!(plan.plan_draft.parent(), Some(plan.build_dir.as_path()));
+        assert!(
+            plan.plan_draft
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".build-plan-")
         );
         assert_eq!(
             plan.plan_path,
             plan.package_root.join(".nia-build/build-plan.bin")
         );
         assert_eq!(plan.step, BuildStepSelection::Default);
+    }
+
+    #[test]
+    fn concurrent_invocations_use_disjoint_transient_paths() {
+        let root = temp_root("concurrent_invocations_use_disjoint_transient_paths");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+
+        let first =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("first invocation");
+        let second =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("second invocation");
+
+        assert_ne!(first.runner_executable, second.runner_executable);
+        assert_ne!(first.plan_draft, second.plan_draft);
+        assert_eq!(first.plan_path, second.plan_path);
+        assert_eq!(first.build_dir, second.build_dir);
+        assert_eq!(first.cache_dir, second.cache_dir);
     }
 
     #[test]
@@ -1188,72 +1099,6 @@ mod tests {
 
         assert!(plan.build_dir.is_dir());
         assert!(plan.cache_dir.is_dir());
-    }
-
-    #[test]
-    fn build_lock_serializes_same_package_root() {
-        let root = temp_root("build_lock_serializes_same_package_root");
-        std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let plan =
-            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-                .expect("build invocation");
-        let first = BuildLock::acquire(&plan).expect("first build lock");
-        let second_plan = plan.clone();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        let handle = std::thread::spawn(move || {
-            ready_tx.send(()).expect("send ready");
-            let second = BuildLock::acquire(&second_plan).expect("second build lock");
-            release_tx.send(()).expect("send acquired");
-            drop(second);
-        });
-
-        ready_rx.recv().expect("second thread ready");
-        assert!(
-            release_rx
-                .recv_timeout(std::time::Duration::from_millis(100))
-                .is_err()
-        );
-        drop(first);
-        release_rx
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("second lock acquired after first release");
-        handle.join().expect("second lock thread");
-    }
-
-    #[test]
-    fn parses_build_lock_owner_token() {
-        let root = temp_root("parses_build_lock_owner_token");
-        let lock = root.join(".lock");
-        std::fs::write(&lock, "123:456\n").expect("write lock");
-
-        assert_eq!(read_lock_owner(&lock), Some((123, 456)));
-    }
-
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn build_lock_owner_rejects_reused_pid_with_different_start_time() {
-        let root = temp_root("build_lock_owner_rejects_reused_pid_with_different_start_time");
-        let lock = root.join(".lock");
-        let pid = std::process::id();
-        let current_start_time = process_start_time(pid).expect("current process start time");
-        std::fs::write(&lock, format!("{pid}:{}\n", current_start_time + 1)).expect("write lock");
-
-        assert!(!build_lock_owner_is_alive(&lock));
-    }
-
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn reclaim_stale_build_lock_removes_dead_owner_without_age_delay() {
-        let root = temp_root("reclaim_stale_build_lock_removes_dead_owner_without_age_delay");
-        let lock = root.join(".lock");
-        let pid = std::process::id();
-        let current_start_time = process_start_time(pid).expect("current process start time");
-        std::fs::write(&lock, format!("{pid}:{}\n", current_start_time + 1)).expect("write lock");
-
-        reclaim_stale_build_lock(&lock, Duration::from_secs(15 * 60));
-
-        assert!(!lock.exists());
     }
 
     #[test]

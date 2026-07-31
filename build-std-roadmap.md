@@ -1563,6 +1563,26 @@ late Phase H audit into the active reconstruction track in 5.2.1. Current
 acceptance evidence; it does not claim that the text or builtin-trait migration
 is implemented.
 
+Phase E progress (2026-07-31, scoped-publication batch): concurrent builds no
+longer share a runner executable or plan-draft path. Each invocation uses a
+process/sequence-qualified pair and retires both after runner completion, while
+the canonical plan remains an atomic last-completed observation rather than an
+execution input after decode. The package-wide executor lock and its timing
+stage are physically deleted.
+
+Every compiler emit, generated file, or external-tool output now acquires a
+cross-process lock derived from the validated build-root logical path. Locks
+live in the cache coordination namespace rather than consuming a user-visible
+build output path. Equal outputs serialize for the complete action; distinct
+outputs use distinct locks and can progress independently. Owner records carry
+PID, process start time, and an acquisition sequence to prevent stale-owner and
+same-process ABA removal. Focused tests prove matching-path serialization,
+different-path independence, dead-owner reclamation, stable/domain-local keys,
+invocation path isolation, and lock retirement on successful and failed
+publication. Phase E remains open for coordinator-wide failure cancellation,
+deterministic multi-worker execution, and a real multi-output publication
+transaction.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
