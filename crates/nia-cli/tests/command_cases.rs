@@ -86,12 +86,7 @@ fn run_check_configuration(
         .arg(&cache)
         .output_timeout_without_resources("run first persistent cache check");
     assert_success(&first);
-    assert!(
-        std::fs::read_dir(cache.join("artifacts/frontend/v3/public-surface-facts"))
-            .expect("read public-surface cache")
-            .next()
-            .is_some()
-    );
+    assert_frontend_cache_kind_has_entry(&cache, "public-surface-facts");
     let mut second = support::nia_command();
     let second = second
         .arg("check")
@@ -137,6 +132,36 @@ fn run_check_configuration(
         .arg(public_source)
         .output_timeout_without_resources("run removed check --exe alias");
     assert_failure(removed_alias, &["unknown `nia check` option `--exe`"]);
+}
+
+fn assert_frontend_cache_kind_has_entry(cache: &Path, kind: &str) {
+    let frontend = cache.join("artifacts/frontend");
+    for schema in std::fs::read_dir(&frontend).expect("read frontend cache") {
+        let schema = schema.expect("read frontend cache schema entry");
+        if !schema
+            .file_type()
+            .expect("inspect frontend cache schema entry")
+            .is_dir()
+        {
+            continue;
+        }
+        let entries = match std::fs::read_dir(schema.path().join(kind)) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => panic!("read frontend cache kind `{kind}`: {error}"),
+        };
+        if entries
+            .map(|entry| entry.expect("read frontend cache kind entry"))
+            .next()
+            .is_some()
+        {
+            return;
+        }
+    }
+    panic!(
+        "frontend cache kind `{kind}` has no entries under `{}`",
+        frontend.display()
+    );
 }
 
 fn run_option_errors(source: &Path) {
