@@ -176,6 +176,17 @@ fn isRunRetainOom(error: build::Error) bool {
     }
 }
 
+fn isExternalCommandRetainOom(error: build::Error) bool {
+    switch error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Step(1usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
 fn isDependencyRetainOom(error: build::Error) bool {
     switch error {
         build::Error::Failure {
@@ -468,6 +479,31 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     }
     if allocator.activeAllocations != beforeGenerated {
         return process::exit(29)!;
+    }
+    allocator.disableFailure();
+    let commandArguments = [
+        build::CommandArgument::literal(&"first"),
+        build::CommandArgument::packageInput(fs::PathView::init(&"input.txt")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init(&"output.txt")),
+    ];
+    let beforeCommand = allocator.activeAllocations;
+    allocator.failAfter(3usize);
+    switch api.addExternalCommandStep(
+        &"tool",
+        build::ExternalCommandOptions::search(&"tool").withArguments(&commandArguments),
+    ) {
+        !handle => {
+            _ = handle;
+            return process::exit(36)!;
+        },
+        err! => {
+            if not isExternalCommandRetainOom(err) {
+                return process::exit(37)!;
+            }
+        },
+    }
+    if allocator.activeAllocations != beforeCommand {
+        return process::exit(38)!;
     }
     allocator.disableFailure();
     cleaned = true;

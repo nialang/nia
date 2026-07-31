@@ -21,9 +21,9 @@ use nia_driver::{
 use nia_target_config::TargetConfig;
 
 use crate::{
-    ActionKey, ActionKind, ArtifactKey, BuildInvocation, BuildPlan, CommandProgram, LogicalPath,
-    LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey, PlanAction, PlanArtifact, PlanModule,
-    Runtime, StepKey, TargetSpec,
+    ActionKey, ActionKind, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument,
+    CommandProgram, LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey,
+    PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
 };
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
@@ -62,9 +62,6 @@ pub struct ExternalCommandError {
 
 #[derive(Debug)]
 pub enum ExternalCommandFailure {
-    DeclaredOutputs {
-        outputs: Vec<PathBuf>,
-    },
     Spawn {
         error: io::Error,
     },
@@ -120,6 +117,13 @@ pub enum CoordinatorError {
         error: io::Error,
     },
     ExternalCommand(Box<ExternalCommandError>),
+    StagedOutput {
+        action: ActionKey,
+        path: PathBuf,
+        operation: &'static str,
+        error: io::Error,
+        cause: Option<Box<CoordinatorError>>,
+    },
     UnsupportedAction {
         action: ActionKey,
         kind: &'static str,
@@ -191,6 +195,24 @@ impl fmt::Display for CoordinatorError {
                 path.display()
             ),
             Self::ExternalCommand(details) => display_external_command_error(f, details),
+            Self::StagedOutput {
+                action,
+                path,
+                operation,
+                error,
+                cause,
+            } => {
+                write!(
+                    f,
+                    "build action `{}` failed to {operation} staged output `{}`: {error}",
+                    action.name(),
+                    path.display()
+                )?;
+                if let Some(cause) = cause {
+                    write!(f, "\noriginal action failure: {cause}")?;
+                }
+                Ok(())
+            }
             Self::UnsupportedAction { action, kind } => write!(
                 f,
                 "build action `{}` uses unsupported coordinator action kind `{kind}`",
@@ -381,27 +403,85 @@ impl<'a> DriverActionExecutor<'a> {
                     }
                     CommandProgram::Search(name) => name.clone(),
                 };
-                for input in inputs {
-                    let _ = self.resolve_path(action, input)?;
-                }
-                let outputs = outputs
+                let resolved_inputs = inputs
                     .iter()
-                    .map(|output| self.resolve_path(action, output))
+                    .map(|input| self.resolve_path(action, input).map(|path| (input, path)))
                     .collect::<Result<Vec<_>, _>>()?;
-                execute_external_command(
+                let resolved_output = outputs
+                    .first()
+                    .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
+                    .transpose()?;
+                let mut staged = resolved_output
+                    .as_ref()
+                    .map(|(_, output)| prepare_staged_output(action, output))
+                    .transpose()?;
+                let resolved_arguments = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        CommandArgument::Literal(value) => Ok(value.clone()),
+                        CommandArgument::InputPath(path) => {
+                            let (_, resolved) = resolved_inputs
+                                .iter()
+                                .find(|(input, _)| *input == path)
+                                .ok_or_else(|| {
+                                    inconsistent(
+                                        format!("action `{}`", action.key.name()),
+                                        "declared command input binding".to_string(),
+                                    )
+                                })?;
+                            path_text(action, resolved)
+                        }
+                        CommandArgument::OutputPath(path) => {
+                            let Some(((output, _), staged)) =
+                                resolved_output.as_ref().zip(staged.as_ref())
+                            else {
+                                return Err(inconsistent(
+                                    format!("action `{}`", action.key.name()),
+                                    "declared command output binding".to_string(),
+                                ));
+                            };
+                            if *output != path {
+                                return Err(inconsistent(
+                                    format!("action `{}`", action.key.name()),
+                                    "matching command output binding".to_string(),
+                                ));
+                            }
+                            path_text(action, &staged.temporary)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, CoordinatorError>>();
+                let resolved_arguments = match resolved_arguments {
+                    Ok(arguments) => arguments,
+                    Err(cause) => {
+                        return match staged.take() {
+                            Some(staged) => {
+                                cleanup_staged_output(action, staged, Some(Box::new(cause)))
+                            }
+                            None => Err(cause),
+                        };
+                    }
+                };
+                let execution = execute_external_command(
                     action,
                     ResolvedExternalCommand {
                         program: &program,
-                        arguments,
+                        arguments: &resolved_arguments,
                         working_directory: &working_directory,
                         environment,
-                        outputs: &outputs,
                     },
                     ExternalExecutionPolicy {
                         timeout: EXTERNAL_COMMAND_TIMEOUT,
                         forward_output: true,
                     },
-                )
+                );
+                match (execution, staged) {
+                    (Ok(()), Some(staged)) => publish_staged_output(action, staged),
+                    (Ok(()), None) => Ok(()),
+                    (Err(cause), Some(staged)) => {
+                        cleanup_staged_output(action, staged, Some(Box::new(cause)))
+                    }
+                    (Err(cause), None) => Err(cause),
+                }
             }
             ActionKind::GeneratedFile { output, contents } => {
                 let output = self.resolve_path(action, output)?;
@@ -518,7 +598,6 @@ struct ResolvedExternalCommand<'a> {
     arguments: &'a [String],
     working_directory: &'a Path,
     environment: &'a [crate::EnvironmentInput],
-    outputs: &'a [PathBuf],
 }
 
 #[derive(Clone, Copy)]
@@ -541,12 +620,6 @@ fn execute_external_command(
             failure,
         }))
     };
-    if !request.outputs.is_empty() {
-        return Err(error(ExternalCommandFailure::DeclaredOutputs {
-            outputs: request.outputs.to_vec(),
-        }));
-    }
-
     let mut command = Command::new(request.program);
     command
         .args(request.arguments)
@@ -806,11 +879,6 @@ fn display_external_command_error(
         details.working_directory.display(),
     )?;
     match &details.failure {
-        ExternalCommandFailure::DeclaredOutputs { outputs } => write!(
-            f,
-            "{} declared output(s) require staged-output support",
-            outputs.len()
-        ),
         ExternalCommandFailure::Spawn { error } => write!(f, "spawn failed: {error}"),
         ExternalCommandFailure::MissingPipe { stream } => {
             write!(f, "coordinator did not retain the configured {stream} pipe")
@@ -852,6 +920,189 @@ fn display_output_tails(f: &mut fmt::Formatter<'_>, stdout: &[u8], stderr: &[u8]
         write!(f, "\nstderr tail:\n{}", String::from_utf8_lossy(stderr))?;
     }
     Ok(())
+}
+
+fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorError> {
+    path.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| CoordinatorError::NonUtf8Path {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+        })
+}
+
+static STAGED_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct StagedOutput {
+    destination: PathBuf,
+    directory: PathBuf,
+    temporary: PathBuf,
+}
+
+fn prepare_staged_output(
+    action: &PlanAction,
+    destination: &Path,
+) -> Result<StagedOutput, CoordinatorError> {
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| {
+            staged_output_io(
+                action,
+                destination,
+                "resolve parent for",
+                io::Error::new(io::ErrorKind::InvalidInput, "output has no parent"),
+                None,
+            )
+        })?;
+    fs::create_dir_all(parent).map_err(|error| {
+        staged_output_io(action, parent, "create parent directory for", error, None)
+    })?;
+    for _ in 0..128 {
+        let sequence = STAGED_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = parent.join(format!(
+            ".nia-command-{}-{sequence}.stage",
+            std::process::id()
+        ));
+        match fs::create_dir(&directory) {
+            Ok(()) => {
+                return Ok(StagedOutput {
+                    destination: destination.to_path_buf(),
+                    temporary: directory.join("output"),
+                    directory,
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(staged_output_io(
+                    action,
+                    &directory,
+                    "create staging directory for",
+                    error,
+                    None,
+                ));
+            }
+        }
+    }
+    Err(staged_output_io(
+        action,
+        parent,
+        "create unique staging directory in",
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "exhausted staged-output directory names",
+        ),
+        None,
+    ))
+}
+
+fn publish_staged_output(
+    action: &PlanAction,
+    staged: StagedOutput,
+) -> Result<(), CoordinatorError> {
+    let result = (|| {
+        let metadata = fs::symlink_metadata(&staged.temporary).map_err(|error| {
+            staged_output_io(
+                action,
+                &staged.temporary,
+                "inspect command-produced",
+                error,
+                None,
+            )
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(staged_output_io(
+                action,
+                &staged.temporary,
+                "publish non-file",
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "external command output must be a regular file",
+                ),
+                None,
+            ));
+        }
+        fs::File::open(&staged.temporary)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| {
+                staged_output_io(
+                    action,
+                    &staged.temporary,
+                    "sync command-produced",
+                    error,
+                    None,
+                )
+            })?;
+        fs::rename(&staged.temporary, &staged.destination).map_err(|error| {
+            staged_output_io(action, &staged.destination, "publish", error, None)
+        })?;
+        let parent = staged.destination.parent().ok_or_else(|| {
+            staged_output_io(
+                action,
+                &staged.destination,
+                "resolve parent for",
+                io::Error::new(io::ErrorKind::InvalidInput, "output has no parent"),
+                None,
+            )
+        })?;
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| {
+                staged_output_io(action, parent, "sync parent directory for", error, None)
+            })
+    })();
+    match result {
+        Ok(()) => fs::remove_dir(&staged.directory).map_err(|error| {
+            staged_output_io(
+                action,
+                &staged.directory,
+                "retire staging directory for",
+                error,
+                None,
+            )
+        }),
+        Err(cause) => cleanup_staged_output(action, staged, Some(Box::new(cause))),
+    }
+}
+
+fn cleanup_staged_output(
+    action: &PlanAction,
+    staged: StagedOutput,
+    cause: Option<Box<CoordinatorError>>,
+) -> Result<(), CoordinatorError> {
+    match fs::remove_dir_all(&staged.directory) {
+        Ok(()) => match cause {
+            Some(cause) => Err(*cause),
+            None => Ok(()),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => match cause {
+            Some(cause) => Err(*cause),
+            None => Ok(()),
+        },
+        Err(error) => Err(staged_output_io(
+            action,
+            &staged.directory,
+            "clean up",
+            error,
+            cause,
+        )),
+    }
+}
+
+fn staged_output_io(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+    error: io::Error,
+    cause: Option<Box<CoordinatorError>>,
+) -> CoordinatorError {
+    CoordinatorError::StagedOutput {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
+        cause,
+    }
 }
 
 static GENERATED_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -1446,11 +1697,140 @@ mod tests {
         }
     }
 
+    fn staged_command_plan(invocation: &BuildInvocation, script: &str, output: &str) -> BuildPlan {
+        let output = LogicalPath::new(LogicalPathRoot::Build, output).unwrap();
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: target_spec(invocation.toolchain.host_target()),
+            artifact_target: target_spec(invocation.toolchain.artifact_target()),
+            modules: Vec::new(),
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: action("tool"),
+                kind: ActionKind::ExternalCommand {
+                    program: CommandProgram::Search("sh".to_string()),
+                    arguments: vec![
+                        CommandArgument::Literal("-c".to_string()),
+                        CommandArgument::Literal(script.to_string()),
+                        CommandArgument::Literal("nia-build-tool".to_string()),
+                        CommandArgument::OutputPath(output.clone()),
+                    ],
+                    working_directory: LogicalPath::new(
+                        LogicalPathRoot::Package(PackageKey::root()),
+                        "",
+                    )
+                    .unwrap(),
+                    environment: Vec::new(),
+                    inputs: Vec::new(),
+                    outputs: vec![output],
+                },
+            }],
+            steps: vec![PlanStep {
+                key: step("tool"),
+                action: action("tool"),
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(step("tool")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
+    fn assert_no_staged_command_directories(parent: &Path) {
+        assert!(fs::read_dir(parent).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".nia-command-")
+        }));
+    }
+
+    #[test]
+    fn external_command_publishes_one_declared_output_atomically() {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("tool/result.txt");
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&output, b"old").unwrap();
+        let plan = staged_command_plan(&invocation, "printf new > \"$1\"", "tool/result.txt");
+
+        let report = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(report.actions, [action("tool")]);
+        assert_eq!(fs::read(&output).unwrap(), b"new");
+        assert_no_staged_command_directories(output.parent().unwrap());
+    }
+
+    #[test]
+    fn failed_external_command_retires_staging_and_preserves_old_output() {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("tool/result.txt");
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&output, b"accepted").unwrap();
+        let plan = staged_command_plan(
+            &invocation,
+            "printf rejected > \"$1\"; exit 9",
+            "tool/result.txt",
+        );
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommand(details)
+                if matches!(details.failure, ExternalCommandFailure::Exit { status, .. }
+                    if status.code() == Some(9))
+        ));
+        assert_eq!(fs::read(&output).unwrap(), b"accepted");
+        assert_no_staged_command_directories(output.parent().unwrap());
+    }
+
+    #[test]
+    fn missing_external_output_is_typed_and_retires_staging() {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("tool/result.txt");
+        let plan = staged_command_plan(&invocation, "true", "tool/result.txt");
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::StagedOutput {
+                action,
+                operation: "inspect command-produced",
+                ..
+            } if action.name() == "tool"
+        ));
+        assert!(!output.exists());
+        assert_no_staged_command_directories(output.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_staged_argument_failure_retires_staging() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let mut invocation = test_invocation();
+        invocation.build_dir = invocation
+            .package_root
+            .join(std::ffi::OsString::from_vec(b"build-\xff".to_vec()));
+        let output = invocation.build_dir.join("tool/result.txt");
+        let plan = staged_command_plan(&invocation, "printf new > \"$1\"", "tool/result.txt");
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+        assert!(matches!(error, CoordinatorError::NonUtf8Path { .. }));
+        assert!(!output.exists());
+        assert_no_staged_command_directories(output.parent().unwrap());
+    }
+
     fn execute_test_command(
         action: &PlanAction,
         arguments: &[String],
         working_directory: &Path,
-        outputs: &[PathBuf],
         timeout: Duration,
     ) -> Result<(), CoordinatorError> {
         execute_external_command(
@@ -1460,7 +1840,6 @@ mod tests {
                 arguments,
                 working_directory,
                 environment: &[],
-                outputs,
             },
             ExternalExecutionPolicy {
                 timeout,
@@ -1483,7 +1862,6 @@ mod tests {
             &action,
             &arguments,
             &invocation.package_root,
-            &[],
             Duration::from_secs(5),
         )
         .unwrap_err();
@@ -1524,7 +1902,6 @@ mod tests {
             &action,
             &["-c".to_string(), "sleep 30".to_string()],
             &invocation.package_root,
-            &[],
             Duration::from_millis(50),
         )
         .unwrap_err();
@@ -1549,38 +1926,10 @@ mod tests {
             &action,
             &["-c".to_string(), "sleep 30 & exit 0".to_string()],
             &invocation.package_root,
-            &[],
             Duration::from_secs(5),
         )
         .unwrap();
 
         assert!(started.elapsed() < Duration::from_secs(5));
-    }
-
-    #[test]
-    fn external_command_with_outputs_is_rejected_before_spawn() {
-        let invocation = test_invocation();
-        fs::create_dir_all(&invocation.package_root).unwrap();
-        let marker = invocation.package_root.join("must-not-exist");
-        let action = external_action();
-
-        let error = execute_test_command(
-            &action,
-            &[
-                "-c".to_string(),
-                "printf side-effect > must-not-exist".to_string(),
-            ],
-            &invocation.package_root,
-            &[invocation.build_dir.join("declared-output")],
-            Duration::from_secs(5),
-        )
-        .unwrap_err();
-
-        assert!(matches!(
-            error,
-            CoordinatorError::ExternalCommand(details)
-                if matches!(details.failure, ExternalCommandFailure::DeclaredOutputs { .. })
-        ));
-        assert!(!marker.exists());
     }
 }

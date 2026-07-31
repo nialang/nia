@@ -245,6 +245,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ) {
         return process::exit(13)!;
     }
+    let commandOutputs = [
+        build::CommandArgument::buildOutput(build::BuildPathView::init(&"first.out")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init(&"second.out")),
+    ];
+    if not rejectsInvalidStep(
+        api.addExternalCommandStep(
+            &"invalid-tool",
+            build::ExternalCommandOptions::search(&"tool").withArguments(&commandOutputs),
+        ),
+        1usize,
+    ) {
+        return process::exit(14)!;
+    }
+    if not rejectsInvalidStep(
+        api.addExternalCommandStep(
+            &"invalid-cwd",
+            build::ExternalCommandOptions::search(&"tool")
+                .withPackageWorkingDirectory(fs::PathView::init(&"../escape")),
+        ),
+        1usize,
+    ) {
+        return process::exit(15)!;
+    }
     let duplicateImports = [
         build::ModuleImport::init(&"dep", fs::PathView::init(&"first.nia")),
         build::ModuleImport::init(&"dep", fs::PathView::init(&"second.nia")),

@@ -256,6 +256,27 @@ Allocation failure is `OutOfMemory` through the process/build error path, while
 embedded NUL remains an invalid target input. The OS path byte limit remains a
 separate explicit filesystem boundary, not an argv capacity limit.
 
+External build tools use typed arguments rather than interpolated host paths.
+`CommandArgument::literal` carries opaque text, `packageInput` and `buildInput`
+declare tracked inputs, and `buildOutput` declares an output whose argument is
+replaced by a coordinator-owned staging path. The builder copies the program,
+working directory, and every argument before returning. Partial allocation is
+rolled back through the same propagating `defer` cleanup used by other retained
+plan values.
+
+The current publication contract accepts zero outputs or one build-rooted
+regular-file output. The coordinator syncs the staged file and atomically
+renames it; that rename is the single-output commit boundary. Spawn, timeout,
+exit, missing-output, invalid-output, and argument-resolution failures happen
+before commit, retire staging, and cannot replace an accepted old output.
+Directory-sync or staging-retirement failure after rename reports the precise
+publication state and prevents dependent actions, but does not claim to restore
+the previous file. Multiple outputs are rejected during plan freeze until a
+publication transaction or journal can restore every prior destination after a
+partial commit. The protocol retains separate input/output declarations and
+typed argument bindings so fingerprinting and execution cannot disagree about
+which paths a tool receives.
+
 ## 7. Proposal Decision Gates
 
 Language proposals that affect error propagation, ownership/borrowing,

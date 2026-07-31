@@ -12,6 +12,7 @@ pub enum StepKind: i32 {
     GeneratedFile = 4,
     RunExecutable = 5,
     Uncacheable = 6,
+    ExternalCommand = 7,
 }
 
 pub enum OptimizationMode: i32 {
@@ -107,11 +108,41 @@ pub struct RunExecutableStep {
     arguments: collections::ArrayList[string::StringBuf],
 }
 
+pub enum CommandArgumentKind: i32 {
+    Literal = 1,
+    PackageInput = 2,
+    BuildInput = 3,
+    BuildOutput = 4,
+}
+
+pub struct CommandArgument {
+    kind: CommandArgumentKind,
+    value: string::StringView,
+}
+
+pub struct ExternalCommandOptions {
+    program: string::StringView,
+    arguments: ?&[CommandArgument],
+    workingDirectory: fs::PathView,
+}
+
+pub(pkg) struct OwnedCommandArgument {
+    kind: CommandArgumentKind,
+    value: string::StringBuf,
+}
+
+pub struct ExternalCommandStep {
+    program: string::StringBuf,
+    arguments: collections::ArrayList[OwnedCommandArgument],
+    workingDirectory: fs::PathBuf,
+}
+
 pub union StepPayload {
     aggregate: AggregateStep,
     executable: ExecutableStep,
     generatedFile: GeneratedFileStep,
     runExecutable: RunExecutableStep,
+    externalCommand: ExternalCommandStep,
     uncacheable: UncacheableStep,
 }
 

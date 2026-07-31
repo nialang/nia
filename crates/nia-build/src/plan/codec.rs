@@ -319,7 +319,23 @@ impl Writer {
                         self.string(name)?;
                     }
                 }
-                self.strings(arguments)?;
+                self.count(arguments.len())?;
+                for argument in arguments {
+                    match argument {
+                        CommandArgument::Literal(value) => {
+                            self.u8(0);
+                            self.string(value)?;
+                        }
+                        CommandArgument::InputPath(path) => {
+                            self.u8(1);
+                            self.logical_path(path)?;
+                        }
+                        CommandArgument::OutputPath(path) => {
+                            self.u8(2);
+                            self.logical_path(path)?;
+                        }
+                    }
+                }
                 self.logical_path(working_directory)?;
                 self.count(environment.len())?;
                 for input in environment {
@@ -349,14 +365,6 @@ impl Writer {
         self.count(step.dependencies.len())?;
         for dependency in &step.dependencies {
             self.step_key(dependency)?;
-        }
-        Ok(())
-    }
-
-    fn strings(&mut self, values: &[String]) -> Result<(), PlanCodecError> {
-        self.count(values.len())?;
-        for value in values {
-            self.string(value)?;
         }
         Ok(())
     }
@@ -623,7 +631,20 @@ impl<'a> Reader<'a> {
                 };
                 ActionKind::ExternalCommand {
                     program,
-                    arguments: self.list(Reader::string)?,
+                    arguments: self.list(|reader| {
+                        let offset = reader.offset;
+                        let tag = reader.u8()?;
+                        match tag {
+                            0 => Ok(CommandArgument::Literal(reader.string()?)),
+                            1 => Ok(CommandArgument::InputPath(reader.logical_path()?)),
+                            2 => Ok(CommandArgument::OutputPath(reader.logical_path()?)),
+                            _ => Err(PlanCodecError::InvalidTag {
+                                kind: "command argument",
+                                tag,
+                                offset,
+                            }),
+                        }
+                    })?,
                     working_directory: self.logical_path()?,
                     environment: self.list(|reader| {
                         Ok(EnvironmentInput {
@@ -715,7 +736,19 @@ mod tests {
                 key: ActionKey::new(package.clone(), "command").unwrap(),
                 kind: ActionKind::ExternalCommand {
                     program: CommandProgram::Search("cc".into()),
-                    arguments: vec!["-v".into()],
+                    arguments: vec![
+                        CommandArgument::Literal("-v".into()),
+                        CommandArgument::InputPath(
+                            LogicalPath::new(
+                                LogicalPathRoot::Package(package.clone()),
+                                "src/a.nia",
+                            )
+                            .unwrap(),
+                        ),
+                        CommandArgument::OutputPath(
+                            LogicalPath::new(LogicalPathRoot::Build, "command.out").unwrap(),
+                        ),
+                    ],
                     working_directory: LogicalPath::new(
                         LogicalPathRoot::Package(package.clone()),
                         "",

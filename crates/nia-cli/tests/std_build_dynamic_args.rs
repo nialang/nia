@@ -91,8 +91,18 @@ pub fn build(b: &mut build::Build) build::Error!void {
         })
         .expect("run action in dynamic argument build plan");
     assert_eq!(arguments.len(), 32);
-    assert_eq!(arguments.first().map(String::as_str), Some("argument-00"));
-    assert_eq!(arguments.last().map(String::as_str), Some("argument-31"));
+    assert_eq!(
+        arguments.first(),
+        Some(&nia_build::CommandArgument::Literal(
+            "argument-00".to_string()
+        ))
+    );
+    assert_eq!(
+        arguments.last(),
+        Some(&nia_build::CommandArgument::Literal(
+            "argument-31".to_string()
+        ))
+    );
     let executable = root.join(".nia-build/many-imports");
     assert_eq!(
         Command::new(&executable)
