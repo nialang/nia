@@ -60,6 +60,7 @@ fn build_cases_match_expectations() {
                 assert_runner_error(
                     &contract,
                     runner_status,
+                    &workspace,
                     &fixture_path_or_none(&manifest_path, &workspace, forbidden),
                     &output,
                 );
@@ -107,6 +108,7 @@ fn assert_configured_build_success(
             "runner-context",
             "configured-output",
             "module-imports",
+            "build-plan",
         ]
     );
     assert!(
@@ -159,6 +161,46 @@ fn assert_configured_build_success(
     );
     assert!(workspace.join(".nia-build/runner").is_dir());
     assert!(workspace.join(".nia-cache").is_dir());
+    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    let plan_path = workspace.join(".nia-build/build-plan.bin");
+    let plan = nia_build::read_build_plan(&plan_path).expect("decode published build plan");
+    assert_eq!(plan.schema_version(), nia_build::BUILD_PLAN_SCHEMA_VERSION);
+    assert_eq!(plan.root_package().as_str(), "root");
+    assert_eq!(plan.packages().len(), 1);
+    assert_eq!(plan.modules().len(), 1);
+    assert_eq!(plan.modules()[0].key.name(), "app");
+    assert_eq!(
+        plan.modules()[0].root_source.protocol_path(),
+        "src/main.nia"
+    );
+    assert_eq!(plan.modules()[0].imports.len(), 1);
+    assert_eq!(plan.modules()[0].imports[0].name, "helper");
+    assert_eq!(
+        plan.modules()[0].imports[0].path.protocol_path(),
+        "deps/helper.nia"
+    );
+    assert_eq!(plan.artifacts().len(), 1);
+    assert_eq!(plan.artifacts()[0].key.name(), "app");
+    assert_eq!(plan.artifacts()[0].root_module.name(), "app");
+    assert_eq!(plan.artifacts()[0].output.protocol_path(), "custom-app");
+    assert_eq!(plan.actions().len(), 2);
+    assert!(matches!(
+        plan.actions()[0].kind,
+        nia_build::ActionKind::CompilerEmit { .. }
+    ));
+    assert!(matches!(
+        plan.actions()[1].kind,
+        nia_build::ActionKind::CompilerCheck { .. }
+    ));
+    assert_eq!(plan.steps().len(), 2);
+    assert_eq!(
+        plan.default_step().map(nia_build::StepKey::name),
+        Some("build")
+    );
+    assert_eq!(
+        plan.selected_step().map(nia_build::StepKey::name),
+        Some("build")
+    );
     assert!(workspace.join(".nia-build/custom-app").is_file());
     assert!(!workspace.join(".nia-build/app").exists());
     assert_eq!(
@@ -179,6 +221,26 @@ fn assert_configured_build_success(
         "stderr:\n{}",
         String::from_utf8_lossy(&check.stderr)
     );
+    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    let checked_plan = nia_build::read_build_plan(&plan_path).expect("decode replaced build plan");
+    assert_eq!(
+        checked_plan.selected_step().map(nia_build::StepKey::name),
+        Some("check")
+    );
+    let checked_bytes = std::fs::read(&plan_path).expect("read checked plan bytes");
+    let unknown = support::nia_command()
+        .arg("build")
+        .arg("does-not-exist")
+        .arg("--root")
+        .arg(workspace)
+        .output_timeout_without_resources("run unknown step after published plan");
+    assert!(!unknown.status.success());
+    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert_eq!(
+        std::fs::read(&plan_path).expect("read plan after rejected build"),
+        checked_bytes,
+        "a failed runner must not replace the last canonical plan"
+    );
 }
 
 fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::process::Output) {
@@ -187,6 +249,8 @@ fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::pro
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(workspace.join(".nia-build/build-plan.bin").is_file());
+    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
     match contract {
         "step-order" => assert_eq!(
             String::from_utf8_lossy(&output.stdout),
@@ -203,10 +267,13 @@ fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::pro
 fn assert_runner_error(
     contract: &str,
     runner_status: i32,
+    workspace: &Path,
     forbidden: &Option<std::path::PathBuf>,
     output: &std::process::Output,
 ) {
     assert!(!output.status.success());
+    assert!(!workspace.join(".nia-build/build-plan.draft").exists());
+    assert!(!workspace.join(".nia-build/build-plan.bin").exists());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(

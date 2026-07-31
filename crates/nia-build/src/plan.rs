@@ -695,7 +695,7 @@ fn canonicalize_steps(steps: &mut [PlanStep], actions: &[PlanAction]) -> Result<
 
 fn validate_step_selection(draft: &BuildPlanDraft) -> Result<(), PlanError> {
     let keys: BTreeSet<_> = draft.steps.iter().map(|step| &step.key).collect();
-    if !draft.steps.is_empty() && draft.default_step.is_none() {
+    if !draft.steps.is_empty() && draft.default_step.is_none() && draft.selected_step.is_none() {
         return Err(PlanError::MissingDefaultStep);
     }
     for (owner, selected) in [
@@ -958,6 +958,21 @@ mod tests {
             BuildPlan::freeze(value),
             Err(PlanError::StepCycle(_))
         ));
+    }
+
+    #[test]
+    fn explicit_selection_does_not_require_an_unused_default() {
+        let mut value = draft(false);
+        value.selected_step = value.default_step.take();
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn nonempty_plan_requires_a_default_or_explicit_selection() {
+        let mut value = draft(false);
+        value.default_step = None;
+        value.selected_step = None;
+        assert_eq!(BuildPlan::freeze(value), Err(PlanError::MissingDefaultStep));
     }
 
     #[test]

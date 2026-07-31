@@ -1261,6 +1261,28 @@ side effects during migration, but do not complete Phase D: the Nia builder
 still must freeze and publish the immutable protocol, and the coordinator must
 become its sole consumer before recursive callbacks are removed.
 
+Phase D progress (2026-07-31, connected handoff batch): the generated runner
+now receives the toolchain-owned protocol schema and an explicit draft path.
+After whole-graph builder validation it encodes the retained Nia modules,
+artifacts, typed check/emit or explicit uncacheable actions, dependencies, host
+and artifact targets, and resolved selection into the exact versioned binary
+schema. The draft is exclusively created, fully written, flushed, and synced.
+The coordinator decodes it through the existing bounded decoder and unique
+freeze validator, then atomically publishes canonical bytes to
+`.nia-build/build-plan.bin`; the draft is removed on success and runner failure,
+and a later failed runner cannot replace a valid published plan. Stable-name,
+logical-path, duplicate-import, target, count, and size rules are aligned on the
+Nia side so a known-invalid builder cannot reach legacy action execution merely
+to fail in the decoder. Explicit selected steps no longer require an unused
+default in Rust freeze, while nonempty unselected plans still do. Real runner
+evidence decodes the published module/import/artifact/action/step fields and
+observes selected-plan replacement. This completes the Nia-to-Rust codec and
+canonical publication connection, but not the Phase D production gate: legacy
+callbacks still execute before the runner returns, so coordinator decode is not
+yet universally prior to side effects. The next batch must execute the selected
+closure from the decoded plan and physically remove runner-side recursive
+execution and raw compiler argv assembly.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
