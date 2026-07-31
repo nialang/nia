@@ -1300,8 +1300,8 @@ uncacheable declarations replace callback-shaped graph nodes. The complete
 emit, deterministic dependencies, selected-step replacement, full-graph cycle
 rejection, and pre-action invalid-plan failures. This closes every Phase D
 acceptance gate. Phase E remains open for external-command execution, process
-capture/cancellation policy, scoped publication replacing
-the package-wide lock, and deterministic multi-worker execution.
+capture/cancellation policy, scoped publication replacing the package-wide
+lock, and deterministic multi-worker execution.
 
 Phase E progress (2026-07-31, generated-file batch): reviewed `BuildPathView`
 values now distinguish build-rooted paths from package paths in the public
@@ -1314,6 +1314,27 @@ previous contents atomically and reject a failed publication without a
 leftover temporary file. The representative workload again generates a source,
 then compiles and launches both source and generated artifacts through typed
 dependencies; no package/build logical-path alias or runner callback is used.
+
+Phase E progress (2026-07-31, run-action batch): reviewed `RunOptions` and
+`addRunExecutableStep` retain an arbitrary argument list and encode the declared
+executable as an Artifact-root external-command program with Package-root cwd
+and no outputs. The builder requires the matching emit producer, inserts that
+dependency atomically, and freeze rejects any decoded Artifact-root command
+without the producer in its dependency closure. The coordinator closes stdin,
+forwards stdout/stderr while retaining bounded 64-KiB tails, applies a
+seven-minute limit, and terminates the owned Unix process group on timeout and
+after leader exit so background descendants cannot retain pipes or outlive the
+action. Spawn, capture, wait, timeout, and nonzero-exit failures preserve
+action/program/cwd/status/output context without panic. Output-bearing external
+commands are rejected before spawn because the current string argument schema
+cannot redirect tools to staged outputs safely. Fault-allocation probes cover
+partial argument retention, step/edge rollback, and the configured production
+fixture now emits then runs its artifact through the decoded plan, preserving
+arguments and forwarded output. A separate production case round-trips and
+executes 32 imports and 32 run arguments, proving the old fixed argv limit did
+not return. Phase E remains open for typed staging of output-producing external
+tools, coordinator-wide failure cancellation, scoped publication replacing the
+package lock, and deterministic multi-worker execution.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

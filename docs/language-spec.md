@@ -3075,11 +3075,18 @@ a graph step that emits the artifact to
 `Build::addAggregateStep(name)` declares a dependency-only graph node.
 `Build::addGeneratedFileStep(name, BuildPathView::init(path), contents)`
 declares atomic publication of the supplied bytes under `.nia-build/`.
-Names, paths, imports, and options passed to these methods are borrowed only for
-the duration of the call. `Build` copies retained values into allocator-owned
-storage, so local arrays may leave scope before a selected step executes.
-Module imports and compiler arguments have no fixed-count limit. Their encoded
-bytes and pointer lists use the build allocator; allocation failure is reported
+`Build::addRunExecutableStep(name, RunOptions::init(executable))` declares an
+outputless external-command action whose program is the typed executable
+artifact and whose working directory is the package root. The executable must
+already have an emit step; the builder adds that producer dependency and plan
+freeze verifies it independently.
+`RunOptions::withArguments(arguments)` supplies `StringView` arguments.
+Names, paths, imports, arguments, and options passed to these methods are
+borrowed only for the duration of the call. `Build` copies retained values into
+allocator-owned storage, so local arrays may leave scope before a selected step
+executes.
+Module imports and run arguments have no legacy fixed-count limit. Their encoded
+bytes and retained lists use the build allocator; allocation failure is reported
 as `build::Error::OutOfMemory`, not as an invalid target or panic.
 `Build::setDefaultStep(step)` selects the graph step used by `nia build` when
 no step name is passed. If a script registers steps but does not set a default,

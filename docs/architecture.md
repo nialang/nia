@@ -1895,11 +1895,16 @@ artifact paths cannot escape the build directory.
 `addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
 publishes the supplied bytes under `.nia-build/`; generated consumers refer to
 that output through its build-rooted logical identity.
-The options and `ModuleImport` values are borrowed call descriptors. Every value
-retained by `Build` is copied into `StringBuf`, `PathBuf`, or an owned import
-record before the call returns. Fallible ownership transfer uses conditional
-`defer` rollback; deep records are released in reverse order, all cleanup is
-attempted, and the first cleanup error is returned. `setDefaultStep(step)` makes
+`addRunExecutableStep(name, RunOptions::init(executable))` records an
+outputless external-command action using the executable's Artifact-root path and
+automatically depends on its existing emit producer; plan freeze verifies that
+dependency closure independently. `RunOptions::withArguments` supplies its
+arguments. The options and `ModuleImport` values are borrowed call descriptors.
+Every value retained by `Build` is copied into `StringBuf`, `PathBuf`, an owned
+argument list, or an owned import record before the call returns. Fallible
+ownership transfer uses conditional `defer` rollback; deep records are released
+in reverse order, all cleanup is attempted, and the first cleanup error is
+returned. `setDefaultStep(step)` makes
 the no-argument build entry explicit; the runner does not infer a default from
 step registration order and contains no recursive action executor.
 This surface grows the build system through explicit step and artifact APIs

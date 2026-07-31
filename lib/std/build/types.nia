@@ -10,7 +10,8 @@ pub enum StepKind: i32 {
     CheckExecutable = 2,
     EmitExecutable = 3,
     GeneratedFile = 4,
-    Uncacheable = 5,
+    RunExecutable = 5,
+    Uncacheable = 6,
 }
 
 pub enum OptimizationMode: i32 {
@@ -96,10 +97,21 @@ pub struct ExecutableStep {
     target: ExecutableHandle,
 }
 
+pub struct RunOptions {
+    target: ExecutableHandle,
+    arguments: ?&[string::StringView],
+}
+
+pub struct RunExecutableStep {
+    target: ExecutableHandle,
+    arguments: collections::ArrayList[string::StringBuf],
+}
+
 pub union StepPayload {
     aggregate: AggregateStep,
     executable: ExecutableStep,
     generatedFile: GeneratedFileStep,
+    runExecutable: RunExecutableStep,
     uncacheable: UncacheableStep,
 }
 

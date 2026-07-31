@@ -1,10 +1,19 @@
 using helper;
+using std::fmt;
+using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
     if helper::value() != 7 {
         return process::exit(1)!;
     }
+    let argument = switch init.args().get(1usize) {
+        ?argument => argument,
+        null => return process::exit(2)!,
+    };
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    stdout.print(&"run={}\n", &[&argument]).exit().?;
+    stdout.flush().exit().?;
     !{}
 }

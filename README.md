@@ -170,10 +170,13 @@ typed Driver requests and emit executable artifacts to
 `addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
 publishes bytes under `.nia-build/`; `ModuleOptions::fromBuild` consumes such a
 build-rooted source without aliasing it as a package path.
-Builder calls copy retained text, paths, and imports, so local input arrays may
-leave scope before execution. `setDefaultStep(step)` selects the step used by
-`nia build` when no step name is passed; otherwise users must request a named
-step explicitly.
+`addRunExecutableStep(name, RunOptions::init(executable))` runs a declared
+artifact and automatically depends on its existing emit step;
+`RunOptions::withArguments` supplies retained arguments. Builder calls copy
+retained text, paths, imports, and run arguments, so local input arrays may
+leave scope before execution. `setDefaultStep(step)`
+selects the step used by `nia build` when no step name is passed; otherwise
+users must request a named step explicitly.
 
 The runner only configures and encodes the immutable plan. The Rust coordinator
 validates the plan before executing its selected dependency closure; no callback

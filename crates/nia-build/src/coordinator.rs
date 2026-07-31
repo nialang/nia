@@ -4,11 +4,14 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs, io,
     io::Write as _,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    process::{Command, ExitStatus, Stdio},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    thread,
+    time::{Duration, Instant},
 };
 
 use nia_driver::{
@@ -18,10 +21,14 @@ use nia_driver::{
 use nia_target_config::TargetConfig;
 
 use crate::{
-    ActionKey, ActionKind, ArtifactKey, BuildInvocation, BuildPlan, LogicalPath, LogicalPathRoot,
-    ModuleKey, OptimizationMode, PackageKey, PlanAction, PlanArtifact, PlanModule, Runtime,
-    StepKey, TargetSpec,
+    ActionKey, ActionKind, ArtifactKey, BuildInvocation, BuildPlan, CommandProgram, LogicalPath,
+    LogicalPathRoot, ModuleKey, OptimizationMode, PackageKey, PlanAction, PlanArtifact, PlanModule,
+    Runtime, StepKey, TargetSpec,
 };
+
+const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
+const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
+const EXTERNAL_WAIT_POLL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionReport {
@@ -42,6 +49,52 @@ pub struct InvalidModuleImport {
     pub module: ModuleKey,
     pub name: String,
     pub reason: String,
+}
+
+#[derive(Debug)]
+pub struct ExternalCommandError {
+    pub action: ActionKey,
+    pub program: String,
+    pub arguments: Vec<String>,
+    pub working_directory: PathBuf,
+    pub failure: ExternalCommandFailure,
+}
+
+#[derive(Debug)]
+pub enum ExternalCommandFailure {
+    DeclaredOutputs {
+        outputs: Vec<PathBuf>,
+    },
+    Spawn {
+        error: io::Error,
+    },
+    MissingPipe {
+        stream: &'static str,
+    },
+    Wait {
+        error: io::Error,
+    },
+    CaptureThread {
+        stream: &'static str,
+    },
+    CaptureWorkerSpawn {
+        stream: &'static str,
+        error: io::Error,
+    },
+    StreamIo {
+        stream: &'static str,
+        error: io::Error,
+    },
+    TimedOut {
+        timeout: Duration,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
+    Exit {
+        status: ExitStatus,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
 }
 
 #[derive(Debug)]
@@ -66,6 +119,7 @@ pub enum CoordinatorError {
         operation: &'static str,
         error: io::Error,
     },
+    ExternalCommand(Box<ExternalCommandError>),
     UnsupportedAction {
         action: ActionKey,
         kind: &'static str,
@@ -136,6 +190,7 @@ impl fmt::Display for CoordinatorError {
                 action.name(),
                 path.display()
             ),
+            Self::ExternalCommand(details) => display_external_command_error(f, details),
             Self::UnsupportedAction { action, kind } => write!(
                 f,
                 "build action `{}` uses unsupported coordinator action kind `{kind}`",
@@ -305,7 +360,49 @@ impl<'a> DriverActionExecutor<'a> {
                         error: Box::new(error),
                     })
             }
-            ActionKind::ExternalCommand { .. } => Err(unsupported(action, "external-command")),
+            ActionKind::ExternalCommand {
+                program,
+                arguments,
+                working_directory,
+                environment,
+                inputs,
+                outputs,
+            } => {
+                let working_directory = self.resolve_path(action, working_directory)?;
+                let program = match program {
+                    CommandProgram::Path(path) => {
+                        let path = self.resolve_path(action, path)?;
+                        path.to_str()
+                            .ok_or_else(|| CoordinatorError::NonUtf8Path {
+                                action: action.key.clone(),
+                                path: path.clone(),
+                            })?
+                            .to_string()
+                    }
+                    CommandProgram::Search(name) => name.clone(),
+                };
+                for input in inputs {
+                    let _ = self.resolve_path(action, input)?;
+                }
+                let outputs = outputs
+                    .iter()
+                    .map(|output| self.resolve_path(action, output))
+                    .collect::<Result<Vec<_>, _>>()?;
+                execute_external_command(
+                    action,
+                    ResolvedExternalCommand {
+                        program: &program,
+                        arguments,
+                        working_directory: &working_directory,
+                        environment,
+                        outputs: &outputs,
+                    },
+                    ExternalExecutionPolicy {
+                        timeout: EXTERNAL_COMMAND_TIMEOUT,
+                        forward_output: true,
+                    },
+                )
+            }
             ActionKind::GeneratedFile { output, contents } => {
                 let output = self.resolve_path(action, output)?;
                 write_generated_file(action, &output, contents)
@@ -414,6 +511,347 @@ impl<'a> DriverActionExecutor<'a> {
         }
         Ok(path)
     }
+}
+
+struct ResolvedExternalCommand<'a> {
+    program: &'a str,
+    arguments: &'a [String],
+    working_directory: &'a Path,
+    environment: &'a [crate::EnvironmentInput],
+    outputs: &'a [PathBuf],
+}
+
+#[derive(Clone, Copy)]
+struct ExternalExecutionPolicy {
+    timeout: Duration,
+    forward_output: bool,
+}
+
+fn execute_external_command(
+    action: &PlanAction,
+    request: ResolvedExternalCommand<'_>,
+    policy: ExternalExecutionPolicy,
+) -> Result<(), CoordinatorError> {
+    let error = |failure| {
+        CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
+            action: action.key.clone(),
+            program: request.program.to_string(),
+            arguments: request.arguments.to_vec(),
+            working_directory: request.working_directory.to_path_buf(),
+            failure,
+        }))
+    };
+    if !request.outputs.is_empty() {
+        return Err(error(ExternalCommandFailure::DeclaredOutputs {
+            outputs: request.outputs.to_vec(),
+        }));
+    }
+
+    let mut command = Command::new(request.program);
+    command
+        .args(request.arguments)
+        .current_dir(request.working_directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for input in request.environment {
+        match &input.value {
+            Some(value) => {
+                command.env(&input.name, value);
+            }
+            None => {
+                command.env_remove(&input.name);
+            }
+        }
+    }
+    prepare_external_command(&mut command);
+    let mut child = command
+        .spawn()
+        .map_err(|source| error(ExternalCommandFailure::Spawn { error: source }))?;
+    let Some(stdout) = child.stdout.take() else {
+        terminate_process_tree(&mut child);
+        let _ = child.wait();
+        return Err(error(ExternalCommandFailure::MissingPipe {
+            stream: "stdout",
+        }));
+    };
+    let Some(stderr) = child.stderr.take() else {
+        terminate_process_tree(&mut child);
+        let _ = child.wait();
+        return Err(error(ExternalCommandFailure::MissingPipe {
+            stream: "stderr",
+        }));
+    };
+    let stdout_reader = match thread::Builder::new()
+        .name("nia-build-stdout".to_string())
+        .spawn(move || capture_stream(stdout, CapturedStream::Stdout, policy.forward_output))
+    {
+        Ok(reader) => reader,
+        Err(source) => {
+            terminate_process_tree(&mut child);
+            let _ = child.wait();
+            return Err(error(ExternalCommandFailure::CaptureWorkerSpawn {
+                stream: "stdout",
+                error: source,
+            }));
+        }
+    };
+    let stderr_reader = match thread::Builder::new()
+        .name("nia-build-stderr".to_string())
+        .spawn(move || capture_stream(stderr, CapturedStream::Stderr, policy.forward_output))
+    {
+        Ok(reader) => reader,
+        Err(source) => {
+            terminate_process_tree(&mut child);
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            return Err(error(ExternalCommandFailure::CaptureWorkerSpawn {
+                stream: "stderr",
+                error: source,
+            }));
+        }
+    };
+
+    let started = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                terminate_external_descendants(child.id());
+                break Ok(status);
+            }
+            Ok(None) if started.elapsed() >= policy.timeout => {
+                timed_out = true;
+                terminate_process_tree(&mut child);
+                break child.wait();
+            }
+            Ok(None) => thread::sleep(EXTERNAL_WAIT_POLL),
+            Err(source) => {
+                terminate_process_tree(&mut child);
+                let _ = child.wait();
+                break Err(source);
+            }
+        }
+    };
+    let stdout = join_capture(stdout_reader, "stdout").map_err(&error)?;
+    let stderr = join_capture(stderr_reader, "stderr").map_err(&error)?;
+    if let Some(source) = stdout.error {
+        return Err(error(ExternalCommandFailure::StreamIo {
+            stream: "stdout",
+            error: source,
+        }));
+    }
+    if let Some(source) = stderr.error {
+        return Err(error(ExternalCommandFailure::StreamIo {
+            stream: "stderr",
+            error: source,
+        }));
+    }
+    let status = status.map_err(|source| error(ExternalCommandFailure::Wait { error: source }))?;
+    if timed_out {
+        return Err(error(ExternalCommandFailure::TimedOut {
+            timeout: policy.timeout,
+            stdout: stdout.tail,
+            stderr: stderr.tail,
+        }));
+    }
+    if !status.success() {
+        return Err(error(ExternalCommandFailure::Exit {
+            status,
+            stdout: stdout.tail,
+            stderr: stderr.tail,
+        }));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum CapturedStream {
+    Stdout,
+    Stderr,
+}
+
+struct StreamCapture {
+    tail: Vec<u8>,
+    error: Option<io::Error>,
+}
+
+fn capture_stream(
+    mut reader: impl io::Read,
+    stream: CapturedStream,
+    forward_output: bool,
+) -> StreamCapture {
+    let mut tail = Vec::new();
+    let mut first_error = None;
+    let mut buffer = [0u8; 8192];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                append_output_tail(&mut tail, &buffer[..count]);
+                let forwarded = match (forward_output, stream) {
+                    (false, _) => Ok(()),
+                    (true, CapturedStream::Stdout) => io::stdout().write_all(&buffer[..count]),
+                    (true, CapturedStream::Stderr) => io::stderr().write_all(&buffer[..count]),
+                };
+                if first_error.is_none() {
+                    first_error = forwarded.err();
+                }
+            }
+            Err(source) => {
+                if first_error.is_none() {
+                    first_error = Some(source);
+                }
+                break;
+            }
+        }
+    }
+    if forward_output {
+        let flushed = match stream {
+            CapturedStream::Stdout => io::stdout().flush(),
+            CapturedStream::Stderr => io::stderr().flush(),
+        };
+        if first_error.is_none() {
+            first_error = flushed.err();
+        }
+    }
+    StreamCapture {
+        tail,
+        error: first_error,
+    }
+}
+
+fn append_output_tail(tail: &mut Vec<u8>, bytes: &[u8]) {
+    if bytes.len() >= EXTERNAL_OUTPUT_TAIL_BYTES {
+        tail.clear();
+        tail.extend_from_slice(&bytes[bytes.len() - EXTERNAL_OUTPUT_TAIL_BYTES..]);
+        return;
+    }
+    let excess = tail
+        .len()
+        .saturating_add(bytes.len())
+        .saturating_sub(EXTERNAL_OUTPUT_TAIL_BYTES);
+    if excess != 0 {
+        tail.drain(..excess);
+    }
+    tail.extend_from_slice(bytes);
+}
+
+fn join_capture(
+    reader: thread::JoinHandle<StreamCapture>,
+    stream: &'static str,
+) -> Result<StreamCapture, ExternalCommandFailure> {
+    reader
+        .join()
+        .map_err(|_| ExternalCommandFailure::CaptureThread { stream })
+}
+
+#[cfg(unix)]
+fn prepare_external_command(command: &mut Command) {
+    use std::os::unix::process::CommandExt as _;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn prepare_external_command(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn terminate_process_tree(child: &mut std::process::Child) {
+    let Ok(group) = i32::try_from(child.id()) else {
+        let _ = child.kill();
+        return;
+    };
+    terminate_process_group(group);
+}
+
+#[cfg(unix)]
+fn terminate_external_descendants(group: u32) {
+    if let Ok(group) = i32::try_from(group) {
+        terminate_process_group(group);
+    }
+}
+
+#[cfg(unix)]
+fn terminate_process_group(group: i32) {
+    // The child is the leader of the process group created before spawn. A
+    // successful signal means at least one owned process still needs cleanup.
+    let signaled = unsafe { libc::kill(-group, libc::SIGTERM) } == 0;
+    if signaled {
+        thread::sleep(Duration::from_millis(100));
+        unsafe {
+            libc::kill(-group, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_process_tree(child: &mut std::process::Child) {
+    let _ = child.kill();
+}
+
+#[cfg(not(unix))]
+fn terminate_external_descendants(_group: u32) {}
+
+fn display_external_command_error(
+    f: &mut fmt::Formatter<'_>,
+    details: &ExternalCommandError,
+) -> fmt::Result {
+    write!(
+        f,
+        "external command action `{}` in package `{}` failed to run `{:?}` with {} argument(s) in `{}`: ",
+        details.action.name(),
+        details.action.package().as_str(),
+        details.program,
+        details.arguments.len(),
+        details.working_directory.display(),
+    )?;
+    match &details.failure {
+        ExternalCommandFailure::DeclaredOutputs { outputs } => write!(
+            f,
+            "{} declared output(s) require staged-output support",
+            outputs.len()
+        ),
+        ExternalCommandFailure::Spawn { error } => write!(f, "spawn failed: {error}"),
+        ExternalCommandFailure::MissingPipe { stream } => {
+            write!(f, "coordinator did not retain the configured {stream} pipe")
+        }
+        ExternalCommandFailure::Wait { error } => write!(f, "wait failed: {error}"),
+        ExternalCommandFailure::CaptureThread { stream } => {
+            write!(f, "{stream} capture worker failed")
+        }
+        ExternalCommandFailure::CaptureWorkerSpawn { stream, error } => {
+            write!(f, "failed to start {stream} capture worker: {error}")
+        }
+        ExternalCommandFailure::StreamIo { stream, error } => {
+            write!(f, "{stream} capture/forward failed: {error}")
+        }
+        ExternalCommandFailure::TimedOut {
+            timeout,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "timed out after {timeout:?}")?;
+            display_output_tails(f, stdout, stderr)
+        }
+        ExternalCommandFailure::Exit {
+            status,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "exited with status {status}")?;
+            display_output_tails(f, stdout, stderr)
+        }
+    }
+}
+
+fn display_output_tails(f: &mut fmt::Formatter<'_>, stdout: &[u8], stderr: &[u8]) -> fmt::Result {
+    if !stdout.is_empty() {
+        write!(f, "\nstdout tail:\n{}", String::from_utf8_lossy(stdout))?;
+    }
+    if !stderr.is_empty() {
+        write!(f, "\nstderr tail:\n{}", String::from_utf8_lossy(stderr))?;
+    }
+    Ok(())
 }
 
 static GENERATED_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -988,5 +1426,161 @@ mod tests {
                 .to_string_lossy()
                 .starts_with(".nia-generated-")
         }));
+    }
+
+    fn external_action() -> PlanAction {
+        PlanAction {
+            key: action("run"),
+            kind: ActionKind::ExternalCommand {
+                program: CommandProgram::Search("sh".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        }
+    }
+
+    fn execute_test_command(
+        action: &PlanAction,
+        arguments: &[String],
+        working_directory: &Path,
+        outputs: &[PathBuf],
+        timeout: Duration,
+    ) -> Result<(), CoordinatorError> {
+        execute_external_command(
+            action,
+            ResolvedExternalCommand {
+                program: "sh",
+                arguments,
+                working_directory,
+                environment: &[],
+                outputs,
+            },
+            ExternalExecutionPolicy {
+                timeout,
+                forward_output: false,
+            },
+        )
+    }
+
+    #[test]
+    fn external_command_failure_retains_status_and_bounded_output_tails() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let action = external_action();
+        let arguments = vec![
+            "-c".to_string(),
+            "printf 'command stdout'; printf 'command stderr' >&2; exit 7".to_string(),
+        ];
+
+        let error = execute_test_command(
+            &action,
+            &arguments,
+            &invocation.package_root,
+            &[],
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommand(details)
+                if details.action.name() == "run"
+                    && details.arguments == arguments
+                    && matches!(details.failure, ExternalCommandFailure::Exit {
+                        status,
+                        ref stdout,
+                        ref stderr,
+                    } if status.code() == Some(7)
+                        && stdout == b"command stdout"
+                        && stderr == b"command stderr")
+        ));
+    }
+
+    #[test]
+    fn external_output_tail_discards_only_the_oldest_bytes() {
+        let mut tail = vec![b'a'; EXTERNAL_OUTPUT_TAIL_BYTES - 2];
+        append_output_tail(&mut tail, b"bcdef");
+
+        assert_eq!(tail.len(), EXTERNAL_OUTPUT_TAIL_BYTES);
+        assert_eq!(&tail[..3], b"aaa");
+        assert_eq!(&tail[tail.len() - 5..], b"bcdef");
+    }
+
+    #[test]
+    fn external_command_timeout_terminates_owned_process_group() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let action = external_action();
+        let started = Instant::now();
+
+        let error = execute_test_command(
+            &action,
+            &["-c".to_string(), "sleep 30".to_string()],
+            &invocation.package_root,
+            &[],
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommand(details)
+                if matches!(details.failure, ExternalCommandFailure::TimedOut { .. })
+        ));
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_command_success_retires_background_descendants_holding_pipes() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let action = external_action();
+        let started = Instant::now();
+
+        execute_test_command(
+            &action,
+            &["-c".to_string(), "sleep 30 & exit 0".to_string()],
+            &invocation.package_root,
+            &[],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn external_command_with_outputs_is_rejected_before_spawn() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let marker = invocation.package_root.join("must-not-exist");
+        let action = external_action();
+
+        let error = execute_test_command(
+            &action,
+            &[
+                "-c".to_string(),
+                "printf side-effect > must-not-exist".to_string(),
+            ],
+            &invocation.package_root,
+            &[invocation.build_dir.join("declared-output")],
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommand(details)
+                if matches!(details.failure, ExternalCommandFailure::DeclaredOutputs { .. })
+        ));
+        assert!(!marker.exists());
     }
 }

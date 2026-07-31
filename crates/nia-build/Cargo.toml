@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+libc.workspace = true
 nia-driver.workspace = true
 nia-imports.workspace = true
 nia-loader-query.workspace = true
