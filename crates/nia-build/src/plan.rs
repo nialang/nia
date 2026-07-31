@@ -904,7 +904,12 @@ fn validate_output_ownership(
             _ => Vec::new(),
         };
         for output in outputs {
-            if output.is_empty() || !matches!(output.root(), LogicalPathRoot::Build) {
+            if output.is_empty()
+                || !matches!(output.root(), LogicalPathRoot::Build)
+                || output.components().first().is_some_and(|component| {
+                    component == crate::output_recovery::OUTPUT_TRANSACTION_DIRECTORY
+                })
+            {
                 return Err(PlanError::InvalidOutput {
                     action: action.key.clone(),
                     path: output.clone(),
@@ -1119,6 +1124,19 @@ mod tests {
         assert!(matches!(
             BuildPlan::freeze(value),
             Err(PlanError::OutputCollision(_))
+        ));
+    }
+
+    #[test]
+    fn freeze_reserves_the_output_transaction_journal_root() {
+        let mut value = draft(false);
+        value.artifacts[0].output =
+            LogicalPath::new(LogicalPathRoot::Build, ".nia-transactions/forged-output").unwrap();
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidOutput { path, .. })
+                if path.protocol_path() == ".nia-transactions/forged-output"
         ));
     }
 

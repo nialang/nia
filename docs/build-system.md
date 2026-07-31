@@ -138,6 +138,28 @@ separate filesystem directory entries switch in one indivisible rename.
 Explicit uncacheable actions remain unsupported; no path falls back to a runner
 callback.
 
+Process-death recovery state for these transactions lives under
+`.nia-build/.nia-transactions/v1/`, outside the disposable cache. A versioned,
+checksummed journal records the stable action key, ordered logical Build
+outputs, and logical stage/commit paths before the external command can mutate
+staging. Once every produced regular file is synced, a separately checksummed
+prepared marker records which destinations previously existed; that marker and
+its directory entry are synced before any destination changes. The
+same-directory stage-to-committed rename remains the acceptance point.
+
+Before dispatching plan actions, the coordinator scans journals in deterministic
+order and acquires their complete output-lock sets in canonical order. It then
+rereads the journal under those locks to reject replacement while waiting.
+Unprepared staging is discarded without touching destinations; a prepared but
+unaccepted transaction is rolled back in reverse order; an accepted transaction
+keeps its outputs and retires committed backup state. Rollback moves installed
+files back into staging so recovery itself can be interrupted and repeated.
+Missing, truncated, trailing, checksummed-corrupt, non-regular, or contradictory
+state produces a typed recovery failure instead of guessing which output is
+valid. On Linux, unpublished temporary journals carry PID/start-time identity,
+so later invocations collect dead owners without removing a live publisher.
+Build plans reserve `.nia-transactions` as coordinator-owned output space.
+
 The former package-wide executor lock is absent. Every output-producing action
 derives a stable coordination key from its validated build-root logical path and
 acquires that cross-process lock under `.nia-cache/coordination/output-locks/`
@@ -223,7 +245,11 @@ is already typed: stable action key, logical output identity, byte contents,
 and separate compiler, resource-layout, std, and build-protocol compatibility
 components. Compiler and external-command actions do not report action-cache
 hits until their source/dependency and executable/environment identities are
-complete.
+complete. Compiler module declarations can recursively discover source files
+that are not yet represented by a frozen action input closure. External
+commands can still inherit undeclared environment and read arbitrary working-
+directory state. Treating either action kind as a hit before those boundaries
+close would be unsound.
 
 Generated-file entries live in a versioned action-kind namespace under
 `.nia-cache/actions/`. Their envelope repeats the action key fingerprint,

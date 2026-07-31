@@ -21,12 +21,14 @@ use nia_timing::{TimingFormat, TimingOptions};
 mod action_cache;
 mod coordinator;
 mod lock;
+mod output_recovery;
 mod plan;
 
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
 pub use coordinator::*;
+pub use output_recovery::OutputRecoveryError;
 pub use plan::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
