@@ -1815,6 +1815,26 @@ This closes Phase F's declared resource-class slice. Phase F remains open for
 broader cross-process/cache stress acceptance, complete compiler and external
 action input closures, and dependency-artifact propagation.
 
+Phase F progress (2026-08-01, cross-process action-cache stress batch): the
+generated-file cache acceptance now crosses the process boundary rather than
+inferring it from thread races. Eight independent worker processes, released
+from one filesystem barrier, divide into duplicate publishers and lock-free
+readers of the same 4-MiB content-addressed entry. Readers accept only absence
+or a fully decoded, identity-checked, checksummed payload. After all workers
+settle, the key namespace must contain exactly one immutable entry and no
+staging file or mutation lock. The parent owns every worker through an RAII
+child set and kills and waits for outstanding children on timeout or
+assertion failure, so the stress gate cannot leak background work.
+
+Together with the existing stale-corruption revalidation, concurrent-reader,
+duplicate-publisher, interrupted output-transaction recovery, distinct-output
+coordination, deterministic wide-wave scheduling, and repeated warm-build
+evidence, this closes Phase F's broader cross-process/cache stress slice. Phase
+F remains open for complete compiler and external-action input closures and
+dependency-artifact propagation. All 89 ordinary `nia-build` tests pass, the
+worker-only entry remains explicitly ignored outside its parent probe, and
+workspace all-target/all-feature check and strict Clippy pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
