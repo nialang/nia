@@ -39,6 +39,11 @@ fn extension_queries_use_module_semantic_queries() {
     ));
     assert!(trace_has_dependency(
         &trace,
+        "extension_trait_signature_index",
+        "extension_provider_module_ids"
+    ));
+    assert!(trace_has_dependency(
+        &trace,
         "module_program_signature_facts",
         "signature_item_signatures"
     ));
@@ -194,4 +199,79 @@ fn extension_queries_use_module_semantic_queries() {
         dependency.from.name == "declaration_type_lowering"
             && dependency.to.name == "program_full_defs_by_id"
     }));
+}
+
+#[test]
+fn shallow_extension_provider_traits_participate_in_validation() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "pub module math; pub module traits; fn main() i32 { 0 }",
+    );
+    let entry_id = fixture.entry_id();
+    let traits_id = fixture.add_shallow_child(
+        entry_id,
+        "traits",
+        "traits.nia",
+        r#"
+pub trait CheckedAdd[Rhs] {
+    type Output;
+
+    fn checked_add(self, rhs: Rhs) ?[Self as CheckedAdd[Rhs]]::Output;
+}
+"#,
+    );
+    let math_id = fixture.add_shallow_child(
+        entry_id,
+        "math",
+        "math.nia",
+        r#"
+using entry::traits;
+using traits::CheckedAdd;
+
+extend u8 : CheckedAdd[u8] {
+    type Output = u8;
+
+    fn checked_add(self, rhs: u8) ?u8 {
+        _ = rhs;
+        ?self
+    }
+}
+"#,
+    );
+    let db = query_db(fixture.program());
+
+    assert_eq!(
+        resolve_stable_module_sequence(&db, &db.expect_get(SemanticModuleIdsQuery))
+            .expect("semantic module sequence"),
+        vec![entry_id]
+    );
+    assert_eq!(
+        resolve_stable_module_sequence(&db, &db.expect_get(ExtensionProviderModuleIdsQuery))
+            .expect("extension provider module sequence"),
+        vec![math_id]
+    );
+    let trait_index = db.expect_get(ExtensionTraitSignatureIndexQuery);
+    assert!(
+        trait_index
+            .trait_defs
+            .iter()
+            .any(|def_id| def_id.module_id == traits_id)
+    );
+    let validation = db.expect_get(ExtensionProviderValidationFactsQuery(math_id));
+    let diagnostics = resolve_diagnostic_bundle(db.context(), &validation.diagnostics);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let checked_add = sym("checked_add");
+    let provider_facts = db.expect_get(ExtensionProviderModuleFactsQuery(math_id));
+    assert_eq!(
+        provider_facts.methods.methods_named(&checked_add).count(),
+        1
+    );
+    assert!(
+        provider_facts
+            .methods
+            .methods_named(&checked_add)
+            .all(|method| method.trait_id.is_some())
+    );
+    let visible = db.expect_get(VisibleExtensionsQuery(math_id));
+    assert_eq!(visible.methods.all_methods_named(&checked_add).len(), 1);
 }
