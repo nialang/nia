@@ -19,6 +19,7 @@ using types::{
     StepKind,
     ModuleSourceRoot,
     CommandArgumentKind,
+    ActionResourceClass,
     TargetView,
 };
 
@@ -174,6 +175,15 @@ extend PlanEncoder {
         })
     }
 
+    fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!void {
+        self.writeU8(switch resourceClass {
+            ActionResourceClass::Conservative => 0,
+            ActionResourceClass::Cpu => 1,
+            ActionResourceClass::Io => 2,
+            _ => return invalidPlan(),
+        })
+    }
+
     fn writeModule(&mut self, moduleRecord: Module) Error!void {
         self.writeNodeKey(moduleRecord.name.view()).?;
         switch moduleRecord.sourceRoot {
@@ -236,6 +246,7 @@ extend PlanEncoder {
                 let run = step.payload.runExecutable;
                 let target = executables[run.target.index];
                 self.writeU8(2).?;
+                self.writeResourceClass(ActionResourceClass::Conservative).?;
                 self.writeU8(0).?;
                 self.writeArtifactPath(target.name.view()).?;
                 self.writeCount(run.arguments.len()).?;
@@ -251,6 +262,7 @@ extend PlanEncoder {
             StepKind::ExternalCommand => {
                 let command = step.payload.externalCommand;
                 self.writeU8(2).?;
+                self.writeResourceClass(command.resourceClass).?;
                 self.writeU8(1).?;
                 self.writeString(command.program.view()).?;
                 self.writeCount(command.arguments.len()).?;

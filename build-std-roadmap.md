@@ -1787,6 +1787,34 @@ object/link equivalence slice. Phase F remains open for declared resource
 classes, broader cross-process/cache stress acceptance, compiler/external
 input-closure caching, and dependency-artifact propagation.
 
+Phase F progress (2026-08-01, declared resource-class scheduling batch): build
+protocol schema 4 adds a required resource class to every external-command
+action. `std::build::ActionResourceClass` exposes `Conservative`, `Cpu`, and
+`Io`; `ExternalCommandOptions::search` chooses the conservative default and
+`withResourceClass` permits an explicit declaration. Nia-side validation and
+encoding and Rust-side decoding reject unknown open-enum values or protocol
+tags. Compiler actions map to `Cpu`, generated-file and aggregate actions map
+to `Io`, and uncacheable actions remain conservative.
+
+The coordinator now derives one action-resource capacity from the minimum of
+the optional `--jobs` bound and inherited `QuerySession` capacity. CPU and I/O
+actions each reserve one slot. A conservative action reserves the complete
+capacity, so an undeclared external tool cannot overlap another same-wave
+action. The budget wraps the existing session-owned task path; it creates no
+executor, worker-count environment variable, or alternate compiler/LLVM
+resource policy. Timing reports the effective capacity once per invocation and
+counts dispatched actions by class. Focused tests cover schema round-trip and
+invalid tags, inherited-capacity reduction, conservative exclusivity and
+waiting, declared-class sharing, and deterministic 48-wide scheduling stress.
+A real configured build with `--jobs=2` observes capacity two, one action of
+each class, and complete 133-object/two-link warm reuse without misses. The
+resource-accounted 14-case production CLI build matrix passes in `1214.08s`,
+followed by passing workspace all-target/all-feature check and strict Clippy.
+
+This closes Phase F's declared resource-class slice. Phase F remains open for
+broader cross-process/cache stress acceptance, complete compiler and external
+action input closures, and dependency-artifact propagation.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

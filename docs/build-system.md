@@ -180,6 +180,17 @@ not observable: steps, actions, and failures are merged in canonical plan order,
 and single-worker and multi-worker executions therefore produce the same
 report.
 
+Every action also has a declared resource class. Compiler actions are `Cpu`,
+generated-file and aggregate actions are `Io`, and explicitly uncacheable
+actions are `Conservative`. External commands use the public
+`ActionResourceClass` selected through
+`ExternalCommandOptions::withResourceClass`; the default is `Conservative`
+because an undeclared tool may consume CPU, memory, or nested process capacity.
+Within a readiness wave, `Cpu` and `Io` actions each reserve one action slot,
+while a `Conservative` action reserves the complete action capacity and cannot
+overlap another action. The protocol encodes this declaration, and unknown enum
+values or protocol tags are rejected rather than downgraded.
+
 `nia build -j N` / `--jobs N` and
 `BuildRequest::with_max_parallel_actions` place a nonzero upper bound on ready
 build actions submitted from each wave. The bound is combined with, and can
@@ -188,6 +199,15 @@ create another executor, alter the process jobserver, or replace compiler and
 LLVM memory backpressure. `--jobs=1` is therefore the deterministic
 single-build-action-worker mode; compiler actions still use their existing
 internally resource-accounted query and LLVM paths.
+
+The effective action-resource capacity is the minimum of this optional bound
+and inherited `QuerySession` capacity. Timing output reports it as
+`build.action_resource_capacity` and counts dispatched classes with
+`build.resource_class_conservative_actions`,
+`build.resource_class_cpu_actions`, and
+`build.resource_class_io_actions`. These counters describe coordinator
+scheduling; they do not claim that `Io` work is free or disable nested compiler
+resource accounting.
 
 Each wave also owns an ordered failure token. A failing action prevents all
 dependent waves and cancels later canonical actions, while earlier actions are

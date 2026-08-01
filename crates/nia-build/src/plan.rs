@@ -251,6 +251,13 @@ pub struct EnvironmentInput {
     pub value: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ActionResourceClass {
+    Conservative,
+    Cpu,
+    Io,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionKind {
     CompilerCheck {
@@ -263,6 +270,7 @@ pub enum ActionKind {
         target: TargetSpec,
     },
     ExternalCommand {
+        resource_class: ActionResourceClass,
         program: CommandProgram,
         arguments: Vec<CommandArgument>,
         working_directory: LogicalPath,
@@ -284,6 +292,19 @@ pub enum ActionKind {
 pub struct PlanAction {
     pub key: ActionKey,
     pub kind: ActionKind,
+}
+
+impl PlanAction {
+    pub fn resource_class(&self) -> ActionResourceClass {
+        match &self.kind {
+            ActionKind::ExternalCommand { resource_class, .. } => *resource_class,
+            ActionKind::CompilerCheck { .. } | ActionKind::CompilerEmit { .. } => {
+                ActionResourceClass::Cpu
+            }
+            ActionKind::GeneratedFile { .. } | ActionKind::Aggregate => ActionResourceClass::Io,
+            ActionKind::Uncacheable { .. } => ActionResourceClass::Conservative,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1146,6 +1167,7 @@ mod tests {
         value.actions.push(PlanAction {
             key: action_key("run"),
             kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Conservative,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1186,6 +1208,7 @@ mod tests {
         value.actions.push(PlanAction {
             key: action_key("tool"),
             kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Cpu,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![
                     CommandArgument::InputPath(input),
@@ -1218,6 +1241,7 @@ mod tests {
         unbound.actions.push(PlanAction {
             key: action_key("unbound"),
             kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Conservative,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1243,6 +1267,7 @@ mod tests {
         multiple.actions.push(PlanAction {
             key: action_key("multiple"),
             kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![
                     CommandArgument::OutputPath(output.clone()),
@@ -1279,6 +1304,7 @@ mod tests {
         value.actions.push(PlanAction {
             key: run_action.clone(),
             kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Conservative,
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Artifact(artifact), "").unwrap(),
                 ),

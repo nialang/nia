@@ -120,10 +120,18 @@ pub struct CommandArgument {
     value: string::StringView,
 }
 
+pub enum ActionResourceClass: i32 {
+    Conservative = 1,
+    Cpu = 2,
+    Io = 3,
+    _
+}
+
 pub struct ExternalCommandOptions {
     program: string::StringView,
     arguments: ?&[CommandArgument],
     workingDirectory: fs::PathView,
+    resourceClass: ActionResourceClass,
 }
 
 pub(pkg) struct OwnedCommandArgument {
@@ -135,6 +143,7 @@ pub struct ExternalCommandStep {
     program: string::StringBuf,
     arguments: collections::ArrayList[OwnedCommandArgument],
     workingDirectory: fs::PathBuf,
+    resourceClass: ActionResourceClass,
 }
 
 pub union StepPayload {

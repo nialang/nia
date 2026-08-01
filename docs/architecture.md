@@ -1910,6 +1910,16 @@ step registration order and contains no recursive action executor.
 This surface grows the build system through explicit step and artifact APIs
 rather than a Rust-side manifest parser.
 
+External commands declared with `addExternalCommandStep` carry a versioned
+`ActionResourceClass`. The public options default to `Conservative`; build
+scripts may explicitly select `Cpu` or `Io` after accounting for the tool's
+behavior. Compiler actions map to `Cpu`, generated-file and aggregate actions
+map to `Io`, and uncacheable actions remain `Conservative`. The coordinator
+combines `--jobs` with inherited `QuerySession` capacity, charges `Cpu` and `Io`
+one action slot, and charges `Conservative` the complete action capacity. This
+prevents unknown external work from overlapping same-wave actions without
+creating a private executor or weakening compiler query and LLVM memory limits.
+
 Path construction follows the standard-library view/buffer convention:
 `std::StringView` and `fs::PathView` are borrowed `&[char]` views, while
 `std::StringBuf` and `fs::PathBuf` own caller-allocated text storage.

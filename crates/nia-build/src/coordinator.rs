@@ -23,12 +23,13 @@ use nia_target_config::TargetConfig;
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
-    ArtifactKey, BuildInvocation, BuildPlan, CommandArgument, CommandProgram, LogicalPath,
-    LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
-    PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
+    ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument, CommandProgram,
+    LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey,
+    PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup},
     lock::{ScopedFileLock, output_lock_path},
     output_recovery::{OutputTransactionJournal, recover_interrupted_output_transactions},
+    resources::ActionResourceBudget,
 };
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
@@ -279,6 +280,10 @@ pub fn execute_build_plan(
         .map_err(|error| CoordinatorError::OutputRecovery(Box::new(error)))?;
     let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
     let session = QuerySession::new();
+    nia_timing::emit_counter(
+        "build.action_resource_capacity",
+        action_resource_capacity(&session, invocation.max_parallel_actions) as u64,
+    );
     execute_selected_closure(plan, |actions| {
         let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
         let tasks = actions
@@ -291,7 +296,9 @@ pub fn execute_build_plan(
                     position,
                 };
                 let action = (*action).clone();
-                move || execute_scheduled_action(&executor, &action, &cancellation)
+                (action.resource_class(), move || {
+                    execute_scheduled_action(&executor, &action, &cancellation)
+                })
             })
             .collect::<Vec<_>>();
         run_action_tasks(&session, invocation.max_parallel_actions, tasks)
@@ -301,16 +308,46 @@ pub fn execute_build_plan(
 fn run_action_tasks<T, O>(
     session: &QuerySession,
     max_parallel_actions: Option<std::num::NonZeroUsize>,
-    tasks: impl IntoIterator<Item = T>,
+    tasks: impl IntoIterator<Item = (ActionResourceClass, T)>,
 ) -> Vec<O>
 where
     T: FnOnce() -> O + Send + 'static,
     O: Send + 'static,
 {
-    let tasks = tasks.into_iter().collect::<Vec<_>>();
+    let capacity = action_resource_capacity(session, max_parallel_actions);
+    let budget = Arc::new(ActionResourceBudget::new(capacity));
+    let tasks = tasks
+        .into_iter()
+        .map(|(resource_class, task)| {
+            let budget = Arc::clone(&budget);
+            move || {
+                let _permit = budget.acquire(resource_class);
+                nia_timing::emit_counter(resource_class_counter(resource_class), 1);
+                task()
+            }
+        })
+        .collect::<Vec<_>>();
     match max_parallel_actions {
         Some(limit) => session.run_tasks_bounded(tasks, limit.get()),
         None => session.run_tasks(tasks),
+    }
+}
+
+fn action_resource_capacity(
+    session: &QuerySession,
+    max_parallel_actions: Option<std::num::NonZeroUsize>,
+) -> usize {
+    max_parallel_actions
+        .map_or_else(|| session.executor_parallelism(), |limit| limit.get())
+        .min(session.executor_parallelism())
+        .max(1)
+}
+
+fn resource_class_counter(class: ActionResourceClass) -> &'static str {
+    match class {
+        ActionResourceClass::Conservative => "build.resource_class_conservative_actions",
+        ActionResourceClass::Cpu => "build.resource_class_cpu_actions",
+        ActionResourceClass::Io => "build.resource_class_io_actions",
     }
 }
 
@@ -578,6 +615,7 @@ impl DriverActionExecutor {
                     })
             }
             ActionKind::ExternalCommand {
+                resource_class: _,
                 program,
                 arguments,
                 working_directory,
@@ -2241,13 +2279,13 @@ mod tests {
         let tasks = (0..64).map(|value| {
             let active = Arc::clone(&active);
             let peak = Arc::clone(&peak);
-            move || {
+            (ActionResourceClass::Cpu, move || {
                 let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                 peak.fetch_max(current, Ordering::SeqCst);
                 std::thread::yield_now();
                 active.fetch_sub(1, Ordering::SeqCst);
                 value
-            }
+            })
         });
 
         let values = run_action_tasks(
@@ -2259,6 +2297,24 @@ mod tests {
         assert_eq!(values, (0..64).collect::<Vec<_>>());
         assert_eq!(active.load(Ordering::SeqCst), 0);
         assert_eq!(peak.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn action_resource_capacity_only_reduces_inherited_capacity() {
+        let session = QuerySession::new();
+        let inherited = session.executor_parallelism();
+        assert_eq!(action_resource_capacity(&session, None), inherited);
+        assert_eq!(
+            action_resource_capacity(
+                &session,
+                std::num::NonZeroUsize::new(inherited.saturating_add(8))
+            ),
+            inherited
+        );
+        assert_eq!(
+            action_resource_capacity(&session, std::num::NonZeroUsize::new(1)),
+            1
+        );
     }
 
     #[test]
@@ -2322,12 +2378,19 @@ mod tests {
                     .iter()
                     .enumerate()
                     .map(|(position, _)| {
-                        move || {
-                            for _ in 0..(position + iteration) % 7 {
-                                std::thread::yield_now();
-                            }
-                            ActionOutcome::Succeeded(None)
-                        }
+                        (
+                            if position % 2 == 0 {
+                                ActionResourceClass::Cpu
+                            } else {
+                                ActionResourceClass::Io
+                            },
+                            move || {
+                                for _ in 0..(position + iteration) % 7 {
+                                    std::thread::yield_now();
+                                }
+                                ActionOutcome::Succeeded(None)
+                            },
+                        )
                     })
                     .collect::<Vec<_>>();
                 run_action_tasks(&session, limit, tasks)
@@ -2749,6 +2812,7 @@ mod tests {
         PlanAction {
             key: action("run"),
             kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Conservative,
                 program: CommandProgram::Search("sh".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -2794,6 +2858,7 @@ mod tests {
             actions: vec![PlanAction {
                 key: action("tool"),
                 kind: ActionKind::ExternalCommand {
+                    resource_class: ActionResourceClass::Conservative,
                     program: CommandProgram::Search("sh".to_string()),
                     arguments,
                     working_directory: LogicalPath::new(

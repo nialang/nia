@@ -208,6 +208,7 @@ fn assert_configured_build_success(
         .expect("run action");
     match &run_action.kind {
         nia_build::ActionKind::ExternalCommand {
+            resource_class,
             program,
             arguments,
             working_directory,
@@ -215,6 +216,10 @@ fn assert_configured_build_success(
             inputs,
             outputs,
         } => {
+            assert_eq!(
+                *resource_class,
+                nia_build::ActionResourceClass::Conservative
+            );
             assert!(matches!(
                 program,
                 nia_build::CommandProgram::Path(path)
@@ -246,6 +251,7 @@ fn assert_configured_build_success(
         .expect("tool action");
     match &tool_action.kind {
         nia_build::ActionKind::ExternalCommand {
+            resource_class,
             program,
             arguments,
             working_directory,
@@ -253,6 +259,7 @@ fn assert_configured_build_success(
             inputs,
             outputs,
         } => {
+            assert_eq!(*resource_class, nia_build::ActionResourceClass::Io);
             assert_eq!(
                 program,
                 &nia_build::CommandProgram::Search("sh".to_string())

@@ -41,7 +41,9 @@ fn configure(b: &mut build::Build) build::Error!void {
     ];
     let toolStep = b.addExternalCommandStep(
         &toolStepName,
-        build::ExternalCommandOptions::search(&"sh").withArguments(&toolArguments),
+        build::ExternalCommandOptions::search(&"sh")
+            .withArguments(&toolArguments)
+            .withResourceClass(build::ActionResourceClass::Io),
     ).?;
     b.dependOn(toolStep, runStep).?;
     b.setDefaultStep(toolStep).?;
