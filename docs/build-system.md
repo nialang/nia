@@ -298,6 +298,14 @@ Cache read/write failures remain explicit nonfatal miss outcomes and never
 replace the output correctness path. Timing and latest-run metadata do not
 participate in cache correctness.
 
+This publication contract is exercised across processes as well as threads. A
+fixed stress probe starts independent publishers and lock-free readers against
+one shared multi-megabyte entry from a common barrier. Readers may observe only
+`NotFound` or the complete validated payload; after every process settles, the
+cache key contains exactly one entry and no staging file or mutation lock. Test
+workers are owned as an RAII child set by the probe, so timeout or assertion
+failure waits for their termination rather than leaking background work.
+
 ## 4. Execution Telemetry
 
 With `--timings=detail --timings-format=json`, the outer CLI emits the existing

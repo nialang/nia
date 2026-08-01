@@ -612,6 +612,10 @@ fn fingerprint_text(fingerprint: QueryFingerprint) -> String {
 }
 
 #[cfg(test)]
+#[path = "action_cache/process_tests.rs"]
+mod process_tests;
+
+#[cfg(test)]
 mod tests {
     use std::sync::{Arc, Barrier};
 
