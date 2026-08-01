@@ -3,6 +3,7 @@ use std::{
     env,
     ffi::OsString,
     fmt, fs, io,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
     sync::{
@@ -38,6 +39,7 @@ pub struct BuildRequest {
     pub step: Option<String>,
     pub timings: TimingMode,
     pub timing_format: TimingFormat,
+    pub max_parallel_actions: Option<NonZeroUsize>,
 }
 
 impl BuildRequest {
@@ -48,6 +50,7 @@ impl BuildRequest {
             step: None,
             timings: TimingMode::Off,
             timing_format: TimingFormat::Text,
+            max_parallel_actions: None,
         }
     }
 
@@ -70,6 +73,11 @@ impl BuildRequest {
         self.timing_format = timing_format;
         self
     }
+
+    pub fn with_max_parallel_actions(mut self, max_parallel_actions: NonZeroUsize) -> Self {
+        self.max_parallel_actions = Some(max_parallel_actions);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +94,7 @@ pub struct BuildInvocation {
     pub step: BuildStepSelection,
     pub timings: TimingMode,
     pub timing_format: TimingFormat,
+    pub max_parallel_actions: Option<NonZeroUsize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,6 +305,9 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_failures", 1);
             }
             let plan = plan?;
+            if let Some(limit) = invocation.max_parallel_actions {
+                nia_timing::emit_counter("build.action_parallelism_limit", limit.get() as u64);
+            }
             let result = time_summary_stage(timings, "build_execute_plan", || {
                 execute_build_plan(&plan, &invocation).map_err(|error| {
                     BuildError::ExecuteBuildPlan {
@@ -405,6 +417,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
             .unwrap_or(BuildStepSelection::Default),
         timings: request.timings,
         timing_format: request.timing_format,
+        max_parallel_actions: request.max_parallel_actions,
     })
 }
 
@@ -1145,6 +1158,22 @@ mod tests {
 
         assert_eq!(plan.step, BuildStepSelection::Named("install".to_string()));
         assert_eq!(plan.step.as_runner_arg(), Some("install"));
+    }
+
+    #[test]
+    fn preserves_build_action_parallelism_limit() {
+        let root = temp_root("preserves_build_action_parallelism_limit");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let limit = NonZeroUsize::new(3).unwrap();
+
+        let invocation = resolve_build_invocation(
+            BuildRequest::new(test_toolchain_layout())
+                .with_root(&root)
+                .with_max_parallel_actions(limit),
+        )
+        .expect("build invocation");
+
+        assert_eq!(invocation.max_parallel_actions, Some(limit));
     }
 
     #[test]

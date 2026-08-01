@@ -81,12 +81,16 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Build => HelpDoc {
             title: "nia build",
             about: "Run a package build script from the Nia toolchain.",
-            usage: &["nia build [step] [--root <dir>]"],
+            usage: &["nia build [step] [--root <dir>] [--jobs <count>]"],
             commands: &[],
             options: &[
                 HelpRow {
                     left: "--root <dir>",
                     right: "select the package root search start; defaults to the current directory",
+                },
+                HelpRow {
+                    left: "-j, --jobs <count>",
+                    right: "limit concurrent ready build actions; compiler resource budgets remain independent",
                 },
                 HelpRow {
                     left: "-h, --help",

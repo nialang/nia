@@ -180,6 +180,15 @@ not observable: steps, actions, and failures are merged in canonical plan order,
 and single-worker and multi-worker executions therefore produce the same
 report.
 
+`nia build -j N` / `--jobs N` and
+`BuildRequest::with_max_parallel_actions` place a nonzero upper bound on ready
+build actions submitted from each wave. The bound is combined with, and can
+only reduce, the `QuerySession` executor's inherited capacity. It does not
+create another executor, alter the process jobserver, or replace compiler and
+LLVM memory backpressure. `--jobs=1` is therefore the deterministic
+single-build-action-worker mode; compiler actions still use their existing
+internally resource-accounted query and LLVM paths.
+
 Each wave also owns an ordered failure token. A failing action prevents all
 dependent waves and cancels later canonical actions, while earlier actions are
 allowed to settle so that the first reported failure cannot change with worker
@@ -277,6 +286,9 @@ action-cache hits and typed miss/invalidation reasons, and Driver
 compiler/link/cache counters share that report because compiler actions now run
 in the coordinator process. These observational counters are not `BuildPlan`,
 are not persisted as cache truth, and gain no compatibility promise.
+An explicitly configured build-action limit is reported as
+`build.action_parallelism_limit`; absence means inherited capacity was not
+further constrained.
 
 ## 5. Current Contract Migration Matrix
 
