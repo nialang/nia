@@ -185,3 +185,60 @@ fn link_result_fingerprint_rejects_untracked_external_inputs() {
         None
     );
 }
+
+#[test]
+fn link_result_environment_match_tracks_toolchain_target_linker_and_options() {
+    let linker = fingerprint_linker("environment-match", b"linker-v1");
+    let options = fingerprint_options(&linker);
+    let toolchain = nia_toolchain::ToolchainIdentityFingerprint::current();
+    let expected = options
+        .result_environment_fingerprint(toolchain)
+        .expect("environment fingerprint")
+        .expect("cacheable environment");
+    let components = LinkResultFingerprintComponents {
+        inputs: LinkResultFingerprint::from_parts([1, 2]),
+        toolchain: expected.toolchain,
+        target: expected.target,
+        linker: expected.linker,
+        options: expected.options,
+    };
+
+    assert!(
+        options
+            .matches_result_environment(components, toolchain)
+            .expect("matching environment")
+    );
+    assert!(
+        !options
+            .matches_result_environment(
+                components,
+                nia_toolchain::ToolchainIdentityFingerprint::from_parts([9, 10]),
+            )
+            .expect("changed toolchain environment")
+    );
+    assert!(
+        !LinkOptions {
+            target: LinkTarget {
+                arch: "aarch64".to_string(),
+                ..options.target.clone()
+            },
+            ..options.clone()
+        }
+        .matches_result_environment(components, toolchain)
+        .expect("changed target environment")
+    );
+    assert!(
+        !LinkOptions {
+            entry: Some("custom_start".to_string()),
+            ..options.clone()
+        }
+        .matches_result_environment(components, toolchain)
+        .expect("changed option environment")
+    );
+    fs::write(&linker, b"linker-v2").expect("change environment linker");
+    assert!(
+        !options
+            .matches_result_environment(components, toolchain)
+            .expect("changed linker environment")
+    );
+}

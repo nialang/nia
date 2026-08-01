@@ -1893,15 +1893,24 @@ selected dependency closure, and calls the compiler through typed `nia-driver`
 requests; it does not embed the compiler through a separate ABI bridge or
 reconstruct compiler work as raw CLI arguments.
 
-The build action cache can skip a compiler-check semantic execution only after
-the loader validates a complete logical source manifest against a versioned
-record containing the action, module mapping, target, optimization, runtime,
-and toolchain/std/protocol identities. These records represent only a previous
-successful zero-diagnostic check and contain no session-local compiler product.
-Warnings and incomplete source manifests do not publish records. Compiler emit
-output restoration and dependency-artifact propagation remain separate build
-cache work; the Driver continues to own its internal frontend, object, and link
-products.
+The build action cache can skip compiler work only after the loader validates a
+complete logical source manifest against a versioned record containing the
+action, module mapping, target, optimization, runtime, and
+toolchain/std/protocol identities. Compiler-check records represent only a
+previous successful zero-diagnostic check and contain no session-local compiler
+product. Compiler-emit records additionally bind the declared artifact,
+logical output, and current linker environment to a typed Driver link-cache
+reference. They do not copy executable bytes into the build cache.
+
+On an emit hit, the Driver validates the referenced product against the current
+toolchain, target, resolved linker bytes, default library paths, and structured
+link options before atomically restoring the requested output. Missing,
+corrupt, invalidated, or unreadable products retire the build binding and fall
+back to ordinary compile/link work. Only a successful zero-diagnostic emit with
+a complete final source manifest and a published Driver link product can bind a
+record. Warnings and incomplete source manifests do not publish compiler action
+records. Dependency-artifact propagation remains separate build-cache work;
+the Driver continues to own its internal frontend, object, and link products.
 
 `build.nia` is compiled and run as ordinary Nia code. The Rust toolchain owns
 package-root discovery, runner generation, plan validation, scheduling, and

@@ -13,9 +13,13 @@ use nia_toolchain::ToolchainIdentity;
 use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock};
 
 mod compiler_check;
+mod compiler_emit;
 
 pub(crate) use compiler_check::{
     CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
+};
+pub(crate) use compiler_emit::{
+    CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup,
 };
 
 const GENERATED_FILE_MAGIC: &[u8; 8] = b"NIAGEN01";
@@ -47,11 +51,13 @@ pub enum ActionCacheMissReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionCacheInvalidation {
     Contents,
+    Artifact,
     Sources,
     Module,
     Target,
     Optimization,
     Runtime,
+    Linker,
     Output,
     Compiler,
     ResourceLayout,

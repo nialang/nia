@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     env, fmt, fs, io,
+    mem::size_of,
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
@@ -11,7 +12,10 @@ use nia_compiler_query::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
-use nia_linker::{LinkOptions, LinkTarget};
+use nia_linker::{
+    LinkOptions, LinkResultCacheKey, LinkResultEnvironmentFingerprint, LinkResultFingerprint,
+    LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
+};
 use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
@@ -39,6 +43,104 @@ pub struct CheckRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedProgramWithSourceManifest {
     pub program: CheckedProgram,
+    pub source_manifest: SourceInputManifest,
+}
+
+const EXECUTABLE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
+const EXECUTABLE_CACHE_ENVIRONMENT_LEN: usize = 6 * size_of::<u64>();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutableCacheEnvironment {
+    fingerprint: LinkResultEnvironmentFingerprint,
+}
+
+impl ExecutableCacheEnvironment {
+    pub const ENCODED_LEN: usize = EXECUTABLE_CACHE_ENVIRONMENT_LEN;
+
+    pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
+        let mut encoded = [0; Self::ENCODED_LEN];
+        let mut offset = 0;
+        for fingerprint in [
+            self.fingerprint.target.parts(),
+            self.fingerprint.linker.parts(),
+            self.fingerprint.options.parts(),
+        ] {
+            for part in fingerprint {
+                encoded[offset..offset + size_of::<u64>()].copy_from_slice(&part.to_le_bytes());
+                offset += size_of::<u64>();
+            }
+        }
+        encoded
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutableCacheReference {
+    fingerprints: LinkResultFingerprintSet,
+}
+
+impl ExecutableCacheReference {
+    pub const ENCODED_LEN: usize = EXECUTABLE_CACHE_REFERENCE_LEN;
+
+    pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
+        let mut encoded = [0; Self::ENCODED_LEN];
+        let mut offset = 0;
+        for fingerprint in [
+            self.fingerprints.cache_key.parts(),
+            self.fingerprints.components.inputs.parts(),
+            self.fingerprints.components.toolchain.parts(),
+            self.fingerprints.components.target.parts(),
+            self.fingerprints.components.linker.parts(),
+            self.fingerprints.components.options.parts(),
+        ] {
+            for part in fingerprint {
+                encoded[offset..offset + size_of::<u64>()].copy_from_slice(&part.to_le_bytes());
+                offset += size_of::<u64>();
+            }
+        }
+        encoded
+    }
+
+    pub fn decode(encoded: &[u8]) -> Option<Self> {
+        (encoded.len() == Self::ENCODED_LEN).then_some(())?;
+        let mut parts = encoded.chunks_exact(size_of::<u64>()).map(|bytes| {
+            let bytes: [u8; size_of::<u64>()] = bytes.try_into().expect("exact u64 chunk");
+            u64::from_le_bytes(bytes)
+        });
+        let mut fingerprint = || Some([parts.next()?, parts.next()?]);
+        let cache_key = LinkResultCacheKey::from_parts(fingerprint()?);
+        let components = LinkResultFingerprintComponents {
+            inputs: LinkResultFingerprint::from_parts(fingerprint()?),
+            toolchain: LinkResultFingerprint::from_parts(fingerprint()?),
+            target: LinkResultFingerprint::from_parts(fingerprint()?),
+            linker: LinkResultFingerprint::from_parts(fingerprint()?),
+            options: LinkResultFingerprint::from_parts(fingerprint()?),
+        };
+        Some(Self {
+            fingerprints: LinkResultFingerprintSet::new(cache_key, components),
+        })
+    }
+}
+
+impl From<LinkResultFingerprintSet> for ExecutableCacheReference {
+    fn from(fingerprints: LinkResultFingerprintSet) -> Self {
+        Self { fingerprints }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutableCacheRestore {
+    Hit,
+    NotFound,
+    Invalidated,
+    Corrupt,
+    ReadError,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkedExecutableWithSourceManifest {
+    pub artifact: ExecutableArtifact,
     pub source_manifest: SourceInputManifest,
 }
 
@@ -611,10 +713,18 @@ impl Driver {
     }
 
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
+        self.emit_native_objects_with_source_manifest(request)
+            .map(|output| output.artifact)
+    }
+
+    fn emit_native_objects_with_source_manifest(
+        &self,
+        request: EmitObjectRequest,
+    ) -> DriverOutput<ObjectArtifactWithSourceManifest> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
-            let database = match self.compiler_database(&request.check) {
-                Ok(database) => database,
+            let (database, loader) = match self.compilation_databases(&request.check) {
+                Ok(databases) => databases,
                 Err(error) => {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
                         query_error_diagnostic(error),
@@ -711,11 +821,22 @@ impl Driver {
                     output.diagnostics,
                 ));
             }
-            DriverOutput::success(ObjectArtifact {
-                link_inputs: output.link_inputs,
-                optimization,
-                optimization_report,
-                diagnostics,
+            let source_manifest = match loader.source_input_manifest() {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            DriverOutput::success(ObjectArtifactWithSourceManifest {
+                artifact: ObjectArtifact {
+                    link_inputs: output.link_inputs,
+                    optimization,
+                    optimization_report,
+                    diagnostics,
+                },
+                source_manifest,
             })
         })
     }
@@ -853,6 +974,14 @@ impl Driver {
         &self,
         request: LinkExecutableRequest,
     ) -> DriverOutput<ExecutableArtifact> {
+        self.link_executable_with_source_manifest(request)
+            .map(|output| output.artifact)
+    }
+
+    pub fn link_executable_with_source_manifest(
+        &self,
+        request: LinkExecutableRequest,
+    ) -> DriverOutput<LinkedExecutableWithSourceManifest> {
         DriverOutput::catch_ice(|| {
             let mut request = request;
             request.link_options.target =
@@ -863,7 +992,7 @@ impl Driver {
                 nia_timing::TimingLevel::Summary,
                 "emit_native_objects",
                 || {
-                    self.emit_native_objects(EmitObjectRequest {
+                    self.emit_native_objects_with_source_manifest(EmitObjectRequest {
                         check: request.check.with_runtime(Runtime::Freestanding),
                     })
                 },
@@ -872,12 +1001,19 @@ impl Driver {
                 Ok(objects) => objects,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.link_executable_from_objects(
-                &objects,
+            let linked = self.link_executable_from_objects(
+                &objects.artifact,
                 request.output,
                 request.link_options,
                 timings,
-            )
+            );
+            match linked.result {
+                Ok(artifact) => DriverOutput::success(LinkedExecutableWithSourceManifest {
+                    artifact,
+                    source_manifest: objects.source_manifest,
+                }),
+                Err(error) => DriverOutput::from_error(error),
+            }
         })
     }
 
@@ -921,6 +1057,7 @@ impl Driver {
                     optimization: objects.optimization,
                     optimization_report: objects.optimization_report.clone(),
                     diagnostics: objects.diagnostics.clone(),
+                    cache_reference: link_fingerprint.map(ExecutableCacheReference::from),
                 });
             }
             let temp = TempDir::new("nia_emit_exe");
@@ -970,7 +1107,9 @@ impl Driver {
                 .status()
             {
                 Ok(status) if status.success() => {
-                    if let (Some(cache), Some(fingerprint)) = (&self.link_cache, link_fingerprint) {
+                    let cache_reference = if let (Some(cache), Some(fingerprint)) =
+                        (&self.link_cache, link_fingerprint)
+                    {
                         let publish_error = cache.publish(fingerprint, &output).is_err();
                         if timings.enabled() {
                             nia_timing::emit_counter(
@@ -978,12 +1117,16 @@ impl Driver {
                                 u64::from(publish_error),
                             );
                         }
-                    }
+                        (!publish_error).then(|| ExecutableCacheReference::from(fingerprint))
+                    } else {
+                        None
+                    };
                     DriverOutput::success(ExecutableArtifact {
                         path: output,
                         optimization: objects.optimization,
                         optimization_report: objects.optimization_report.clone(),
                         diagnostics: objects.diagnostics.clone(),
+                        cache_reference,
                     })
                 }
                 Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {
@@ -996,6 +1139,56 @@ impl Driver {
                 }),
             }
         })
+    }
+
+    pub fn restore_executable_cache(
+        &self,
+        reference: ExecutableCacheReference,
+        output: &Path,
+    ) -> ExecutableCacheRestore {
+        let Some(cache) = &self.link_cache else {
+            return ExecutableCacheRestore::Disabled;
+        };
+        let options = LinkOptions {
+            target: LinkTarget::from_target_config(&self.config.artifact_target),
+            ..LinkOptions::default()
+        };
+        if !matches!(
+            options.matches_result_environment(
+                reference.fingerprints.components,
+                self.config.toolchain.identity().fingerprint(),
+            ),
+            Ok(true)
+        ) {
+            return ExecutableCacheRestore::Invalidated;
+        }
+        match cache.restore(reference.fingerprints, output) {
+            Ok(lookup) => match lookup {
+                crate::executable_cache::LinkResultCacheLookup::Hit => ExecutableCacheRestore::Hit,
+                crate::executable_cache::LinkResultCacheLookup::NotFound => {
+                    ExecutableCacheRestore::NotFound
+                }
+                crate::executable_cache::LinkResultCacheLookup::Invalidated(_) => {
+                    ExecutableCacheRestore::Invalidated
+                }
+                crate::executable_cache::LinkResultCacheLookup::Corrupt => {
+                    ExecutableCacheRestore::Corrupt
+                }
+            },
+            Err(_) => ExecutableCacheRestore::ReadError,
+        }
+    }
+
+    pub fn executable_cache_environment(&self) -> Option<ExecutableCacheEnvironment> {
+        self.link_cache.as_ref()?;
+        let options = LinkOptions {
+            target: LinkTarget::from_target_config(&self.config.artifact_target),
+            ..LinkOptions::default()
+        };
+        options
+            .result_environment_fingerprint(self.config.toolchain.identity().fingerprint())
+            .ok()?
+            .map(|fingerprint| ExecutableCacheEnvironment { fingerprint })
     }
 
     fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
@@ -1418,6 +1611,12 @@ pub struct ObjectArtifact {
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct ObjectArtifactWithSourceManifest {
+    artifact: ObjectArtifact,
+    source_manifest: SourceInputManifest,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WrittenObjectArtifact {
     pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<PathBuf>,
@@ -1429,6 +1628,7 @@ pub struct ExecutableArtifact {
     pub optimization: OptimizationPolicy,
     pub optimization_report: crate::BackendOptimizationReport,
     pub diagnostics: Vec<ProgramDiagnostic>,
+    pub cache_reference: Option<ExecutableCacheReference>,
 }
 
 #[derive(Debug)]
@@ -1437,6 +1637,12 @@ pub struct DriverOutput<T> {
 }
 
 impl<T> DriverOutput<T> {
+    fn map<U>(self, map: impl FnOnce(T) -> U) -> DriverOutput<U> {
+        DriverOutput {
+            result: self.result.map(map),
+        }
+    }
+
     fn success(value: T) -> Self {
         Self { result: Ok(value) }
     }

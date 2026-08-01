@@ -169,7 +169,7 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
     let first_output = root.join("first");
     let second_output = root.join("second");
 
-    driver
+    let first = driver
         .link_executable_from_objects(
             &first_objects,
             first_output.clone(),
@@ -178,7 +178,22 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         )
         .result
         .expect("first link");
-    driver
+    let reference = first
+        .cache_reference
+        .expect("published link cache reference");
+    let encoded = reference.encode();
+    assert_eq!(
+        crate::ExecutableCacheReference::decode(&encoded),
+        Some(reference)
+    );
+    for end in 0..encoded.len() {
+        assert!(crate::ExecutableCacheReference::decode(&encoded[..end]).is_none());
+    }
+    let mut trailing = encoded.to_vec();
+    trailing.push(0);
+    assert!(crate::ExecutableCacheReference::decode(&trailing).is_none());
+
+    let second = driver
         .link_executable_from_objects(
             &first_objects,
             second_output.clone(),
@@ -187,6 +202,7 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         )
         .result
         .expect("cached link");
+    assert_eq!(second.cache_reference, Some(reference));
 
     assert_eq!(
         std::fs::read_to_string(&invocation_log).expect("read linker invocations"),

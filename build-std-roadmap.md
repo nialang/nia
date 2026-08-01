@@ -1920,6 +1920,51 @@ This closes the successful zero-diagnostic compiler-check slice of Phase F.
 Compiler emit output restoration, external-command input closure, and
 dependency-artifact propagation remain open.
 
+Phase F progress (2026-08-02, compiler-emit action-cache batch): the build
+coordinator now owns a versioned immutable `CompilerEmit` success binding while
+the Driver remains the only owner of executable bytes and link-result cache
+protocol. The action identity reuses the final loader-owned logical source
+closure and effective freestanding compiler configuration, then adds declared
+artifact/runtime identity, logical output, and the current target/linker/options
+environment. Its payload is only a checksummed fixed-width typed reference to a
+Driver link product; executable bytes are not duplicated under the build action
+namespace.
+
+On an exact action hit, the Driver revalidates toolchain, target and default
+library paths, resolved linker path/bytes/flavor, and structured link options
+before atomically restoring the executable. Missing, corrupt, unreadable, or
+invalidated referents retire the exact build binding and fall back to normal
+compile/link execution. A live binding cannot be silently replaced by a
+different reference. Publication requires a successful zero-diagnostic emit,
+the complete final source manifest from that exact loader/Driver session, and a
+successfully published Driver link result. Warning-producing emits and opaque
+link environments remain uncacheable.
+
+Focused coverage proves cold miss/warm hit, deleted-output restoration, source,
+optimization, logical-output, and artifact-runtime invalidation, relocation
+with a shared cache, dynamic std provider closure restoration, warning
+non-publication, action-record corruption, and missing/corrupt Driver referent
+self-repair. Codec tests reject every truncated prefix, trailing bytes, raw
+identity mismatch, and reference checksum damage; linker and Driver owner tests
+cover environment changes and fixed-width reference round trips. This closes
+the compiler-emit output-restoration slice of Phase F. External-command input
+closure and dependency-artifact propagation remain open.
+
+A production copied `configured_optimization` package confirms the complete
+cut. Its cold run reports `Miss(NotFound)`, `4.598s` plan execution, and
+`90.947s` total wall time, of which `86.340s` is build-runner compilation. The
+unchanged run reports one build-action cache hit, `0.417s` plan execution, and
+`31.032s` total wall time, still dominated by `30.609s` runner compilation. The
+warm run's 103 object hits and one link hit belong to that runner compilation;
+the artifact emit itself executes no semantic/codegen/link path after action
+validation. This preserves the earlier conclusion that runner compilation, not
+coordinator action execution, is the remaining warm-build bottleneck.
+
+All 19 `nia-linker`, 491 `nia-driver`, and 107 ordinary `nia-build` tests pass;
+the build-cache worker helper remains intentionally ignored outside its parent
+probe. Workspace all-target/all-feature check, strict Clippy, formatting, and
+diff checks also pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
