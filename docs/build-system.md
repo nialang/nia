@@ -272,11 +272,24 @@ Build-cache entries are immutable and content-addressed. Generated-file actions
 fingerprint their stable action key, logical output identity, byte contents,
 and separate compiler, resource-layout, std, and build-protocol compatibility
 components. Successful compiler-check and compiler-emit actions additionally
-have bounded action records. External commands do not report action-cache hits
-until their restorable output/dependency identity and complete input closure
-exist: they can still inherit undeclared environment and read arbitrary
-working-directory state. Treating those actions as hits before those boundaries
-close would be unsound.
+have bounded action records.
+
+Build protocol schema 5 gives external commands separate environment and cache
+policies. `ExternalCommandOptions::search` defaults to inherited process
+environment plus `Uncacheable`, preserving the behavior of existing build
+scripts. `withClearedEnvironment` starts the child with an empty environment,
+after which `withEnvironment` supplies the command's explicit values.
+`withDeclaredInputCache` declares that every semantic file input is represented
+by a typed command input. Plan freeze accepts that declaration only with a
+cleared environment and at least one declared output.
+
+That declaration is a prerequisite for caching, not a cache implementation or
+a promise that the command cannot inspect undeclared working-directory state.
+External commands still do not report action-cache hits. Persistent external
+command records must additionally fingerprint the resolved tool, explicit
+environment, logical working directory, complete declared and dependency
+inputs, and every restorable output. Inherited or explicitly uncacheable
+commands remain permanently outside that path.
 
 Compiler requests nevertheless preserve the plan identity needed to close that
 input boundary. Each package-, build-, cache-, toolchain-, or artifact-rooted

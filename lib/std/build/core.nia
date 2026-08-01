@@ -31,9 +31,13 @@ using types::{
     CommandArgument,
     CommandArgumentKind,
     ActionResourceClass,
+    CommandCachePolicy,
+    CommandEnvironmentInput,
+    CommandEnvironmentPolicy,
     ExternalCommandOptions,
     ExternalCommandStep,
     OwnedCommandArgument,
+    OwnedCommandEnvironmentInput,
     Module,
     ModuleSourceRoot,
     ModuleHandle,
@@ -880,6 +884,9 @@ extend ExternalCommandOptions {
             arguments: null,
             workingDirectory: fs::PathView::init(&""),
             resourceClass: ActionResourceClass::Conservative,
+            environmentPolicy: CommandEnvironmentPolicy::Inherit,
+            cachePolicy: CommandCachePolicy::Uncacheable,
+            environment: null,
         }
     }
 
@@ -889,6 +896,9 @@ extend ExternalCommandOptions {
             arguments: ?arguments,
             workingDirectory: self.workingDirectory,
             resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
         }
     }
 
@@ -898,6 +908,9 @@ extend ExternalCommandOptions {
             arguments: self.arguments,
             workingDirectory: workingDirectory,
             resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
         }
     }
 
@@ -907,6 +920,54 @@ extend ExternalCommandOptions {
             arguments: self.arguments,
             workingDirectory: self.workingDirectory,
             resourceClass: resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withEnvironment(self, environment: &[CommandEnvironmentInput]) ExternalCommandOptions {
+        {
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: ?environment,
+        }
+    }
+
+    pub fn withClearedEnvironment(self) ExternalCommandOptions {
+        {
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: CommandEnvironmentPolicy::Clear,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withDeclaredInputCache(self) ExternalCommandOptions {
+        {
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: CommandCachePolicy::DeclaredInputs,
+            environment: self.environment,
+        }
+    }
+}
+
+extend CommandEnvironmentInput {
+    pub fn init(name: &[char], value: &[char]) CommandEnvironmentInput {
+        {
+            name: string::StringView::init(name),
+            value: string::StringView::init(value),
         }
     }
 }
@@ -929,6 +990,42 @@ extend OwnedCommandArgument {
     }
 }
 
+extend OwnedCommandEnvironmentInput {
+    fn init(
+        allocator: &mut mem::Allocator,
+        input: CommandEnvironmentInput,
+        index: usize,
+    ) Error!OwnedCommandEnvironmentInput {
+        let mut name = string::StringBuf::from_slice(
+            allocator,
+            input.name.text(),
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        let mut nameTransferred = false;
+        defer if not nameTransferred {
+            name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)).?;
+        };
+        let value = string::StringBuf::from_slice(
+            allocator,
+            input.value.text(),
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        nameTransferred = true;
+        !{ name: name, value: value }
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(
+            &mut firstError,
+            self.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
+        rememberCleanupError(
+            &mut firstError,
+            self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
+        cleanupResult(firstError)
+    }
+}
+
 extend ExternalCommandStep {
     fn init(
         allocator: &mut mem::Allocator,
@@ -940,6 +1037,9 @@ extend ExternalCommandStep {
             arguments: collections::ArrayList[OwnedCommandArgument]::init(),
             workingDirectory: fs::PathBuf::init(),
             resourceClass: options.resourceClass,
+            environmentPolicy: options.environmentPolicy,
+            cachePolicy: options.cachePolicy,
+            environment: collections::ArrayList[OwnedCommandEnvironmentInput]::init(),
         };
         let mut transferred = false;
         defer if not transferred {
@@ -971,12 +1071,42 @@ extend ExternalCommandStep {
             },
             null => {},
         }
+        switch options.environment {
+            ?environment => {
+                command.environment = collections::ArrayList[OwnedCommandEnvironmentInput]::init_capacity(
+                    allocator,
+                    environment.len(),
+                ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                for &input in environment.iter() {
+                    let mut owned = OwnedCommandEnvironmentInput::init(allocator, input, index).?;
+                    let mut inputTransferred = false;
+                    defer if not inputTransferred {
+                        owned.deinit(allocator, index).?;
+                    };
+                    command.environment.push(allocator, owned).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                    inputTransferred = true;
+                }
+            },
+            null => {},
+        }
         transferred = true;
         !command
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
         let mut firstError: ?Error = null;
+        let mut environmentIndex = self.environment.len();
+        while environmentIndex != 0 {
+            environmentIndex -= 1;
+            rememberCleanupError(
+                &mut firstError,
+                self.environment.as_mut_slice()[environmentIndex].deinit(allocator, index),
+            );
+        }
+        rememberCleanupError(
+            &mut firstError,
+            self.environment.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+        );
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;
@@ -1067,6 +1197,43 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
         ActionResourceClass::Io => {},
         _ => return invalidStep(index),
     }
+    switch options.environmentPolicy {
+        CommandEnvironmentPolicy::Inherit => {},
+        CommandEnvironmentPolicy::Clear => {},
+        _ => return invalidStep(index),
+    }
+    switch options.cachePolicy {
+        CommandCachePolicy::Uncacheable => {},
+        CommandCachePolicy::DeclaredInputs => {
+            if options.environmentPolicy != CommandEnvironmentPolicy::Clear {
+                return invalidStep(index);
+            }
+        },
+        _ => return invalidStep(index),
+    }
+    switch options.environment {
+        ?environment => {
+            let mut environmentIndex: usize = 0;
+            while environmentIndex < environment.len() {
+                let input = environment[environmentIndex];
+                if environmentNameInvalid(input.name.text())
+                    or runArgumentContainsNul(input.value.text())
+                {
+                    return invalidStep(index);
+                }
+                let mut priorIndex: usize = 0;
+                while priorIndex < environmentIndex {
+                    if mem::equal[char](environment[priorIndex].name.text(), input.name.text()) {
+                        return invalidStep(index);
+                    }
+                    priorIndex += 1;
+                }
+                environmentIndex += 1;
+            }
+        },
+        null => {},
+    }
+    let mut hasOutput = false;
     switch options.arguments {
         ?arguments => {
             for &argument in arguments.iter() {
@@ -1087,10 +1254,14 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
                     if not isValidBuildPath(argument.value) {
                         return invalidStep(index);
                     }
+                    hasOutput = true;
                 }
             }
         },
         null => {},
+    }
+    if options.cachePolicy == CommandCachePolicy::DeclaredInputs and not hasOutput {
+        return invalidStep(index);
     }
     !{}
 }
@@ -1112,6 +1283,18 @@ fn isValidPackagePath(path: string::StringView, allowEmpty: bool) bool {
 fn runArgumentContainsNul(text: &[char]) bool {
     for &ch in text.iter() {
         if ch == '\0' {
+            return true;
+        }
+    }
+    false
+}
+
+fn environmentNameInvalid(text: &[char]) bool {
+    if text.len() == 0 {
+        return true;
+    }
+    for &ch in text.iter() {
+        if ch == '\0' or ch == '=' {
             return true;
         }
     }

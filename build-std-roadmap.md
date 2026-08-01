@@ -1965,6 +1965,32 @@ the build-cache worker helper remains intentionally ignored outside its parent
 probe. Workspace all-target/all-feature check, strict Clippy, formatting, and
 diff checks also pass.
 
+Phase F progress (2026-08-02, hermetic external-command declaration batch):
+build protocol schema 5 now records independent environment and cache policies
+for every external command. Existing callers retain inherited environment and
+explicitly uncacheable behavior. A build script can instead clear the child
+environment, provide owned explicit name/value entries, and assert that its
+typed command inputs form the complete semantic file-input set. Plan freeze
+accepts that assertion only when the environment is cleared and at least one
+output is declared; unknown policy tags, invalid or duplicate environment
+names, and outputless or inherited cache declarations are rejected.
+
+The coordinator applies the clear-before-explicit-value contract to the real
+child process, and the configured production fixture exercises that contract
+with two staged outputs. This batch intentionally establishes eligibility
+only: it does not publish or restore an external-command cache record, and it
+does not claim that a declared command is unable to inspect arbitrary
+working-directory state. The next external-command batch must bind the resolved
+tool bytes, logical working directory, explicit environment, declared regular
+file and dependency-artifact inputs, logical outputs, and toolchain/protocol
+identity into one immutable multi-output record. Inherited and uncacheable
+commands must never report hits. Dependency-artifact propagation remains open
+alongside that persistence work.
+
+All 110 ordinary `nia-build` tests pass with one cache-worker helper ignored,
+and all 4 `nia-toolchain` tests pass. Workspace all-target/all-feature check,
+strict Clippy, formatting, and diff checks pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

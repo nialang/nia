@@ -1962,6 +1962,17 @@ one action slot, and charges `Conservative` the complete action capacity. This
 prevents unknown external work from overlapping same-wave actions without
 creating a private executor or weakening compiler query and LLVM memory limits.
 
+Build protocol schema 5 also separates an external command's environment and
+cache declarations. Existing commands inherit the coordinator environment and
+are uncacheable by default. A command may clear that environment and then add
+explicit owned name/value entries. Only a command that clears the environment,
+declares at least one output, and asserts `DeclaredInputs` crosses the hermetic
+API boundary required by a future persistent cache. The assertion means the
+build script accepts responsibility for listing every semantic file input; it
+does not currently produce a cache hit. The coordinator applies `env_clear`
+before explicit values, while plan validation and the versioned codec keep this
+boundary independent of process-local defaults.
+
 Path construction follows the standard-library view/buffer convention:
 `std::StringView` and `fs::PathView` are borrowed `&[char]` views, while
 `std::StringBuf` and `fs::PathBuf` own caller-allocated text storage.

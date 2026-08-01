@@ -599,6 +599,8 @@ impl DriverActionExecutor {
             }
             ActionKind::ExternalCommand {
                 resource_class: _,
+                environment_policy,
+                cache_policy: _,
                 program,
                 arguments,
                 working_directory,
@@ -690,6 +692,7 @@ impl DriverActionExecutor {
                         program: &program,
                         arguments: &resolved_arguments,
                         working_directory: &working_directory,
+                        environment_policy: *environment_policy,
                         environment,
                     },
                     ExternalExecutionPolicy {
@@ -1110,6 +1113,7 @@ struct ResolvedExternalCommand<'a> {
     program: &'a str,
     arguments: &'a [String],
     working_directory: &'a Path,
+    environment_policy: crate::CommandEnvironmentPolicy,
     environment: &'a [crate::EnvironmentInput],
 }
 
@@ -1141,6 +1145,9 @@ fn execute_external_command(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if request.environment_policy == crate::CommandEnvironmentPolicy::Clear {
+        command.env_clear();
+    }
     for input in request.environment {
         match &input.value {
             Some(value) => {
@@ -3630,6 +3637,8 @@ mod tests {
             key: action("run"),
             kind: ActionKind::ExternalCommand {
                 resource_class: ActionResourceClass::Conservative,
+                environment_policy: crate::CommandEnvironmentPolicy::Inherit,
+                cache_policy: crate::CommandCachePolicy::Uncacheable,
                 program: CommandProgram::Search("sh".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -3676,6 +3685,8 @@ mod tests {
                 key: action("tool"),
                 kind: ActionKind::ExternalCommand {
                     resource_class: ActionResourceClass::Conservative,
+                    environment_policy: crate::CommandEnvironmentPolicy::Inherit,
+                    cache_policy: crate::CommandCachePolicy::Uncacheable,
                     program: CommandProgram::Search("sh".to_string()),
                     arguments,
                     working_directory: LogicalPath::new(
@@ -3992,6 +4003,7 @@ mod tests {
                 program: "sh",
                 arguments,
                 working_directory,
+                environment_policy: crate::CommandEnvironmentPolicy::Inherit,
                 environment: &[],
             },
             ExternalExecutionPolicy {
@@ -4033,6 +4045,39 @@ mod tests {
                         && stdout == b"command stdout"
                         && stderr == b"command stderr")
         ));
+    }
+
+    #[test]
+    fn external_command_clear_environment_keeps_only_declared_values() {
+        assert!(std::env::var_os("HOME").is_some());
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let action = external_action();
+        let arguments = vec![
+            "-c".to_string(),
+            "test -z \"${HOME+x}\" && test \"$MODE\" = explicit".to_string(),
+        ];
+        let environment = [crate::EnvironmentInput {
+            name: "MODE".to_string(),
+            value: Some("explicit".to_string()),
+        }];
+
+        execute_external_command(
+            &action,
+            ResolvedExternalCommand {
+                program: "sh",
+                arguments: &arguments,
+                working_directory: &invocation.package_root,
+                environment_policy: crate::CommandEnvironmentPolicy::Clear,
+                environment: &environment,
+            },
+            ExternalExecutionPolicy {
+                timeout: Duration::from_secs(5),
+                forward_output: false,
+                cancellation: None,
+            },
+        )
+        .unwrap();
     }
 
     #[test]
@@ -4093,6 +4138,7 @@ mod tests {
                     program: "sh",
                     arguments: &arguments,
                     working_directory: &working_directory,
+                    environment_policy: crate::CommandEnvironmentPolicy::Inherit,
                     environment: &[],
                 },
                 ExternalExecutionPolicy {

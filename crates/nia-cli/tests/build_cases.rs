@@ -209,6 +209,8 @@ fn assert_configured_build_success(
     match &run_action.kind {
         nia_build::ActionKind::ExternalCommand {
             resource_class,
+            environment_policy,
+            cache_policy,
             program,
             arguments,
             working_directory,
@@ -220,6 +222,11 @@ fn assert_configured_build_success(
                 *resource_class,
                 nia_build::ActionResourceClass::Conservative
             );
+            assert_eq!(
+                *environment_policy,
+                nia_build::CommandEnvironmentPolicy::Inherit
+            );
+            assert_eq!(*cache_policy, nia_build::CommandCachePolicy::Uncacheable);
             assert!(matches!(
                 program,
                 nia_build::CommandProgram::Path(path)
@@ -252,6 +259,8 @@ fn assert_configured_build_success(
     match &tool_action.kind {
         nia_build::ActionKind::ExternalCommand {
             resource_class,
+            environment_policy,
+            cache_policy,
             program,
             arguments,
             working_directory,
@@ -261,6 +270,11 @@ fn assert_configured_build_success(
         } => {
             assert_eq!(*resource_class, nia_build::ActionResourceClass::Io);
             assert_eq!(
+                *environment_policy,
+                nia_build::CommandEnvironmentPolicy::Clear
+            );
+            assert_eq!(*cache_policy, nia_build::CommandCachePolicy::DeclaredInputs);
+            assert_eq!(
                 program,
                 &nia_build::CommandProgram::Search("sh".to_string())
             );
@@ -269,7 +283,7 @@ fn assert_configured_build_success(
                 &[
                     nia_build::CommandArgument::Literal("-c".to_string()),
                     nia_build::CommandArgument::Literal(
-                        "tr a-z A-Z < \"$1\" > \"$2\"; printf 'source=tool-input\\n' > \"$3\""
+                        "test \"$MODE\" = fixture && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
                             .to_string()
                     ),
                     nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
@@ -283,7 +297,13 @@ fn assert_configured_build_success(
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
             ));
             assert!(working_directory.components().is_empty());
-            assert!(environment.is_empty());
+            assert_eq!(
+                environment,
+                &[nia_build::EnvironmentInput {
+                    name: "MODE".to_string(),
+                    value: Some("fixture".to_string()),
+                }]
+            );
             assert_eq!(inputs.len(), 1);
             assert!(matches!(
                 inputs[0].root(),
