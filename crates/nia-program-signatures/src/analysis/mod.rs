@@ -251,7 +251,7 @@ pub fn collect_extension_method_diagnostics_for_module(
 
 pub fn collect_extension_method_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
-    defs: &dyn ProgramDefsResolver,
+    trait_defs: &HashSet<GlobalDefId>,
 ) -> ExtensionMethods {
     let mut extensions = ExtensionMethods::default();
     for impl_signature in &module.signatures.trait_impls {
@@ -259,7 +259,7 @@ pub fn collect_extension_method_index_for_module(
         if !is_extendable_target(module.type_store, target_ty) {
             continue;
         }
-        let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
+        let trait_id = impl_trait_id_for_index(module, impl_signature, trait_defs);
         let trait_args =
             impl_trait_args_for_index(module, impl_signature, trait_id).unwrap_or_default();
         let where_predicates =
@@ -292,7 +292,7 @@ pub fn collect_extension_method_index_for_module(
 
 pub fn collect_nominal_extension_providers_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
-    defs: &dyn ProgramDefsResolver,
+    trait_defs: &HashSet<GlobalDefId>,
 ) -> Vec<NominalExtensionProviderEntry> {
     let mut providers = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
@@ -303,7 +303,7 @@ pub fn collect_nominal_extension_providers_for_module(
         let Some(target) = nominal_target_def_id(module.type_store, target_ty) else {
             continue;
         };
-        let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
+        let trait_id = impl_trait_id_for_index(module, impl_signature, trait_defs);
         if trait_id.is_none() {
             providers.extend(impl_signature.methods.iter().map(|method| {
                 NominalExtensionProviderEntry {
@@ -468,21 +468,17 @@ fn impl_trait_id(
     }
 }
 
-fn impl_trait_id_for_index_with_defs(
+fn impl_trait_id_for_index(
     module: &ExtensionMethodIndexModuleInput<'_>,
     impl_signature: &TraitImplSignature,
-    defs: &dyn ProgramDefsResolver,
+    trait_defs: &HashSet<GlobalDefId>,
 ) -> Option<TraitId> {
     let trait_ty = impl_signature.trait_ty?;
     let ty = module.normalization.normalize(trait_ty);
     match module.type_store.get(ty).cloned() {
-        Some(TyKind::Nominal { def_id, .. }) => defs.defs(def_id.module_id).and_then(|defs| {
-            matches!(
-                defs.defs.get(def_id.def_id).map(|def| def.kind),
-                Some(nia_defs::DefKind::Trait)
-            )
-            .then_some(TraitId::Source(def_id))
-        }),
+        Some(TyKind::Nominal { def_id, .. }) => trait_defs
+            .contains(&def_id)
+            .then_some(TraitId::Source(def_id)),
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
         _ => None,
     }

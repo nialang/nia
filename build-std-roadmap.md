@@ -1724,15 +1724,15 @@ The focused `nia-build` suite (83 tests), workspace check, strict Clippy,
 formatting, and the production build matrix all reach the new path; the matrix
 passes in `1106.21s`, followed by passing `command_cases` (`15.76s`) and
 `linker_cases` (`29.83s`). A later full workspace run also passes both cache
-fixtures and the surrounding build/integration suites, but is currently
-blocked by the pre-existing `std_mem_allocators` case
-`emit_exe_std_mem_allocator_realloc_frees_new_block_when_old_free_fails`,
-which reports unrelated `lib/std/math.nia` trait-resolution diagnostics even
-when run alone. This closes the explicit deterministic single-build-action-
-worker slice, while Phase F remains open for declared resource classes,
-broader cross-process/cache stress acceptance, compiler/external input-closure
-caching, dependency-artifact propagation, and the complete warm-build
-measurement.
+fixtures and the surrounding build/integration suites. Its allocator blocker
+had two causes: the realloc-cleanup fixture used `checked_add` and
+`align_forward` without explicitly importing `std::math`, and the global
+extension trait index included shallow provider modules but not the trait
+modules referenced by their signatures. The fixture now declares its actual
+math dependency, while the compiler closes shallow provider trait facts over
+their signature type-module dependencies before validation and indexing.
+Focused shallow imported-trait validation, HashMap context/iteration, and all
+10 allocator acceptance cases pass.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

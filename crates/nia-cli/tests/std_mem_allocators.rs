@@ -578,6 +578,7 @@ fn emit_exe_std_mem_allocator_realloc_frees_new_block_when_old_free_fails() {
         &main,
         r#"
 using std::mem;
+using std::math;
 using std::process;
 
 struct CountingAllocator {

@@ -2,7 +2,7 @@
 use super::program_signatures::program_signature_facts;
 use super::*;
 use nia_symbol::ToSymbolId;
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::VecDeque};
 
 struct SharedProgramDefsResolver<'a> {
     db: &'a QueryDb<CompilerContext>,
@@ -393,15 +393,12 @@ pub(super) fn provide_extension_provider_module_facts(
             signatures: &signatures.semantic,
             normalization: &normalization.semantic,
         };
-        let module_defs = SharedProgramDefsResolver::new(db);
-        let methods = collect_extension_method_index_for_module(&module, &module_defs);
+        let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
+        let methods = collect_extension_method_index_for_module(&module, &trait_index.trait_defs);
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_value_index_for_module(&module);
         let nominal_providers =
-            collect_nominal_extension_providers_for_module(&module, &module_defs);
-        if let Some(error) = module_defs.take_failure() {
-            return Err(error);
-        }
+            collect_nominal_extension_providers_for_module(&module, &trait_index.trait_defs);
         Ok(ExtensionProviderModuleFactsQueryValue {
             methods,
             associated_values,
@@ -604,12 +601,9 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 signatures: &signatures.semantic,
                 normalization: &normalization.semantic,
             };
-            let module_defs = SharedProgramDefsResolver::new(db);
+            let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
             let nominal_providers =
-                collect_nominal_extension_providers_for_module(&module, &module_defs);
-            if let Some(error) = module_defs.take_failure() {
-                return Err(error);
-            }
+                collect_nominal_extension_providers_for_module(&module, &trait_index.trait_defs);
             Ok(ExtensionProviderNominalModuleFactsQueryValue { nominal_providers })
         },
     )
@@ -747,17 +741,33 @@ pub(super) fn provide_extension_trait_signature_index(
         db.context().timings(),
         "extension_trait_signature_index",
         || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits)?;
+            let semantic_facts =
+                program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits)?;
+            let provider_modules = db.get(ExtensionProviderModuleIdsQuery)?;
+            let provider_modules = resolve_stable_module_sequence(db, &provider_modules)?;
             let mut trait_defs = HashSet::new();
             let mut trait_signatures = HashMap::new();
-            for module_facts in facts {
-                trait_defs.extend(module_facts.trait_defs.iter().copied());
-                trait_signatures.extend(
-                    module_facts
-                        .traits
-                        .iter()
-                        .map(|(def_id, signature)| (*def_id, signature.clone())),
-                );
+            for module_facts in semantic_facts {
+                extend_trait_signature_index(&module_facts, &mut trait_defs, &mut trait_signatures);
+            }
+
+            let mut pending_modules = VecDeque::from(provider_modules);
+            let mut visited_modules = HashSet::new();
+            while let Some(module_id) = pending_modules.pop_front() {
+                if !visited_modules.insert(module_id)
+                    || !*db.get(ProgramSignatureModuleEligibilityQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Traits,
+                    ))?
+                {
+                    continue;
+                }
+                let module_facts = db.get(ModuleProgramSignatureFactsQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Traits,
+                ))?;
+                extend_trait_signature_index(&module_facts, &mut trait_defs, &mut trait_signatures);
+                pending_modules.extend(extension_signature_type_modules(db, module_id)?);
             }
             Ok(ExtensionTraitSignatureIndex {
                 trait_defs,
@@ -765,6 +775,58 @@ pub(super) fn provide_extension_trait_signature_index(
             })
         },
     )
+}
+
+fn extend_trait_signature_index(
+    facts: &ModuleProgramSignatureFactsValue,
+    trait_defs: &mut HashSet<GlobalDefId>,
+    trait_signatures: &mut HashMap<GlobalDefId, nia_item_signatures::ProgramTraitSignature>,
+) {
+    trait_defs.extend(facts.trait_defs.iter().copied());
+    trait_signatures.extend(
+        facts
+            .traits
+            .iter()
+            .map(|(def_id, signature)| (*def_id, signature.clone())),
+    );
+}
+
+fn extension_signature_type_modules(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Vec<ModuleId>> {
+    let signatures = db.get(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Traits,
+    ))?;
+    let mut pending_types = signatures.semantic.type_roots();
+    let mut visited_types = HashSet::new();
+    let mut modules = HashSet::new();
+    while let Some(ty) = pending_types.pop() {
+        if !visited_types.insert(ty) {
+            continue;
+        }
+        let Some(kind) = db.context().type_store.get(ty) else {
+            continue;
+        };
+        match kind {
+            nia_ty::TyKind::Nominal { def_id, .. } => {
+                modules.insert(def_id.module_id);
+            }
+            nia_ty::TyKind::TraitObject { trait_id, .. }
+            | nia_ty::TyKind::TraitObjectPointee { trait_id, .. }
+            | nia_ty::TyKind::Projection { trait_id, .. } => {
+                if let nia_ty::TraitId::Source(def_id) = trait_id {
+                    modules.insert(def_id.module_id);
+                }
+            }
+            _ => {}
+        }
+        kind.visit_referenced_types(|referenced| pending_types.push(referenced));
+    }
+    let mut modules = modules.into_iter().collect::<Vec<_>>();
+    modules.sort();
+    Ok(modules)
 }
 
 fn visible_provider_modules_for_module(
