@@ -28,8 +28,9 @@ pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_symbol::{SymbolId, known, stable_hash};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
-use std::sync::Arc;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -102,11 +103,32 @@ fn codegen_program_request(
     request: nia_loader_query::LoadRequest,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
-    let loader = nia_loader_query::LoaderDatabase::new(request);
+    let loader = nia_loader_query::LoaderDatabase::new(
+        request.with_toolchain_layout(test_toolchain_layout()),
+    );
     let compiler = nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loader.clone()).with_optimization(optimization),
     );
     compiler.codegen_program().expect("test codegen program")
+}
+
+fn test_toolchain_layout() -> Arc<nia_toolchain::ToolchainLayout> {
+    static LAYOUT: OnceLock<Arc<nia_toolchain::ToolchainLayout>> = OnceLock::new();
+    Arc::clone(LAYOUT.get_or_init(|| {
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("nia-codegen-llvm lives under crates/");
+        Arc::new(
+            nia_toolchain::ToolchainLayout::resolve(
+                nia_toolchain::ToolchainLayoutRequest::explicit(
+                    std::env::current_exe().expect("test executable path"),
+                    workspace_root.join("lib"),
+                ),
+            )
+            .expect("development toolchain layout"),
+        )
+    }))
 }
 
 pub(super) fn emit_llvm_ir(

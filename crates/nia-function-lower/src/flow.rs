@@ -411,6 +411,7 @@ impl FunctionLowerer<'_> {
             return;
         }
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
+        let target = self.direct_switch_target(switch, target);
         let merge_target = self.alloc_block();
         let mut arms = Vec::new();
         let mut lowered_arms = Vec::new();
@@ -427,6 +428,14 @@ impl FunctionLowerer<'_> {
                         pattern: self.checked_int_pattern_expr(*value, pattern.ty, pattern.span),
                         target: arm_target,
                     }),
+                    TypedPatternKind::EnumVariant { .. } => {
+                        arms.push(FunctionSwitchArm {
+                            pattern: self
+                                .direct_enum_switch_pattern(pattern)
+                                .expect("payload enum patterns require condition-chain lowering"),
+                            target: arm_target,
+                        });
+                    }
                     TypedPatternKind::Wildcard => default = Some(arm_target),
                     TypedPatternKind::Range { .. }
                     | TypedPatternKind::CheckedIntRange { .. }
@@ -436,8 +445,7 @@ impl FunctionLowerer<'_> {
                     | TypedPatternKind::OptionalSome(_)
                     | TypedPatternKind::OptionalNull
                     | TypedPatternKind::ErrorOk(_)
-                    | TypedPatternKind::ErrorErr(_)
-                    | TypedPatternKind::EnumVariant { .. } => {}
+                    | TypedPatternKind::ErrorErr(_) => {}
                 }
             }
             lowered_arms.push((arm_target, arm));
