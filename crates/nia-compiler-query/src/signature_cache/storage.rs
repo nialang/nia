@@ -232,85 +232,6 @@ impl PersistentSignatureCache {
         remove_corrupt(&self.item_signatures_path(key));
     }
 
-    pub(crate) fn load_extension_trait_solving_facts(
-        &self,
-        identity: ExtensionTraitSolvingFactsIdentity<'_>,
-        modules: &HashMap<String, ModuleId>,
-        symbols: &SymbolTable,
-        type_store: &TypeStore,
-    ) -> io::Result<ExtensionTraitSolvingFactsLookup> {
-        let path = self.extension_trait_solving_facts_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
-                remove_corrupt(&path);
-                return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(ExtensionTraitSolvingFactsLookup::NotFound);
-            }
-            Err(error) => return Err(error),
-        };
-        let Some(payload) = decode_extension_trait_solving_facts_entry(&encoded, identity) else {
-            remove_corrupt(&path);
-            return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
-        };
-        let Some(module_id) = modules
-            .get(identity.module.source_identity().normalized_path())
-            .copied()
-        else {
-            remove_corrupt(&path);
-            return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
-        };
-        let Some(facts) = decode_extension_trait_solving_facts(
-            payload,
-            identity.source_len,
-            modules,
-            symbols,
-            type_store,
-            module_id,
-        ) else {
-            remove_corrupt(&path);
-            return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
-        };
-        Ok(ExtensionTraitSolvingFactsLookup::Hit(Box::new(facts)))
-    }
-
-    pub(crate) fn publish_extension_trait_solving_facts(
-        &self,
-        identity: ExtensionTraitSolvingFactsIdentity<'_>,
-        facts: &CachedExtensionTraitSolvingFacts,
-        module_paths: &HashMap<ModuleId, String>,
-        symbols: &SymbolTable,
-        type_store: &TypeStore,
-        replace: bool,
-    ) -> io::Result<()> {
-        let path = self.extension_trait_solving_facts_path(identity.key);
-        if !replace && path.is_file() {
-            return Ok(());
-        }
-        let payload = encode_extension_trait_solving_facts(
-            facts,
-            identity.module,
-            module_paths,
-            symbols,
-            type_store,
-        )?;
-        let encoded = encode_extension_trait_solving_facts_entry(identity, &payload);
-        let parent = path
-            .parent()
-            .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
-        atomic_publish(&path, &encoded)
-    }
-
-    pub(crate) fn remove_extension_trait_solving_facts(
-        &self,
-        key: FrontendExtensionTraitSolvingFactsCacheKey,
-    ) {
-        remove_corrupt(&self.extension_trait_solving_facts_path(key));
-    }
-
     pub(crate) fn load_extension_validation_diagnostics(
         &self,
         identity: ExtensionValidationDiagnosticsIdentity<'_>,
@@ -509,19 +430,6 @@ impl PersistentSignatureCache {
             .join("v3")
             .join("signature-item-signatures")
             .join(format!("{first:016x}{second:016x}.sis"))
-    }
-
-    pub(crate) fn extension_trait_solving_facts_path(
-        &self,
-        key: FrontendExtensionTraitSolvingFactsCacheKey,
-    ) -> PathBuf {
-        let [first, second] = key.parts();
-        self.root
-            .join("artifacts")
-            .join("frontend")
-            .join("v3")
-            .join("extension-trait-solving-facts")
-            .join(format!("{first:016x}{second:016x}.ets"))
     }
 
     pub(crate) fn extension_validation_diagnostics_path(

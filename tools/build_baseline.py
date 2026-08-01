@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -23,10 +24,28 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_NIA = ROOT / "target" / "release" / "nia"
+DEFAULT_RESOURCE_ROOT = ROOT / "lib"
 DEFAULT_FIXTURE = ROOT / "benchmarks" / "build" / "representative"
 DEFAULT_OUTPUT = ROOT / "target" / "nia-build-baseline" / "baseline.json"
 DEFAULT_TIMEOUT_SECONDS = 420
 MIN_AVAILABLE_MEMORY_BYTES = 2 * 1024 * 1024 * 1024
+DEFAULT_REPETITIONS = 3
+BUILD_STAGE_NAMES = (
+    "build_resolve_invocation",
+    "build_prepare_directories",
+    "build_compile_runner",
+    "build_run_runner",
+    "build_execute_plan",
+)
+MEASUREMENT_COUNTER_PREFIXES = (
+    "build.",
+    "compiler.check_certificate_",
+    "frontend.",
+    "link.result_",
+    "llvm.",
+    "query.cache_hits",
+    "query.executions",
+)
 
 
 def read_text(path: Path) -> str | None:
@@ -156,6 +175,21 @@ def parse_build_reports(stderr: str, succeeded: bool) -> dict[str, Any]:
     if len(outer) != 1:
         raise ValueError(f"expected one outer build timing report, found {len(outer)}")
     counters = outer[0]["counters"]
+    stages = {}
+    for name in BUILD_STAGE_NAMES:
+        entries = [
+            entry
+            for entry in outer[0].get("timings", [])
+            if entry.get("kind") == "stage" and entry.get("name") == name
+        ]
+        if len(entries) != 1:
+            raise ValueError(f"expected one {name!r} timing entry, found {len(entries)}")
+        stages[name] = entries[0]
+    measured_counters = {
+        name: value
+        for name, value in counters.items()
+        if name.startswith(MEASUREMENT_COUNTER_PREFIXES)
+    }
     return {
         "actions": {
             "schema_version": 1,
@@ -170,14 +204,142 @@ def parse_build_reports(stderr: str, succeeded: bool) -> dict[str, Any]:
                 )
             },
         },
+        "measurement": {
+            "process": outer[0]["process"],
+            "stages": stages,
+            "counters": measured_counters,
+        },
         "outer_timing": outer[0],
-        "compiler_timings": [],
     }
 
 
-def build_command(nia: Path, workspace: Path, step: str | None = None) -> list[str]:
+def counter(result: dict[str, Any], name: str) -> int:
+    value = result["measurement"]["counters"].get(name, 0)
+    if not isinstance(value, int):
+        raise ValueError(f"counter {name!r} is not an integer")
+    return value
+
+
+def validate_workload(results: list[dict[str, Any]]) -> None:
+    expected_names = (
+        "clean",
+        "warm",
+        "source_edit",
+        "module_map_edit",
+        "failed_action",
+    )
+    if tuple(result.get("name") for result in results) != expected_names:
+        raise ValueError("build workload states are missing or out of order")
+
+    for result in results:
+        name = result["name"]
+        expected_success = name != "failed_action"
+        if result["actions"].get("success") != expected_success:
+            raise ValueError(f"build state {name!r} has the wrong action status")
+        if counter(result, "build.runner_compilations") != 1:
+            raise ValueError(f"build state {name!r} did not compile exactly one runner")
+        if counter(result, "build.runner_executions") != 1:
+            raise ValueError(f"build state {name!r} did not execute exactly one runner")
+
+    failed = results[-1]
+    if counter(failed, "build.action_failures") != 1:
+        raise ValueError("failed action state did not report exactly one action failure")
+
+
+def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
+    warm = results[1]
+    expectations = {
+        "build.action_cache_lookups": 1,
+        "build.action_cache_hits": 1,
+        "build.action_cache_misses": 0,
+        "llvm.object_reuse_misses": 0,
+        "link.result_reuse_misses": 0,
+    }
+    checks = [
+        {
+            "state": "warm",
+            "counter": name,
+            "expected": expected,
+            "found": counter(warm, name),
+            "passed": counter(warm, name) == expected,
+        }
+        for name, expected in expectations.items()
+    ]
+    return {
+        "passed": all(check["passed"] for check in checks),
+        "checks": checks,
+    }
+
+
+def nearest_rank(values: list[float | int], percentile: float) -> float | int:
+    ordered = sorted(values)
+    index = max(
+        0,
+        min(len(ordered) - 1, int(len(ordered) * percentile + 0.999999) - 1),
+    )
+    return ordered[index]
+
+
+def distribution(values: list[float | int]) -> dict[str, float | int]:
+    return {
+        "median": statistics.median(values),
+        "p95": nearest_rank(values, 0.95),
+        "min": min(values),
+        "max": max(values),
+    }
+
+
+def summarize_runs(runs: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    summaries = []
+    for state_index, first in enumerate(runs[0]):
+        samples = [run[state_index] for run in runs]
+        counter_names = sorted(
+            set().union(
+                *(sample["measurement"]["counters"].keys() for sample in samples)
+            )
+        )
+        summaries.append(
+            {
+                "name": first["name"],
+                "sample_count": len(samples),
+                "wall_seconds_observed": distribution(
+                    [sample["wall_seconds_observed"] for sample in samples]
+                ),
+                "process": {
+                    name: distribution(
+                        [sample["measurement"]["process"][name] for sample in samples]
+                    )
+                    for name in ("wall_seconds", "max_rss_bytes")
+                    if all(
+                        sample["measurement"]["process"].get(name) is not None
+                        for sample in samples
+                    )
+                },
+                "stages": {
+                    name: distribution(
+                        [
+                            sample["measurement"]["stages"][name]["total_seconds"]
+                            for sample in samples
+                        ]
+                    )
+                    for name in BUILD_STAGE_NAMES
+                },
+                "counters": {
+                    name: distribution([counter(sample, name) for sample in samples])
+                    for name in counter_names
+                },
+            }
+        )
+    return summaries
+
+
+def build_command(
+    nia: Path, resource_root: Path, workspace: Path, step: str | None = None
+) -> list[str]:
     command = [
         str(nia),
+        "--resource-root",
+        str(resource_root),
         "build",
         "--root",
         str(workspace),
@@ -185,12 +347,13 @@ def build_command(nia: Path, workspace: Path, step: str | None = None) -> list[s
         "--timings-format=json",
     ]
     if step is not None:
-        command.insert(2, step)
+        command.insert(4, step)
     return command
 
 
 def run_state(
     nia: Path,
+    resource_root: Path,
     workspace: Path,
     name: str,
     timeout_seconds: int,
@@ -198,7 +361,7 @@ def run_state(
     step: str | None = None,
     expect_success: bool = True,
 ) -> dict[str, Any]:
-    command = build_command(nia, workspace, step)
+    command = build_command(nia, resource_root, workspace, step)
     result, elapsed, available = run_bounded(command, workspace, timeout_seconds)
     succeeded = result.returncode == 0
     if succeeded != expect_success:
@@ -212,7 +375,12 @@ def run_state(
         raise RuntimeError(f"build state {name!r} action status disagrees with process status")
     return {
         "name": name,
-        "command": ["$NIA", *command[1:]],
+        "command": [
+            "$NIA",
+            "--resource-root",
+            "$RESOURCE_ROOT",
+            *command[3:],
+        ],
         "return_code": result.returncode,
         "wall_seconds_observed": elapsed,
         "available_memory_bytes_before": available,
@@ -221,25 +389,36 @@ def run_state(
 
 
 def run_workload(
-    nia: Path, fixture: Path, timeout_seconds: int
+    nia: Path, resource_root: Path, fixture: Path, timeout_seconds: int
 ) -> tuple[list[dict[str, Any]], Path]:
     temporary = Path(tempfile.mkdtemp(prefix="nia-build-baseline-"))
     workspace = temporary / "representative"
     shutil.copytree(fixture, workspace)
     try:
-        results = [run_state(nia, workspace, "clean", timeout_seconds)]
-        results.append(run_state(nia, workspace, "warm", timeout_seconds))
+        results = [
+            run_state(nia, resource_root, workspace, "clean", timeout_seconds)
+        ]
+        results.append(
+            run_state(nia, resource_root, workspace, "warm", timeout_seconds)
+        )
         shutil.copyfile(workspace / "src/main.edited.nia", workspace / "src/main.nia")
-        results.append(run_state(nia, workspace, "source_edit", timeout_seconds))
+        results.append(
+            run_state(nia, resource_root, workspace, "source_edit", timeout_seconds)
+        )
         build_script = (workspace / "build.nia").read_text(encoding="utf-8")
         (workspace / "build.nia").write_text(
             build_script.replace("deps/helper.nia", "deps/helper_edited.nia"),
             encoding="utf-8",
         )
-        results.append(run_state(nia, workspace, "module_map_edit", timeout_seconds))
+        results.append(
+            run_state(
+                nia, resource_root, workspace, "module_map_edit", timeout_seconds
+            )
+        )
         results.append(
             run_state(
                 nia,
+                resource_root,
                 workspace,
                 "failed_action",
                 timeout_seconds,
@@ -247,6 +426,7 @@ def run_workload(
                 expect_success=False,
             )
         )
+        validate_workload(results)
         return results, temporary
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
@@ -256,9 +436,11 @@ def run_workload(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nia", type=Path, default=DEFAULT_NIA)
+    parser.add_argument("--resource-root", type=Path, default=DEFAULT_RESOURCE_ROOT)
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--keep-workspace", action="store_true")
     return parser.parse_args()
 
@@ -266,35 +448,59 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     nia = args.nia.resolve()
+    resource_root = args.resource_root.resolve()
     fixture = args.fixture.resolve()
     if not nia.is_file():
         raise SystemExit(f"nia executable does not exist: {nia}")
+    if not resource_root.joinpath("toolchain.meta").is_file():
+        raise SystemExit(f"Nia resource root is invalid: {resource_root}")
     if not fixture.joinpath("build.nia").is_file():
         raise SystemExit(f"build fixture does not exist: {fixture}")
     if args.timeout_seconds < 1:
         raise SystemExit("--timeout-seconds must be positive")
+    if args.repetitions < 1:
+        raise SystemExit("--repetitions must be positive")
 
-    temporary: Path | None = None
+    temporaries: list[Path] = []
     try:
-        results, temporary = run_workload(nia, fixture, args.timeout_seconds)
+        runs = []
+        for _ in range(args.repetitions):
+            results, temporary = run_workload(
+                nia, resource_root, fixture, args.timeout_seconds
+            )
+            runs.append(results)
+            temporaries.append(temporary)
         baseline = {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": "nia-build-baseline",
             "machine": machine_metadata(),
             "fixture": "benchmarks/build/representative",
-            "results": results,
+            "runs": [
+                {
+                    "sample": index + 1,
+                    "acceptance": workload_acceptance(results),
+                    "results": results,
+                }
+                for index, results in enumerate(runs)
+            ],
+            "acceptance": {
+                "passed": all(workload_acceptance(run)["passed"] for run in runs),
+                "samples": [workload_acceptance(run) for run in runs],
+            },
+            "summary": summarize_runs(runs),
         }
         output = args.output.resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
         print(output)
         if args.keep_workspace:
-            print(f"workspace: {temporary}", file=sys.stderr)
-            temporary = None
+            for temporary in temporaries:
+                print(f"workspace: {temporary}", file=sys.stderr)
+            temporaries.clear()
     except (OSError, RuntimeError, ValueError) as error:
         raise SystemExit(f"error: {error}") from None
     finally:
-        if temporary is not None:
+        for temporary in temporaries:
             shutil.rmtree(temporary, ignore_errors=True)
     return 0
 

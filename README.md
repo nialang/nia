@@ -191,9 +191,11 @@ release compiler:
 python3 tools/build_baseline.py
 ```
 
-It runs sequentially in an isolated workspace, refuses to start under memory
-pressure, enforces subprocess timeouts, and writes machine-readable action and
-wall/RSS evidence under `target/nia-build-baseline/`.
+By default it runs clean, warm, source-edit, module-map-edit, and failed-action
+states sequentially in each of three fresh isolated workspaces. It refuses to
+start under memory pressure, enforces subprocess timeouts, and writes
+machine-readable runner compile/run/plan timings, cache acceptance checks, and
+median/p95 wall/RSS evidence under `target/nia-build-baseline/`.
 
 Module aliases can be supplied with `-M name=path` or
 `--module name=path`. Optimization options and `--timings[=summary|detail]`

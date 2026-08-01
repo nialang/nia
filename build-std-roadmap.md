@@ -1179,9 +1179,9 @@ identity/cache APIs for convenience.
 ## 11. Status And Progress
 
 Phases A, B, C, D, and E are complete. Phase F incremental build cache and
-resource scheduling is next, while the standard-library reconstruction track
-remains active. Later implementation phases are not marked complete by roadmap
-text.
+resource scheduling is in progress, while the standard-library reconstruction
+track remains active. Later implementation phases are not marked complete by
+roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
 product maturity remains early. The first proof of progress is not a new build
@@ -1749,6 +1749,43 @@ deterministic single-build-action-worker slice, while Phase F remains open for
 declared resource classes, broader cross-process/cache stress acceptance,
 compiler/external input-closure caching, dependency-artifact propagation, and
 the complete warm-build measurement.
+
+Phase F progress (2026-08-01, repeated warm-build measurement and equivalence
+batch): the long production build-matrix runtime is not evidence of a recent
+matrix-wide regression. Its recorded runs remain in the same band: `1162.18s`,
+`1106.21s`, `1130.73s`, `1135.83s`, `1125.78s`, and `1159.63s`. The suite loops
+14 fixtures serially, creates an isolated workspace/cache for each fixture, and
+holds one conservatively weighted `Build` resource permit for the complete
+matrix. That structure deliberately favors bounded correctness evidence and
+amplifies the absolute cost of cold compiler startup; it is not the performance
+sampler.
+
+The representative baseline now uses the explicit relocatable resource root,
+runs three fresh-workspace repetitions by default, preserves raw samples, and
+reports median/p95/min/max for wall/RSS and the outer runner compile, runner
+execution, and plan execution stages. Its accepted sample records clean/warm
+wall medians of `17.058s`/`5.818s`. Warm time is dominated by runner compilation
+(`4.731s` median) and plan validation/execution (`1.020s`); executing
+`build.nia` itself takes about `0.0029s`. All three first-warm samples hit the
+generated action cache, reused 126/126 runner objects and all three link
+results, and reported zero object or link misses.
+
+The repeated gate first exposed 15 definition-invalidated objects and one link
+miss on some first-warm runs. The two object entries for every affected generic
+std partition contained byte-identical native payloads but different definition
+fingerprints. Backend cross-module discovery had allowed function/global
+instances to reach codegen partitions in discovery order; partition membership
+now canonicalizes source definitions by stable `DefId` and instances by stable
+mangled symbol before both fingerprinting and LLVM consumption. A persistent
+`extension-trait-solving-facts` product was also rejected and physically
+removed: it did not reduce the end-to-end warm path, had no measured speed
+benefit, and could perturb the downstream identity sequence. The in-session
+typed query remains.
+
+This closes Phase F's complete warm-build measurement and clean/first-warm
+object/link equivalence slice. Phase F remains open for declared resource
+classes, broader cross-process/cache stress acceptance, compiler/external
+input-closure caching, and dependency-artifact propagation.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

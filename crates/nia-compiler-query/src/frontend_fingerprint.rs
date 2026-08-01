@@ -164,30 +164,6 @@ impl FrontendSignatureItemSignaturesCacheKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FrontendExtensionTraitSolvingFactsCacheKey(QueryFingerprint);
-
-impl FrontendExtensionTraitSolvingFactsCacheKey {
-    pub fn new(
-        namespace: FrontendCacheNamespace,
-        module: &StableModuleKey,
-        program_sources: FrontendProgramSourceFingerprint,
-    ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.extension-trait-solving.v1");
-        write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
-        Self(builder.finish())
-    }
-
-    pub const fn from_parts(parts: [u64; 2]) -> Self {
-        Self(QueryFingerprint::from_parts(parts))
-    }
-
-    pub const fn parts(self) -> [u64; 2] {
-        self.0.parts()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendExtensionValidationDiagnosticsCacheKey(QueryFingerprint);
 
 impl FrontendExtensionValidationDiagnosticsCacheKey {
@@ -810,8 +786,6 @@ extend Value {
             SignatureItemSet::Functions,
             program,
         );
-        let extension_traits_key =
-            FrontendExtensionTraitSolvingFactsCacheKey::new(namespace, &module, program);
         let extension_validation_key =
             FrontendExtensionValidationDiagnosticsCacheKey::new(namespace, &module, program);
         let value_ref_edges_key =
@@ -857,13 +831,6 @@ extend Value {
         assert_ne!(key.parts(), lowering_key.parts());
         assert_ne!(key.parts(), signatures_key.parts());
         assert_ne!(lowering_key.parts(), signatures_key.parts());
-        assert_ne!(key.parts(), extension_traits_key.parts());
-        assert_ne!(lowering_key.parts(), extension_traits_key.parts());
-        assert_ne!(signatures_key.parts(), extension_traits_key.parts());
-        assert_ne!(
-            extension_traits_key.parts(),
-            extension_validation_key.parts()
-        );
         assert_ne!(signatures_key.parts(), extension_validation_key.parts());
         assert_ne!(
             extension_validation_key.parts(),
@@ -898,10 +865,6 @@ extend Value {
         );
         assert_eq!(
             std::mem::size_of::<FrontendSignatureItemSignaturesCacheKey>(),
-            16
-        );
-        assert_eq!(
-            std::mem::size_of::<FrontendExtensionTraitSolvingFactsCacheKey>(),
             16
         );
         assert_eq!(

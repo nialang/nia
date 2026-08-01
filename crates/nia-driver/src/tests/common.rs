@@ -24,14 +24,19 @@ pub(super) fn sym(text: &str) -> SymbolId {
 }
 
 pub(super) fn temp_dir(name: &str) -> PathBuf {
-    let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "nia-driver-{name}-{}-{:?}-{id}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    fs::create_dir_all(&dir).expect("create temp dir");
-    dir
+    loop {
+        let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "nia-driver-{name}-{}-{:?}-{id}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        match fs::create_dir(&dir) {
+            Ok(()) => return dir,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => panic!("create temp dir {}: {error}", dir.display()),
+        }
+    }
 }
 
 pub(super) fn write(path: &Path, source: &str) {

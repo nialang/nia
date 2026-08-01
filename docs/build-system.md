@@ -329,11 +329,14 @@ The representative fixture covers multiple requirements in one real package:
 | failed action | explicit uncacheable action rejection with no successful-build claim |
 | multi-artifact package | graph and artifact counts plus deterministic selected closure |
 
-`tools/build_baseline.py` copies the fixture to an isolated temporary directory,
-runs these states sequentially, checks current available memory before every
-process, enforces a timeout, kills the complete subprocess group on timeout, and
-records machine resource identity. It must not be called implicitly by cheap
-unit tests.
+`tools/build_baseline.py` uses the explicit resource root and copies the fixture
+to a fresh isolated temporary directory for each repetition. It runs these
+states sequentially, checks current available memory before every process,
+enforces a timeout, kills the complete subprocess group on timeout, and records
+machine resource identity. The default three-sample report retains every raw
+run, records warm action/object/link acceptance, and summarizes wall, RSS,
+runner compilation, runner execution, and plan execution with median, p95, min,
+and max values. It must not be called implicitly by cheap unit tests.
 
 The 2026-07-29 Phase A sample on a Linux/WSL resource view with 8.19 GB effective
 memory recorded clean/warm wall time of 14.21/4.53 seconds and outer peak RSS of
@@ -342,6 +345,29 @@ a source edit missed one object and one link, a module-map edit missed two
 objects and one link, and the selected failed action ran one failed step with
 zero compiler invocations. This is single-machine architecture evidence, not a
 performance threshold.
+
+The 2026-08-01 Phase F three-sample run recorded clean/warm wall medians of
+17.06/5.82 seconds. Warm time split into 4.73 seconds compiling the build
+runner, about 0.003 seconds executing it, and 1.02 seconds validating/executing
+the plan. Every first warm build hit its generated action entry, reused all 126
+runner objects and all three link results, and reported zero object/link misses.
+The dominant remaining cost is therefore runner compilation and compiler-plan
+validation, not execution of `build.nia`.
+
+This measurement exposed a cache correctness boundary. Codegen partition
+definition membership must be canonicalized by stable source definition
+identity and stable mangled instance symbol before both fingerprinting and LLVM
+emission. Session/discovery order is not persistent identity. A separately
+persisted extension-trait-solving product was removed after it failed to cut the
+end-to-end dependency chain and could perturb downstream definition identity;
+the typed in-session query remains the semantic owner.
+
+The 14-case CLI build suite is a correctness gate, not the performance
+baseline. It loops fixtures serially, gives every fixture an isolated workspace
+and cache, and holds one conservatively weighted build resource permit for the
+whole matrix. Its wall time consequently amplifies absolute cold compilation
+cost and resource waiting. Performance conclusions use the isolated repeated
+workload above and its deterministic counters.
 
 ## 7. Proposal Decision Gates
 
