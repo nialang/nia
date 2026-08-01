@@ -32,6 +32,9 @@ fn build_cases_match_expectations() {
 
         let mut command = support::nia_command();
         command.arg("build");
+        if contract == "step-order" {
+            command.arg("--jobs=1");
+        }
         let command_root = if mode == "configured-build-success" {
             command.arg("--timings=detail").arg("--timings-format=json");
             let nested = workspace.join("src/nested");

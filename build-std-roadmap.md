@@ -1703,6 +1703,37 @@ warm-build measurement. Validation passes all 80 `nia-build` tests, workspace
 all-target/all-feature check, strict Clippy, formatting, and the 14-case
 production CLI build matrix (`1162.18s`).
 
+Phase F progress (2026-08-01, bounded-action scheduling batch): `nia build` now
+accepts the conventional `-j N`, `-jN`, `--jobs N`, and `--jobs=N` forms, while
+the Rust API carries the same nonzero policy through
+`BuildRequest::with_max_parallel_actions`. Each readiness wave continues to use
+the shared `QuerySession`; the configured value is passed to its bounded task
+path and can only reduce inherited executor/jobserver capacity. No private pool,
+worker-count environment variable, or separate scheduler was introduced.
+Compiler actions retain their existing query and LLVM memory budgets, so
+`--jobs=1` means one ready build action at a time rather than disabling safe
+internal compiler resource accounting.
+
+The configured limit is observationally reported as
+`build.action_parallelism_limit`. Focused tests cover all CLI spellings and
+invalid zero/missing/nonnumeric values, request-to-invocation propagation, a
+64-task wave whose single-worker peak is exactly one, and 32 bounded executions
+of a 48-wide graph with scheduling jitter that must reproduce the same canonical
+step/action report. The real step-order build fixture runs through `--jobs=1`.
+The focused `nia-build` suite (83 tests), workspace check, strict Clippy,
+formatting, and the production build matrix all reach the new path; the matrix
+passes in `1106.21s`, followed by passing `command_cases` (`15.76s`) and
+`linker_cases` (`29.83s`). A later full workspace run also passes both cache
+fixtures and the surrounding build/integration suites, but is currently
+blocked by the pre-existing `std_mem_allocators` case
+`emit_exe_std_mem_allocator_realloc_frees_new_block_when_old_free_fails`,
+which reports unrelated `lib/std/math.nia` trait-resolution diagnostics even
+when run alone. This closes the explicit deterministic single-build-action-
+worker slice, while Phase F remains open for declared resource classes,
+broader cross-process/cache stress acceptance, compiler/external input-closure
+caching, dependency-artifact propagation, and the complete warm-build
+measurement.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

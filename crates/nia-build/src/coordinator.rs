@@ -281,16 +281,37 @@ pub fn execute_build_plan(
     let session = QuerySession::new();
     execute_selected_closure(plan, |actions| {
         let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
-        session.run_tasks(actions.iter().enumerate().map(|(position, action)| {
-            let executor = executor.clone();
-            let cancellation = ActionCancellation {
-                earliest_failure: Arc::clone(&earliest_failure),
-                position,
-            };
-            let action = (*action).clone();
-            move || execute_scheduled_action(&executor, &action, &cancellation)
-        }))
+        let tasks = actions
+            .iter()
+            .enumerate()
+            .map(|(position, action)| {
+                let executor = executor.clone();
+                let cancellation = ActionCancellation {
+                    earliest_failure: Arc::clone(&earliest_failure),
+                    position,
+                };
+                let action = (*action).clone();
+                move || execute_scheduled_action(&executor, &action, &cancellation)
+            })
+            .collect::<Vec<_>>();
+        run_action_tasks(&session, invocation.max_parallel_actions, tasks)
     })
+}
+
+fn run_action_tasks<T, O>(
+    session: &QuerySession,
+    max_parallel_actions: Option<std::num::NonZeroUsize>,
+    tasks: impl IntoIterator<Item = T>,
+) -> Vec<O>
+where
+    T: FnOnce() -> O + Send + 'static,
+    O: Send + 'static,
+{
+    let tasks = tasks.into_iter().collect::<Vec<_>>();
+    match max_parallel_actions {
+        Some(limit) => session.run_tasks_bounded(tasks, limit.get()),
+        None => session.run_tasks(tasks),
+    }
 }
 
 enum ActionOutcome {
@@ -1976,6 +1997,7 @@ mod tests {
             step: crate::BuildStepSelection::Default,
             timings: nia_driver::TimingMode::Off,
             timing_format: nia_timing::TimingFormat::Text,
+            max_parallel_actions: None,
         }
     }
 
@@ -2209,6 +2231,111 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["shared", "left", "right", "final"]
         );
+    }
+
+    #[test]
+    fn single_worker_action_limit_serializes_ready_tasks() {
+        let session = QuerySession::new();
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let tasks = (0..64).map(|value| {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            move || {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(current, Ordering::SeqCst);
+                std::thread::yield_now();
+                active.fetch_sub(1, Ordering::SeqCst);
+                value
+            }
+        });
+
+        let values = run_action_tasks(
+            &session,
+            Some(std::num::NonZeroUsize::new(1).unwrap()),
+            tasks,
+        );
+
+        assert_eq!(values, (0..64).collect::<Vec<_>>());
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn bounded_wide_graph_stress_preserves_deterministic_report() {
+        let width = 48usize;
+        let leaves = (0..width)
+            .map(|index| format!("leaf-{index:02}"))
+            .collect::<Vec<_>>();
+        let mut actions = leaves
+            .iter()
+            .map(|name| PlanAction {
+                key: action(name),
+                kind: ActionKind::Aggregate,
+            })
+            .collect::<Vec<_>>();
+        actions.push(PlanAction {
+            key: action("final"),
+            kind: ActionKind::Aggregate,
+        });
+        let mut steps = leaves
+            .iter()
+            .map(|name| PlanStep {
+                key: step(name),
+                action: action(name),
+                dependencies: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        steps.push(PlanStep {
+            key: step("final"),
+            action: action("final"),
+            dependencies: leaves.iter().map(|name| step(name)).collect(),
+        });
+        let plan = BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: target(),
+            artifact_target: target(),
+            modules: Vec::new(),
+            artifacts: Vec::new(),
+            actions,
+            steps,
+            default_step: None,
+            selected_step: Some(step("final")),
+        })
+        .unwrap();
+        let expected = execute_selected_closure(&plan, |items| {
+            items
+                .iter()
+                .map(|_| ActionOutcome::Succeeded(None))
+                .collect()
+        })
+        .unwrap();
+
+        for iteration in 0..32usize {
+            let session = QuerySession::new();
+            let limit = std::num::NonZeroUsize::new(if iteration % 4 == 0 { 1 } else { 4 });
+            let report = execute_selected_closure(&plan, |items| {
+                let tasks = items
+                    .iter()
+                    .enumerate()
+                    .map(|(position, _)| {
+                        move || {
+                            for _ in 0..(position + iteration) % 7 {
+                                std::thread::yield_now();
+                            }
+                            ActionOutcome::Succeeded(None)
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                run_action_tasks(&session, limit, tasks)
+            })
+            .unwrap();
+
+            assert_eq!(report, expected, "iteration {iteration}");
+        }
     }
 
     #[test]

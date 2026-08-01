@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
-use std::{env, fs, path::PathBuf, process::ExitCode, sync::Arc};
+use std::{env, fs, num::NonZeroUsize, path::PathBuf, process::ExitCode, sync::Arc};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
 use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
@@ -87,6 +87,7 @@ enum CliCommand {
     Build {
         root: Option<PathBuf>,
         step: Option<String>,
+        jobs: Option<NonZeroUsize>,
     },
     Check {
         path: String,
@@ -160,8 +161,8 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
     let timing_format = cli.timing_format;
     match cli.command {
-        CliCommand::Build { root, step } => {
-            run_build(root, step, cli.timings, timing_format, toolchain)
+        CliCommand::Build { root, step, jobs } => {
+            run_build(root, step, jobs, cli.timings, timing_format, toolchain)
         }
         CliCommand::Check {
             path,
@@ -530,6 +531,7 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let mut root = None::<PathBuf>;
     let mut step = None::<String>;
+    let mut jobs = None::<NonZeroUsize>;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--root=") {
@@ -537,6 +539,14 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 return Err(CliError::new("`--root` cannot be empty", HelpTopic::Build));
             }
             root = Some(PathBuf::from(value));
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--jobs=") {
+            jobs = Some(parse_build_jobs(value)?);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("-j").filter(|value| !value.is_empty()) {
+            jobs = Some(parse_build_jobs(value)?);
             continue;
         }
         match arg.as_str() {
@@ -548,6 +558,15 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                     ));
                 };
                 root = Some(PathBuf::from(value));
+            }
+            "--jobs" | "-j" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        format!("missing count after `{arg}`"),
+                        HelpTopic::Build,
+                    ));
+                };
+                jobs = Some(parse_build_jobs(&value)?);
             }
             _ if arg.starts_with('-') => {
                 return Err(CliError::new(
@@ -564,7 +583,20 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             }
         }
     }
-    Ok(CliCommand::Build { root, step })
+    Ok(CliCommand::Build { root, step, jobs })
+}
+
+fn parse_build_jobs(value: &str) -> Result<NonZeroUsize, CliError> {
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(NonZeroUsize::new)
+        .ok_or_else(|| {
+            CliError::new(
+                format!("invalid build job count `{value}`; expected a positive integer"),
+                HelpTopic::Build,
+            )
+        })
 }
 
 fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -1058,6 +1090,7 @@ fn run_emit(path: &str, source: &str, target: EmitTarget, context: EmitContext) 
 fn run_build(
     root: Option<PathBuf>,
     step: Option<String>,
+    jobs: Option<NonZeroUsize>,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -1068,6 +1101,9 @@ fn run_build(
     }
     if let Some(step) = step {
         request = request.with_step(step);
+    }
+    if let Some(jobs) = jobs {
+        request = request.with_max_parallel_actions(jobs);
     }
     request = request
         .with_timings(timings)
@@ -1568,5 +1604,46 @@ mod tests {
         assert_eq!(code, ExitCode::FAILURE);
         assert!(message.contains("internal compiler error: forced failure"));
         assert!(message.contains("Please report it"));
+    }
+
+    #[test]
+    fn build_jobs_accept_long_and_short_forms() {
+        for args in [
+            vec!["--jobs=3"],
+            vec!["--jobs", "3"],
+            vec!["-j3"],
+            vec!["-j", "3"],
+        ] {
+            let command = match parse_build_command(
+                args.into_iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            ) {
+                Ok(command) => command,
+                Err(error) => panic!("parse build jobs: {}", error.message),
+            };
+            assert!(matches!(
+                command,
+                CliCommand::Build { jobs: Some(jobs), .. } if jobs.get() == 3
+            ));
+        }
+    }
+
+    #[test]
+    fn build_jobs_reject_missing_zero_and_invalid_counts() {
+        for (args, expected) in [
+            (vec!["--jobs"], "missing count after `--jobs`"),
+            (vec!["-j"], "missing count after `-j`"),
+            (vec!["--jobs=0"], "expected a positive integer"),
+            (vec!["-jinvalid"], "expected a positive integer"),
+        ] {
+            let error = parse_build_command(
+                args.into_iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            )
+            .expect_err("invalid build jobs must fail");
+            assert!(error.message.contains(expected), "{}", error.message);
+        }
     }
 }
