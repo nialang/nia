@@ -55,6 +55,14 @@ pub struct LinkResultFingerprintSet {
     pub components: LinkResultFingerprintComponents,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkResultEnvironmentFingerprint {
+    pub toolchain: LinkResultFingerprint,
+    pub target: LinkResultFingerprint,
+    pub linker: LinkResultFingerprint,
+    pub options: LinkResultFingerprint,
+}
+
 impl LinkResultFingerprintSet {
     pub fn new(cache_key: LinkResultCacheKey, components: LinkResultFingerprintComponents) -> Self {
         let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_FINGERPRINT_DOMAIN);
@@ -274,16 +282,8 @@ impl LinkOptions {
         inputs: &IncrementalLinkInputs<T>,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<Option<LinkResultFingerprintSet>, LinkerConfigError> {
-        if self.sysroot.is_some() || !self.libraries.is_empty() || !self.raw_args.is_empty() {
+        let Some(environment) = self.result_environment_fingerprint(toolchain_identity)? else {
             return Ok(None);
-        }
-        let linker = self.linker.resolve()?;
-        let Some(linker_path) = resolved_linker_path(&linker.program) else {
-            return Ok(None);
-        };
-        let linker_bytes = match fs::read(&linker_path) {
-            Ok(bytes) => bytes,
-            Err(_) => return Ok(None),
         };
         let mut cache_key = QueryFingerprintBuilder::new("nia.link-result-cache-key.v2");
         cache_key.write_u64(inputs.len() as u64);
@@ -297,49 +297,82 @@ impl LinkOptions {
             }
         }
 
-        let mut toolchain_component = QueryFingerprintBuilder::new("nia.link-result-toolchain.v1");
-        for part in toolchain_identity.parts() {
-            toolchain_component.write_u64(part);
-        }
+        Ok(Some(LinkResultFingerprintSet::new(
+            LinkResultCacheKey::from_parts(cache_key.finish().parts()),
+            LinkResultFingerprintComponents {
+                inputs: finish_link_fingerprint(input_component),
+                toolchain: environment.toolchain,
+                target: environment.target,
+                linker: environment.linker,
+                options: environment.options,
+            },
+        )))
+    }
 
-        let mut target_component = QueryFingerprintBuilder::new("nia.link-result-target.v2");
-        target_component.write_str(&self.target.arch);
-        target_component.write_str(&self.target.os);
-        target_component.write_str(&self.target.abi);
+    pub fn matches_result_environment(
+        &self,
+        expected: LinkResultFingerprintComponents,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Result<bool, LinkerConfigError> {
+        let Some(current) = self.result_environment_fingerprint(toolchain_identity)? else {
+            return Ok(false);
+        };
+        Ok(current.toolchain == expected.toolchain
+            && current.target == expected.target
+            && current.linker == expected.linker
+            && current.options == expected.options)
+    }
+
+    pub fn result_environment_fingerprint(
+        &self,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Result<Option<LinkResultEnvironmentFingerprint>, LinkerConfigError> {
+        if self.sysroot.is_some() || !self.libraries.is_empty() || !self.raw_args.is_empty() {
+            return Ok(None);
+        }
+        let linker = self.linker.resolve()?;
+        let Some(linker_path) = resolved_linker_path(&linker.program) else {
+            return Ok(None);
+        };
+        let linker_bytes = match fs::read(&linker_path) {
+            Ok(bytes) => bytes,
+            Err(_) => return Ok(None),
+        };
+        let mut toolchain = QueryFingerprintBuilder::new("nia.link-result-toolchain.v1");
+        for part in toolchain_identity.parts() {
+            toolchain.write_u64(part);
+        }
+        let mut target = QueryFingerprintBuilder::new("nia.link-result-target.v2");
+        target.write_str(&self.target.arch);
+        target.write_str(&self.target.os);
+        target.write_str(&self.target.abi);
         if self.mode == LinkMode::Dynamic && self.dynamic_linker == DynamicLinker::Auto {
             write_optional_string(
-                &mut target_component,
+                &mut target,
                 dynamic_linker_for_target(&self.target)?.as_deref(),
             );
         }
-        write_strings(
-            &mut target_component,
-            &self.default_library_paths_for_linker(&linker),
-        );
+        write_strings(&mut target, &self.default_library_paths_for_linker(&linker));
 
         let mut linker_component = QueryFingerprintBuilder::new("nia.link-result-linker.v2");
         linker_component.write_str(&linker_path.to_string_lossy());
         linker_component.write_bytes(&linker_bytes);
         linker_component.write_u8(linker_flavor_tag(linker.flavor));
 
-        let mut option_component = QueryFingerprintBuilder::new("nia.link-result-options.v2");
-        option_component.write_str(env!("CARGO_PKG_VERSION"));
-        write_optional_string(&mut option_component, self.entry.as_deref());
-        option_component.write_u8(link_mode_tag(self.mode));
-        write_dynamic_linker(&mut option_component, &self.dynamic_linker);
-        write_strings(&mut option_component, &self.library_paths);
-        write_strings(&mut option_component, &self.rpaths);
+        let mut options = QueryFingerprintBuilder::new("nia.link-result-options.v2");
+        options.write_str(env!("CARGO_PKG_VERSION"));
+        write_optional_string(&mut options, self.entry.as_deref());
+        options.write_u8(link_mode_tag(self.mode));
+        write_dynamic_linker(&mut options, &self.dynamic_linker);
+        write_strings(&mut options, &self.library_paths);
+        write_strings(&mut options, &self.rpaths);
 
-        Ok(Some(LinkResultFingerprintSet::new(
-            LinkResultCacheKey::from_parts(cache_key.finish().parts()),
-            LinkResultFingerprintComponents {
-                inputs: finish_link_fingerprint(input_component),
-                toolchain: finish_link_fingerprint(toolchain_component),
-                target: finish_link_fingerprint(target_component),
-                linker: finish_link_fingerprint(linker_component),
-                options: finish_link_fingerprint(option_component),
-            },
-        )))
+        Ok(Some(LinkResultEnvironmentFingerprint {
+            toolchain: finish_link_fingerprint(toolchain),
+            target: finish_link_fingerprint(target),
+            linker: finish_link_fingerprint(linker_component),
+            options: finish_link_fingerprint(options),
+        }))
     }
 
     pub fn with_raw_args(mut self, args: Vec<String>) -> Self {

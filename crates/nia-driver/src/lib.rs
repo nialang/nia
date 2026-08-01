@@ -20,9 +20,10 @@ pub use nia_toolchain::{
 };
 pub use pipeline::{
     CheckRequest, CheckedProgramWithSourceManifest, Driver, DriverConfig, DriverError,
-    DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact, LinkExecutableRequest,
-    LlvmIrArtifact, ObjectArtifact, ObjectOutput, Runtime, WriteObjectRequest,
-    WrittenObjectArtifact,
+    DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
+    ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
+    LinkExecutableRequest, LinkedExecutableWithSourceManifest, LlvmIrArtifact, ObjectArtifact,
+    ObjectOutput, Runtime, WriteObjectRequest, WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,

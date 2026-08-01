@@ -47,7 +47,7 @@ the coordinator's only execution input.
 | Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; delete compile-time checkout lookup |
 | Compiler actions and compiler cache | `nia-driver` and compiler query/codegen crates | remain compiler-owned typed actions/work products |
 | Link execution and link-result reuse | `nia-linker` and `nia-driver` | remain linker/Driver-owned; build references declared artifacts |
-| Build-action cache | `nia-build` | generated-file and zero-diagnostic compiler-check slices implemented; compiler emit and external-command slices remain gated on restorable outputs and complete typed identities |
+| Build-action cache | `nia-build` | generated-file and zero-diagnostic compiler check/emit slices implemented; external commands remain gated on complete input closure and restorable multi-output identity |
 | End-to-end build contracts | `crates/nia-cli/tests/build_cases.rs` | remain resource-accounted integration evidence |
 | Build performance evidence | `tools/build_baseline.py` and `benchmarks/build/representative` | observational only; never cache truth |
 
@@ -271,12 +271,12 @@ logical-root, module-map, unsupported-action, and Driver failures.
 Build-cache entries are immutable and content-addressed. Generated-file actions
 fingerprint their stable action key, logical output identity, byte contents,
 and separate compiler, resource-layout, std, and build-protocol compatibility
-components. Successful compiler-check actions additionally have a bounded
-action record; compiler emit and external-command actions do not report action-
-cache hits until their restorable output/dependency and executable/environment
-identities are complete. External commands can still inherit undeclared
-environment and read arbitrary working-directory state. Treating those action
-kinds as hits before those boundaries close would be unsound.
+components. Successful compiler-check and compiler-emit actions additionally
+have bounded action records. External commands do not report action-cache hits
+until their restorable output/dependency identity and complete input closure
+exist: they can still inherit undeclared environment and read arbitrary
+working-directory state. Treating those actions as hits before those boundaries
+close would be unsound.
 
 Compiler requests nevertheless preserve the plan identity needed to close that
 input boundary. Each package-, build-, cache-, toolchain-, or artifact-rooted
@@ -319,6 +319,25 @@ and retire corruption under a scoped mutation lock. Source, module, target,
 optimization, runtime, and toolchain component changes remain distinct miss
 reasons.
 
+Compiler-emit records live under
+`.nia-cache/actions/compiler-emits/v1/`. They reuse the complete compiler
+source/module/target/toolchain identity with the effective freestanding runtime
+and additionally bind the declared artifact identity and runtime, logical
+output, and current linker/target/options environment to a fixed-width typed
+Driver executable-cache reference. Executable bytes are not duplicated in the
+build cache. On a hit, the coordinator asks the Driver to validate the full
+current link environment and restore its owned link product atomically.
+
+A missing, corrupt, unreadable, or invalidated Driver referent retires only the
+matching build binding before ordinary compile/link fallback. A replacement
+binding cannot overwrite a live different reference. Publication uses the
+final loader manifest paired with that Driver compilation and requires a
+successful zero-diagnostic emit, a complete closure, and successful Driver link
+cache publication. Warnings and uncacheable link environments never publish an
+emit record. Relocation changes physical source and destination paths without
+changing their logical identities, so a shared cache can restore the executable
+into the new build root.
+
 Generated-file entries live in a versioned action-kind namespace under
 `.nia-cache/actions/`. Their envelope repeats the action key fingerprint,
 complete action fingerprint, component fingerprints, canonical logical output,
@@ -348,8 +367,8 @@ failure waits for their termination rather than leaking background work.
 ## 4. Execution Telemetry
 
 With `--timings=detail --timings-format=json`, the outer CLI emits the existing
-`nia-timing` schema. Coordinator step/action totals, failures, generated-file
-action-cache hits and typed miss/invalidation reasons, and Driver
+`nia-timing` schema. Coordinator step/action totals, failures, build-action
+cache hits and typed miss/invalidation reasons, and Driver
 compiler/link/cache counters share that report because compiler actions now run
 in the coordinator process. These observational counters are not `BuildPlan`,
 are not persisted as cache truth, and gain no compatibility promise.
@@ -420,6 +439,15 @@ the plan. Every first warm build hit its generated action entry, reused all 126
 runner objects and all three link results, and reported zero object/link misses.
 The dominant remaining cost is therefore runner compilation and compiler-plan
 validation, not execution of `build.nia`.
+
+A 2026-08-02 production `CompilerEmit` action-cache sample sharpens that split.
+The copied `configured_optimization` fixture took 90.947 seconds cold, with
+86.340 seconds compiling the runner and 4.598 seconds executing the plan. The
+unchanged run took 31.032 seconds, with 30.609 seconds compiling the runner and
+0.417 seconds validating/executing the plan; it reported one build-action cache
+hit. The warm object/link hits belong to runner compilation. The artifact emit
+performed no semantic, codegen, or link execution after action validation, so
+this result credits the action cut without hiding the runner bottleneck.
 
 This measurement exposed a cache correctness boundary. Codegen partition
 definition membership must be canonicalized by stable source definition

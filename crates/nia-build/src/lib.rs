@@ -353,6 +353,10 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
                                     "build.action_cache_invalidation_contents",
                                     1,
                                 ),
+                                ActionCacheInvalidation::Artifact => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_artifact",
+                                    1,
+                                ),
                                 ActionCacheInvalidation::Sources => nia_timing::emit_counter(
                                     "build.action_cache_invalidation_sources",
                                     1,
@@ -371,6 +375,10 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
                                 ),
                                 ActionCacheInvalidation::Runtime => nia_timing::emit_counter(
                                     "build.action_cache_invalidation_runtime",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Linker => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_linker",
                                     1,
                                 ),
                                 ActionCacheInvalidation::Output => nia_timing::emit_counter(

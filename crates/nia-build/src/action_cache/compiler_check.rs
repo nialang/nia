@@ -56,23 +56,23 @@ impl ToolchainComponents {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FingerprintComponents {
-    sources: QueryFingerprint,
-    module: QueryFingerprint,
-    target: QueryFingerprint,
-    optimization: QueryFingerprint,
-    runtime: QueryFingerprint,
-    compiler: QueryFingerprint,
-    resource_layout: QueryFingerprint,
-    standard_library: QueryFingerprint,
-    build_protocol: QueryFingerprint,
+pub(super) struct FingerprintComponents {
+    pub(super) sources: QueryFingerprint,
+    pub(super) module: QueryFingerprint,
+    pub(super) target: QueryFingerprint,
+    pub(super) optimization: QueryFingerprint,
+    pub(super) runtime: QueryFingerprint,
+    pub(super) compiler: QueryFingerprint,
+    pub(super) resource_layout: QueryFingerprint,
+    pub(super) standard_library: QueryFingerprint,
+    pub(super) build_protocol: QueryFingerprint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FingerprintSet {
-    cache_key: QueryFingerprint,
-    fingerprint: QueryFingerprint,
-    components: FingerprintComponents,
+pub(super) struct FingerprintSet {
+    pub(super) cache_key: QueryFingerprint,
+    pub(super) fingerprint: QueryFingerprint,
+    pub(super) components: FingerprintComponents,
 }
 
 impl FingerprintSet {
@@ -109,21 +109,21 @@ impl FingerprintSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SourceRecord {
-    identity: String,
-    fingerprint: SourceContentFingerprint,
-    byte_len: usize,
+pub(super) struct SourceRecord {
+    pub(super) identity: String,
+    pub(super) fingerprint: SourceContentFingerprint,
+    pub(super) byte_len: usize,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct CompilerCheckCacheIdentity {
-    fingerprints: FingerprintSet,
-    action: Vec<u8>,
-    module: Vec<u8>,
-    target: Vec<u8>,
-    optimization: u8,
-    runtime: u8,
-    sources: Vec<SourceRecord>,
+    pub(super) fingerprints: FingerprintSet,
+    pub(super) action: Vec<u8>,
+    pub(super) module: Vec<u8>,
+    pub(super) target: Vec<u8>,
+    pub(super) optimization: u8,
+    pub(super) runtime: u8,
+    pub(super) sources: Vec<SourceRecord>,
 }
 
 impl CompilerCheckCacheIdentity {
@@ -508,7 +508,7 @@ fn entry_matches(entry: &DecodedEntry, identity: &CompilerCheckCacheIdentity) ->
         && entry.sources == identity.sources
 }
 
-fn invalidations(
+pub(super) fn invalidations(
     found: FingerprintComponents,
     expected: FingerprintComponents,
 ) -> Vec<ActionCacheInvalidation> {
@@ -576,7 +576,7 @@ fn source_records(manifest: &SourceInputManifest) -> Option<Vec<SourceRecord>> {
         .collect()
 }
 
-fn source_records_fingerprint(sources: &[SourceRecord]) -> QueryFingerprint {
+pub(super) fn source_records_fingerprint(sources: &[SourceRecord]) -> QueryFingerprint {
     let modules = sources
         .iter()
         .map(|source| {
@@ -611,7 +611,7 @@ fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
     builder.finish()
 }
 
-fn action_fingerprint(encoded: &[u8]) -> Option<QueryFingerprint> {
+pub(super) fn action_fingerprint(encoded: &[u8]) -> Option<QueryFingerprint> {
     let mut cursor = Cursor::new(encoded);
     let package = read_bytes(&mut cursor, encoded.len())?;
     let name = read_bytes(&mut cursor, encoded.len())?;
@@ -669,7 +669,7 @@ fn runtime_tag(runtime: Runtime) -> u8 {
     }
 }
 
-fn read_tag(cursor: &mut Cursor<&[u8]>, exclusive_max: u8) -> Option<u8> {
+pub(super) fn read_tag(cursor: &mut Cursor<&[u8]>, exclusive_max: u8) -> Option<u8> {
     let position = usize::try_from(cursor.position()).ok()?;
     let value = *cursor.get_ref().get(position)?;
     cursor.set_position(cursor.position() + 1);
@@ -698,7 +698,7 @@ fn combined_fingerprint(
     builder.finish()
 }
 
-fn bytes_fingerprint(domain: &str, bytes: &[u8]) -> QueryFingerprint {
+pub(super) fn bytes_fingerprint(domain: &str, bytes: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_bytes(bytes);
     builder.finish()
@@ -710,7 +710,7 @@ fn text_fingerprint(domain: &str, text: &str) -> QueryFingerprint {
     builder.finish()
 }
 
-fn integer_fingerprint(domain: &str, value: u64) -> QueryFingerprint {
+pub(super) fn integer_fingerprint(domain: &str, value: u64) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u64(value);
     builder.finish()
