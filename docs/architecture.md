@@ -344,6 +344,15 @@ without changing that module's logical identity. A loader session still assumes
 that one logical identity maps to one physical source tree; a relocated build
 uses a new Driver and loader session.
 
+The loader also owns the compiler source-input manifest. It sorts the complete
+current module graph by logical source identity and records each physical path
+as either missing or present with its content fingerprint and byte length. A
+fully present manifest exposes the same aggregate program-source fingerprint
+used by compiler frontend cache keys; any missing source makes that aggregate
+unavailable. `nia-driver` forwards this manifest as a read-only result for build
+validation. Build code must not rediscover imports or compute a parallel source
+closure.
+
 ### 3.3 `nia-node-id`
 
 Defines source-versioned syntax node identity for semantic side tables and

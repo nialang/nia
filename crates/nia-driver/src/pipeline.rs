@@ -12,7 +12,7 @@ use nia_compiler_query::{
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{LinkOptions, LinkTarget};
-use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
+use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
@@ -249,6 +249,26 @@ impl Driver {
                 return DriverOutput::from_check_diagnostics(program);
             }
             DriverOutput::success(program)
+        })
+    }
+
+    pub fn source_input_manifest(
+        &self,
+        request: &CheckRequest,
+    ) -> DriverOutput<SourceInputManifest> {
+        DriverOutput::catch_ice(|| {
+            let loader = self.loader_database(request);
+            if let Err(error) = loader.load_program() {
+                return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                    query_error_diagnostic(error),
+                ));
+            }
+            match loader.source_input_manifest() {
+                Ok(manifest) => DriverOutput::success(manifest),
+                Err(error) => DriverOutput::from_error(DriverError::InternalDiagnostic(
+                    query_error_diagnostic(error),
+                )),
+            }
         })
     }
 

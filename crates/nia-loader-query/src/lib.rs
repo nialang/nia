@@ -11,10 +11,12 @@ mod used_paths;
 mod tests;
 
 use nia_compiler_query::{
-    FrontendCacheNamespace, FrontendProviderDemandPlanCacheKey, LoadedProgram, LoaderFactProvider,
-    ProviderDemand, frontend_module_map_fingerprint,
+    FrontendCacheNamespace, FrontendProgramSourceFingerprint, FrontendProviderDemandPlanCacheKey,
+    LoadedProgram, LoaderFactProvider, ProviderDemand, SourceContentFingerprint,
+    frontend_module_map_fingerprint, frontend_program_source_fingerprint,
+    source_content_fingerprint,
 };
-use nia_imports::ModuleMap;
+use nia_imports::{ModuleMap, StableModuleKey};
 use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
@@ -95,6 +97,78 @@ pub fn load_program_request(request: LoadRequest) -> QueryResult<LoadedProgram> 
 pub struct LoaderDatabase {
     db: QueryDb<LoaderContext>,
     sources: SourceDatabase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceInputContent {
+    Missing,
+    Present {
+        fingerprint: SourceContentFingerprint,
+        byte_len: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceInput {
+    pub path: SourcePath,
+    pub content: SourceInputContent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceInputManifest {
+    sources: Vec<SourceInput>,
+    fingerprint: Option<FrontendProgramSourceFingerprint>,
+}
+
+impl SourceInputManifest {
+    fn new(mut sources: Vec<SourceInput>) -> Self {
+        sources.sort_unstable_by(|left, right| {
+            left.path
+                .identity()
+                .normalized_path()
+                .cmp(right.path.identity().normalized_path())
+        });
+        assert!(
+            sources.windows(2).all(|pair| {
+                pair[0].path.identity().normalized_path()
+                    != pair[1].path.identity().normalized_path()
+            }),
+            "Nia ICE: loader source manifest contains duplicate logical identities"
+        );
+        let fingerprint = sources
+            .iter()
+            .map(|source| match source.content {
+                SourceInputContent::Missing => None,
+                SourceInputContent::Present {
+                    fingerprint,
+                    byte_len,
+                } => Some((
+                    StableModuleKey::from_source_identity(source.path.identity()),
+                    fingerprint,
+                    byte_len,
+                )),
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|sources| {
+                frontend_program_source_fingerprint(
+                    sources
+                        .iter()
+                        .map(|(module, fingerprint, len)| (module, *fingerprint, *len)),
+                )
+            });
+        Self {
+            sources,
+            fingerprint,
+        }
+    }
+
+    pub fn sources(&self) -> &[SourceInput] {
+        &self.sources
+    }
+
+    pub fn fingerprint(&self) -> Option<FrontendProgramSourceFingerprint> {
+        self.fingerprint
+    }
 }
 
 impl LoaderDatabase {
@@ -201,6 +275,30 @@ impl LoaderDatabase {
         self.db
             .get(LoadedProgramQuery)
             .map(|program| program.to_program())
+    }
+
+    pub fn source_input_manifest(&self) -> QueryResult<SourceInputManifest> {
+        self.replay_provider_demand_plan()?;
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
+        let mut sources = Vec::with_capacity(graph.semantic.modules().count());
+        for module in graph.semantic.modules() {
+            let source_id = self.sources.id_for_path(&module.path);
+            let source = self.db.get(SourceTextQuery(source_id))?;
+            let content = source
+                .file
+                .as_ref()
+                .map_or(SourceInputContent::Missing, |file| {
+                    SourceInputContent::Present {
+                        fingerprint: source_content_fingerprint(&file.text),
+                        byte_len: file.text.len(),
+                    }
+                });
+            sources.push(SourceInput {
+                path: module.path.clone(),
+                content,
+            });
+        }
+        Ok(SourceInputManifest::new(sources))
     }
 
     pub fn sources(&self) -> &SourceDatabase {

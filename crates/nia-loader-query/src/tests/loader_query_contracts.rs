@@ -4,12 +4,12 @@ use super::*;
 
 #[test]
 fn recursive_source_identities_are_stable_across_physical_relocation() {
-    fn load_manifest(root: &Path) -> Vec<(String, String)> {
+    fn load_manifest(root: &Path, child_source: &str) -> SourceInputManifest {
         let source_dir = root.join("src");
         fs::create_dir_all(&source_dir).expect("create relocated source directory");
         fs::write(source_dir.join("main.nia"), "module child;")
             .expect("write relocated entry source");
-        fs::write(source_dir.join("child.nia"), "fn value() i32 { 1 }")
+        fs::write(source_dir.join("child.nia"), child_source)
             .expect("write relocated child source");
         let entry = SourcePath::with_identity(
             source_dir.join("main.nia").to_string_lossy(),
@@ -18,52 +18,65 @@ fn recursive_source_identities_are_stable_across_physical_relocation() {
         let database = LoaderDatabase::new(LoadRequest::from_source_path(entry));
 
         assert_no_error_diagnostics(&database.load_program().expect("load relocated program"));
-        let graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
-        let mut manifest = graph
-            .semantic
-            .modules()
-            .map(|module| {
-                (
-                    module.path.as_str().to_string(),
-                    module.path.identity().normalized_path().to_string(),
-                )
-            })
-            .collect::<Vec<_>>();
-        manifest.sort_by(|left, right| left.1.cmp(&right.1));
-        manifest
+        database
+            .source_input_manifest()
+            .expect("collect relocated source manifest")
     }
 
     let first_root = temp_dir("recursive_source_identity_first");
     let second_root = temp_dir("recursive_source_identity_second");
-    let first = load_manifest(&first_root);
-    let second = load_manifest(&second_root);
+    let changed_root = temp_dir("recursive_source_identity_changed");
+    let first = load_manifest(&first_root, "fn value() i32 { 1 }");
+    let second = load_manifest(&second_root, "fn value() i32 { 1 }");
+    let changed = load_manifest(&changed_root, "fn value() i32 { 2 }");
 
     assert_eq!(
         first
+            .sources()
             .iter()
-            .map(|(_, identity)| identity.as_str())
+            .map(|source| source.path.identity())
+            .map(|identity| identity.normalized_path().to_string())
             .collect::<Vec<_>>(),
         [
-            "build-package:root:/src/child.nia",
-            "build-package:root:/src/main.nia",
+            "build-package:root:/src/child.nia".to_string(),
+            "build-package:root:/src/main.nia".to_string(),
         ]
     );
-    assert_eq!(
-        first
-            .iter()
-            .map(|(_, identity)| identity)
-            .collect::<Vec<_>>(),
-        second
-            .iter()
-            .map(|(_, identity)| identity)
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(first, second);
+    assert_eq!(first.fingerprint(), second.fingerprint());
+    assert_ne!(first.fingerprint(), changed.fingerprint());
     assert!(
         first
+            .sources()
             .iter()
-            .zip(&second)
-            .all(|((first_path, _), (second_path, _))| first_path != second_path)
+            .zip(second.sources())
+            .all(|(first, second)| first.path.as_str() != second.path.as_str())
     );
+}
+
+#[test]
+fn source_input_manifest_represents_missing_recursive_sources() {
+    let root = temp_dir("source_input_manifest_missing");
+    let main = root.join("main.nia");
+    fs::write(&main, "module child;").expect("write entry with missing child");
+    let database = LoaderDatabase::new(LoadRequest::new(main.to_string_lossy()));
+
+    let program = database.load_program().expect("load missing-child program");
+    assert!(has_error_diagnostics(&program.diagnostics));
+    let manifest = database
+        .source_input_manifest()
+        .expect("collect missing-child source manifest");
+
+    assert_eq!(manifest.sources().len(), 2);
+    assert!(matches!(
+        manifest.sources()[0].content,
+        SourceInputContent::Missing
+    ));
+    assert!(matches!(
+        manifest.sources()[1].content,
+        SourceInputContent::Present { .. }
+    ));
+    assert_eq!(manifest.fingerprint(), None);
 }
 
 #[test]
