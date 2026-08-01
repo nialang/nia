@@ -1835,6 +1835,26 @@ dependency-artifact propagation. All 89 ordinary `nia-build` tests pass, the
 worker-only entry remains explicitly ignored outside its parent probe, and
 workspace all-target/all-feature check and strict Clippy pass.
 
+Phase F progress (2026-08-01, relocatable compiler-source identity batch):
+compiler actions now carry the frozen plan's typed source identity through the
+coordinator, Driver, and loader instead of collapsing it into an absolute path.
+Package, build, cache, toolchain, and dependency-artifact roots receive
+domain-separated logical identities while retaining their current-invocation
+physical paths for I/O. Recursive module discovery derives both roles from the
+parent source, so relocating the same package changes every physical path but
+produces the same loader-owned logical source manifest. Focused loader tests
+exercise entry and child-module relocation, and coordinator tests cover both a
+package-rooted entry and a build-rooted explicit module mapping.
+
+This establishes the stable identity prerequisite for a compiler action input
+manifest; it does not yet make compiler actions cacheable. Phase F remains open
+for persisting and validating the complete loader-owned source closure,
+external-command input closure, and dependency-artifact propagation. The full
+workspace test suite passes, including the 14-case production build matrix in
+`1116.57s`, `command_cases` in `15.92s`, and installed-toolchain relocation in
+`134.80s`; workspace all-target/all-feature check, strict Clippy, and formatting
+also pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

@@ -3,6 +3,70 @@
 use super::*;
 
 #[test]
+fn recursive_source_identities_are_stable_across_physical_relocation() {
+    fn load_manifest(root: &Path) -> Vec<(String, String)> {
+        let source_dir = root.join("src");
+        fs::create_dir_all(&source_dir).expect("create relocated source directory");
+        fs::write(source_dir.join("main.nia"), "module child;")
+            .expect("write relocated entry source");
+        fs::write(source_dir.join("child.nia"), "fn value() i32 { 1 }")
+            .expect("write relocated child source");
+        let entry = SourcePath::with_identity(
+            source_dir.join("main.nia").to_string_lossy(),
+            "build-package:root:/src/main.nia",
+        );
+        let database = LoaderDatabase::new(LoadRequest::from_source_path(entry));
+
+        assert_no_error_diagnostics(&database.load_program().expect("load relocated program"));
+        let graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
+        let mut manifest = graph
+            .semantic
+            .modules()
+            .map(|module| {
+                (
+                    module.path.as_str().to_string(),
+                    module.path.identity().normalized_path().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        manifest.sort_by(|left, right| left.1.cmp(&right.1));
+        manifest
+    }
+
+    let first_root = temp_dir("recursive_source_identity_first");
+    let second_root = temp_dir("recursive_source_identity_second");
+    let first = load_manifest(&first_root);
+    let second = load_manifest(&second_root);
+
+    assert_eq!(
+        first
+            .iter()
+            .map(|(_, identity)| identity.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "build-package:root:/src/child.nia",
+            "build-package:root:/src/main.nia",
+        ]
+    );
+    assert_eq!(
+        first
+            .iter()
+            .map(|(_, identity)| identity)
+            .collect::<Vec<_>>(),
+        second
+            .iter()
+            .map(|(_, identity)| identity)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        first
+            .iter()
+            .zip(&second)
+            .all(|((first_path, _), (second_path, _))| first_path != second_path)
+    );
+}
+
+#[test]
 fn loader_query_registry_covers_all_declared_query_contracts() {
     let descriptors = crate::loader_query_registry().descriptors();
 

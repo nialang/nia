@@ -29,7 +29,7 @@ pub enum Runtime {
 
 #[derive(Debug, Clone)]
 pub struct CheckRequest {
-    pub entry_path: String,
+    pub entry_path: SourcePath,
     pub module_map: ModuleMap,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
@@ -921,7 +921,7 @@ impl Driver {
             Some(loader) if loader.key == key => loader.database.clone(),
             _ => {
                 let database = LoaderDatabase::new(
-                    LoadRequest::new(key.entry_path.clone())
+                    LoadRequest::from_source_path(key.entry_path.clone())
                         .with_module_map(key.module_map.clone())
                         .with_sources(self.sources.clone())
                         .with_target(key.target.clone())
@@ -1182,7 +1182,7 @@ fn emit_compilation_counters(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LoaderKey {
-    entry_path: String,
+    entry_path: SourcePath,
     module_map: ModuleMap,
     target: TargetConfig,
     entry_runtime: EntryRuntime,
@@ -1215,8 +1215,12 @@ impl fmt::Debug for SessionCompiler {
 
 impl CheckRequest {
     pub fn new(entry_path: impl Into<String>) -> Self {
+        Self::from_source_path(SourcePath::new(entry_path.into()))
+    }
+
+    pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
-            entry_path: entry_path.into(),
+            entry_path,
             module_map: ModuleMap::default(),
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,

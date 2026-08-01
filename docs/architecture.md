@@ -325,7 +325,11 @@ parser, diagnostics, or any semantic phase.
 
 Owns source identity for compiler sessions:
 
-- `SourcePath` identifies a path-like input name;
+- `SourcePath` keeps the physical path used for I/O separate from the normalized
+  logical identity used by module graphs and persistent fingerprints. Ordinary
+  CLI sources use their normalized path for both roles; build requests retain
+  the frozen plan's package/build/toolchain/artifact identity while resolving a
+  physical path for the current invocation;
 - `SourceId` identifies a source file inside one session;
 - `SourceRevision` identifies a concrete version of that source;
 - `SourceFile` carries id, path, revision, and text.
@@ -333,6 +337,12 @@ Owns source identity for compiler sessions:
 `SourceId` is session-local. Persistent cross-session incremental compilation
 must use a separate fingerprint or cache key rather than treating `SourceId` as
 stable across compiler runs.
+
+Recursive module discovery derives both roles from the parent `SourcePath`.
+Relocating a package therefore changes where the loader reads `child.nia`
+without changing that module's logical identity. A loader session still assumes
+that one logical identity maps to one physical source tree; a relocated build
+uses a new Driver and loader session.
 
 ### 3.3 `nia-node-id`
 

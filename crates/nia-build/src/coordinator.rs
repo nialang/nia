@@ -832,10 +832,10 @@ impl DriverActionExecutor {
                 format!("module `{}`", module_key.name()),
             )
         })?;
-        let entry = self.resolve_source_text(action, &module.root_source)?;
+        let entry = self.resolve_source_path(action, &module.root_source)?;
         let mut module_map = ModuleMap::new();
         for import in &module.imports {
-            let path = SourcePath::new(self.resolve_source_text(action, &import.path)?);
+            let path = self.resolve_source_path(action, &import.path)?;
             module_map
                 .try_insert(&import.name, path)
                 .map_err(|reason| {
@@ -847,7 +847,7 @@ impl DriverActionExecutor {
                     }))
                 })?;
         }
-        Ok(CheckRequest::new(entry)
+        Ok(CheckRequest::from_source_path(entry)
             .with_module_map(module_map)
             .with_optimization(optimization(module.optimization))
             .with_timings(self.invocation.timings)
@@ -880,17 +880,37 @@ impl DriverActionExecutor {
         })
     }
 
-    fn resolve_source_text(
+    fn resolve_source_path(
         &self,
         action: &PlanAction,
         logical: &LogicalPath,
-    ) -> Result<String, CoordinatorError> {
+    ) -> Result<SourcePath, CoordinatorError> {
         let path = self.resolve_path(action, logical)?;
         let text = path.to_str().ok_or_else(|| CoordinatorError::NonUtf8Path {
             action: action.key.clone(),
             path: path.clone(),
         })?;
-        Ok(text.to_string())
+        let protocol_path = logical.protocol_path();
+        let identity = match logical.root() {
+            LogicalPathRoot::Package(package) => {
+                format!("build-package:{}:/{protocol_path}", package.as_str())
+            }
+            LogicalPathRoot::Build => format!(
+                "build-output:{}:/{protocol_path}",
+                self.plan.root_package().as_str()
+            ),
+            LogicalPathRoot::Cache => format!(
+                "build-cache:{}:/{protocol_path}",
+                self.plan.root_package().as_str()
+            ),
+            LogicalPathRoot::Toolchain => format!("toolchain:/{protocol_path}"),
+            LogicalPathRoot::Artifact(artifact) => format!(
+                "build-artifact:{}:{}:/{protocol_path}",
+                artifact.package().as_str(),
+                artifact.name()
+            ),
+        };
+        Ok(SourcePath::with_identity(text, identity))
     }
 
     fn resolve_path(
@@ -1968,7 +1988,7 @@ fn display_target(target: &TargetSpec) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BuildPlanDraft, PlanAction, PlanPackage, PlanStep};
+    use crate::{BuildPlanDraft, ModuleImport, PlanAction, PlanPackage, PlanStep};
     use std::sync::{Arc, Barrier, Mutex, OnceLock, atomic::AtomicBool};
 
     fn action(name: &str) -> ActionKey {
@@ -2072,6 +2092,85 @@ mod tests {
             selected_step: Some(step(selected)),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
+        let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
+        let check = action("check");
+        let check_step = step("check");
+        let plan = BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: target(),
+            artifact_target: target(),
+            modules: vec![PlanModule {
+                key: module.clone(),
+                root_source: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "src/main.nia",
+                )
+                .unwrap(),
+                optimization: OptimizationMode::O2,
+                imports: vec![ModuleImport {
+                    name: "generated".to_string(),
+                    path: LogicalPath::new(LogicalPathRoot::Build, "generated/root.nia").unwrap(),
+                }],
+            }],
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: check.clone(),
+                kind: ActionKind::CompilerCheck {
+                    module: module.clone(),
+                    target: target(),
+                    runtime: Runtime::Freestanding,
+                },
+            }],
+            steps: vec![PlanStep {
+                key: check_step.clone(),
+                action: check,
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(check_step.clone()),
+            selected_step: Some(check_step),
+        })
+        .unwrap();
+        let invocation = test_invocation();
+        let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
+        let request = executor
+            .check_request(&plan.actions()[0], &module, Runtime::Freestanding)
+            .expect("construct compiler check request");
+        let generated = request
+            .module_map
+            .get("generated")
+            .expect("generated module mapping");
+
+        assert_eq!(
+            request.entry_path.as_str(),
+            invocation
+                .package_root
+                .join("src/main.nia")
+                .to_str()
+                .unwrap()
+        );
+        assert_eq!(
+            request.entry_path.identity().normalized_path(),
+            "build-package:root:/src/main.nia"
+        );
+        assert_eq!(
+            generated.as_str(),
+            invocation
+                .build_dir
+                .join("generated/root.nia")
+                .to_str()
+                .unwrap()
+        );
+        assert_eq!(
+            generated.identity().normalized_path(),
+            "build-output:root:/generated/root.nia"
+        );
     }
 
     #[test]

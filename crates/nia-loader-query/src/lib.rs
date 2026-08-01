@@ -103,7 +103,7 @@ impl LoaderDatabase {
     }
 
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
-        let entry_path = SourcePath::new(request.entry_path);
+        let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
         } else {
@@ -588,7 +588,7 @@ impl LoaderFactProvider for LoaderDatabase {
 
 #[derive(Debug, Clone)]
 pub struct LoadRequest {
-    pub entry_path: String,
+    pub entry_path: SourcePath,
     pub module_map: ModuleMap,
     pub sources: SourceDatabase,
     pub target: TargetConfig,
@@ -601,8 +601,12 @@ pub struct LoadRequest {
 
 impl LoadRequest {
     pub fn new(entry_path: impl Into<String>) -> Self {
+        Self::from_source_path(SourcePath::new(entry_path.into()))
+    }
+
+    pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
-            entry_path: entry_path.into(),
+            entry_path,
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
