@@ -127,15 +127,40 @@ pub enum ActionResourceClass: i32 {
     _
 }
 
+pub enum CommandEnvironmentPolicy: i32 {
+    Inherit = 1,
+    Clear = 2,
+    _
+}
+
+pub enum CommandCachePolicy: i32 {
+    Uncacheable = 1,
+    DeclaredInputs = 2,
+    _
+}
+
+pub struct CommandEnvironmentInput {
+    name: string::StringView,
+    value: string::StringView,
+}
+
 pub struct ExternalCommandOptions {
     program: string::StringView,
     arguments: ?&[CommandArgument],
     workingDirectory: fs::PathView,
     resourceClass: ActionResourceClass,
+    environmentPolicy: CommandEnvironmentPolicy,
+    cachePolicy: CommandCachePolicy,
+    environment: ?&[CommandEnvironmentInput],
 }
 
 pub(pkg) struct OwnedCommandArgument {
     kind: CommandArgumentKind,
+    value: string::StringBuf,
+}
+
+pub(pkg) struct OwnedCommandEnvironmentInput {
+    name: string::StringBuf,
     value: string::StringBuf,
 }
 
@@ -144,6 +169,9 @@ pub struct ExternalCommandStep {
     arguments: collections::ArrayList[OwnedCommandArgument],
     workingDirectory: fs::PathBuf,
     resourceClass: ActionResourceClass,
+    environmentPolicy: CommandEnvironmentPolicy,
+    cachePolicy: CommandCachePolicy,
+    environment: collections::ArrayList[OwnedCommandEnvironmentInput],
 }
 
 pub union StepPayload {

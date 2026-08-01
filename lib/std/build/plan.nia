@@ -20,6 +20,8 @@ using types::{
     ModuleSourceRoot,
     CommandArgumentKind,
     ActionResourceClass,
+    CommandEnvironmentPolicy,
+    CommandCachePolicy,
     TargetView,
 };
 
@@ -184,6 +186,22 @@ extend PlanEncoder {
         })
     }
 
+    fn writeCommandEnvironmentPolicy(&mut self, policy: CommandEnvironmentPolicy) Error!void {
+        self.writeU8(switch policy {
+            CommandEnvironmentPolicy::Inherit => 0,
+            CommandEnvironmentPolicy::Clear => 1,
+            _ => return invalidPlan(),
+        })
+    }
+
+    fn writeCommandCachePolicy(&mut self, policy: CommandCachePolicy) Error!void {
+        self.writeU8(switch policy {
+            CommandCachePolicy::Uncacheable => 0,
+            CommandCachePolicy::DeclaredInputs => 1,
+            _ => return invalidPlan(),
+        })
+    }
+
     fn writeModule(&mut self, moduleRecord: Module) Error!void {
         self.writeNodeKey(moduleRecord.name.view()).?;
         switch moduleRecord.sourceRoot {
@@ -247,6 +265,8 @@ extend PlanEncoder {
                 let target = executables[run.target.index];
                 self.writeU8(2).?;
                 self.writeResourceClass(ActionResourceClass::Conservative).?;
+                self.writeCommandEnvironmentPolicy(CommandEnvironmentPolicy::Inherit).?;
+                self.writeCommandCachePolicy(CommandCachePolicy::Uncacheable).?;
                 self.writeU8(0).?;
                 self.writeArtifactPath(target.name.view()).?;
                 self.writeCount(run.arguments.len()).?;
@@ -263,6 +283,8 @@ extend PlanEncoder {
                 let command = step.payload.externalCommand;
                 self.writeU8(2).?;
                 self.writeResourceClass(command.resourceClass).?;
+                self.writeCommandEnvironmentPolicy(command.environmentPolicy).?;
+                self.writeCommandCachePolicy(command.cachePolicy).?;
                 self.writeU8(1).?;
                 self.writeString(command.program.view()).?;
                 self.writeCount(command.arguments.len()).?;
@@ -284,7 +306,12 @@ extend PlanEncoder {
                     }
                 }
                 self.writePackagePath(command.workingDirectory.view()).?;
-                self.writeCount(0).?;
+                self.writeCount(command.environment.len()).?;
+                for &input in command.environment.iter() {
+                    self.writeString(input.name.view()).?;
+                    self.writeU8(1).?;
+                    self.writeString(input.value.view()).?;
+                }
                 let mut inputCount: usize = 0;
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::PackageInput

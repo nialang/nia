@@ -302,6 +302,8 @@ impl Writer {
             }
             ActionKind::ExternalCommand {
                 resource_class,
+                environment_policy,
+                cache_policy,
                 program,
                 arguments,
                 working_directory,
@@ -311,6 +313,8 @@ impl Writer {
             } => {
                 self.u8(2);
                 self.resource_class(*resource_class);
+                self.command_environment_policy(*environment_policy);
+                self.command_cache_policy(*cache_policy);
                 match program {
                     CommandProgram::Path(path) => {
                         self.u8(0);
@@ -397,6 +401,20 @@ impl Writer {
             ActionResourceClass::Conservative => 0,
             ActionResourceClass::Cpu => 1,
             ActionResourceClass::Io => 2,
+        });
+    }
+
+    fn command_environment_policy(&mut self, value: CommandEnvironmentPolicy) {
+        self.u8(match value {
+            CommandEnvironmentPolicy::Inherit => 0,
+            CommandEnvironmentPolicy::Clear => 1,
+        });
+    }
+
+    fn command_cache_policy(&mut self, value: CommandCachePolicy) {
+        self.u8(match value {
+            CommandCachePolicy::Uncacheable => 0,
+            CommandCachePolicy::DeclaredInputs => 1,
         });
     }
 
@@ -627,6 +645,8 @@ impl<'a> Reader<'a> {
             },
             2 => {
                 let resource_class = self.resource_class()?;
+                let environment_policy = self.command_environment_policy()?;
+                let cache_policy = self.command_cache_policy()?;
                 let program_offset = self.offset;
                 let program_tag = self.u8()?;
                 let program = match program_tag {
@@ -642,6 +662,8 @@ impl<'a> Reader<'a> {
                 };
                 ActionKind::ExternalCommand {
                     resource_class,
+                    environment_policy,
+                    cache_policy,
                     program,
                     arguments: self.list(|reader| {
                         let offset = reader.offset;
@@ -727,6 +749,34 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn command_environment_policy(&mut self) -> Result<CommandEnvironmentPolicy, PlanCodecError> {
+        let offset = self.offset;
+        let tag = self.u8()?;
+        match tag {
+            0 => Ok(CommandEnvironmentPolicy::Inherit),
+            1 => Ok(CommandEnvironmentPolicy::Clear),
+            _ => Err(PlanCodecError::InvalidTag {
+                kind: "command environment policy",
+                tag,
+                offset,
+            }),
+        }
+    }
+
+    fn command_cache_policy(&mut self) -> Result<CommandCachePolicy, PlanCodecError> {
+        let offset = self.offset;
+        let tag = self.u8()?;
+        match tag {
+            0 => Ok(CommandCachePolicy::Uncacheable),
+            1 => Ok(CommandCachePolicy::DeclaredInputs),
+            _ => Err(PlanCodecError::InvalidTag {
+                kind: "command cache policy",
+                tag,
+                offset,
+            }),
+        }
+    }
+
     fn option_step_key(&mut self) -> Result<Option<StepKey>, PlanCodecError> {
         let offset = self.offset;
         let tag = self.u8()?;
@@ -763,6 +813,8 @@ mod tests {
                 key: ActionKey::new(package.clone(), "command").unwrap(),
                 kind: ActionKind::ExternalCommand {
                     resource_class: ActionResourceClass::Cpu,
+                    environment_policy: CommandEnvironmentPolicy::Clear,
+                    cache_policy: CommandCachePolicy::DeclaredInputs,
                     program: CommandProgram::Search("cc".into()),
                     arguments: vec![
                         CommandArgument::Literal("-v".into()),
@@ -833,6 +885,45 @@ mod tests {
                 offset: 3,
             })
         );
+    }
+
+    #[test]
+    fn command_policy_codecs_reject_unknown_tags() {
+        let mut environment = Reader::new(&[0, 1, 2]);
+        assert_eq!(
+            environment.command_environment_policy().unwrap(),
+            CommandEnvironmentPolicy::Inherit
+        );
+        assert_eq!(
+            environment.command_environment_policy().unwrap(),
+            CommandEnvironmentPolicy::Clear
+        );
+        assert!(matches!(
+            environment.command_environment_policy(),
+            Err(PlanCodecError::InvalidTag {
+                kind: "command environment policy",
+                tag: 2,
+                ..
+            })
+        ));
+
+        let mut cache = Reader::new(&[0, 1, 2]);
+        assert_eq!(
+            cache.command_cache_policy().unwrap(),
+            CommandCachePolicy::Uncacheable
+        );
+        assert_eq!(
+            cache.command_cache_policy().unwrap(),
+            CommandCachePolicy::DeclaredInputs
+        );
+        assert!(matches!(
+            cache.command_cache_policy(),
+            Err(PlanCodecError::InvalidTag {
+                kind: "command cache policy",
+                tag: 2,
+                ..
+            })
+        ));
     }
 
     #[test]

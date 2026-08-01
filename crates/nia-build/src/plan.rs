@@ -252,6 +252,18 @@ pub struct EnvironmentInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CommandEnvironmentPolicy {
+    Inherit,
+    Clear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CommandCachePolicy {
+    Uncacheable,
+    DeclaredInputs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionResourceClass {
     Conservative,
     Cpu,
@@ -271,6 +283,8 @@ pub enum ActionKind {
     },
     ExternalCommand {
         resource_class: ActionResourceClass,
+        environment_policy: CommandEnvironmentPolicy,
+        cache_policy: CommandCachePolicy,
         program: CommandProgram,
         arguments: Vec<CommandArgument>,
         working_directory: LogicalPath,
@@ -669,6 +683,8 @@ fn canonicalize_actions(
             ActionKind::ExternalCommand {
                 program,
                 arguments,
+                environment_policy,
+                cache_policy,
                 environment,
                 inputs,
                 outputs,
@@ -716,6 +732,20 @@ fn canonicalize_actions(
                     return Err(PlanError::InvalidCommand {
                         action: action.key.clone(),
                         reason: "duplicate environment input",
+                    });
+                }
+                if *cache_policy == CommandCachePolicy::DeclaredInputs
+                    && *environment_policy != CommandEnvironmentPolicy::Clear
+                {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "cacheable command must clear inherited environment",
+                    });
+                }
+                if *cache_policy == CommandCachePolicy::DeclaredInputs && outputs.is_empty() {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "cacheable command must declare an output",
                     });
                 }
                 inputs.sort();
@@ -1168,6 +1198,8 @@ mod tests {
             key: action_key("run"),
             kind: ActionKind::ExternalCommand {
                 resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1200,6 +1232,57 @@ mod tests {
     }
 
     #[test]
+    fn freeze_rejects_non_hermetic_or_outputless_cacheable_commands() {
+        let output = LogicalPath::new(LogicalPathRoot::Build, "output.txt").unwrap();
+        let cacheable = |environment_policy, outputs: Vec<LogicalPath>| PlanAction {
+            key: action_key("tool"),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
+                environment_policy,
+                cache_policy: CommandCachePolicy::DeclaredInputs,
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: outputs
+                    .iter()
+                    .cloned()
+                    .map(CommandArgument::OutputPath)
+                    .collect(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs,
+            },
+        };
+
+        let mut inherited = draft(false);
+        inherited
+            .actions
+            .push(cacheable(CommandEnvironmentPolicy::Inherit, vec![output]));
+        assert!(matches!(
+            BuildPlan::freeze(inherited),
+            Err(PlanError::InvalidCommand {
+                reason: "cacheable command must clear inherited environment",
+                ..
+            })
+        ));
+
+        let mut outputless = draft(false);
+        outputless
+            .actions
+            .push(cacheable(CommandEnvironmentPolicy::Clear, Vec::new()));
+        assert!(matches!(
+            BuildPlan::freeze(outputless),
+            Err(PlanError::InvalidCommand {
+                reason: "cacheable command must declare an output",
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn freeze_requires_command_path_arguments_to_match_declarations() {
         let mut value = draft(false);
         let input =
@@ -1209,6 +1292,8 @@ mod tests {
             key: action_key("tool"),
             kind: ActionKind::ExternalCommand {
                 resource_class: ActionResourceClass::Cpu,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![
                     CommandArgument::InputPath(input),
@@ -1242,6 +1327,8 @@ mod tests {
             key: action_key("unbound"),
             kind: ActionKind::ExternalCommand {
                 resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1268,6 +1355,8 @@ mod tests {
             key: action_key("multiple"),
             kind: ActionKind::ExternalCommand {
                 resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy: CommandCachePolicy::DeclaredInputs,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![
                     CommandArgument::OutputPath(output.clone()),
@@ -1305,6 +1394,8 @@ mod tests {
             key: run_action.clone(),
             kind: ActionKind::ExternalCommand {
                 resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Artifact(artifact), "").unwrap(),
                 ),
