@@ -1855,6 +1855,30 @@ workspace test suite passes, including the 14-case production build matrix in
 `134.80s`; workspace all-target/all-feature check, strict Clippy, and formatting
 also pass.
 
+Phase F progress (2026-08-02, loader-owned compiler source-manifest batch): the
+loader now exports one stable, recursively discovered source-input manifest
+instead of requiring a build consumer to inspect or reproduce its module graph.
+Each logical source identity retains its current physical I/O path and records
+either a content fingerprint plus byte length or an explicit missing state. A
+fully present closure uses the compiler frontend's existing order-independent
+program-source fingerprint; any missing source suppresses that aggregate so a
+deleted file cannot validate a cache hit. The Driver forwards the exact loader
+product through a read-only API.
+
+Relocation tests prove that equal source trees under different absolute roots
+produce equal manifests and aggregate fingerprints, while a content edit
+changes the fingerprint. Missing-child coverage proves that the closure remains
+inspectable but uncacheable, and a Driver regression proves the public boundary
+retains recursive build identities. This closes the representation/API slice of
+the compiler input closure. Phase F still requires a versioned compiler action
+record that combines and validates this manifest with target, runtime, options,
+toolchain, output, and dependency artifacts before compiler execution can be
+skipped; external-command closure and dependency-artifact propagation also
+remain open. All 81 `nia-loader-query`, 491 `nia-driver`, and 90 ordinary
+`nia-build` tests pass; the build-cache worker helper remains intentionally
+ignored outside its parent probe. Workspace all-target/all-feature check,
+strict Clippy, and formatting also pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

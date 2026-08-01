@@ -11,6 +11,7 @@ pub use nia_compiler_query::{
     CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, TimingMode,
 };
 pub use nia_imports::{ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME};
+pub use nia_loader_query::{SourceInput, SourceInputContent, SourceInputManifest};
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 pub use nia_parser::ParseError;
 pub use nia_source::SourcePath;

@@ -287,9 +287,19 @@ source has a physical path for current-invocation I/O and a stable logical
 passes both roles intact into the loader, whose recursive module discovery
 derives child physical paths and logical identities in parallel. Moving the
 same package tree therefore leaves its recursive logical source manifest
-unchanged. This is only the identity foundation: compiler actions remain
-uncacheable until the loader-owned manifest is persisted and every source and
-dependency artifact in it is validated.
+unchanged.
+
+The loader materializes that closure as a stable source-input manifest and the
+Driver exposes it without duplicating module discovery. Entries distinguish a
+missing source from a present source's content fingerprint and byte length; an
+aggregate program fingerprint exists only when every entry is present. Dynamic
+provider modules remain part of the same loader graph. The existing persistent
+provider-demand plan validates its recorded source closure before restoring
+those demands, allowing a warm loader session to reconstruct the complete
+manifest across process and toolchain relocation. Compiler actions remain
+uncacheable until the build action cache persists an expected manifest with the
+action's target/options/output contract and validates it before skipping the
+Driver execution.
 
 Generated-file entries live in a versioned action-kind namespace under
 `.nia-cache/actions/`. Their envelope repeats the action key fingerprint,

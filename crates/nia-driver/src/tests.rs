@@ -40,6 +40,39 @@ fn main() i32 { selected() }
 }
 
 #[test]
+fn driver_exposes_loader_owned_recursive_source_manifest() {
+    let root = common::temp_dir("recursive-source-manifest");
+    let source_dir = root.join("src");
+    std::fs::create_dir_all(&source_dir).expect("create manifest source directory");
+    common::write(&source_dir.join("main.nia"), "module child;");
+    common::write(&source_dir.join("child.nia"), "fn value() i32 { 1 }");
+    let entry = crate::SourcePath::with_identity(
+        source_dir.join("main.nia").to_string_lossy(),
+        "build-package:root:/src/main.nia",
+    );
+    let driver = common::test_driver();
+
+    let manifest = driver
+        .source_input_manifest(&crate::CheckRequest::from_source_path(entry))
+        .result
+        .expect("Driver source manifest");
+
+    assert!(manifest.fingerprint().is_some());
+    assert_eq!(
+        manifest
+            .sources()
+            .iter()
+            .map(|source| source.path.identity())
+            .map(|identity| identity.normalized_path().to_string())
+            .collect::<Vec<_>>(),
+        [
+            "build-package:root:/src/child.nia".to_string(),
+            "build-package:root:/src/main.nia".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn writing_native_object_preserves_incremental_link_identity() {
     use nia_backend_ir::{
         CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
