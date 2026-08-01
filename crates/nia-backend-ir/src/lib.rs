@@ -729,7 +729,7 @@ struct CodegenPartitionDefinitions {
 
 impl CodegenPartitionDefinitions {
     fn from_module(module: &BackendModule) -> Self {
-        Self {
+        let mut definitions = Self {
             globals: module
                 .globals
                 .iter()
@@ -753,7 +753,28 @@ impl CodegenPartitionDefinitions {
                 .filter_map(|(index, function)| function.function_body.as_ref().map(|_| index))
                 .collect(),
             vtables: (0..module.trait_object_vtables.len()).collect(),
-        }
+        };
+        definitions
+            .globals
+            .sort_unstable_by_key(|index| module.globals[*index].def_id.def_id);
+        definitions
+            .global_instances
+            .sort_unstable_by(|left, right| {
+                module.global_instances[*left]
+                    .symbol
+                    .cmp(&module.global_instances[*right].symbol)
+            });
+        definitions
+            .functions
+            .sort_unstable_by_key(|index| module.functions[*index].def_id.def_id);
+        definitions
+            .function_instances
+            .sort_unstable_by(|left, right| {
+                module.function_instances[*left]
+                    .symbol
+                    .cmp(&module.function_instances[*right].symbol)
+            });
+        definitions
     }
 
     fn is_empty(&self) -> bool {

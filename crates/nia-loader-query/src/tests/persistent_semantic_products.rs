@@ -3,8 +3,8 @@
 use super::*;
 
 #[test]
-fn persistent_signature_semantics_skip_raw_dependencies_across_sessions() {
-    let root = temp_dir("persistent_signature_semantics_skip_dependencies");
+fn persistent_signature_semantics_reuse_lowering_with_fresh_trait_facts() {
+    let root = temp_dir("persistent_signature_semantics_with_fresh_trait_facts");
     let source = r#"
 pub struct Box[T] { value: T }
 fn unwrap[T](value: Box[T]) T { value.value }
@@ -51,6 +51,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     );
     let second = second_compiler.analyze_program().expect("warm analysis");
     assert!(!has_error_diagnostics(&second.diagnostics));
+    assert_eq!(second.diagnostics, first.diagnostics);
     let second_trace = second_compiler.query_trace();
     assert_eq!(
         query_executions(&second_trace, "signature_type_resolution"),
@@ -58,7 +59,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     );
     assert_eq!(
         query_executions(&second_trace, "signature_type_lowering"),
-        0
+        1
     );
     assert!(!second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_type_lowering"
@@ -72,15 +73,9 @@ fn unwrap[T](value: Box[T]) T { value.value }
         dependency.from.name == "signature_item_signatures"
             && dependency.to.name == "signature_type_lowering"
     }));
-    assert!(
-        query_executions(&second_trace, "extension_signature_module_input")
-            < query_executions(&first_trace, "extension_signature_module_input")
-    );
+    assert!(query_executions(&second_trace, "extension_trait_solving_module_facts") > 0);
+    assert!(query_executions(&second_trace, "extension_signature_module_input") > 0);
     assert!(second_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "extension_trait_solving_module_facts"
-            && dependency.to.name == "frontend_program_sources"
-    }));
-    assert!(!second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "extension_trait_solving_module_facts"
             && dependency.to.name == "extension_signature_module_input"
     }));
@@ -102,6 +97,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
         .analyze_program()
         .expect("verified analysis");
     assert!(!has_error_diagnostics(&verified.diagnostics));
+    assert_eq!(verified.diagnostics, first.diagnostics);
     assert!(
         verified_compiler
             .query_trace()

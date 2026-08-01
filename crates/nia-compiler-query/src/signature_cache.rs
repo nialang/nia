@@ -30,9 +30,9 @@ use nia_type_resolve::{TypeNameResolution, TypeResolution};
 use crate::{
     FrontendCacheNamespace, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
     FrontendCheckScope, FrontendExecutableValueRefEdgesCacheKey,
-    FrontendExtensionTraitSolvingFactsCacheKey, FrontendExtensionValidationDiagnosticsCacheKey,
-    FrontendProgramSourceFingerprint, FrontendSignatureItemSignaturesCacheKey,
-    FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
+    FrontendExtensionValidationDiagnosticsCacheKey, FrontendProgramSourceFingerprint,
+    FrontendSignatureItemSignaturesCacheKey, FrontendSignatureTypeLoweringCacheKey,
+    FrontendSignatureTypeResolutionCacheKey,
 };
 use crate::{
     ProgramDiagnostic, program_diagnostic_bundle::decode_stable_program_diagnostic_bundle,
@@ -44,7 +44,6 @@ mod storage;
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
 const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
-const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
@@ -90,15 +89,6 @@ pub(crate) struct SignatureItemSignaturesIdentity<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ExtensionTraitSolvingFactsIdentity<'a> {
-    pub(crate) key: FrontendExtensionTraitSolvingFactsCacheKey,
-    pub(crate) namespace: FrontendCacheNamespace,
-    pub(crate) module: &'a StableModuleKey,
-    pub(crate) program_sources: FrontendProgramSourceFingerprint,
-    pub(crate) source_len: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(crate) struct ExtensionValidationDiagnosticsIdentity<'a> {
     pub(crate) key: FrontendExtensionValidationDiagnosticsCacheKey,
     pub(crate) namespace: FrontendCacheNamespace,
@@ -124,12 +114,6 @@ pub(crate) struct CheckCertificateIdentity<'a> {
     pub(crate) input: FrontendCheckInputFingerprint,
     pub(crate) scope: FrontendCheckScope,
     pub(crate) source_lengths: &'a BTreeMap<String, usize>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CachedExtensionTraitSolvingFacts {
-    pub(crate) trait_impls: Vec<item_signatures::ProgramTraitImplSignature>,
-    pub(crate) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -162,13 +146,6 @@ pub(crate) enum SignatureTypeLoweringLookup {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SignatureItemSignaturesLookup {
     Hit(Box<ItemSignatures>),
-    NotFound,
-    Corrupt,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ExtensionTraitSolvingFactsLookup {
-    Hit(Box<CachedExtensionTraitSolvingFacts>),
     NotFound,
     Corrupt,
 }
@@ -429,62 +406,6 @@ fn decode_item_signatures_entry<'a>(
         || read_string(&mut cursor, encoded.len())?
             != identity.module.source_identity().normalized_path()
         || read_u8(&mut cursor)? != signature_set_tag(identity.set)
-        || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
-    {
-        return None;
-    }
-    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
-    if payload_len > MAX_ENTRY_BYTES {
-        return None;
-    }
-    let start = usize::try_from(cursor.position()).ok()?;
-    let end = start.checked_add(payload_len)?;
-    (end == checksum_offset).then(|| &encoded[start..end])
-}
-
-fn encode_extension_trait_solving_facts_entry(
-    identity: ExtensionTraitSolvingFactsIdentity<'_>,
-    payload: &[u8],
-) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    encoded.extend_from_slice(EXTENSION_TRAIT_FACTS_MAGIC);
-    write_parts(&mut encoded, identity.key.parts());
-    write_parts(&mut encoded, identity.namespace.parts());
-    write_parts(&mut encoded, identity.program_sources.parts());
-    write_string(
-        &mut encoded,
-        identity.module.source_identity().normalized_path(),
-    );
-    write_u64(&mut encoded, identity.source_len as u64);
-    write_u64(&mut encoded, payload.len() as u64);
-    encoded.extend_from_slice(payload);
-    let checksum = extension_trait_solving_facts_checksum(&encoded);
-    write_parts(&mut encoded, checksum.parts());
-    encoded
-}
-
-fn decode_extension_trait_solving_facts_entry<'a>(
-    encoded: &'a [u8],
-    identity: ExtensionTraitSolvingFactsIdentity<'_>,
-) -> Option<&'a [u8]> {
-    if encoded.len() < EXTENSION_TRAIT_FACTS_MAGIC.len() + 16 {
-        return None;
-    }
-    let checksum_offset = encoded.len().checked_sub(16)?;
-    let expected_checksum = extension_trait_solving_facts_checksum(&encoded[..checksum_offset]);
-    let mut checksum_cursor = Cursor::new(&encoded[checksum_offset..]);
-    if read_parts(&mut checksum_cursor)? != expected_checksum.parts() {
-        return None;
-    }
-    let mut cursor = Cursor::new(&encoded[..checksum_offset]);
-    let mut magic = [0_u8; 8];
-    cursor.read_exact(&mut magic).ok()?;
-    if &magic != EXTENSION_TRAIT_FACTS_MAGIC
-        || read_parts(&mut cursor)? != identity.key.parts()
-        || read_parts(&mut cursor)? != identity.namespace.parts()
-        || read_parts(&mut cursor)? != identity.program_sources.parts()
-        || read_string(&mut cursor, encoded.len())?
-            != identity.module.source_identity().normalized_path()
         || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
     {
         return None;
@@ -851,220 +772,6 @@ fn decode_item_signatures(
         globals,
         consts,
         diagnostics: Vec::new(),
-    })
-}
-
-fn encode_extension_trait_solving_facts(
-    facts: &CachedExtensionTraitSolvingFacts,
-    module: &StableModuleKey,
-    module_paths: &HashMap<ModuleId, String>,
-    symbols: &SymbolTable,
-    type_store: &TypeStore,
-) -> io::Result<Vec<u8>> {
-    let module_path = module.source_identity().normalized_path();
-    let mut matching_modules = module_paths
-        .iter()
-        .filter_map(|(module_id, path)| (path == module_path).then_some(*module_id));
-    let module_id = matching_modules.next().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "extension facts module is absent from current program",
-        )
-    })?;
-    if matching_modules.next().is_some()
-        || facts
-            .trait_impls
-            .iter()
-            .any(|signature| signature.module_id != module_id)
-        || facts
-            .invalid_trait_impl_method_ids
-            .iter()
-            .any(|def_id| def_id.module_id != module_id)
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "extension facts contain a foreign module owner",
-        ));
-    }
-
-    let mut graph = TypeGraphEncoder {
-        type_store,
-        module_paths,
-        symbols,
-        indexes: HashMap::new(),
-        visiting: HashSet::new(),
-        nodes: Vec::new(),
-    };
-    let mut body = Vec::new();
-    write_u64(&mut body, facts.trait_impls.len() as u64);
-    let mut impl_ids = HashSet::new();
-    for signature in &facts.trait_impls {
-        if !impl_ids.insert(signature.impl_id) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "duplicate extension trait impl identity",
-            ));
-        }
-        write_program_trait_impl_signature(&mut body, signature, &mut graph)?;
-    }
-    let mut invalid_methods = facts
-        .invalid_trait_impl_method_ids
-        .iter()
-        .map(|def_id| def_id.def_id)
-        .collect::<Vec<_>>();
-    invalid_methods.sort_unstable_by_key(|def_id| def_id.0);
-    write_u64(&mut body, invalid_methods.len() as u64);
-    for def_id in invalid_methods {
-        write_u64(&mut body, def_id.0);
-    }
-
-    let mut encoded = Vec::new();
-    write_type_graph(&mut encoded, graph.nodes);
-    encoded.extend_from_slice(&body);
-    Ok(encoded)
-}
-
-fn decode_extension_trait_solving_facts(
-    encoded: &[u8],
-    source_len: usize,
-    modules: &HashMap<String, ModuleId>,
-    symbols: &SymbolTable,
-    type_store: &TypeStore,
-    module_id: ModuleId,
-) -> Option<CachedExtensionTraitSolvingFacts> {
-    let mut cursor = Cursor::new(encoded);
-    let types = read_type_graph(
-        &mut cursor,
-        encoded.len(),
-        modules,
-        symbols,
-        type_store,
-        module_id,
-    )?;
-    let trait_impl_len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
-    let mut trait_impls = Vec::with_capacity(trait_impl_len);
-    let mut impl_ids = HashSet::new();
-    for _ in 0..trait_impl_len {
-        let signature = read_program_trait_impl_signature(
-            &mut cursor,
-            &types,
-            symbols,
-            modules,
-            module_id,
-            source_len,
-        )?;
-        if !impl_ids.insert(signature.impl_id) {
-            return None;
-        }
-        trait_impls.push(signature);
-    }
-    let invalid_len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
-    let mut invalid_trait_impl_method_ids = HashSet::with_capacity(invalid_len);
-    let mut previous = None;
-    for _ in 0..invalid_len {
-        let def_id = DefId(read_u64(&mut cursor)?);
-        if previous.is_some_and(|previous| previous >= def_id)
-            || !invalid_trait_impl_method_ids.insert(GlobalDefId { module_id, def_id })
-        {
-            return None;
-        }
-        previous = Some(def_id);
-    }
-    if cursor.position() as usize != encoded.len() {
-        return None;
-    }
-    Some(CachedExtensionTraitSolvingFacts {
-        trait_impls,
-        invalid_trait_impl_method_ids,
-    })
-}
-
-fn write_program_trait_impl_signature(
-    encoded: &mut Vec<u8>,
-    signature: &item_signatures::ProgramTraitImplSignature,
-    graph: &mut TypeGraphEncoder<'_>,
-) -> io::Result<()> {
-    write_u64(encoded, signature.impl_id.0);
-    write_optional_string(encoded, signature.builtin.as_deref());
-    write_symbols(encoded, &signature.generics, graph)?;
-    write_type_index(encoded, graph.intern(signature.target_ty)?);
-    write_trait_id(encoded, signature.trait_id, graph.module_paths)?;
-    write_types(encoded, &signature.trait_args, graph)?;
-    write_const_args(encoded, &signature.trait_const_args, graph)?;
-    write_where_predicates(encoded, &signature.where_predicates, graph)?;
-    write_u64(encoded, signature.associated_types.len() as u64);
-    for associated in &signature.associated_types {
-        graph.write_symbol(encoded, associated.name)?;
-        write_type_index(encoded, graph.intern(associated.ty)?);
-        write_span(encoded, associated.span);
-    }
-    write_u64(encoded, signature.associated_values.len() as u64);
-    for associated in &signature.associated_values {
-        write_u64(encoded, associated.def_id.0);
-        graph.write_symbol(encoded, associated.name)?;
-        encoded.push(visibility_tag(associated.visibility));
-        write_span(encoded, associated.span);
-    }
-    Ok(())
-}
-
-fn read_program_trait_impl_signature(
-    cursor: &mut Cursor<&[u8]>,
-    types: &[InternedTyId],
-    symbols: &SymbolTable,
-    modules: &HashMap<String, ModuleId>,
-    module_id: ModuleId,
-    source_len: usize,
-) -> Option<item_signatures::ProgramTraitImplSignature> {
-    let impl_id = TraitImplId(read_u64(cursor)?);
-    let builtin = read_optional_string(cursor)?;
-    let generics = read_symbols(cursor, symbols)?;
-    let target_ty = read_type_index(cursor, types)?;
-    let trait_id = read_trait_id(cursor, modules)?;
-    let trait_args = read_types(cursor, types)?;
-    let trait_const_args = read_const_args(cursor, types, symbols)?;
-    let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
-    let associated_type_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
-    let mut associated_types = Vec::with_capacity(associated_type_len);
-    let mut associated_type_names = HashSet::new();
-    for _ in 0..associated_type_len {
-        let associated = item_signatures::TraitImplAssociatedTypeSignature {
-            name: read_symbol(cursor, symbols)?,
-            ty: read_type_index(cursor, types)?,
-            span: read_span(cursor, source_len)?,
-        };
-        if !associated_type_names.insert(associated.name) {
-            return None;
-        }
-        associated_types.push(associated);
-    }
-    let associated_value_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
-    let mut associated_values = Vec::with_capacity(associated_value_len);
-    let mut associated_value_ids = HashSet::new();
-    for _ in 0..associated_value_len {
-        let associated = item_signatures::TraitImplAssociatedValueSignature {
-            def_id: DefId(read_u64(cursor)?),
-            name: read_symbol(cursor, symbols)?,
-            visibility: read_visibility(cursor)?,
-            span: read_span(cursor, source_len)?,
-        };
-        if !associated_value_ids.insert(associated.def_id) {
-            return None;
-        }
-        associated_values.push(associated);
-    }
-    Some(item_signatures::ProgramTraitImplSignature {
-        module_id,
-        impl_id,
-        builtin,
-        generics,
-        target_ty,
-        trait_id,
-        trait_args,
-        trait_const_args,
-        where_predicates,
-        associated_types,
-        associated_values,
     })
 }
 
@@ -3045,12 +2752,6 @@ fn type_lowering_checksum(encoded: &[u8]) -> QueryFingerprint {
 
 fn item_signatures_checksum(encoded: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.signature-item-signatures.entry.v1");
-    builder.write_bytes(encoded);
-    builder.finish()
-}
-
-fn extension_trait_solving_facts_checksum(encoded: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.extension-trait-solving-facts.entry.v1");
     builder.write_bytes(encoded);
     builder.finish()
 }

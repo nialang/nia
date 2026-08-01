@@ -1,3 +1,4 @@
+use nia_function_ir::{FunctionBlockId, FunctionBody};
 use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
 use nia_layout::TargetDataLayout;
 use nia_symbol::SymbolId;
@@ -167,6 +168,49 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
             },
         ]
     );
+}
+
+#[test]
+fn codegen_partition_membership_canonicalizes_instance_order() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let ty = type_store
+        .append_for_module(module_id)
+        .primitive(PrimitiveTy::I32);
+    let mut module = module_with_global(module_id, ty, "main", false);
+    let instance = |def_id, symbol: &str| BackendFunctionInstance {
+        def_id: GlobalDefId { module_id, def_id },
+        name: SymbolId::EMPTY,
+        arg_module_id: module_id,
+        self_arg: None,
+        args: Vec::new(),
+        const_args: Vec::new(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        return_type: ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: HashMap::new(),
+        function_body: Some(FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: Vec::new(),
+            blocks: Vec::new(),
+            entry: FunctionBlockId(0),
+            ty,
+        }),
+        span: Span::default(),
+    };
+    module.function_instances = vec![
+        instance(DefId(2), "z-instance"),
+        instance(DefId(1), "a-instance"),
+    ];
+
+    let definitions = CodegenPartitionDefinitions::from_module(&module);
+
+    assert_eq!(definitions.function_instances, vec![1, 0]);
 }
 
 #[test]
