@@ -26,7 +26,10 @@ use crate::{
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument, CommandProgram,
     LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey,
     PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
-    action_cache::{GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup},
+    action_cache::{
+        CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
+        GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
+    },
     lock::{ScopedFileLock, output_lock_path},
     output_recovery::{OutputTransactionJournal, recover_interrupted_output_transactions},
     resources::ActionResourceBudget,
@@ -588,16 +591,7 @@ impl DriverActionExecutor {
                 target,
                 runtime,
             } => {
-                let request = self.check_request(action, module, *runtime)?;
-                let driver = self.driver(action, target)?;
-                driver
-                    .check_entry(request)
-                    .result
-                    .map(|_| ())
-                    .map_err(|error| CoordinatorError::Driver {
-                        action: action.key.clone(),
-                        error: Box::new(error),
-                    })
+                return self.execute_compiler_check(action, module, target, *runtime);
             }
             ActionKind::CompilerEmit { artifact, target } => {
                 let artifact = self.artifact(action, artifact)?;
@@ -744,6 +738,78 @@ impl DriverActionExecutor {
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
         };
         result.map(|()| None)
+    }
+
+    fn execute_compiler_check(
+        &self,
+        action: &PlanAction,
+        module_key: &ModuleKey,
+        target: &TargetSpec,
+        runtime: Runtime,
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
+            inconsistent(
+                format!("action `{}`", action.key.name()),
+                format!("module `{}`", module_key.name()),
+            )
+        })?;
+        let request = self.check_request(action, module_key, runtime)?;
+        let driver = self.driver(action, target)?;
+        let precheck_manifest = driver
+            .source_input_manifest(&request)
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            })?;
+        let cache = CompilerCheckCache::new(self.invocation.cache_dir.clone());
+        let precheck_identity = CompilerCheckCacheIdentity::new(
+            &action.key,
+            module,
+            target,
+            runtime,
+            &precheck_manifest,
+            self.invocation.toolchain.identity(),
+        );
+        let miss_reason = match precheck_identity.as_ref() {
+            None => ActionCacheMissReason::Uncacheable,
+            Some(identity) => match cache.lookup(identity) {
+                Ok(CompilerCheckCacheLookup::Hit) => {
+                    return Ok(Some(ActionCacheOutcome::Hit));
+                }
+                Ok(CompilerCheckCacheLookup::Miss(reason)) => reason,
+                Err(_) => ActionCacheMissReason::ReadError,
+            },
+        };
+        let checked = driver
+            .check_entry_with_source_manifest(request)
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            })?;
+        if !checked.program.diagnostics.is_empty() {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        }
+        let Some(final_identity) = CompilerCheckCacheIdentity::new(
+            &action.key,
+            module,
+            target,
+            runtime,
+            &checked.source_manifest,
+            self.invocation.toolchain.identity(),
+        ) else {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        };
+        let reason = match cache.publish(&final_identity) {
+            Ok(()) => miss_reason,
+            Err(_) => ActionCacheMissReason::WriteError,
+        };
+        Ok(Some(ActionCacheOutcome::Miss(reason)))
     }
 
     fn execute_generated_file(
@@ -2692,6 +2758,70 @@ mod tests {
         .unwrap()
     }
 
+    fn compiler_check_plan(
+        invocation: &BuildInvocation,
+        optimization: OptimizationMode,
+    ) -> BuildPlan {
+        compiler_check_plan_with_runtime(invocation, optimization, Runtime::Bare)
+    }
+
+    fn compiler_check_plan_with_runtime(
+        invocation: &BuildInvocation,
+        optimization: OptimizationMode,
+        runtime: Runtime,
+    ) -> BuildPlan {
+        let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
+        let host = target_spec(invocation.toolchain.host_target());
+        let artifact = target_spec(invocation.toolchain.artifact_target());
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: host,
+            artifact_target: artifact.clone(),
+            modules: vec![PlanModule {
+                key: module.clone(),
+                root_source: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "src/main.nia",
+                )
+                .unwrap(),
+                optimization,
+                imports: Vec::new(),
+            }],
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: action("check"),
+                kind: ActionKind::CompilerCheck {
+                    module,
+                    target: artifact,
+                    runtime,
+                },
+            }],
+            steps: vec![PlanStep {
+                key: step("check"),
+                action: action("check"),
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(step("check")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
+    fn write_compiler_check_source(invocation: &BuildInvocation, source: &str) {
+        let path = invocation.package_root.join("src/main.nia");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, source).unwrap();
+    }
+
+    fn only_compiler_check_outcome(report: &ExecutionReport) -> &ActionCacheOutcome {
+        assert_eq!(report.action_cache.len(), 1);
+        assert_eq!(report.action_cache[0].action, action("check"));
+        &report.action_cache[0].outcome
+    }
+
     fn assert_no_output_locks(invocation: &BuildInvocation) {
         let root = invocation.cache_dir.join("coordination/output-locks");
         if root.is_dir() {
@@ -2862,6 +2992,174 @@ mod tests {
             ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
                 crate::ActionCacheInvalidation::Output,
             ]))
+        );
+    }
+
+    #[test]
+    fn compiler_check_cache_reports_cold_and_warm_execution() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
+        let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
+
+        let cold = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            only_compiler_check_outcome(&cold),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::NotFound)
+        );
+
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(only_compiler_check_outcome(&warm), &ActionCacheOutcome::Hit);
+    }
+
+    #[test]
+    fn compiler_check_cache_reports_source_and_optimization_invalidation() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
+        execute_build_plan(
+            &compiler_check_plan(&invocation, OptimizationMode::O2),
+            &invocation,
+        )
+        .unwrap();
+
+        write_compiler_check_source(&invocation, "fn main() i32 { 1 }");
+        let changed_source = execute_build_plan(
+            &compiler_check_plan(&invocation, OptimizationMode::O2),
+            &invocation,
+        )
+        .unwrap();
+        assert_eq!(
+            only_compiler_check_outcome(&changed_source),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Sources,
+            ]))
+        );
+
+        let changed_optimization = execute_build_plan(
+            &compiler_check_plan(&invocation, OptimizationMode::O0),
+            &invocation,
+        )
+        .unwrap();
+        assert_eq!(
+            only_compiler_check_outcome(&changed_optimization),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Optimization,
+            ]))
+        );
+    }
+
+    #[test]
+    fn compiler_check_cache_reuses_relocated_sources() {
+        let first = test_invocation();
+        write_compiler_check_source(&first, "fn main() i32 { 0 }");
+        execute_build_plan(&compiler_check_plan(&first, OptimizationMode::O2), &first).unwrap();
+
+        let mut relocated = test_invocation();
+        relocated.cache_dir = first.cache_dir.clone();
+        write_compiler_check_source(&relocated, "fn main() i32 { 0 }");
+        let report = execute_build_plan(
+            &compiler_check_plan(&relocated, OptimizationMode::O2),
+            &relocated,
+        )
+        .unwrap();
+
+        assert_eq!(
+            only_compiler_check_outcome(&report),
+            &ActionCacheOutcome::Hit
+        );
+    }
+
+    #[test]
+    fn compiler_check_cache_restores_semantic_provider_source_closure() {
+        let invocation = test_invocation();
+        write_compiler_check_source(
+            &invocation,
+            concat!(
+                "using std::process;\n",
+                "pub fn main(init: process::Init) process::ExitCode!void {\n",
+                "    _ = init;\n",
+                "    !{}\n",
+                "}\n",
+            ),
+        );
+        let plan = compiler_check_plan_with_runtime(
+            &invocation,
+            OptimizationMode::O2,
+            Runtime::Freestanding,
+        );
+
+        let cold = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            only_compiler_check_outcome(&cold),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::NotFound)
+        );
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(only_compiler_check_outcome(&warm), &ActionCacheOutcome::Hit);
+    }
+
+    #[test]
+    fn compiler_check_cache_does_not_publish_warnings() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, "using std::collections;\nfn main() void {}\n");
+        let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
+
+        for report in [
+            execute_build_plan(&plan, &invocation).unwrap(),
+            execute_build_plan(&plan, &invocation).unwrap(),
+        ] {
+            assert_eq!(
+                only_compiler_check_outcome(&report),
+                &ActionCacheOutcome::Miss(ActionCacheMissReason::Uncacheable)
+            );
+        }
+    }
+
+    #[test]
+    fn compiler_check_cache_retires_corruption_and_recompiles() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
+        let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
+        execute_build_plan(&plan, &invocation).unwrap();
+        let namespace = invocation.cache_dir.join("actions/compiler-checks/v1");
+        let key_dir = fs::read_dir(namespace)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let entry = fs::read_dir(key_dir)
+            .unwrap()
+            .find_map(|entry| {
+                let path = entry.unwrap().path();
+                (path.extension().and_then(|value| value.to_str()) == Some("entry")).then_some(path)
+            })
+            .unwrap();
+        fs::write(entry, b"corrupt").unwrap();
+
+        let report = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            only_compiler_check_outcome(&report),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Corrupt)
+        );
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(only_compiler_check_outcome(&warm), &ActionCacheOutcome::Hit);
+    }
+
+    #[test]
+    fn compiler_check_cache_never_publishes_missing_sources() {
+        let invocation = test_invocation();
+        let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
+
+        for _ in 0..2 {
+            assert!(matches!(
+                execute_build_plan(&plan, &invocation),
+                Err(CoordinatorError::Driver { .. })
+            ));
+        }
+        assert!(
+            !invocation
+                .cache_dir
+                .join("actions/compiler-checks/v1")
+                .exists()
         );
     }
 

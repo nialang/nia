@@ -1879,6 +1879,47 @@ remain open. All 81 `nia-loader-query`, 491 `nia-driver`, and 90 ordinary
 ignored outside its parent probe. Workspace all-target/all-feature check,
 strict Clippy, and formatting also pass.
 
+Phase F progress (2026-08-02, compiler-check action-cache batch): the build
+coordinator now owns a versioned immutable success record for `CompilerCheck`.
+Its canonical identity combines the stable action and module declaration,
+target, optimization, runtime, the loader-owned sorted logical source closure,
+and separate compiler, resource-layout, standard-library, and build-protocol
+components without retaining absolute physical paths. Lookup validates the
+current loader manifest before an exact hit skips semantic Driver checking.
+Source, module, target, optimization, runtime, and toolchain changes remain
+component-exact invalidation reasons.
+
+Publication uses the final source manifest paired with the exact Driver loader
+session after semantic provider discovery, rather than reusing the pre-check
+lookup candidate. Only a successful check with a complete source closure and
+zero diagnostics publishes a record. Warning-producing checks, missing sources,
+incomplete manifests, and failures remain uncacheable. The record contains no
+session-local `CheckedProgram` and does not claim compiler emit restoration.
+Truncated, trailing, identity-mismatched, or corrupt records are rejected and
+retired under scoped cache coordination; publication remains immutable and
+atomic for concurrent readers.
+
+Focused coordinator coverage proves cold/warm behavior, source and optimization
+invalidation, relocation through one shared cache, repeated warning misses,
+corrupt-record recompilation, and missing-source non-publication. Codec tests
+cover canonical round-trip, every truncated prefix, trailing bytes, identity
+mismatch, and the new component classifications; a freestanding std-dependent
+case additionally proves that the persistent provider-demand plan restores the
+final semantic source closure for a warm hit. All 81 `nia-loader-query`, 491
+`nia-driver`, and 99 ordinary `nia-build` tests pass; the build-cache worker
+helper remains intentionally ignored outside its parent probe. Workspace all-
+target/all-feature check, strict Clippy, formatting, and diff checks pass.
+
+A real copied `configured_optimization` package run through production
+`nia build` reports `Miss(NotFound)` and `4.421s` plan execution when cold, then
+one action-cache hit and `0.407s` plan execution when warm. Total invocation
+time remains dominated by build-runner compilation (`84.469s` cold and
+`30.203s` warm), so this evidence credits only the compiler-check execution cut
+and does not reinterpret the separately recorded runner compilation bottleneck.
+This closes the successful zero-diagnostic compiler-check slice of Phase F.
+Compiler emit output restoration, external-command input closure, and
+dependency-artifact propagation remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

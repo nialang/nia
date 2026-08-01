@@ -350,8 +350,12 @@ as either missing or present with its content fingerprint and byte length. A
 fully present manifest exposes the same aggregate program-source fingerprint
 used by compiler frontend cache keys; any missing source makes that aggregate
 unavailable. `nia-driver` forwards this manifest as a read-only result for build
-validation. Build code must not rediscover imports or compute a parallel source
-closure.
+validation. Its compiler-check publication API returns the checked program and
+the final manifest from the same loader database after semantic provider
+discovery, so concurrent Driver reuse cannot associate a result with another
+request's source closure. Build code may use a pre-check manifest for lookup,
+but must use this exact final manifest for publication; it must not rediscover
+imports or compute a parallel source closure.
 
 ### 3.3 `nia-node-id`
 
@@ -1888,6 +1892,16 @@ execute that plan. The Rust coordinator validates the frozen plan, computes the
 selected dependency closure, and calls the compiler through typed `nia-driver`
 requests; it does not embed the compiler through a separate ABI bridge or
 reconstruct compiler work as raw CLI arguments.
+
+The build action cache can skip a compiler-check semantic execution only after
+the loader validates a complete logical source manifest against a versioned
+record containing the action, module mapping, target, optimization, runtime,
+and toolchain/std/protocol identities. These records represent only a previous
+successful zero-diagnostic check and contain no session-local compiler product.
+Warnings and incomplete source manifests do not publish records. Compiler emit
+output restoration and dependency-artifact propagation remain separate build
+cache work; the Driver continues to own its internal frontend, object, and link
+products.
 
 `build.nia` is compiled and run as ordinary Nia code. The Rust toolchain owns
 package-root discovery, runner generation, plan validation, scheduling, and
