@@ -342,12 +342,35 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
                     ActionCacheMissReason::NotFound => {
                         nia_timing::emit_counter("build.action_cache_miss_not_found", 1);
                     }
+                    ActionCacheMissReason::Uncacheable => {
+                        nia_timing::emit_counter("build.action_cache_miss_uncacheable", 1);
+                    }
                     ActionCacheMissReason::Invalidated(reasons) => {
                         nia_timing::emit_counter("build.action_cache_miss_invalidated", 1);
                         for reason in reasons {
                             match reason {
                                 ActionCacheInvalidation::Contents => nia_timing::emit_counter(
                                     "build.action_cache_invalidation_contents",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Sources => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_sources",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Module => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_module",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Target => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_target",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Optimization => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_optimization",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Runtime => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_runtime",
                                     1,
                                 ),
                                 ActionCacheInvalidation::Output => nia_timing::emit_counter(

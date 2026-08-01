@@ -12,6 +12,12 @@ use nia_toolchain::ToolchainIdentity;
 
 use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock};
 
+mod compiler_check;
+
+pub(crate) use compiler_check::{
+    CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
+};
+
 const GENERATED_FILE_MAGIC: &[u8; 8] = b"NIAGEN01";
 const GENERATED_FILE_SCHEMA: &str = "v1";
 static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -32,6 +38,7 @@ pub enum ActionCacheOutcome {
 pub enum ActionCacheMissReason {
     NotFound,
     Invalidated(Vec<ActionCacheInvalidation>),
+    Uncacheable,
     Corrupt,
     ReadError,
     WriteError,
@@ -40,6 +47,11 @@ pub enum ActionCacheMissReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionCacheInvalidation {
     Contents,
+    Sources,
+    Module,
+    Target,
+    Optimization,
+    Runtime,
     Output,
     Compiler,
     ResourceLayout,

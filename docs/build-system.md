@@ -47,7 +47,7 @@ the coordinator's only execution input.
 | Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; delete compile-time checkout lookup |
 | Compiler actions and compiler cache | `nia-driver` and compiler query/codegen crates | remain compiler-owned typed actions/work products |
 | Link execution and link-result reuse | `nia-linker` and `nia-driver` | remain linker/Driver-owned; build references declared artifacts |
-| Build-action cache | `nia-build` | generated-file slice implemented; compiler and external-command slices remain gated on complete typed identities |
+| Build-action cache | `nia-build` | generated-file and zero-diagnostic compiler-check slices implemented; compiler emit and external-command slices remain gated on restorable outputs and complete typed identities |
 | End-to-end build contracts | `crates/nia-cli/tests/build_cases.rs` | remain resource-accounted integration evidence |
 | Build performance evidence | `tools/build_baseline.py` and `benchmarks/build/representative` | observational only; never cache truth |
 
@@ -268,17 +268,15 @@ and final deinitialization failures without collapsing them to an unexplained
 exit code. Coordinator errors add package/action identity to target mismatch,
 logical-root, module-map, unsupported-action, and Driver failures.
 
-Build-cache entries are immutable and content-addressed. The first Phase F
-slice admits only generated-file actions because their complete semantic input
-is already typed: stable action key, logical output identity, byte contents,
+Build-cache entries are immutable and content-addressed. Generated-file actions
+fingerprint their stable action key, logical output identity, byte contents,
 and separate compiler, resource-layout, std, and build-protocol compatibility
-components. Compiler and external-command actions do not report action-cache
-hits until their source/dependency and executable/environment identities are
-complete. Compiler module declarations can recursively discover source files
-that are not yet represented by a frozen action input closure. External
-commands can still inherit undeclared environment and read arbitrary working-
-directory state. Treating either action kind as a hit before those boundaries
-close would be unsound.
+components. Successful compiler-check actions additionally have a bounded
+action record; compiler emit and external-command actions do not report action-
+cache hits until their restorable output/dependency and executable/environment
+identities are complete. External commands can still inherit undeclared
+environment and read arbitrary working-directory state. Treating those action
+kinds as hits before those boundaries close would be unsound.
 
 Compiler requests nevertheless preserve the plan identity needed to close that
 input boundary. Each package-, build-, cache-, toolchain-, or artifact-rooted
@@ -296,10 +294,30 @@ aggregate program fingerprint exists only when every entry is present. Dynamic
 provider modules remain part of the same loader graph. The existing persistent
 provider-demand plan validates its recorded source closure before restoring
 those demands, allowing a warm loader session to reconstruct the complete
-manifest across process and toolchain relocation. Compiler actions remain
-uncacheable until the build action cache persists an expected manifest with the
-action's target/options/output contract and validates it before skipping the
-Driver execution.
+manifest across process and toolchain relocation.
+
+Compiler-check records live under
+`.nia-cache/actions/compiler-checks/v1/`. Their identity includes the stable
+action key, module root and import mapping, target, optimization, runtime,
+sorted logical source identities with content fingerprints and lengths, and
+separate compiler, resource-layout, std, and build-protocol components.
+Absolute physical paths are excluded. Lookup asks the loader for a pre-check
+manifest; an exact hit proves only that the same action previously completed
+with zero diagnostics, so it can skip semantic Driver checking but not source
+closure validation.
+
+On a miss, the Driver returns the checked program together with the final
+manifest from that exact loader session after provider discovery. Publication
+uses that final manifest, never the earlier lookup candidate. A record is
+published only for a successful check whose diagnostic list is empty and whose
+source closure is complete. Warnings, missing sources, failed checks, and
+incomplete manifests remain explicitly uncacheable. The record stores no
+session-local checked program and restores no compiler emit output; object and
+link products remain owned by the Driver caches. Reads repeat and validate all
+canonical identities and fingerprints, reject truncation and trailing bytes,
+and retire corruption under a scoped mutation lock. Source, module, target,
+optimization, runtime, and toolchain component changes remain distinct miss
+reasons.
 
 Generated-file entries live in a versioned action-kind namespace under
 `.nia-cache/actions/`. Their envelope repeats the action key fingerprint,

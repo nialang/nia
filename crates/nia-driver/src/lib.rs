@@ -19,9 +19,10 @@ pub use nia_toolchain::{
     ToolchainIdentity, ToolchainLayout, ToolchainLayoutError, ToolchainLayoutRequest,
 };
 pub use pipeline::{
-    CheckRequest, Driver, DriverConfig, DriverError, DriverOutput, EmitLlvmRequest,
-    EmitObjectRequest, ExecutableArtifact, LinkExecutableRequest, LlvmIrArtifact, ObjectArtifact,
-    ObjectOutput, Runtime, WriteObjectRequest, WrittenObjectArtifact,
+    CheckRequest, CheckedProgramWithSourceManifest, Driver, DriverConfig, DriverError,
+    DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact, LinkExecutableRequest,
+    LlvmIrArtifact, ObjectArtifact, ObjectOutput, Runtime, WriteObjectRequest,
+    WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,

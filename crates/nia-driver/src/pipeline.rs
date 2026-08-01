@@ -36,6 +36,12 @@ pub struct CheckRequest {
     pub runtime: Runtime,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedProgramWithSourceManifest {
+    pub program: CheckedProgram,
+    pub source_manifest: SourceInputManifest,
+}
+
 #[derive(Debug, Clone)]
 pub struct DriverConfig {
     pub toolchain: std::sync::Arc<ToolchainLayout>,
@@ -305,8 +311,40 @@ impl Driver {
         })
     }
 
+    pub fn check_entry_with_source_manifest(
+        &self,
+        request: CheckRequest,
+    ) -> DriverOutput<CheckedProgramWithSourceManifest> {
+        DriverOutput::catch_ice(|| {
+            let checked = match self.check_entry_with_source_manifest_inner(request) {
+                Ok(checked) => checked,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            if has_error_diagnostics(&checked.program.diagnostics) {
+                return DriverOutput::from_check_diagnostics(checked.program);
+            }
+            DriverOutput::success(checked)
+        })
+    }
+
     fn check_entry_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CheckedProgram> {
         self.compile_with(request, CompilerDatabase::entry_check_program)
+    }
+
+    fn check_entry_with_source_manifest_inner(
+        &self,
+        request: CheckRequest,
+    ) -> nia_query::QueryResult<CheckedProgramWithSourceManifest> {
+        let (program, source_manifest) =
+            self.compile_with_source_manifest(request, CompilerDatabase::entry_check_program)?;
+        Ok(CheckedProgramWithSourceManifest {
+            program,
+            source_manifest,
+        })
     }
 
     #[cfg(test)]
@@ -361,10 +399,41 @@ impl Driver {
         Ok(output)
     }
 
+    fn compile_with_source_manifest<T>(
+        &self,
+        request: CheckRequest,
+        compile: impl Fn(&CompilerDatabase) -> nia_query::QueryResult<T>,
+    ) -> nia_query::QueryResult<(T, SourceInputManifest)>
+    where
+        T: ProviderDemandOutput,
+    {
+        let timings = request.timings;
+        let (database, loader) = self.compilation_databases(&request)?;
+        let output = compile(&database)?;
+        let source_manifest = loader.source_input_manifest()?;
+        let loader_trace = self.loader_query_trace();
+        emit_compilation_counters(
+            timings,
+            &database,
+            &loader_trace,
+            &output,
+            database.provider_demand_rounds(),
+        );
+        Ok((output, source_manifest))
+    }
+
     fn compiler_database(
         &self,
         request: &CheckRequest,
     ) -> nia_query::QueryResult<CompilerDatabase> {
+        self.compilation_databases(request)
+            .map(|(compiler, _)| compiler)
+    }
+
+    fn compilation_databases(
+        &self,
+        request: &CheckRequest,
+    ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
         let loader = self.loader_database(request);
         loader.load_program()?;
         let query_session = loader.query_session();
@@ -382,7 +451,7 @@ impl Driver {
             compiler.database.clone()
         } else {
             let database = CompilerDatabase::new(
-                CompileRequest::new(loader)
+                CompileRequest::new(loader.clone())
                     .with_optimization(request.optimization)
                     .with_timings(request.timings)
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
@@ -394,7 +463,7 @@ impl Driver {
             database
         };
         drop(compiler_guard);
-        Ok(database)
+        Ok((database, loader))
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
