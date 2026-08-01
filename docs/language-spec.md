@@ -3084,6 +3084,15 @@ artifact and whose working directory is the package root. The executable must
 already have an emit step; the builder adds that producer dependency and plan
 freeze verifies it independently.
 `RunOptions::withArguments(arguments)` supplies `StringView` arguments.
+`Build::addExternalCommandStep(name,
+ExternalCommandOptions::search(program))` declares a searched external program.
+`ExternalCommandOptions::withArguments` and `withWorkingDirectory` declare its
+arguments and package-relative working directory. Its resource class defaults
+to `ActionResourceClass::Conservative`, which reserves all ready-action capacity
+because an otherwise unknown process cannot safely overlap other build work.
+`withResourceClass(ActionResourceClass::Cpu)` and
+`withResourceClass(ActionResourceClass::Io)` explicitly declare actions that
+consume one action slot. Unknown open-enum values are invalid build input.
 Names, paths, imports, arguments, and options passed to these methods are
 borrowed only for the duration of the call. `Build` copies retained values into
 allocator-owned storage, so local arrays may leave scope before a selected step

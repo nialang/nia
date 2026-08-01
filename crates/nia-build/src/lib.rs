@@ -24,6 +24,7 @@ mod coordinator;
 mod lock;
 mod output_recovery;
 mod plan;
+mod resources;
 
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,

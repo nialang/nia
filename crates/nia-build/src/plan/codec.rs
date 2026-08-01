@@ -301,6 +301,7 @@ impl Writer {
                 self.target(target)?;
             }
             ActionKind::ExternalCommand {
+                resource_class,
                 program,
                 arguments,
                 working_directory,
@@ -309,6 +310,7 @@ impl Writer {
                 outputs,
             } => {
                 self.u8(2);
+                self.resource_class(*resource_class);
                 match program {
                     CommandProgram::Path(path) => {
                         self.u8(0);
@@ -388,6 +390,14 @@ impl Writer {
                 Ok(())
             }
         }
+    }
+
+    fn resource_class(&mut self, value: ActionResourceClass) {
+        self.u8(match value {
+            ActionResourceClass::Conservative => 0,
+            ActionResourceClass::Cpu => 1,
+            ActionResourceClass::Io => 2,
+        });
     }
 
     fn option_step_key(&mut self, value: Option<&StepKey>) -> Result<(), PlanCodecError> {
@@ -616,6 +626,7 @@ impl<'a> Reader<'a> {
                 target: self.target()?,
             },
             2 => {
+                let resource_class = self.resource_class()?;
                 let program_offset = self.offset;
                 let program_tag = self.u8()?;
                 let program = match program_tag {
@@ -630,6 +641,7 @@ impl<'a> Reader<'a> {
                     }
                 };
                 ActionKind::ExternalCommand {
+                    resource_class,
                     program,
                     arguments: self.list(|reader| {
                         let offset = reader.offset;
@@ -700,6 +712,21 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn resource_class(&mut self) -> Result<ActionResourceClass, PlanCodecError> {
+        let offset = self.offset;
+        let tag = self.u8()?;
+        match tag {
+            0 => Ok(ActionResourceClass::Conservative),
+            1 => Ok(ActionResourceClass::Cpu),
+            2 => Ok(ActionResourceClass::Io),
+            _ => Err(PlanCodecError::InvalidTag {
+                kind: "action resource class",
+                tag,
+                offset,
+            }),
+        }
+    }
+
     fn option_step_key(&mut self) -> Result<Option<StepKey>, PlanCodecError> {
         let offset = self.offset;
         let tag = self.u8()?;
@@ -735,6 +762,7 @@ mod tests {
             PlanAction {
                 key: ActionKey::new(package.clone(), "command").unwrap(),
                 kind: ActionKind::ExternalCommand {
+                    resource_class: ActionResourceClass::Cpu,
                     program: CommandProgram::Search("cc".into()),
                     arguments: vec![
                         CommandArgument::Literal("-v".into()),
@@ -786,6 +814,25 @@ mod tests {
         let plan = BuildPlan::freeze(value).unwrap();
         let bytes = plan.encode().unwrap();
         assert_eq!(BuildPlan::decode(&bytes).unwrap(), plan);
+    }
+
+    #[test]
+    fn resource_class_codec_rejects_unknown_tags() {
+        let mut reader = Reader::new(&[0, 1, 2, 3]);
+        assert_eq!(
+            reader.resource_class().unwrap(),
+            ActionResourceClass::Conservative
+        );
+        assert_eq!(reader.resource_class().unwrap(), ActionResourceClass::Cpu);
+        assert_eq!(reader.resource_class().unwrap(), ActionResourceClass::Io);
+        assert_eq!(
+            reader.resource_class(),
+            Err(PlanCodecError::InvalidTag {
+                kind: "action resource class",
+                tag: 3,
+                offset: 3,
+            })
+        );
     }
 
     #[test]

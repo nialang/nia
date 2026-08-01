@@ -30,6 +30,7 @@ using types::{
     RunExecutableStep,
     CommandArgument,
     CommandArgumentKind,
+    ActionResourceClass,
     ExternalCommandOptions,
     ExternalCommandStep,
     OwnedCommandArgument,
@@ -878,6 +879,7 @@ extend ExternalCommandOptions {
             program: string::StringView::init(program),
             arguments: null,
             workingDirectory: fs::PathView::init(&""),
+            resourceClass: ActionResourceClass::Conservative,
         }
     }
 
@@ -886,6 +888,7 @@ extend ExternalCommandOptions {
             program: self.program,
             arguments: ?arguments,
             workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
         }
     }
 
@@ -894,6 +897,16 @@ extend ExternalCommandOptions {
             program: self.program,
             arguments: self.arguments,
             workingDirectory: workingDirectory,
+            resourceClass: self.resourceClass,
+        }
+    }
+
+    pub fn withResourceClass(self, resourceClass: ActionResourceClass) ExternalCommandOptions {
+        {
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: resourceClass,
         }
     }
 }
@@ -926,6 +939,7 @@ extend ExternalCommandStep {
             program: string::StringBuf::init(),
             arguments: collections::ArrayList[OwnedCommandArgument]::init(),
             workingDirectory: fs::PathBuf::init(),
+            resourceClass: options.resourceClass,
         };
         let mut transferred = false;
         defer if not transferred {
@@ -1046,6 +1060,12 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
         or not isValidPackagePath(options.workingDirectory.string(), true)
     {
         return invalidStep(index);
+    }
+    switch options.resourceClass {
+        ActionResourceClass::Conservative => {},
+        ActionResourceClass::Cpu => {},
+        ActionResourceClass::Io => {},
+        _ => return invalidStep(index),
     }
     switch options.arguments {
         ?arguments => {

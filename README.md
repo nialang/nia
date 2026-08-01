@@ -178,6 +178,15 @@ leave scope before execution. `setDefaultStep(step)`
 selects the step used by `nia build` when no step name is passed; otherwise
 users must request a named step explicitly.
 
+`addExternalCommandStep(name, ExternalCommandOptions::search(program))`
+declares a searched external tool. External commands default to the
+`ActionResourceClass::Conservative` resource class, which runs without another
+same-wave action because undeclared tool resource use is not assumed safe.
+Tools with a known profile can opt into `ActionResourceClass::Cpu` or
+`ActionResourceClass::Io` through `withResourceClass`. `nia build -j N` and
+`--jobs N` limit ready build actions without increasing the inherited process
+capacity or replacing compiler and LLVM resource accounting.
+
 The runner only configures and encodes the immutable plan. The Rust coordinator
 validates the plan before executing its selected dependency closure; no callback
 or raw compiler command bridge remains. This is still an experimental API, not
