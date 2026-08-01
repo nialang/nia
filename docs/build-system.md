@@ -280,6 +280,17 @@ commands can still inherit undeclared environment and read arbitrary working-
 directory state. Treating either action kind as a hit before those boundaries
 close would be unsound.
 
+Compiler requests nevertheless preserve the plan identity needed to close that
+input boundary. Each package-, build-, cache-, toolchain-, or artifact-rooted
+source has a physical path for current-invocation I/O and a stable logical
+`SourcePath` identity derived from its typed root and protocol path. The Driver
+passes both roles intact into the loader, whose recursive module discovery
+derives child physical paths and logical identities in parallel. Moving the
+same package tree therefore leaves its recursive logical source manifest
+unchanged. This is only the identity foundation: compiler actions remain
+uncacheable until the loader-owned manifest is persisted and every source and
+dependency artifact in it is validated.
+
 Generated-file entries live in a versioned action-kind namespace under
 `.nia-cache/actions/`. Their envelope repeats the action key fingerprint,
 complete action fingerprint, component fingerprints, canonical logical output,
