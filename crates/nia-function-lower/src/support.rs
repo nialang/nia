@@ -204,8 +204,60 @@ impl FunctionLowerer<'_> {
                     TypedPatternKind::Expr(_)
                         | TypedPatternKind::CheckedInt { .. }
                         | TypedPatternKind::Wildcard
+                ) && !matches!(
+                    &pattern.kind,
+                    TypedPatternKind::EnumVariant { fields, .. } if fields.is_empty()
                 )
             })
+        })
+    }
+
+    pub(super) fn direct_switch_target(
+        &self,
+        switch: &TypedSwitch,
+        target: FunctionExpr,
+    ) -> FunctionExpr {
+        let Some(backing_type) =
+            switch
+                .arms
+                .iter()
+                .flat_map(|arm| &arm.patterns)
+                .find_map(|pattern| match &pattern.kind {
+                    TypedPatternKind::EnumVariant {
+                        backing_type,
+                        fields,
+                        ..
+                    } if fields.is_empty() => Some(*backing_type),
+                    _ => None,
+                })
+        else {
+            return target;
+        };
+        FunctionExpr {
+            span: target.span,
+            ty: backing_type,
+            kind: FunctionExprKind::EnumTag {
+                value: Box::new(target),
+            },
+        }
+    }
+
+    pub(super) fn direct_enum_switch_pattern(
+        &self,
+        pattern: &TypedPattern,
+    ) -> Option<FunctionExpr> {
+        let TypedPatternKind::EnumVariant {
+            variant,
+            backing_type,
+            fields,
+        } = &pattern.kind
+        else {
+            return None;
+        };
+        fields.is_empty().then_some(FunctionExpr {
+            span: pattern.span,
+            ty: *backing_type,
+            kind: FunctionExprKind::EnumVariantTag(*variant),
         })
     }
 

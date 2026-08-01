@@ -1734,6 +1734,22 @@ their signature type-module dependencies before validation and indexing.
 Focused shallow imported-trait validation, HashMap context/iteration, and all
 10 allocator acceptance cases pass.
 
+The newly unblocked workspace tail exposed two older acceptance gaps. The LLVM
+codegen test harness had not been migrated to the explicit relocatable
+toolchain layout, so its std/start tests could not load the `std` namespace;
+and the payload-enum lowering migration sent zero-field enum patterns through
+the generic condition-chain path, losing the established direct LLVM switch
+shape. Codegen tests now receive the same explicit development layout as other
+compiler tests, and zero-field enum patterns lower through a tag-valued
+`FunctionTerminator::Switch` while payload patterns retain the condition-chain
+path. The full workspace, including the 14-case production build matrix,
+`command_cases`, `linker_cases`, 197 LLVM codegen tests, 490 Driver tests, all
+remaining crate tests, and doc tests, passes. This closes the explicit
+deterministic single-build-action-worker slice, while Phase F remains open for
+declared resource classes, broader cross-process/cache stress acceptance,
+compiler/external input-closure caching, dependency-artifact propagation, and
+the complete warm-build measurement.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
