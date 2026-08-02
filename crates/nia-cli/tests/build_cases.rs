@@ -283,13 +283,14 @@ fn assert_configured_build_success(
                 &[
                     nia_build::CommandArgument::Literal("-c".to_string()),
                     nia_build::CommandArgument::Literal(
-                        "test \"$MODE\" = fixture && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
+                        "test \"$MODE\" = fixture && test -s \"$4\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
                             .to_string()
                     ),
                     nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
                     nia_build::CommandArgument::InputPath(inputs[0].clone()),
                     nia_build::CommandArgument::OutputPath(outputs[1].clone()),
                     nia_build::CommandArgument::OutputPath(outputs[0].clone()),
+                    nia_build::CommandArgument::InputPath(inputs[1].clone()),
                 ]
             );
             assert!(matches!(
@@ -304,12 +305,17 @@ fn assert_configured_build_success(
                     value: Some("fixture".to_string()),
                 }]
             );
-            assert_eq!(inputs.len(), 1);
+            assert_eq!(inputs.len(), 2);
             assert!(matches!(
                 inputs[0].root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
             ));
             assert_eq!(inputs[0].protocol_path(), "tool-input.txt");
+            assert!(matches!(
+                inputs[1].root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
+            ));
+            assert!(inputs[1].components().is_empty());
             assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),
@@ -345,7 +351,7 @@ fn assert_configured_build_success(
             .iter()
             .map(nia_build::StepKey::name)
             .collect::<Vec<_>>(),
-        ["run"]
+        ["build", "run"]
     );
     assert_eq!(
         plan.default_step().map(nia_build::StepKey::name),

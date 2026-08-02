@@ -1178,9 +1178,9 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phases A, B, C, D, and E are complete. Phase F incremental build cache and
-resource scheduling is in progress, while the standard-library reconstruction
-track remains active. Later implementation phases are not marked complete by
+Phases A, B, C, D, E, and F are complete. The standard-library reconstruction
+track remains active, and Phase G artifact/package-boundary work is the next
+main build-system phase. Later implementation phases are not marked complete by
 roadmap text.
 
 The current compiler core is stable enough to support this work, but build/std
@@ -2034,6 +2034,35 @@ while build-runner compilation remains the main end-to-end cost.
 All 119 ordinary `nia-build` tests pass with one cache-worker helper ignored.
 Workspace all-target/all-feature check, strict Clippy, formatting, and diff
 checks pass.
+
+Phase F completion (2026-08-02, dependency-artifact propagation batch):
+`std::build::CommandArgument::artifactInput` lets an external command consume a
+declared executable artifact without spelling its build output as an untyped
+path. The builder validates the `ExecutableHandle` owner, requires an existing
+emit step, retains the typed handle, and automatically adds the producer edge.
+Rust plan freeze independently requires every Artifact-root command program or
+input to name the complete artifact and finds its matching compiler emit in the
+step dependency closure, so malformed or hand-authored protocol bytes cannot
+rely on execution order alone.
+
+The coordinator resolves the typed input to the artifact's declared output.
+The external-command cache snapshots those bytes separately from ordinary file
+inputs; focused coverage proves a changed dependency artifact reports
+`Dependencies` invalidation. A foreign-builder handle is rejected by the public
+Nia API, and the configured production fixture proves the artifact is present
+when the command runs, appears in the canonical plan input list, and adds the
+emit producer to the tool step. Its isolated cold run took `123.074s`, including
+`111.097s` compiling the runner and `11.966s` executing the plan. The unchanged
+run reported two of two build-action cache hits and reduced plan execution to
+`0.705s`; runner compilation remained the dominant `38.852s` of the `39.559s`
+total.
+
+Together with the compiler check/emit records, hermetic external-command
+records, generated-file cache, declared resource scheduling, deterministic and
+cross-process stress gates, and repeated warm-build evidence above, this closes
+every Phase F task and acceptance item. The next build-system phase is Phase G;
+the independent standard-library reconstruction track remains open and must
+close before Phase G freezes its broader text/path-facing artifact APIs.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

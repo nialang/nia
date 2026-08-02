@@ -113,11 +113,17 @@ pub enum CommandArgumentKind: i32 {
     PackageInput = 2,
     BuildInput = 3,
     BuildOutput = 4,
+    ArtifactInput = 5,
+}
+
+pub(pkg) union CommandArgumentPayload {
+    value: string::StringView,
+    artifact: ExecutableHandle,
 }
 
 pub struct CommandArgument {
     kind: CommandArgumentKind,
-    value: string::StringView,
+    payload: CommandArgumentPayload,
 }
 
 pub enum ActionResourceClass: i32 {
@@ -154,9 +160,14 @@ pub struct ExternalCommandOptions {
     environment: ?&[CommandEnvironmentInput],
 }
 
+pub(pkg) union OwnedCommandArgumentPayload {
+    value: string::StringBuf,
+    artifact: ExecutableHandle,
+}
+
 pub(pkg) struct OwnedCommandArgument {
     kind: CommandArgumentKind,
-    value: string::StringBuf,
+    payload: OwnedCommandArgumentPayload,
 }
 
 pub(pkg) struct OwnedCommandEnvironmentInput {

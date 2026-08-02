@@ -806,4 +806,33 @@ mod tests {
         );
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn dependency_artifact_change_has_its_own_invalidation_reason() {
+        let root = root("dependency-invalidation");
+        let cache = ExternalCommandCache::new(root.clone());
+        let identity = identity();
+        cache
+            .publish(&identity, &[b"first".to_vec(), b"second".to_vec()])
+            .unwrap();
+
+        let mut changed = identity.clone();
+        changed.dependencies = b"changed-dependencies".to_vec();
+        changed.fingerprints.components.dependencies = component(
+            "nia.build.external-command-dependencies.v1",
+            &changed.dependencies,
+        );
+        changed.fingerprints = FingerprintSet::new(
+            changed.fingerprints.cache_key,
+            changed.fingerprints.components,
+        );
+
+        assert_eq!(
+            cache.lookup(&changed).unwrap(),
+            ExternalCommandCacheLookup::Miss(ActionCacheMissReason::Invalidated(vec![
+                ActionCacheInvalidation::Dependencies,
+            ]))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

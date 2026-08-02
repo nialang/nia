@@ -236,6 +236,8 @@ with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output throu
 - [docs/nia-abi.md](docs/nia-abi.md): ABI and layout rules.
 - [docs/architecture.md](docs/architecture.md): compiler architecture and phase
   boundaries.
+- [docs/codebase-index.md](docs/codebase-index.md): maintainer index for crate
+  ownership, build/std entry points, tests, and common change paths.
 - [docs/build-system.md](docs/build-system.md): build ownership, plan/action
   contracts, current-case migration, and resource discipline.
 - [docs/standard-library.md](docs/standard-library.md): std layering,
