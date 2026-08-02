@@ -491,7 +491,7 @@ fn containsNul(text: &[char]) bool {
 }
 
 fn textEquals(left: &[char], right: &[char]) bool {
-    mem::equal[char](left, right)
+    left.equals(right)
 }
 
 fn invalidPlan[T]() Error!T {

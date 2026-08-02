@@ -17,6 +17,7 @@ using std::build;
 using std::fs;
 using std::mem;
 using std::process;
+using std::string;
 
 fn target(
     arch: &[char],
@@ -76,7 +77,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
 }
 
 fn textIs(actual: &[char], expected: &[char]) bool {
-    mem::equal[char](actual, expected)
+    actual.equals(expected)
 }
 
 fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
