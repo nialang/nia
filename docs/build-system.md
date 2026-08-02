@@ -283,13 +283,32 @@ after which `withEnvironment` supplies the command's explicit values.
 by a typed command input. Plan freeze accepts that declaration only with a
 cleared environment and at least one declared output.
 
-That declaration is a prerequisite for caching, not a cache implementation or
-a promise that the command cannot inspect undeclared working-directory state.
-External commands still do not report action-cache hits. Persistent external
-command records must additionally fingerprint the resolved tool, explicit
-environment, logical working directory, complete declared and dependency
-inputs, and every restorable output. Inherited or explicitly uncacheable
-commands remain permanently outside that path.
+Eligible external commands have immutable records under
+`.nia-cache/actions/external-commands/v1/`. Their identity includes the stable
+action and command declaration, logical working directory, explicit
+environment, logical paths plus contents of declared regular-file inputs,
+logical dependency-artifact inputs when present, ordered logical outputs, and
+separate compiler, resource-layout, std, and build-protocol components. Search
+programs are resolved before lookup; the declared search name and resolved
+executable bytes form the tool identity, while its absolute installation path
+does not.
+
+Each record stores every regular-file output with an independent length and
+checksum. A hit restores all payloads through the same journaled multi-output
+transaction used after process execution, so readers cannot accept a partial
+set. Truncation, trailing bytes, checksum or identity damage, and content-path
+mismatch retire the exact record and become typed misses. Read and publication
+failures remain nonfatal cache misses. If the tool or inputs change while the
+process runs, the accepted outputs remain valid for that invocation but are not
+cached. Concurrent publishers accept only identical output sets for one
+identity; differing results expose undeclared state as a write miss rather than
+replacing the first immutable record.
+
+Inherited and explicitly uncacheable commands never perform a lookup or report
+a hit. A `DeclaredInputs` assertion remains the build script's responsibility:
+the cache cannot prove that a command refrained from inspecting undeclared cwd
+state. Producer-closure propagation for dependency-artifact command inputs is
+still separate graph/API work.
 
 Compiler requests nevertheless preserve the plan identity needed to close that
 input boundary. Each package-, build-, cache-, toolchain-, or artifact-rooted
@@ -461,6 +480,16 @@ unchanged run took 31.032 seconds, with 30.609 seconds compiling the runner and
 hit. The warm object/link hits belong to runner compilation. The artifact emit
 performed no semantic, codegen, or link execution after action validation, so
 this result credits the action cut without hiding the runner bottleneck.
+
+A 2026-08-02 copied production `configured_success` sample exercises the
+external-command cache together with compiler emit, a real generated runner,
+and two staged command outputs. The cold run took 119.939 seconds: 108.052
+seconds compiled the runner and 11.876 seconds executed the plan. The unchanged
+run reported two of two build-action cache hits, reduced plan execution to
+0.728 seconds, and restored both command outputs correctly. Its 39.030-second
+total remained dominated by 38.294 seconds of runner compilation. This sample
+therefore demonstrates the process-execution cut without changing the existing
+runner-compilation bottleneck diagnosis.
 
 This measurement exposed a cache correctness boundary. Codegen partition
 definition membership must be canonicalized by stable source definition

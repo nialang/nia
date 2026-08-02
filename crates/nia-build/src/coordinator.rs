@@ -23,13 +23,15 @@ use nia_target_config::TargetConfig;
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
-    ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument, CommandProgram,
-    LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey,
-    PlanAction, PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
+    ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument,
+    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, EnvironmentInput, LogicalPath,
+    LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
+    PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
-        CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup, GeneratedFileCache,
-        GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
+        CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup,
+        ExternalCommandCache, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,
+        GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
     },
     lock::{ScopedFileLock, output_lock_path},
     output_recovery::{OutputTransactionJournal, recover_interrupted_output_transactions},
@@ -134,6 +136,12 @@ pub enum CoordinatorError {
         operation: &'static str,
         error: io::Error,
     },
+    ExternalCommandIo {
+        action: ActionKey,
+        path: PathBuf,
+        operation: &'static str,
+        error: io::Error,
+    },
     ExternalCommand(Box<ExternalCommandError>),
     StagedOutput {
         action: ActionKey,
@@ -222,6 +230,17 @@ impl fmt::Display for CoordinatorError {
             } => write!(
                 f,
                 "build action `{}` failed to {operation} generated file `{}`: {error}",
+                action.name(),
+                path.display()
+            ),
+            Self::ExternalCommandIo {
+                action,
+                path,
+                operation,
+                error,
+            } => write!(
+                f,
+                "build action `{}` failed to {operation} external command input `{}`: {error}",
                 action.name(),
                 path.display()
             ),
@@ -600,7 +619,7 @@ impl DriverActionExecutor {
             ActionKind::ExternalCommand {
                 resource_class: _,
                 environment_policy,
-                cache_policy: _,
+                cache_policy,
                 program,
                 arguments,
                 working_directory,
@@ -608,121 +627,18 @@ impl DriverActionExecutor {
                 inputs,
                 outputs,
             } => {
-                let working_directory = self.resolve_path(action, working_directory)?;
-                let program = match program {
-                    CommandProgram::Path(path) => {
-                        let path = self.resolve_path(action, path)?;
-                        path.to_str()
-                            .ok_or_else(|| CoordinatorError::NonUtf8Path {
-                                action: action.key.clone(),
-                                path: path.clone(),
-                            })?
-                            .to_string()
-                    }
-                    CommandProgram::Search(name) => name.clone(),
-                };
-                let resolved_inputs = inputs
-                    .iter()
-                    .map(|input| self.resolve_path(action, input).map(|path| (input, path)))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let resolved_outputs = outputs
-                    .iter()
-                    .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let mut staged = if resolved_outputs.is_empty() {
-                    None
-                } else {
-                    Some(prepare_staged_outputs(
-                        action,
-                        &self.invocation.build_dir,
-                        &resolved_outputs,
-                    )?)
-                };
-                let resolved_arguments = arguments
-                    .iter()
-                    .map(|argument| match argument {
-                        CommandArgument::Literal(value) => Ok(value.clone()),
-                        CommandArgument::InputPath(path) => {
-                            let (_, resolved) = resolved_inputs
-                                .iter()
-                                .find(|(input, _)| *input == path)
-                                .ok_or_else(|| {
-                                    inconsistent(
-                                        format!("action `{}`", action.key.name()),
-                                        "declared command input binding".to_string(),
-                                    )
-                                })?;
-                            path_text(action, resolved)
-                        }
-                        CommandArgument::OutputPath(path) => {
-                            let Some(index) = resolved_outputs
-                                .iter()
-                                .position(|(output, _)| *output == path)
-                            else {
-                                return Err(inconsistent(
-                                    format!("action `{}`", action.key.name()),
-                                    "matching command output binding".to_string(),
-                                ));
-                            };
-                            let staged = staged.as_ref().ok_or_else(|| {
-                                inconsistent(
-                                    format!("action `{}`", action.key.name()),
-                                    "declared command output transaction".to_string(),
-                                )
-                            })?;
-                            path_text(action, &staged.outputs[index].temporary)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, CoordinatorError>>();
-                let resolved_arguments = match resolved_arguments {
-                    Ok(arguments) => arguments,
-                    Err(cause) => {
-                        return match staged.take() {
-                            Some(staged) => {
-                                cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
-                            }
-                            None => Err(cause),
-                        }
-                        .map(|()| None);
-                    }
-                };
-                let execution = execute_external_command(
+                return self.execute_external_command_action(
                     action,
-                    ResolvedExternalCommand {
-                        program: &program,
-                        arguments: &resolved_arguments,
-                        working_directory: &working_directory,
-                        environment_policy: *environment_policy,
-                        environment,
-                    },
-                    ExternalExecutionPolicy {
-                        timeout: EXTERNAL_COMMAND_TIMEOUT,
-                        forward_output: true,
-                        cancellation: Some(cancellation),
-                    },
+                    *environment_policy,
+                    *cache_policy,
+                    program,
+                    arguments,
+                    working_directory,
+                    environment,
+                    inputs,
+                    outputs,
+                    cancellation,
                 );
-                match (execution, staged) {
-                    (Ok(()), Some(staged)) if cancellation.is_cancelled() => {
-                        let cause =
-                            CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
-                                action: action.key.clone(),
-                                program,
-                                arguments: resolved_arguments,
-                                working_directory,
-                                failure: ExternalCommandFailure::Cancelled {
-                                    stdout: Vec::new(),
-                                    stderr: Vec::new(),
-                                },
-                            }));
-                        cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
-                    }
-                    (Ok(()), Some(staged)) => publish_staged_outputs(action, staged),
-                    (Ok(()), None) => Ok(()),
-                    (Err(cause), Some(staged)) => {
-                        cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
-                    }
-                    (Err(cause), None) => Err(cause),
-                }
             }
             ActionKind::GeneratedFile { output, contents } => {
                 return self.execute_generated_file(action, output, contents);
@@ -730,6 +646,252 @@ impl DriverActionExecutor {
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
         };
         result.map(|()| None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_external_command_action(
+        &self,
+        action: &PlanAction,
+        environment_policy: CommandEnvironmentPolicy,
+        cache_policy: CommandCachePolicy,
+        program: &CommandProgram,
+        arguments: &[CommandArgument],
+        logical_working_directory: &LogicalPath,
+        environment: &[EnvironmentInput],
+        inputs: &[LogicalPath],
+        outputs: &[LogicalPath],
+        cancellation: &ActionCancellation,
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let working_directory = self.resolve_path(action, logical_working_directory)?;
+        let resolved_inputs = inputs
+            .iter()
+            .map(|input| self.resolve_path(action, input).map(|path| (input, path)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let resolved_outputs = outputs
+            .iter()
+            .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let cacheable = cache_policy == CommandCachePolicy::DeclaredInputs;
+        let resolved_program = match program {
+            CommandProgram::Path(path) => self.resolve_path(action, path)?,
+            CommandProgram::Search(name) if cacheable => {
+                resolve_search_program(action, name, &working_directory, environment)?
+            }
+            CommandProgram::Search(name) => PathBuf::from(name),
+        };
+        let program_text = path_text(action, &resolved_program)?;
+
+        let cache = ExternalCommandCache::new(self.invocation.cache_dir.clone());
+        let mut cache_identity = if cacheable {
+            Some(self.external_command_cache_identity(
+                action,
+                program,
+                arguments,
+                logical_working_directory,
+                environment,
+                &resolved_inputs,
+                outputs,
+                &resolved_program,
+            )?)
+        } else {
+            None
+        };
+        let mut miss_reason = None;
+        if let Some(identity) = cache_identity.as_ref() {
+            match cache.lookup(identity) {
+                Ok(ExternalCommandCacheLookup::Hit(payloads)) => {
+                    restore_cached_external_outputs(
+                        action,
+                        &self.invocation.build_dir,
+                        &resolved_outputs,
+                        &payloads,
+                    )?;
+                    return Ok(Some(ActionCacheOutcome::Hit));
+                }
+                Ok(ExternalCommandCacheLookup::Miss(reason)) => miss_reason = Some(reason),
+                Err(_) => miss_reason = Some(ActionCacheMissReason::ReadError),
+            }
+        }
+
+        let mut staged = if resolved_outputs.is_empty() {
+            None
+        } else {
+            Some(prepare_staged_outputs(
+                action,
+                &self.invocation.build_dir,
+                &resolved_outputs,
+            )?)
+        };
+        let resolved_arguments = arguments
+            .iter()
+            .map(|argument| match argument {
+                CommandArgument::Literal(value) => Ok(value.clone()),
+                CommandArgument::InputPath(path) => {
+                    let (_, resolved) = resolved_inputs
+                        .iter()
+                        .find(|(input, _)| *input == path)
+                        .ok_or_else(|| {
+                            inconsistent(
+                                format!("action `{}`", action.key.name()),
+                                "declared command input binding".to_string(),
+                            )
+                        })?;
+                    path_text(action, resolved)
+                }
+                CommandArgument::OutputPath(path) => {
+                    let Some(index) = resolved_outputs
+                        .iter()
+                        .position(|(output, _)| *output == path)
+                    else {
+                        return Err(inconsistent(
+                            format!("action `{}`", action.key.name()),
+                            "matching command output binding".to_string(),
+                        ));
+                    };
+                    let staged = staged.as_ref().ok_or_else(|| {
+                        inconsistent(
+                            format!("action `{}`", action.key.name()),
+                            "declared command output transaction".to_string(),
+                        )
+                    })?;
+                    path_text(action, &staged.outputs[index].temporary)
+                }
+            })
+            .collect::<Result<Vec<_>, CoordinatorError>>();
+        let resolved_arguments = match resolved_arguments {
+            Ok(arguments) => arguments,
+            Err(cause) => {
+                return match staged.take() {
+                    Some(staged) => cleanup_staged_outputs(action, staged, Some(Box::new(cause))),
+                    None => Err(cause),
+                }
+                .map(|()| None);
+            }
+        };
+        let execution = execute_external_command(
+            action,
+            ResolvedExternalCommand {
+                program: &program_text,
+                arguments: &resolved_arguments,
+                working_directory: &working_directory,
+                environment_policy,
+                environment,
+            },
+            ExternalExecutionPolicy {
+                timeout: EXTERNAL_COMMAND_TIMEOUT,
+                forward_output: true,
+                cancellation: Some(cancellation),
+            },
+        );
+        let payloads = match (execution, staged.as_ref()) {
+            (Ok(()), Some(_)) if cancellation.is_cancelled() => {
+                let cause = CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
+                    action: action.key.clone(),
+                    program: program_text,
+                    arguments: resolved_arguments,
+                    working_directory,
+                    failure: ExternalCommandFailure::Cancelled {
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    },
+                }));
+                return cleanup_staged_outputs(
+                    action,
+                    staged.take().expect("staged output exists"),
+                    Some(Box::new(cause)),
+                )
+                .map(|()| None);
+            }
+            (Ok(()), Some(staged_output)) if cacheable => {
+                match read_staged_external_outputs(action, staged_output) {
+                    Ok(payloads) => Some(payloads),
+                    Err(cause) => {
+                        return cleanup_staged_outputs(
+                            action,
+                            staged.take().expect("staged output exists"),
+                            Some(Box::new(cause)),
+                        )
+                        .map(|()| None);
+                    }
+                }
+            }
+            (Ok(()), Some(_)) => None,
+            (Ok(()), None) => None,
+            (Err(cause), Some(_)) => {
+                return cleanup_staged_outputs(
+                    action,
+                    staged.take().expect("staged output exists"),
+                    Some(Box::new(cause)),
+                )
+                .map(|()| None);
+            }
+            (Err(cause), None) => return Err(cause),
+        };
+        if let Some(staged) = staged.take() {
+            publish_staged_outputs(action, staged)?;
+        }
+        let Some(identity) = cache_identity.take() else {
+            return Ok(None);
+        };
+        let current_identity = match self.external_command_cache_identity(
+            action,
+            program,
+            arguments,
+            logical_working_directory,
+            environment,
+            &resolved_inputs,
+            outputs,
+            &resolved_program,
+        ) {
+            Ok(identity) => identity,
+            Err(_) => {
+                return Ok(Some(ActionCacheOutcome::Miss(
+                    ActionCacheMissReason::Uncacheable,
+                )));
+            }
+        };
+        let reason = if current_identity != identity {
+            ActionCacheMissReason::Uncacheable
+        } else {
+            match cache.publish(&identity, payloads.as_deref().unwrap_or_default()) {
+                Ok(()) => miss_reason.unwrap_or(ActionCacheMissReason::NotFound),
+                Err(_) => ActionCacheMissReason::WriteError,
+            }
+        };
+        Ok(Some(ActionCacheOutcome::Miss(reason)))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn external_command_cache_identity(
+        &self,
+        action: &PlanAction,
+        program: &CommandProgram,
+        arguments: &[CommandArgument],
+        working_directory: &LogicalPath,
+        environment: &[EnvironmentInput],
+        resolved_inputs: &[(&LogicalPath, PathBuf)],
+        outputs: &[LogicalPath],
+        resolved_program: &Path,
+    ) -> Result<ExternalCommandCacheIdentity, CoordinatorError> {
+        let tool_contents = read_external_identity_file(action, resolved_program, "read tool")?;
+        let inputs = resolved_inputs
+            .iter()
+            .map(|(logical, path)| {
+                read_external_identity_file(action, path, "read declared")
+                    .map(|contents| ((*logical).clone(), contents))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ExternalCommandCacheIdentity::new(
+            &action.key,
+            program,
+            arguments,
+            working_directory,
+            environment,
+            &inputs,
+            outputs,
+            &tool_contents,
+            self.invocation.toolchain.identity(),
+        ))
     }
 
     fn execute_compiler_check(
@@ -1115,6 +1277,177 @@ struct ResolvedExternalCommand<'a> {
     working_directory: &'a Path,
     environment_policy: crate::CommandEnvironmentPolicy,
     environment: &'a [crate::EnvironmentInput],
+}
+
+fn resolve_search_program(
+    action: &PlanAction,
+    name: &str,
+    working_directory: &Path,
+    environment: &[EnvironmentInput],
+) -> Result<PathBuf, CoordinatorError> {
+    let name_path = Path::new(name);
+    if name_path.is_absolute() || name_path.components().count() > 1 {
+        let candidate = if name_path.is_absolute() {
+            name_path.to_path_buf()
+        } else {
+            working_directory.join(name_path)
+        };
+        return executable_candidate(&candidate).ok_or_else(|| {
+            CoordinatorError::ExternalCommandIo {
+                action: action.key.clone(),
+                path: candidate,
+                operation: "resolve",
+                error: io::Error::new(io::ErrorKind::NotFound, "command program is not executable"),
+            }
+        });
+    }
+    let search_path = match environment.iter().find(|input| input.name == "PATH") {
+        Some(input) => input.value.as_deref().map(std::ffi::OsString::from),
+        None => std::env::var_os("PATH"),
+    };
+    if let Some(search_path) = search_path {
+        for directory in std::env::split_paths(&search_path) {
+            let directory = if directory.as_os_str().is_empty() {
+                working_directory.to_path_buf()
+            } else if directory.is_absolute() {
+                directory
+            } else {
+                working_directory.join(directory)
+            };
+            if let Some(candidate) = executable_candidate(&directory.join(name)) {
+                return Ok(candidate);
+            }
+        }
+    }
+    Err(CoordinatorError::ExternalCommandIo {
+        action: action.key.clone(),
+        path: PathBuf::from(name),
+        operation: "resolve",
+        error: io::Error::new(
+            io::ErrorKind::NotFound,
+            "command program was not found in PATH",
+        ),
+    })
+}
+
+fn executable_candidate(path: &Path) -> Option<PathBuf> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        (metadata.permissions().mode() & 0o111 != 0).then(|| path.to_path_buf())
+    }
+    #[cfg(not(unix))]
+    {
+        Some(path.to_path_buf())
+    }
+}
+
+fn read_external_identity_file(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+) -> Result<Vec<u8>, CoordinatorError> {
+    let metadata = fs::metadata(path).map_err(|error| CoordinatorError::ExternalCommandIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
+    })?;
+    if !metadata.is_file() {
+        return Err(CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+            operation,
+            error: io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input must be a regular file",
+            ),
+        });
+    }
+    fs::read(path).map_err(|error| CoordinatorError::ExternalCommandIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
+    })
+}
+
+fn read_staged_external_outputs(
+    action: &PlanAction,
+    staged: &StagedOutputTransaction,
+) -> Result<Vec<Vec<u8>>, CoordinatorError> {
+    staged
+        .outputs
+        .iter()
+        .map(|output| {
+            let metadata = fs::symlink_metadata(&output.temporary).map_err(|error| {
+                staged_output_io(
+                    action,
+                    &output.temporary,
+                    "inspect command-produced",
+                    error,
+                    None,
+                )
+            })?;
+            if !metadata.file_type().is_file() {
+                return Err(staged_output_io(
+                    action,
+                    &output.temporary,
+                    "cache non-file",
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "external command output must be a regular file",
+                    ),
+                    None,
+                ));
+            }
+            fs::read(&output.temporary).map_err(|error| {
+                staged_output_io(
+                    action,
+                    &output.temporary,
+                    "read command-produced",
+                    error,
+                    None,
+                )
+            })
+        })
+        .collect()
+}
+
+fn restore_cached_external_outputs(
+    action: &PlanAction,
+    build_dir: &Path,
+    resolved_outputs: &[(&LogicalPath, PathBuf)],
+    payloads: &[Vec<u8>],
+) -> Result<(), CoordinatorError> {
+    if resolved_outputs.len() != payloads.len() {
+        return Err(inconsistent(
+            format!("action `{}`", action.key.name()),
+            "matching cached external-command outputs".to_string(),
+        ));
+    }
+    let staged = prepare_staged_outputs(action, build_dir, resolved_outputs)?;
+    for (index, payload) in payloads.iter().enumerate() {
+        let temporary = staged.outputs[index].temporary.clone();
+        if let Err(error) = fs::write(&temporary, payload) {
+            return cleanup_staged_outputs(
+                action,
+                staged,
+                Some(Box::new(staged_output_io(
+                    action,
+                    &temporary,
+                    "restore cached",
+                    error,
+                    None,
+                ))),
+            );
+        }
+    }
+    publish_staged_outputs(action, staged)
 }
 
 #[derive(Clone, Copy)]
@@ -3710,6 +4043,267 @@ mod tests {
         .unwrap()
     }
 
+    fn cacheable_command_plan(invocation: &BuildInvocation, mode: &str) -> BuildPlan {
+        let input = LogicalPath::new(
+            LogicalPathRoot::Package(PackageKey::root()),
+            "tool-input.txt",
+        )
+        .unwrap();
+        let first = LogicalPath::new(LogicalPathRoot::Build, "tool/first.txt").unwrap();
+        let second = LogicalPath::new(LogicalPathRoot::Build, "tool/second.txt").unwrap();
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: target_spec(invocation.toolchain.host_target()),
+            artifact_target: target_spec(invocation.toolchain.artifact_target()),
+            modules: Vec::new(),
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: action("cached-tool"),
+                kind: ActionKind::ExternalCommand {
+                    resource_class: ActionResourceClass::Io,
+                    environment_policy: CommandEnvironmentPolicy::Clear,
+                    cache_policy: CommandCachePolicy::DeclaredInputs,
+                    program: CommandProgram::Search("sh".to_string()),
+                    arguments: vec![
+                        CommandArgument::Literal("-c".to_string()),
+                        CommandArgument::Literal(
+                            "printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; printf meta > \"$3\""
+                                .to_string(),
+                        ),
+                        CommandArgument::Literal("nia-cached-tool".to_string()),
+                        CommandArgument::InputPath(input.clone()),
+                        CommandArgument::OutputPath(first.clone()),
+                        CommandArgument::OutputPath(second.clone()),
+                    ],
+                    working_directory: LogicalPath::new(
+                        LogicalPathRoot::Package(PackageKey::root()),
+                        "",
+                    )
+                    .unwrap(),
+                    environment: vec![EnvironmentInput {
+                        name: "MODE".to_string(),
+                        value: Some(mode.to_string()),
+                    }],
+                    inputs: vec![input],
+                    outputs: vec![first, second],
+                },
+            }],
+            steps: vec![PlanStep {
+                key: step("cached-tool"),
+                action: action("cached-tool"),
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(step("cached-tool")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
+    fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
+        let output = LogicalPath::new(LogicalPathRoot::Build, "path-tool.txt").unwrap();
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: target_spec(invocation.toolchain.host_target()),
+            artifact_target: target_spec(invocation.toolchain.artifact_target()),
+            modules: Vec::new(),
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: action("path-tool"),
+                kind: ActionKind::ExternalCommand {
+                    resource_class: ActionResourceClass::Io,
+                    environment_policy: CommandEnvironmentPolicy::Clear,
+                    cache_policy: CommandCachePolicy::DeclaredInputs,
+                    program: CommandProgram::Path(
+                        LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "tool.sh")
+                            .unwrap(),
+                    ),
+                    arguments: vec![CommandArgument::OutputPath(output.clone())],
+                    working_directory: LogicalPath::new(
+                        LogicalPathRoot::Package(PackageKey::root()),
+                        "",
+                    )
+                    .unwrap(),
+                    environment: Vec::new(),
+                    inputs: Vec::new(),
+                    outputs: vec![output],
+                },
+            }],
+            steps: vec![PlanStep {
+                key: step("path-tool"),
+                action: action("path-tool"),
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(step("path-tool")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
+    fn only_external_cache_outcome(report: &ExecutionReport) -> &ActionCacheOutcome {
+        assert_eq!(report.action_cache.len(), 1);
+        &report.action_cache[0].outcome
+    }
+
+    #[test]
+    fn cacheable_external_command_restores_all_outputs_without_execution() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        fs::write(invocation.package_root.join("tool-input.txt"), b"source").unwrap();
+        let plan = cacheable_command_plan(&invocation, "cold");
+
+        let cold = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            only_external_cache_outcome(&cold),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::NotFound)
+        );
+        let first = invocation.build_dir.join("tool/first.txt");
+        let second = invocation.build_dir.join("tool/second.txt");
+        assert_eq!(fs::read(&first).unwrap(), b"cold:SOURCE");
+        assert_eq!(fs::read(&second).unwrap(), b"meta");
+
+        fs::write(&first, b"stale first").unwrap();
+        fs::remove_file(&second).unwrap();
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(only_external_cache_outcome(&warm), &ActionCacheOutcome::Hit);
+        assert_eq!(fs::read(&first).unwrap(), b"cold:SOURCE");
+        assert_eq!(fs::read(&second).unwrap(), b"meta");
+        assert_no_staged_command_directories(first.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
+    }
+
+    #[test]
+    fn external_command_cache_reuses_relocated_logical_inputs_and_outputs() {
+        let first = test_invocation();
+        fs::create_dir_all(&first.package_root).unwrap();
+        fs::write(first.package_root.join("tool-input.txt"), b"relocated").unwrap();
+        let first_plan = cacheable_command_plan(&first, "shared");
+        let cold = execute_build_plan(&first_plan, &first).unwrap();
+        assert!(matches!(
+            only_external_cache_outcome(&cold),
+            ActionCacheOutcome::Miss(_)
+        ));
+
+        let mut second = test_invocation();
+        second.cache_dir = first.cache_dir.clone();
+        fs::create_dir_all(&second.package_root).unwrap();
+        fs::write(second.package_root.join("tool-input.txt"), b"relocated").unwrap();
+        let second_plan = cacheable_command_plan(&second, "shared");
+        let warm = execute_build_plan(&second_plan, &second).unwrap();
+
+        assert_eq!(only_external_cache_outcome(&warm), &ActionCacheOutcome::Hit);
+        assert_eq!(
+            fs::read(second.build_dir.join("tool/first.txt")).unwrap(),
+            b"shared:RELOCATED"
+        );
+        assert_eq!(
+            fs::read(second.build_dir.join("tool/second.txt")).unwrap(),
+            b"meta"
+        );
+    }
+
+    #[test]
+    fn external_command_cache_classifies_input_and_environment_changes() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let input = invocation.package_root.join("tool-input.txt");
+        fs::write(&input, b"first").unwrap();
+        let initial = cacheable_command_plan(&invocation, "one");
+        execute_build_plan(&initial, &invocation).unwrap();
+
+        fs::write(&input, b"second").unwrap();
+        let changed_input = execute_build_plan(&initial, &invocation).unwrap();
+        assert_eq!(
+            only_external_cache_outcome(&changed_input),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Inputs,
+            ]))
+        );
+        assert_eq!(
+            fs::read(invocation.build_dir.join("tool/first.txt")).unwrap(),
+            b"one:SECOND"
+        );
+
+        let changed_environment =
+            execute_build_plan(&cacheable_command_plan(&invocation, "two"), &invocation).unwrap();
+        assert_eq!(
+            only_external_cache_outcome(&changed_environment),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Environment,
+            ]))
+        );
+        assert_eq!(
+            fs::read(invocation.build_dir.join("tool/first.txt")).unwrap(),
+            b"two:SECOND"
+        );
+    }
+
+    #[test]
+    fn corrupt_external_command_record_is_retired_and_rebuilt() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        fs::write(invocation.package_root.join("tool-input.txt"), b"source").unwrap();
+        let plan = cacheable_command_plan(&invocation, "repair");
+        execute_build_plan(&plan, &invocation).unwrap();
+        let namespace = invocation.cache_dir.join("actions/external-commands/v1");
+        let key_directory = fs::read_dir(namespace)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let entry = fs::read_dir(key_directory)
+            .unwrap()
+            .find_map(|entry| {
+                let path = entry.unwrap().path();
+                (path.extension().and_then(|value| value.to_str()) == Some("entry")).then_some(path)
+            })
+            .unwrap();
+        fs::write(&entry, b"corrupt").unwrap();
+
+        let repaired = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            only_external_cache_outcome(&repaired),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Corrupt)
+        );
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(only_external_cache_outcome(&warm), &ActionCacheOutcome::Hit);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_command_cache_hashes_resolved_tool_bytes() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let tool = invocation.package_root.join("tool.sh");
+        fs::write(&tool, b"#!/bin/sh\nprintf first > \"$1\"\n").unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+        let plan = cacheable_path_tool_plan(&invocation);
+        execute_build_plan(&plan, &invocation).unwrap();
+
+        fs::write(&tool, b"#!/bin/sh\nprintf second > \"$1\"\n").unwrap();
+        let changed = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert_eq!(
+            only_external_cache_outcome(&changed),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::ExternalTool,
+            ]))
+        );
+        assert_eq!(
+            fs::read(invocation.build_dir.join("path-tool.txt")).unwrap(),
+            b"second"
+        );
+    }
+
     fn assert_no_staged_command_directories(parent: &Path) {
         assert!(fs::read_dir(parent).unwrap().all(|entry| {
             !entry
@@ -4078,6 +4672,30 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn cacheable_program_search_honors_explicit_path_removal() {
+        let invocation = test_invocation();
+        fs::create_dir_all(&invocation.package_root).unwrap();
+        let error = resolve_search_program(
+            &external_action(),
+            "sh",
+            &invocation.package_root,
+            &[EnvironmentInput {
+                name: "PATH".to_string(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommandIo {
+                operation: "resolve",
+                ..
+            }
+        ));
     }
 
     #[test]

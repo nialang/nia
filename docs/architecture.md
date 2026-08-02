@@ -1966,12 +1966,23 @@ Build protocol schema 5 also separates an external command's environment and
 cache declarations. Existing commands inherit the coordinator environment and
 are uncacheable by default. A command may clear that environment and then add
 explicit owned name/value entries. Only a command that clears the environment,
-declares at least one output, and asserts `DeclaredInputs` crosses the hermetic
-API boundary required by a future persistent cache. The assertion means the
-build script accepts responsibility for listing every semantic file input; it
-does not currently produce a cache hit. The coordinator applies `env_clear`
-before explicit values, while plan validation and the versioned codec keep this
-boundary independent of process-local defaults.
+declares at least one output, and asserts `DeclaredInputs` crosses the
+persistent-cache boundary. The assertion means the build script accepts
+responsibility for listing every semantic file input. The coordinator applies
+`env_clear` before explicit values, resolves a search program to a concrete
+executable, and hashes its bytes before lookup. Absolute package, build, and
+tool installation paths remain outside the stable identity; logical
+cwd/input/output identities, explicit environment, command declaration, tool
+bytes, and toolchain compatibility components remain inside.
+
+An exact hit restores the complete checksummed output vector through the
+journaled staged-output transaction without starting a child process. Cold
+execution captures only regular staged outputs and publishes after the output
+transaction commits. A second tool/input snapshot must still match before
+publication. Cache read, corruption, and write failures do not replace action
+correctness; nondeterministic same-identity output sets are rejected rather
+than mutating an accepted record. Inherited and uncacheable commands remain on
+the ordinary execution path and cannot report cache hits.
 
 Path construction follows the standard-library view/buffer convention:
 `std::StringView` and `fs::PathView` are borrowed `&[char]` views, while

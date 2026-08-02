@@ -349,6 +349,32 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
                         nia_timing::emit_counter("build.action_cache_miss_invalidated", 1);
                         for reason in reasons {
                             match reason {
+                                ActionCacheInvalidation::Command => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_command",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::ExternalTool => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_external_tool",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Environment => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_environment",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Inputs => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_inputs",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::Dependencies => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_dependencies",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::WorkingDirectory => {
+                                    nia_timing::emit_counter(
+                                        "build.action_cache_invalidation_working_directory",
+                                        1,
+                                    )
+                                }
                                 ActionCacheInvalidation::Contents => nia_timing::emit_counter(
                                     "build.action_cache_invalidation_contents",
                                     1,

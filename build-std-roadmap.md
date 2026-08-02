@@ -1991,6 +1991,50 @@ All 110 ordinary `nia-build` tests pass with one cache-worker helper ignored,
 and all 4 `nia-toolchain` tests pass. Workspace all-target/all-feature check,
 strict Clippy, formatting, and diff checks pass.
 
+Phase F progress (2026-08-02, external-command multi-output cache batch):
+commands admitted by the schema-5 hermetic boundary now use an immutable local
+record under `.nia-cache/actions/external-commands/v1/`. The stable identity
+binds the action and typed command declaration, logical cwd, sorted explicit
+environment, resolved tool declaration and bytes, logical paths plus contents
+of declared regular inputs, separately classified dependency-artifact inputs,
+ordered logical outputs, and compiler/resource-layout/std/build-protocol
+compatibility components. Search tools resolve to a concrete executable before
+lookup without retaining its absolute installation path in the identity.
+
+The payload is the complete ordered regular-file output vector, with an
+independent length and checksum for every entry. Hits stage and restore that
+vector through the existing recoverable multi-output transaction and start no
+child process. Misses execute normally, commit outputs first, revalidate tool
+and input snapshots, and only then publish. A racing tool/input change leaves
+the successful build output intact but makes that execution uncacheable.
+Truncation, trailing bytes, checksum/identity corruption, read failure, and
+write failure remain typed misses. Concurrent publishers may share an
+identical output vector, while different outputs for one identity are rejected
+instead of replacing the first immutable record.
+
+Focused coverage proves cold miss/warm hit, deleted and stale two-output
+restoration, package/build relocation through one shared cache, exact input,
+environment, and resolved-tool invalidation, corrupt-record retirement and
+republication, every truncated prefix, trailing bytes, payload damage, and
+nondeterministic same-identity output rejection. Inherited and uncacheable
+commands retain the old execution path and never report hits. Phase F remains
+open for dependency-artifact producer-closure propagation and its public std
+surface; the cache already reserves a separate identity component for those
+inputs once the graph boundary supplies them.
+
+A copied production `configured_success` package confirms the integrated cut.
+The cold run took `119.939s`, including `108.052s` compiling the build runner
+and `11.876s` executing the plan. The unchanged run reported two of two
+build-action cache hits, restored both external-command outputs, and reduced
+plan execution to `0.728s`. Its `39.030s` total was still dominated by
+`38.294s` of runner compilation. This is consistent with the previously
+recorded bottleneck: the external tool process is removed from the warm plan,
+while build-runner compilation remains the main end-to-end cost.
+
+All 119 ordinary `nia-build` tests pass with one cache-worker helper ignored.
+Workspace all-target/all-feature check, strict Clippy, formatting, and diff
+checks pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
