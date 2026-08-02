@@ -108,10 +108,15 @@ The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
 as `using std::process;` or `using std::io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::iter`,
-`std::ArrayList`, `std::HashMap`, and `std::Atomic`.
+`std::ArrayList`, `std::HashMap`, `std::String`, and `std::Atomic`.
 Containers are organized under `std::collections` internally, but the root
 facade keeps the ordinary user-facing entry points at `std::ArrayList` and
 `std::HashMap`.
+`HashMapLookupContext[K, Q]` permits lookup with a query-view type distinct from
+the stored key. The default context implements `String` lookup by borrowed
+`&[char]`; `containsKeyBy`, `getBy`, `getMutBy`, `getEntryBy`, `getEntryMutBy`,
+`getKeyBy`, and `removeEntryBy` use that provider without allocating a temporary
+owned string.
 
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.

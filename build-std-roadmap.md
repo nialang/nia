@@ -2213,6 +2213,29 @@ method spelling only: explicit allocator repetition, owned collection element
 cleanup, and borrowed-key lookup remain open and are not hidden inside the
 rename.
 
+Standard-library reconstruction progress (2026-08-02, borrowed map lookup
+batch): `HashMapLookupContext[K, Q]` separates the stored key from a lightweight
+query view. Every existing `HashMapContext[K]` automatically supplies the
+same-key `Q = &K` provider, preserving custom contexts and the expected type
+context of calls such as `get(&{})`. New lower-camel query-view operations are
+`containsKeyBy`, `getBy`, `getMutBy`, `getEntryBy`, `getEntryMutBy`, `getKeyBy`,
+and `removeEntryBy`. The default context's demand-loaded String provider hashes
+and compares `&[char]` with exactly the same scalar stream as the stored
+`String`, so lookup and removal allocate no temporary text.
+
+The design exploration rejected two superficially simpler forms. Unsized
+`[char]` is not legal as a trait generic argument even when methods only take a
+pointer, so `Q` represents the pointer view `&[char]`. Replacing existing
+`get/remove` signatures with method-level generics removed their `&K` expected
+type and made `&{}` infer as `&void`; distinct `*By` methods retain old
+inference. Slice variables infer `Q` directly. A literal uses the maintained
+one-annotation spelling `map.getBy[&[char]](&"name")` because current provider
+impl patterns cannot match `&[N]char` in a trait argument. Runtime conformance
+exercises immutable/mutable value, entry, stored-key, absent-literal, and owned
+key removal paths. `removeEntryBy` returns the key for explicit cleanup. Map
+teardown and rejected/replaced incoming-key ownership remain open alongside the
+common allocator protocol.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically

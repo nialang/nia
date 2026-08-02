@@ -1,4 +1,5 @@
 using pkg::hash as hashPackage;
+using pkg::collections;
 using pkg::string as stringPackage;
 
 extend[H] stringPackage::String : hashPackage::Hash[H]
@@ -7,4 +8,22 @@ where H: hashPackage::Hasher
     fn hash(&self, hasher: &mut H) void {
         self.text().hash(hasher)
     }
+}
+
+extend collections::DefaultHashMapContext : collections::HashMapLookupContext[stringPackage::String, &[char]] {
+    fn hashQuery(&self, seed: u64, query: &[char]) u64 {
+        _ = self;
+        hashTextQuery(seed, query)
+    }
+
+    fn eqlQuery(&self, key: &stringPackage::String, query: &[char]) bool {
+        _ = self;
+        key.equals(query)
+    }
+}
+
+fn hashTextQuery(seed: u64, query: &[char]) u64 {
+    let mut hasher = hashPackage::Wyhash::init(seed);
+    query.hash(&mut hasher);
+    hasher.finish()
 }

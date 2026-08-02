@@ -26,6 +26,6 @@ pub using iterators::{
     HashMapValuesMutWithContext,
 };
 pub using map::HashMapWithContext;
-pub using types::HashMapContext;
+pub using types::{HashMapContext, HashMapLookupContext};
 
 pub type HashMap[K, V] = HashMapWithContext[K, V, DefaultHashMapContext];
