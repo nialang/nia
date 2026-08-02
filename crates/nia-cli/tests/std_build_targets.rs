@@ -297,6 +297,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )) {
         return process::exit(12)!;
     }
+    let foreignArtifactArguments = [build::CommandArgument::artifactInput(otherExecutable)];
+    if not rejectsForeignExecutable(api.addExternalCommandStep(
+        &"foreign-artifact-input",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&foreignArtifactArguments[..]),
+    )) {
+        return process::exit(14)!;
+    }
     if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
         return process::exit(6)!;
     }

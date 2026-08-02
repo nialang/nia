@@ -307,6 +307,30 @@ extend Build {
 
     pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
         validateExternalCommand(options, self.steps.len()).?;
+        let mut artifactInputCount: usize = 0;
+        switch options.arguments {
+            ?arguments => {
+                for &argument in arguments.iter() {
+                    if argument.kind == CommandArgumentKind::ArtifactInput {
+                        let target = argument.payload.artifact;
+                        self.validateExecutableHandle(target).?;
+                        switch self.findEmitStep(target) {
+                            ?producer => _ = producer,
+                            null => return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Step(self.steps.len()),
+                            }!,
+                        }
+                        artifactInputCount += 1;
+                    }
+                }
+            },
+            null => {},
+        }
+        self.dependencies.ensure_unused_capacity(
+            self.allocator,
+            artifactInputCount,
+        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
         let handle = StepHandle::init(self.ownerId, self.steps.len());
         let mut payload = ExternalCommandStep::init(self.allocator, options, handle.index()).?;
         let mut transferred = false;
@@ -319,6 +343,32 @@ extend Build {
             { externalCommand: payload },
         ).?;
         transferred = true;
+        let dependencyStart = self.dependencies.len();
+        let mut committed = false;
+        defer if not committed {
+            while self.dependencies.len() > dependencyStart {
+                _ = self.dependencies.pop();
+            }
+            self.rollbackLastStep().?;
+        };
+        switch options.arguments {
+            ?arguments => {
+                for &argument in arguments.iter() {
+                    if argument.kind == CommandArgumentKind::ArtifactInput {
+                        let producer = switch self.findEmitStep(argument.payload.artifact) {
+                            ?producer => producer,
+                            null => return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Step(handle.index()),
+                            }!,
+                        };
+                        self.dependOn(result, producer).?;
+                    }
+                }
+            },
+            null => {},
+        }
+        committed = true;
         !result
     }
 
@@ -851,28 +901,35 @@ extend CommandArgument {
     pub fn literal(value: &[char]) CommandArgument {
         {
             kind: CommandArgumentKind::Literal,
-            value: string::StringView::init(value),
+            payload: { value: string::StringView::init(value) },
         }
     }
 
     pub fn packageInput(path: fs::PathView) CommandArgument {
         {
             kind: CommandArgumentKind::PackageInput,
-            value: path.string(),
+            payload: { value: path.string() },
         }
     }
 
     pub fn buildInput(path: BuildPathView) CommandArgument {
         {
             kind: CommandArgumentKind::BuildInput,
-            value: string::StringView::init(path.text()),
+            payload: { value: string::StringView::init(path.text()) },
         }
     }
 
     pub fn buildOutput(path: BuildPathView) CommandArgument {
         {
             kind: CommandArgumentKind::BuildOutput,
-            value: string::StringView::init(path.text()),
+            payload: { value: string::StringView::init(path.text()) },
+        }
+    }
+
+    pub fn artifactInput(artifact: ExecutableHandle) CommandArgument {
+        {
+            kind: CommandArgumentKind::ArtifactInput,
+            payload: { artifact: artifact },
         }
     }
 }
@@ -978,15 +1035,24 @@ extend OwnedCommandArgument {
         argument: CommandArgument,
         index: usize,
     ) Error!OwnedCommandArgument {
+        if argument.kind == CommandArgumentKind::ArtifactInput {
+            return !{
+                kind: argument.kind,
+                payload: { artifact: argument.payload.artifact },
+            };
+        }
         let value = string::StringBuf::from_slice(
             allocator,
-            argument.value.text(),
+            argument.payload.value.text(),
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{ kind: argument.kind, value: value }
+        !{ kind: argument.kind, payload: { value: value } }
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
-        self.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+        if self.kind == CommandArgumentKind::ArtifactInput {
+            return !{};
+        }
+        self.payload.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
     }
 }
 
@@ -1237,24 +1303,33 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
     switch options.arguments {
         ?arguments => {
             for &argument in arguments.iter() {
-                if runArgumentContainsNul(argument.value.text()) {
+                if argument.kind == CommandArgumentKind::ArtifactInput {
+                    continue;
+                }
+                let value = argument.payload.value;
+                if runArgumentContainsNul(value.text()) {
                     return invalidStep(index);
                 }
                 if argument.kind == CommandArgumentKind::PackageInput
-                    and not isValidPackagePath(argument.value, false)
+                    and not isValidPackagePath(value, false)
                 {
                     return invalidStep(index);
                 }
                 if argument.kind == CommandArgumentKind::BuildInput
-                    and not isValidBuildPath(argument.value)
+                    and not isValidBuildPath(value)
                 {
                     return invalidStep(index);
                 }
                 if argument.kind == CommandArgumentKind::BuildOutput {
-                    if not isValidBuildPath(argument.value) {
+                    if not isValidBuildPath(value) {
                         return invalidStep(index);
                     }
                     hasOutput = true;
+                } else if not (argument.kind == CommandArgumentKind::Literal
+                    or argument.kind == CommandArgumentKind::PackageInput
+                    or argument.kind == CommandArgumentKind::BuildInput)
+                {
+                    return invalidStep(index);
                 }
             }
         },

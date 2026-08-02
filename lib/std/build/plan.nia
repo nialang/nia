@@ -291,16 +291,20 @@ extend PlanEncoder {
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::Literal {
                         self.writeU8(0).?;
-                        self.writeString(argument.value.view()).?;
+                        self.writeString(argument.payload.value.view()).?;
                     } else if argument.kind == CommandArgumentKind::PackageInput {
                         self.writeU8(1).?;
-                        self.writePackagePath(fs::PathView::init(argument.value.as_slice())).?;
+                        self.writePackagePath(fs::PathView::init(argument.payload.value.as_slice())).?;
                     } else if argument.kind == CommandArgumentKind::BuildInput {
                         self.writeU8(1).?;
-                        self.writeBuildPath(argument.value.view()).?;
+                        self.writeBuildPath(argument.payload.value.view()).?;
+                    } else if argument.kind == CommandArgumentKind::ArtifactInput {
+                        let target = executables[argument.payload.artifact.index];
+                        self.writeU8(1).?;
+                        self.writeArtifactPath(target.name.view()).?;
                     } else if argument.kind == CommandArgumentKind::BuildOutput {
                         self.writeU8(2).?;
-                        self.writeBuildPath(argument.value.view()).?;
+                        self.writeBuildPath(argument.payload.value.view()).?;
                     } else {
                         return invalidPlan();
                     }
@@ -316,6 +320,7 @@ extend PlanEncoder {
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::PackageInput
                         or argument.kind == CommandArgumentKind::BuildInput
+                        or argument.kind == CommandArgumentKind::ArtifactInput
                     {
                         inputCount += 1;
                     }
@@ -323,9 +328,12 @@ extend PlanEncoder {
                 self.writeCount(inputCount).?;
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::PackageInput {
-                        self.writePackagePath(fs::PathView::init(argument.value.as_slice())).?;
+                        self.writePackagePath(fs::PathView::init(argument.payload.value.as_slice())).?;
                     } else if argument.kind == CommandArgumentKind::BuildInput {
-                        self.writeBuildPath(argument.value.view()).?;
+                        self.writeBuildPath(argument.payload.value.view()).?;
+                    } else if argument.kind == CommandArgumentKind::ArtifactInput {
+                        let target = executables[argument.payload.artifact.index];
+                        self.writeArtifactPath(target.name.view()).?;
                     }
                 }
                 let mut outputCount: usize = 0;
@@ -337,7 +345,7 @@ extend PlanEncoder {
                 self.writeCount(outputCount).?;
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::BuildOutput {
-                        self.writeBuildPath(argument.value.view()).?;
+                        self.writeBuildPath(argument.payload.value.view()).?;
                     }
                 }
                 !{}

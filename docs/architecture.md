@@ -1909,8 +1909,11 @@ corrupt, invalidated, or unreadable products retire the build binding and fall
 back to ordinary compile/link work. Only a successful zero-diagnostic emit with
 a complete final source manifest and a published Driver link product can bind a
 record. Warnings and incomplete source manifests do not publish compiler action
-records. Dependency-artifact propagation remains separate build-cache work;
-the Driver continues to own its internal frontend, object, and link products.
+records. External commands can consume emitted executables through typed
+Artifact-root inputs. The builder adds the matching emit dependency, plan
+freeze independently validates the producer closure, and the command cache
+hashes the artifact bytes as a separate dependency component. The Driver
+continues to own its internal frontend, object, and link products.
 
 `build.nia` is compiled and run as ordinary Nia code. The Rust toolchain owns
 package-root discovery, runner generation, plan validation, scheduling, and
@@ -1941,7 +1944,10 @@ that output through its build-rooted logical identity.
 outputless external-command action using the executable's Artifact-root path and
 automatically depends on its existing emit producer; plan freeze verifies that
 dependency closure independently. `RunOptions::withArguments` supplies its
-arguments. The options and `ModuleImport` values are borrowed call descriptors.
+arguments. `CommandArgument::artifactInput(executable)` gives an ordinary
+external command a declared Artifact-root input and the same automatic producer
+edge; foreign handles and executables without an emit step are rejected. The
+options and `ModuleImport` values are borrowed call descriptors.
 Every value retained by `Build` is copied into `StringBuf`, `PathBuf`, an owned
 argument list, or an owned import record before the call returns. Fallible
 ownership transfer uses conditional `defer` rollback; deep records are released
@@ -1973,7 +1979,9 @@ responsibility for listing every semantic file input. The coordinator applies
 executable, and hashes its bytes before lookup. Absolute package, build, and
 tool installation paths remain outside the stable identity; logical
 cwd/input/output identities, explicit environment, command declaration, tool
-bytes, and toolchain compatibility components remain inside.
+bytes, dependency-artifact bytes, and toolchain compatibility components remain
+inside. Ordinary declared files and dependency artifacts use separate
+fingerprint components so invalidation reports identify the owning boundary.
 
 An exact hit restores the complete checksummed output vector through the
 journaled staged-output transaction without starting a child process. Cold

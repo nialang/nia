@@ -429,7 +429,7 @@ impl BuildPlan {
         canonicalize_steps(&mut draft.steps, &draft.actions)?;
         validate_step_selection(&draft)?;
         validate_step_cycles(&draft.steps)?;
-        validate_artifact_program_dependencies(&draft.actions, &draft.steps)?;
+        validate_artifact_dependencies(&draft.actions, &draft.steps)?;
         validate_output_ownership(&draft.actions, &draft.artifacts)?;
 
         Ok(Self {
@@ -879,7 +879,7 @@ fn validate_step_cycles(steps: &[PlanStep]) -> Result<(), PlanError> {
     Ok(())
 }
 
-fn validate_artifact_program_dependencies(
+fn validate_artifact_dependencies(
     actions: &[PlanAction],
     steps: &[PlanStep],
 ) -> Result<(), PlanError> {
@@ -890,25 +890,47 @@ fn validate_artifact_program_dependencies(
     let step_by_key: BTreeMap<_, _> = steps.iter().map(|step| (&step.key, step)).collect();
     for step in steps {
         let Some(ActionKind::ExternalCommand {
-            program: CommandProgram::Path(program),
-            ..
+            program, inputs, ..
         }) = action_by_key.get(&step.action).copied()
         else {
             continue;
         };
-        let LogicalPathRoot::Artifact(required) = program.root() else {
+        let mut required = BTreeMap::<ArtifactKey, &'static str>::new();
+        if let CommandProgram::Path(program) = program
+            && let LogicalPathRoot::Artifact(artifact) = program.root()
+        {
+            if !program.components().is_empty() {
+                return Err(PlanError::InvalidCommand {
+                    action: step.action.clone(),
+                    reason: "artifact program path must name the artifact root",
+                });
+            }
+            required.insert(
+                artifact.clone(),
+                "artifact program has no compiler emit dependency",
+            );
+        }
+        for input in inputs {
+            let LogicalPathRoot::Artifact(artifact) = input.root() else {
+                continue;
+            };
+            if !input.components().is_empty() {
+                return Err(PlanError::InvalidCommand {
+                    action: step.action.clone(),
+                    reason: "artifact input path must name the artifact root",
+                });
+            }
+            required
+                .entry(artifact.clone())
+                .or_insert("artifact input has no compiler emit dependency");
+        }
+        if required.is_empty() {
             continue;
-        };
-        if !program.components().is_empty() {
-            return Err(PlanError::InvalidCommand {
-                action: step.action.clone(),
-                reason: "artifact program path must name the artifact root",
-            });
         }
 
         let mut pending = step.dependencies.clone();
         let mut visited = BTreeSet::new();
-        let mut found = false;
+        let mut produced = BTreeSet::new();
         while let Some(dependency_key) = pending.pop() {
             if !visited.insert(dependency_key.clone()) {
                 continue;
@@ -919,20 +941,20 @@ fn validate_artifact_program_dependencies(
                     step: dependency_key.clone(),
                 }
             })?;
-            if matches!(
-                action_by_key.get(&dependency.action).copied(),
-                Some(ActionKind::CompilerEmit { artifact, .. }) if artifact == required
-            ) {
-                found = true;
-                break;
+            if let Some(ActionKind::CompilerEmit { artifact, .. }) =
+                action_by_key.get(&dependency.action).copied()
+            {
+                produced.insert(artifact.clone());
             }
             pending.extend(dependency.dependencies.iter().cloned());
         }
-        if !found {
-            return Err(PlanError::InvalidCommand {
-                action: step.action.clone(),
-                reason: "artifact program has no compiler emit dependency",
-            });
+        for (artifact, reason) in required {
+            if !produced.contains(&artifact) {
+                return Err(PlanError::InvalidCommand {
+                    action: step.action.clone(),
+                    reason,
+                });
+            }
         }
     }
     Ok(())
@@ -1429,6 +1451,56 @@ mod tests {
             .steps
             .iter_mut()
             .find(|step| step.key == run_step)
+            .unwrap()
+            .dependencies
+            .push(step_key("emit"));
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn artifact_input_requires_its_emit_step_in_the_dependency_closure() {
+        let mut value = draft(false);
+        let artifact = artifact_key("app");
+        let artifact_input = LogicalPath::new(LogicalPathRoot::Artifact(artifact), "").unwrap();
+        let tool_action = action_key("tool");
+        let tool_step = step_key("tool");
+        value.actions.push(PlanAction {
+            key: tool_action.clone(),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: vec![CommandArgument::InputPath(artifact_input.clone())],
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: vec![artifact_input],
+                outputs: Vec::new(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: tool_step.clone(),
+            action: tool_action,
+            dependencies: Vec::new(),
+        });
+        value.default_step = Some(tool_step.clone());
+
+        assert!(matches!(
+            BuildPlan::freeze(value.clone()),
+            Err(PlanError::InvalidCommand {
+                reason: "artifact input has no compiler emit dependency",
+                ..
+            })
+        ));
+
+        value
+            .steps
+            .iter_mut()
+            .find(|step| step.key == tool_step)
             .unwrap()
             .dependencies
             .push(step_key("emit"));

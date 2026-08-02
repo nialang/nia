@@ -120,7 +120,11 @@ Generated-file actions publish declared bytes atomically under the build root.
 adds that producer dependency, and encodes the artifact as an external-command
 program with a package-root working directory and no declared outputs. Freeze
 independently rejects an Artifact-root command lacking the matching compiler
-emit in its dependency closure. The coordinator closes stdin, forwards
+emit in its dependency closure. An ordinary external command can declare the
+same relationship through `CommandArgument::artifactInput`: the builder
+validates the handle owner, requires its emit step, retains the typed artifact
+input, and adds the producer edge. Freeze applies the same closure check to
+every Artifact-root program and input. The coordinator closes stdin, forwards
 stdout/stderr while retaining a bounded 64-KiB tail for each stream, enforces a
 seven-minute timeout, and retires the owned process group on timeout or after
 the leader exits. Spawn, wait, timeout, capture, and nonzero-exit failures retain
@@ -307,8 +311,10 @@ replacing the first immutable record.
 Inherited and explicitly uncacheable commands never perform a lookup or report
 a hit. A `DeclaredInputs` assertion remains the build script's responsibility:
 the cache cannot prove that a command refrained from inspecting undeclared cwd
-state. Producer-closure propagation for dependency-artifact command inputs is
-still separate graph/API work.
+state. Artifact inputs name the complete emitted file, resolve through the
+artifact declaration, and use a cache fingerprint component separate from
+ordinary declared files so dependency changes have an exact invalidation
+reason.
 
 Compiler requests nevertheless preserve the plan identity needed to close that
 input boundary. Each package-, build-, cache-, toolchain-, or artifact-rooted
