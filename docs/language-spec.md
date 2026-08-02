@@ -144,13 +144,15 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
 - `std::process` exposes program arguments and environment entries as
-  `Arg`/`EnvVar` values. These values provide `len()`, `bytes()`, `is_empty()`,
-  `cstring()`, and `raw_ptr()`; they also implement `std::fmt::Format`, so they can
+  `Arg`/`EnvVar` values. These values provide `len()`, `bytes()`, `isEmpty()`,
+  `cstring()`, and `rawPtr()`; they also implement `std::fmt::Format`, so they can
   be printed directly. `Args` provides `program()`, `get(index)`, `iter()`,
-  `skip_program()`, and `raw_argv()`; `ArgsIter` implements `Iterator` with
+  `skipProgram()`, and `rawArgv()`; `ArgsIter` implements `Iterator` with
   `Item = Arg` and also provides `remaining()`. `Env` provides `get(index)`,
-  `iter()`, and `raw_envp()`; `EnvIter` implements `Iterator` with
-  `Item = EnvVar` and also provides `remaining()`.
+  `iter()`, and `rawEnvp()`; `EnvIter` implements `Iterator` with
+  `Item = EnvVar` and also provides `remaining()`. `Init.rawArgv()` and
+  `Init.rawEnvp()` forward the original host-provided pointer arrays when a
+  reviewed low-level process boundary requires them.
 - `std::process` also extends `std::fs.Error` and `std::mem.Error` with
   `as_exit_code` and `exit` for explicitly returning standard library errors as
   process exit codes from executable entries. It also extends `std::fs.Error!T`

@@ -2521,6 +2521,15 @@ the ABI parameter (including the outer mutable-to-read-only coercion); nested
 pointer receiver methods take the required address. LLVM-level and executable
 coverage preserve that distinction.
 
+Standard-library reconstruction progress (2026-08-03, process view naming
+batch): borrowed process arguments and environment entries retain their
+zero-copy `CStringView`/byte-slice representation, but their public surface is
+now lower camel: `rawPtr`, `isEmpty`, `skipProgram`, `rawArgv`, and `rawEnvp`.
+The old snake-case spellings are physically absent with no aliases. This
+accepts naming for borrowed host views only; command-owned argument
+construction, spawn/wait errors, OS-facing ownership, and the broader process
+command API remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
