@@ -49,13 +49,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
         build::ExecutableOptions::init(&"many-imports", rootModule),
     ).?;
     _ = b.addEmitExecutableStep(&"emit", executable).?;
-    let runArguments = [
+    let runArguments: [32]&[char] = [
 "#,
     );
     for index in 0..32 {
-        build_source.push_str(&format!(
-            "        string::StringView::init(&\"argument-{index:02}\"),\n"
-        ));
+        build_source.push_str(&format!("        &\"argument-{index:02}\",\n"));
     }
     build_source.push_str(
         r#"    ];

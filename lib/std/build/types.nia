@@ -43,16 +43,16 @@ pub(pkg) enum ModuleSourceRoot: i32 {
 }
 
 pub struct BuildPathView {
-    path: string::StringView,
+    path: &[char],
 }
 
 pub struct TargetView {
-    arch: string::StringView,
-    vendor: string::StringView,
-    os: string::StringView,
-    env: string::StringView,
-    abi: string::StringView,
-    endian: string::StringView,
+    arch: &[char],
+    vendor: &[char],
+    os: &[char],
+    env: &[char],
+    abi: &[char],
+    endian: &[char],
     pointerWidth: u32,
 }
 
@@ -100,7 +100,7 @@ pub struct ExecutableStep {
 
 pub struct RunOptions {
     target: ExecutableHandle,
-    arguments: ?&[string::StringView],
+    arguments: ?&[&[char]],
 }
 
 pub struct RunExecutableStep {
@@ -117,7 +117,7 @@ pub enum CommandArgumentKind: i32 {
 }
 
 pub(pkg) union CommandArgumentPayload {
-    value: string::StringView,
+    value: &[char],
     artifact: ExecutableHandle,
 }
 
@@ -146,12 +146,12 @@ pub enum CommandCachePolicy: i32 {
 }
 
 pub struct CommandEnvironmentInput {
-    name: string::StringView,
-    value: string::StringView,
+    name: &[char],
+    value: &[char],
 }
 
 pub struct ExternalCommandOptions {
-    program: string::StringView,
+    program: &[char],
     arguments: ?&[CommandArgument],
     workingDirectory: fs::PathView,
     resourceClass: ActionResourceClass,
@@ -207,7 +207,7 @@ pub struct StepDependency {
 }
 
 pub struct ModuleOptions {
-    name: string::StringView,
+    name: &[char],
     sourceRoot: ModuleSourceRoot,
     rootSource: fs::PathView,
     optimization: OptimizationMode,
@@ -224,7 +224,7 @@ pub struct Module {
 }
 
 pub struct ModuleImport {
-    name: string::StringView,
+    name: &[char],
     path: fs::PathView,
 }
 
@@ -235,9 +235,9 @@ pub struct OwnedModuleImport {
 }
 
 pub struct ExecutableOptions {
-    name: string::StringView,
+    name: &[char],
     rootModule: ModuleHandle,
-    outputName: ?string::StringView,
+    outputName: ?&[char],
     runtime: Runtime,
 }
 

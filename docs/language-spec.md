@@ -3030,9 +3030,9 @@ A conforming Nia compiler supports:
 - freestanding executable emission for Linux x86_64 when a target linker is
   available.
 
-The standard text/path naming follows the view/buffer split: `std::StringView`
-and `std::fs::PathView` are borrowed views over `&[char]`, while
-`std::StringBuf` and `std::fs::PathBuf` own caller-allocated text storage.
+Borrowed scalar text uses the language-native `&[char]` representation.
+`std::fs::PathView` remains a nominal borrowed path over `&[char]`, while
+`std::StringBuf` and `std::fs::PathBuf` own caller-allocated storage.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 
@@ -3088,7 +3088,7 @@ outputless external-command action whose program is the typed executable
 artifact and whose working directory is the package root. The executable must
 already have an emit step; the builder adds that producer dependency and plan
 freeze verifies it independently.
-`RunOptions::withArguments(arguments)` supplies `StringView` arguments.
+`RunOptions::withArguments(arguments)` supplies `&[&[char]]` arguments.
 `Build::addExternalCommandStep(name,
 ExternalCommandOptions::search(program))` declares a searched external program.
 `ExternalCommandOptions::withArguments` and `withWorkingDirectory` declare its

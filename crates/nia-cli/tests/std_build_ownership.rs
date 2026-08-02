@@ -84,8 +84,7 @@ extend FaultAllocator : mem::Allocator {
 }
 
 fn testTarget(text: &[char]) build::TargetView {
-    let value = string::StringView::init(text);
-    build::TargetView::init(value, value, value, value, value, value, 64u32)
+    build::TargetView::init(text, text, text, text, text, text, 64u32)
 }
 
 fn isBuildDirRetainOom(error: build::Error) bool {
@@ -416,10 +415,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         build::ExecutableOptions::init(&targetName, moduleHandle).withOutputName(&outputName),
     ).exit().?;
     _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
-    let runArguments = [
-        string::StringView::init(&"first"),
-        string::StringView::init(&"second"),
-    ];
+    let runArguments: [2]&[char] = [&"first", &"second"];
     let beforeRun = allocator.activeAllocations;
     allocator.failAfter(1usize);
     switch api.addRunExecutableStep(

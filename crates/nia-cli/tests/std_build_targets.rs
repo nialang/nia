@@ -17,7 +17,6 @@ using std::build;
 using std::fs;
 using std::mem;
 using std::process;
-using std::string;
 
 fn target(
     arch: &[char],
@@ -29,12 +28,12 @@ fn target(
     pointerWidth: u32,
 ) build::TargetView {
     build::TargetView::init(
-        string::StringView::init(arch),
-        string::StringView::init(vendor),
-        string::StringView::init(os),
-        string::StringView::init(env),
-        string::StringView::init(abi),
-        string::StringView::init(endian),
+        arch,
+        vendor,
+        os,
+        env,
+        abi,
+        endian,
         pointerWidth,
     )
 }
@@ -76,8 +75,8 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
     )
 }
 
-fn textIs(actual: string::StringView, expected: &[char]) bool {
-    mem::equal[char](actual.text(), expected)
+fn textIs(actual: &[char], expected: &[char]) bool {
+    mem::equal[char](actual, expected)
 }
 
 fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
@@ -235,7 +234,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(11)!;
     }
     let invalidArgument: [3]char = ['a', '\0', 'b'];
-    let invalidArguments = [string::StringView::init(&invalidArgument[..])];
+    let invalidArguments: [1]&[char] = [&invalidArgument];
     if not rejectsInvalidStep(
         api.addRunExecutableStep(
             &"invalid-run",

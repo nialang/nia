@@ -1992,9 +1992,9 @@ correctness; nondeterministic same-identity output sets are rejected rather
 than mutating an accepted record. Inherited and uncacheable commands remain on
 the ordinary execution path and cannot report cache hits.
 
-Path construction follows the standard-library view/buffer convention:
-`std::StringView` and `fs::PathView` are borrowed `&[char]` views, while
-`std::StringBuf` and `fs::PathBuf` own caller-allocated text storage.
+Borrowed scalar text uses `&[char]` directly. `fs::PathView` adds nominal path
+semantics over borrowed scalar text, while `std::StringBuf` and `fs::PathBuf`
+own caller-allocated storage.
 `PathBuf::join` and `PathBuf::join_component` append with a native separator
 and explicit allocator use.
 

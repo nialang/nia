@@ -631,12 +631,12 @@ fn targetArg(
     storage: &mut TargetText,
     subject: build::ErrorSubject,
 ) build::Error!build::TargetView {
-    let arch = pathArg(init, allocator, startIndex, &mut storage.arch, subject).?.string();
-    let vendor = pathArg(init, allocator, startIndex + 1usize, &mut storage.vendor, subject).?.string();
-    let os = pathArg(init, allocator, startIndex + 2usize, &mut storage.os, subject).?.string();
-    let env = pathArg(init, allocator, startIndex + 3usize, &mut storage.env, subject).?.string();
-    let abi = pathArg(init, allocator, startIndex + 4usize, &mut storage.abi, subject).?.string();
-    let endian = pathArg(init, allocator, startIndex + 5usize, &mut storage.endian, subject).?.string();
+    let arch = pathArg(init, allocator, startIndex, &mut storage.arch, subject).?.text();
+    let vendor = pathArg(init, allocator, startIndex + 1usize, &mut storage.vendor, subject).?.text();
+    let os = pathArg(init, allocator, startIndex + 2usize, &mut storage.os, subject).?.text();
+    let env = pathArg(init, allocator, startIndex + 3usize, &mut storage.env, subject).?.text();
+    let abi = pathArg(init, allocator, startIndex + 4usize, &mut storage.abi, subject).?.text();
+    let endian = pathArg(init, allocator, startIndex + 5usize, &mut storage.endian, subject).?.text();
     let pointerWidthArg = switch init.args().get(startIndex + 6usize) {
         ?value => {
             value
