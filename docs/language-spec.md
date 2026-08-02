@@ -3039,6 +3039,10 @@ conversion: empty bytes are valid empty text, invalid non-empty sequences return
 `std::TextError::Allocation`.
 `StringBuf::appendUtf8(allocator, bytes)` has the same error model and preserves
 the original scalar text when validation or allocation fails.
+`StringBuf::appendFormat(allocator, template, args)` formats through a temporary
+byte buffer and then performs typed UTF-8 append. It returns
+`TextError::Format` for formatting failures and preserves the original text for
+formatting, UTF-8, allocation, or temporary-buffer cleanup failure.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 

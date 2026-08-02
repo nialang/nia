@@ -2136,6 +2136,26 @@ payload `switch` patterns for precise failure classification. This closes
 transactional whole-buffer UTF-8 append only: formatter composition, the owned
 text name, and the repeated allocator protocol remain open.
 
+Standard-library reconstruction progress (2026-08-02, transactional format
+append batch): `StringBuf::appendFormat(allocator, template, args)` formats into
+an allocator-owned temporary byte list and commits only through
+`appendUtf8`. `StringBuf` therefore does not pretend to be an arbitrary byte
+writer, and a custom `Format` implementation that emits invalid UTF-8 cannot
+violate scalar-text storage. `TextError::Format` preserves checked-template
+errors; a writer side channel recovers the concrete memory error otherwise
+collapsed into `fmt::Error::Write`; invalid formatted bytes remain a typed UTF-8
+failure. Temporary-buffer release is an explicit pre-commit step; an
+infallible conditional `defer` restores the old scalar length on release
+failure. This avoids assuming that a second defer will run after propagating an
+error from a cleanup defer. Runtime conformance proves successful numeric and
+non-ASCII composition, rollback after partial invalid-template output, invalid
+byte output, bounded-buffer OOM, and release failure after successful append.
+The maintained calling form uses
+`using std::fmt` plus one `[N]&fmt::Format` array annotation, exercising Nia's
+trait-object coercion without per-element casts. This closes transactional
+format append only: owned-text naming, comparison/search/hash composition, and
+the repeated allocator protocol remain open.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically
