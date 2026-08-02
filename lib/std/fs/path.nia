@@ -44,8 +44,8 @@ extend PathView {
     }
 
     pub fn to_path_buf(&self, allocator: &mut mem::Allocator) Error!PathBuf {
-        let mut text = string::StringBuf::from_slice(allocator, self.text()).as_fs_error().?;
-        !PathBuf::from_string_buf(text)
+        let mut text = string::String::fromSlice(allocator, self.text()).as_fs_error().?;
+        !PathBuf::fromString(text)
     }
 
     pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
@@ -85,19 +85,19 @@ extend PathView {
 
 extend PathBuf {
     pub fn init() PathBuf {
-        { text: string::StringBuf::init() }
+        { text: string::String::init() }
     }
 
     pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) Error!PathBuf {
-        let mut text = string::StringBuf::init_capacity(allocator, capacity).as_fs_error().?;
+        let mut text = string::String::initCapacity(allocator, capacity).as_fs_error().?;
         !PathBuf { text: text }
     }
 
     pub fn from_owned_slice(text: &mut [char]) PathBuf {
-        { text: string::StringBuf::from_owned_slice(text) }
+        { text: string::String::fromOwnedSlice(text) }
     }
 
-    pub fn from_string_buf(text: string::StringBuf) PathBuf {
+    pub fn fromString(text: string::String) PathBuf {
         { text: text }
     }
 
@@ -117,16 +117,12 @@ extend PathBuf {
         self.text.text()
     }
 
-    pub fn string_buf(&self) &string::StringBuf {
-        &self.text
-    }
-
     pub fn len(&self) usize {
         self.text.len()
     }
 
     pub fn is_empty(&self) bool {
-        self.text.is_empty()
+        self.text.isEmpty()
     }
 
     pub fn clear(&mut self) void {
@@ -142,7 +138,7 @@ extend PathBuf {
     }
 
     pub fn join(&mut self, allocator: &mut mem::Allocator, component: PathView) Error!void {
-        append_component_to_string_buf(allocator, component.text(), &mut self.text).?;
+        appendComponentToString(allocator, component.text(), &mut self.text).?;
         !{}
     }
 
@@ -159,10 +155,10 @@ extend PathBuf {
     }
 }
 
-fn append_component_to_string_buf(
+fn appendComponentToString(
     allocator: &mut mem::Allocator,
     component: &[char],
-    out: &mut string::StringBuf,
+    out: &mut string::String,
 ) Error!void {
     if component.len() == 0usize {
         return !{};

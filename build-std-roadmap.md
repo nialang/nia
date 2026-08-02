@@ -387,13 +387,14 @@ surface has capability but no single ergonomic contract:
 - the former `StringView` was a one-field wrapper around `&[char]` with duplicate
   `text()` and `as_slice()` accessors and no nominal invariant; the active text
   reconstruction retires it in favor of the slice;
-- `StringBuf` is an owned `ArrayList[char]`, but allocation ownership is repeated
-  at construction, every growth operation, extraction, and deinitialization;
+- the former `StringBuf` is an owned `ArrayList[char]`, but allocation ownership
+  is repeated at construction, every growth operation, extraction, and
+  deinitialization;
 - adjacent and multiline literals cover compile-time construction, while
   runtime concatenation is split between append and formatting without one
   documented choice;
 - scalar UTF-8 decoding is typed, and owned text now has a whole-buffer
-  `StringBuf::fromUtf8` boundary; empty input is valid text while non-empty
+  `String::fromUtf8` boundary; empty input is valid text while non-empty
   truncation and invalid sequences retain their decoder cause;
 - comparison, search, hashing, splitting, replacement, parsing, and formatting
   must work consistently across borrowed literals and owned text rather than
@@ -402,10 +403,9 @@ surface has capability but no single ergonomic contract:
 The redesign starts from user workflows, not from renaming the existing two
 types. Its required decisions and acceptance order are:
 
-1. make `&[char]` the provisional canonical borrowed text unless a wrapper
-   demonstrates an invariant beyond storage shape; define exactly one public
-   owned/mutable scalar-text type before deciding whether the surviving name is
-   `String` or `StringBuf`;
+1. make `&[char]` the canonical borrowed text unless a wrapper demonstrates an
+   invariant beyond storage shape; expose exactly one public owned/mutable
+   scalar-text type, now named `String`;
 2. specify scalar length versus UTF-8 byte length, validation, truncation, and
    invalid-sequence errors. Validated UTF-8 views/buffers, if introduced, remain
    distinct from arbitrary bytes and from scalar text;
@@ -2192,6 +2192,26 @@ deeply deinitialize allocating keys. The conformance program must remove and
 explicitly release its stored key. Borrowed-key lookup, rejected/replaced key
 ownership, and element cleanup now join owned-text naming and the repeated
 allocator protocol as concrete follow-up design work.
+
+Standard-library reconstruction progress (2026-08-02, owned-text naming
+batch): the sole owned/mutable scalar-text type is now `String`; the bootstrap
+name `StringBuf` is physically absent from std and conformance code, with no
+type alias. `Buf` suggested an arbitrary byte writer even though formatting and
+UTF-8 append deliberately validate into scalar storage, while `String` states
+the role opposite canonical borrowed `&[char]` without introducing another
+wrapper. Root and module paths are `std::String` and `std::string::String`.
+
+Accepted String methods now use lower camel case: `initCapacity`,
+`fromOwnedSlice`, `fromSlice`, `textMut`, `isEmpty`, `ensureTotalCapacity`, and
+`intoOwnedSlice`. `text()` remains the sole read-only borrowed view; the
+duplicate `as_slice()` and `clear_retaining_capacity()` surfaces are removed.
+The owned Path conversion is `PathBuf::fromString`, and its unused
+`string_buf()` accessor is removed rather than renamed. Runtime conformance
+repeats UTF-8, transactional formatting, relation, hash, default-map, failure,
+and cleanup workflows through `String`. This closes the owned-text name and
+method spelling only: explicit allocator repetition, owned collection element
+cleanup, and borrowed-key lookup remain open and are not hidden inside the
+rename.
 
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,

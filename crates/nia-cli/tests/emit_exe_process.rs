@@ -1669,7 +1669,7 @@ extend FailFreeAllocator : mem::Allocator {
 }
 
 fn hasUtf8Error(
-    result: std::TextError!std::StringBuf,
+    result: std::TextError!std::String,
     expected: std::unicode::Utf8DecodeError,
 ) bool {
     switch result {
@@ -1748,7 +1748,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let utf8: [6]u8 = [b'n', b'i', b'a', b' ', 0xceu8, 0xbbu8];
-    if std::StringBuf::fromUtf8(page, &utf8) is !value {
+    if std::String::fromUtf8(page, &utf8) is !value {
         let mut decoded = value;
         defer decoded.deinit(page).exit().?;
         let expected = "nia lambda";
@@ -1770,7 +1770,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(18)!;
     }
 
-    if std::StringBuf::fromUtf8(page, &b"") is !empty {
+    if std::String::fromUtf8(page, &b"") is !empty {
         let mut emptyText = empty;
         defer emptyText.deinit(page).exit().?;
         if emptyText.text().len() != 0usize {
@@ -1782,35 +1782,35 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let truncated: [2]u8 = [0xe2u8, 0x82u8];
     if not hasUtf8Error(
-        std::StringBuf::fromUtf8(page, &truncated),
+        std::String::fromUtf8(page, &truncated),
         std::unicode::Utf8DecodeError::Truncated,
     ) {
         return process::exit(21)!;
     }
     let invalidLeading: [1]u8 = [0xffu8];
     if not hasUtf8Error(
-        std::StringBuf::fromUtf8(page, &invalidLeading),
+        std::String::fromUtf8(page, &invalidLeading),
         std::unicode::Utf8DecodeError::InvalidLeadingByte,
     ) {
         return process::exit(22)!;
     }
     let invalidContinuation: [3]u8 = [0xe2u8, 0x28u8, 0xa1u8];
     if not hasUtf8Error(
-        std::StringBuf::fromUtf8(page, &invalidContinuation),
+        std::String::fromUtf8(page, &invalidContinuation),
         std::unicode::Utf8DecodeError::InvalidContinuation,
     ) {
         return process::exit(23)!;
     }
     let overlong: [2]u8 = [0xc0u8, 0x80u8];
     if not hasUtf8Error(
-        std::StringBuf::fromUtf8(page, &overlong),
+        std::String::fromUtf8(page, &overlong),
         std::unicode::Utf8DecodeError::Overlong,
     ) {
         return process::exit(24)!;
     }
     let invalidScalar: [3]u8 = [0xedu8, 0xa0u8, 0x80u8];
     if not hasUtf8Error(
-        std::StringBuf::fromUtf8(page, &invalidScalar),
+        std::String::fromUtf8(page, &invalidScalar),
         std::unicode::Utf8DecodeError::InvalidScalar,
     ) {
         return process::exit(25)!;
@@ -1818,7 +1818,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let mut tiny: [1]u8 = [0];
     let mut fixed = mem::FixedBufferAllocator::init(&mut tiny[..]);
-    switch std::StringBuf::fromUtf8(&mut fixed, &b"nia") {
+    switch std::String::fromUtf8(&mut fixed, &b"nia") {
         !value => {
             _ = value;
             return process::exit(26)!;
@@ -1830,7 +1830,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    let mut text = std::StringBuf::from_slice(page, &"nia").exit().?;
+    let mut text = std::String::fromSlice(page, &"nia").exit().?;
     defer text.deinit(page).exit().?;
     text.append(page, &" std").exit().?;
     if text.text().len() != 7usize {
@@ -1867,7 +1867,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let mut appendStorage: [12]u8 = [0; 12];
     let mut appendAllocator = mem::FixedBufferAllocator::init(&mut appendStorage[..]);
-    let mut boundedText = switch std::StringBuf::fromUtf8(&mut appendAllocator, &b"ok") {
+    let mut boundedText = switch std::String::fromUtf8(&mut appendAllocator, &b"ok") {
         !value => value,
         error! => {
             _ = error;
@@ -1964,7 +1964,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut cleanupAllocator = FailFreeAllocator::init();
-    let mut cleanupText = std::StringBuf::init_capacity(&mut cleanupAllocator, 32usize).exit().?;
+    let mut cleanupText = std::String::initCapacity(&mut cleanupAllocator, 32usize).exit().?;
     defer cleanupText.deinit(&mut cleanupAllocator).exit().?;
     cleanupText.append(&mut cleanupAllocator, &"base").exit().?;
     cleanupAllocator.failNext();

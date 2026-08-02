@@ -14,7 +14,7 @@ pub enum TextError {
     Format(fmt::Error),
 }
 
-pub struct StringBuf {
+pub struct String {
     text: collections::ArrayList[char],
 }
 
@@ -24,30 +24,30 @@ struct TextFormatWriter {
     failure: ?mem::Error,
 }
 
-extend StringBuf {
-    pub fn init() StringBuf {
+extend String {
+    pub fn init() String {
         { text: collections::ArrayList[char]::init() }
     }
 
-    pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!StringBuf {
+    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!String {
         let mut text = collections::ArrayList[char]::init_capacity(allocator, capacity).?;
-        !StringBuf { text: text }
+        !String { text: text }
     }
 
-    pub fn from_owned_slice(text: &mut [char]) StringBuf {
+    pub fn fromOwnedSlice(text: &mut [char]) String {
         { text: collections::ArrayList[char]::from_owned_slice(text) }
     }
 
-    pub fn from_slice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!StringBuf {
-        let mut out = StringBuf::init_capacity(allocator, text.len()).?;
+    pub fn fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
+        let mut out = String::initCapacity(allocator, text.len()).?;
         out.append(allocator, text).?;
         !out
     }
 
-    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!StringBuf {
+    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
         let scalarCount = utf8ScalarCount(bytes).?;
 
-        let mut out = StringBuf::init_capacity(allocator, scalarCount).asTextError().?;
+        let mut out = String::initCapacity(allocator, scalarCount).asTextError().?;
         let mut complete = false;
         defer if not complete {
             out.deinit(allocator).asTextError().?;
@@ -128,11 +128,7 @@ extend StringBuf {
         self.text.as_slice()
     }
 
-    pub fn as_slice(&self) &[char] {
-        self.text.as_slice()
-    }
-
-    pub fn as_mut_slice(&mut self) &mut [char] {
+    pub fn textMut(&mut self) &mut [char] {
         self.text.as_mut_slice()
     }
 
@@ -144,16 +140,12 @@ extend StringBuf {
         self.text.capacity()
     }
 
-    pub fn is_empty(&self) bool {
+    pub fn isEmpty(&self) bool {
         self.text.is_empty()
     }
 
     pub fn clear(&mut self) void {
         self.text.clear()
-    }
-
-    pub fn clear_retaining_capacity(&mut self) void {
-        self.text.clear_retaining_capacity()
     }
 
     pub fn equals(&self, other: &[char]) bool {
@@ -176,7 +168,7 @@ extend StringBuf {
         self.text().contains(needle)
     }
 
-    pub fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
         self.text.ensure_total_capacity(allocator, capacity)
     }
 
@@ -188,17 +180,17 @@ extend StringBuf {
         self.text.append_slice(allocator, text)
     }
 
-    pub fn into_owned_slice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
+    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
         self.text.into_owned_slice(allocator)
     }
 }
 
-extend StringBuf : Eq[StringBuf] {
-    fn eq(&self, other: &StringBuf) bool {
+extend String : Eq[String] {
+    fn eq(&self, other: &String) bool {
         self.equals(other.text())
     }
 
-    fn ne(&self, other: &StringBuf) bool {
+    fn ne(&self, other: &String) bool {
         not self.equals(other.text())
     }
 }
@@ -288,7 +280,7 @@ extend TextFormatWriter {
         }
     }
 
-    fn appendTo(&mut self, out: &mut StringBuf) TextError!void {
+    fn appendTo(&mut self, out: &mut String) TextError!void {
         out.appendUtf8(self.allocator, self.bytes.as_slice())
     }
 
@@ -346,7 +338,7 @@ extend[T] mem::Error!T {
     }
 }
 
-extend StringBuf : fmt::Format {
+extend String : fmt::Format {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         self.text().format(formatter)
     }

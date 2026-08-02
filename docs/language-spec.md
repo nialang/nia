@@ -3032,26 +3032,29 @@ A conforming Nia compiler supports:
 
 Borrowed scalar text uses the language-native `&[char]` representation.
 `std::fs::PathView` remains a nominal borrowed path over `&[char]`, while
-`std::StringBuf` and `std::fs::PathBuf` own caller-allocated storage.
-`std::StringBuf::fromUtf8(allocator, bytes)` performs typed whole-buffer
+`std::String` and `std::fs::PathBuf` own caller-allocated storage.
+`String` is the sole public owned/mutable scalar-text type; `StringBuf` is not a
+compatibility alias. `String::fromSlice(allocator, text)` copies borrowed scalar
+text, and `text()` returns its canonical read-only `&[char]` view.
+`std::String::fromUtf8(allocator, bytes)` performs typed whole-buffer
 conversion: empty bytes are valid empty text, invalid non-empty sequences return
 `std::TextError::InvalidUtf8`, and allocation failures return
 `std::TextError::Allocation`.
-`StringBuf::appendUtf8(allocator, bytes)` has the same error model and preserves
+`String::appendUtf8(allocator, bytes)` has the same error model and preserves
 the original scalar text when validation or allocation fails.
-`StringBuf::appendFormat(allocator, template, args)` formats through a temporary
+`String::appendFormat(allocator, template, args)` formats through a temporary
 byte buffer and then performs typed UTF-8 append. It returns
 `TextError::Format` for formatting failures and preserves the original text for
 formatting, UTF-8, allocation, or temporary-buffer cleanup failure.
-Borrowed `[char]` and `StringBuf` provide `equals`, `startsWith`, `endsWith`,
+Borrowed `[char]` and `String` provide `equals`, `startsWith`, `endsWith`,
 `find`, and `contains` as scalar-text content operations. `find` returns the
 first matching scalar index as `?usize`. An empty needle matches at index zero;
 all five operations are allocation-free, and owned text delegates to its
 borrowed scalar view.
-`[char]` and `StringBuf` implement `std::hash::Hash[H]` when `H` implements
+`[char]` and `String` implement `std::hash::Hash[H]` when `H` implements
 `Hasher`. Text hashing writes the scalar count followed by each scalar value;
-`StringBuf` delegates to that borrowed representation and implements content
-`Eq[StringBuf]`, so equal owned text has equal hash output.
+`String` delegates to that borrowed representation and implements content
+`Eq[String]`, so equal owned text has equal hash output.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 

@@ -778,7 +778,7 @@ extend AggregateStep {
 
 extend UncacheableStep {
     fn init(allocator: &mut mem::Allocator, description: &[char], index: usize) Error!UncacheableStep {
-        let owned = string::StringBuf::from_slice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        let owned = string::String::fromSlice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
         !{ description: owned }
     }
 
@@ -795,14 +795,14 @@ extend GeneratedFileStep {
         index: usize,
     ) Error!GeneratedFileStep {
         let mut generated: GeneratedFileStep = {
-            output: string::StringBuf::init(),
+            output: string::String::init(),
             contents: collections::ArrayList[u8]::init(),
         };
         let mut transferred = false;
         defer if not transferred {
             generated.deinit(allocator, index).?;
         };
-        generated.output = string::StringBuf::from_slice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        generated.output = string::String::fromSlice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
         generated.contents.append_slice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
         transferred = true;
         !generated
@@ -846,7 +846,7 @@ extend RunExecutableStep {
     ) Error!RunExecutableStep {
         let mut run: RunExecutableStep = {
             target: options.target,
-            arguments: collections::ArrayList[string::StringBuf]::init(),
+            arguments: collections::ArrayList[string::String]::init(),
         };
         let mut transferred = false;
         defer if not transferred {
@@ -854,12 +854,12 @@ extend RunExecutableStep {
         };
         switch options.arguments {
             ?arguments => {
-                run.arguments = collections::ArrayList[string::StringBuf]::init_capacity(
+                run.arguments = collections::ArrayList[string::String]::init_capacity(
                     allocator,
                     arguments.len(),
                 ).asBuildError(Operation::Retain, Subject::Step(index)).?;
                 for &argument in arguments.iter() {
-                    let mut owned = string::StringBuf::from_slice(
+                    let mut owned = string::String::fromSlice(
                         allocator,
                         argument,
                     ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1041,7 +1041,7 @@ extend OwnedCommandArgument {
                 payload: { artifact: argument.payload.artifact },
             };
         }
-        let value = string::StringBuf::from_slice(
+        let value = string::String::fromSlice(
             allocator,
             argument.payload.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1062,7 +1062,7 @@ extend OwnedCommandEnvironmentInput {
         input: CommandEnvironmentInput,
         index: usize,
     ) Error!OwnedCommandEnvironmentInput {
-        let mut name = string::StringBuf::from_slice(
+        let mut name = string::String::fromSlice(
             allocator,
             input.name,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1070,7 +1070,7 @@ extend OwnedCommandEnvironmentInput {
         defer if not nameTransferred {
             name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)).?;
         };
-        let value = string::StringBuf::from_slice(
+        let value = string::String::fromSlice(
             allocator,
             input.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1099,7 +1099,7 @@ extend ExternalCommandStep {
         index: usize,
     ) Error!ExternalCommandStep {
         let mut command: ExternalCommandStep = {
-            program: string::StringBuf::init(),
+            program: string::String::init(),
             arguments: collections::ArrayList[OwnedCommandArgument]::init(),
             workingDirectory: fs::PathBuf::init(),
             resourceClass: options.resourceClass,
@@ -1111,7 +1111,7 @@ extend ExternalCommandStep {
         defer if not transferred {
             command.deinit(allocator, index).?;
         };
-        command.program = string::StringBuf::from_slice(
+        command.program = string::String::fromSlice(
             allocator,
             options.program,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1205,7 +1205,7 @@ extend Step {
         payload: StepPayload,
         index: usize,
     ) Error!Step {
-        let ownedName = string::StringBuf::from_slice(allocator, name).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        let ownedName = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(index)).?;
         !{
             index: index,
             name: ownedName,
@@ -1436,7 +1436,7 @@ extend Module {
     fn init(allocator: &mut mem::Allocator, options: ModuleOptions, index: usize) Error!Module {
         let mut moduleRecord: Module = {
             index: index,
-            name: string::StringBuf::init(),
+            name: string::String::init(),
             sourceRoot: options.sourceRoot,
             rootSource: fs::PathBuf::init(),
             optimization: options.optimization,
@@ -1446,7 +1446,7 @@ extend Module {
         defer if not transferred {
             moduleRecord.deinit(allocator).?;
         };
-        moduleRecord.name = string::StringBuf::from_slice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
+        moduleRecord.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.rootSource = fs::PathBuf::from_path(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.imports = cloneModuleImports(allocator, options.imports).?;
         transferred = true;
@@ -1480,14 +1480,14 @@ extend OwnedModuleImport {
     fn init(allocator: &mut mem::Allocator, import: ModuleImport, index: usize) Error!OwnedModuleImport {
         let mut owned: OwnedModuleImport = {
             index: index,
-            name: string::StringBuf::init(),
+            name: string::String::init(),
             path: fs::PathBuf::init(),
         };
         let mut transferred = false;
         defer if not transferred {
             owned.deinit(allocator).?;
         };
-        owned.name = string::StringBuf::from_slice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
+        owned.name = string::String::fromSlice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         owned.path = fs::PathBuf::from_path(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         transferred = true;
         !owned
@@ -1510,9 +1510,9 @@ extend ExecutableTarget {
     ) Error!ExecutableTarget {
         let mut target: ExecutableTarget = {
             index: index,
-            name: string::StringBuf::init(),
+            name: string::String::init(),
             rootModule: options.rootModule,
-            outputName: string::StringBuf::init(),
+            outputName: string::String::init(),
             runtime: options.runtime,
             targetRole: TargetRole::Artifact,
         };
@@ -1520,8 +1520,8 @@ extend ExecutableTarget {
         defer if not transferred {
             target.deinit(allocator).?;
         };
-        target.name = string::StringBuf::from_slice(allocator, options.name).asBuildError(Operation::Retain, Subject::Executable(index)).?;
-        target.outputName = string::StringBuf::from_slice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+        target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+        target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(index)).?;
         transferred = true;
         !target
     }
@@ -1601,24 +1601,24 @@ extend TargetStorage {
         subject: Subject,
     ) Error!TargetStorage {
         let mut owned: TargetStorage = {
-            arch: string::StringBuf::init(),
-            vendor: string::StringBuf::init(),
-            os: string::StringBuf::init(),
-            env: string::StringBuf::init(),
-            abi: string::StringBuf::init(),
-            endian: string::StringBuf::init(),
+            arch: string::String::init(),
+            vendor: string::String::init(),
+            os: string::String::init(),
+            env: string::String::init(),
+            abi: string::String::init(),
+            endian: string::String::init(),
             pointerWidth: target.pointerWidth,
         };
         let mut transferred = false;
         defer if not transferred {
             owned.deinit(allocator, subject).?;
         };
-        owned.arch = string::StringBuf::from_slice(allocator, target.arch).asBuildError(Operation::Retain, subject).?;
-        owned.vendor = string::StringBuf::from_slice(allocator, target.vendor).asBuildError(Operation::Retain, subject).?;
-        owned.os = string::StringBuf::from_slice(allocator, target.os).asBuildError(Operation::Retain, subject).?;
-        owned.env = string::StringBuf::from_slice(allocator, target.env).asBuildError(Operation::Retain, subject).?;
-        owned.abi = string::StringBuf::from_slice(allocator, target.abi).asBuildError(Operation::Retain, subject).?;
-        owned.endian = string::StringBuf::from_slice(allocator, target.endian).asBuildError(Operation::Retain, subject).?;
+        owned.arch = string::String::fromSlice(allocator, target.arch).asBuildError(Operation::Retain, subject).?;
+        owned.vendor = string::String::fromSlice(allocator, target.vendor).asBuildError(Operation::Retain, subject).?;
+        owned.os = string::String::fromSlice(allocator, target.os).asBuildError(Operation::Retain, subject).?;
+        owned.env = string::String::fromSlice(allocator, target.env).asBuildError(Operation::Retain, subject).?;
+        owned.abi = string::String::fromSlice(allocator, target.abi).asBuildError(Operation::Retain, subject).?;
+        owned.endian = string::String::fromSlice(allocator, target.endian).asBuildError(Operation::Retain, subject).?;
         transferred = true;
         !owned
     }

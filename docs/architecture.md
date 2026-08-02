@@ -1948,7 +1948,7 @@ arguments. `CommandArgument::artifactInput(executable)` gives an ordinary
 external command a declared Artifact-root input and the same automatic producer
 edge; foreign handles and executables without an emit step are rejected. The
 options and `ModuleImport` values are borrowed call descriptors.
-Every value retained by `Build` is copied into `StringBuf`, `PathBuf`, an owned
+Every value retained by `Build` is copied into `String`, `PathBuf`, an owned
 argument list, or an owned import record before the call returns. Fallible
 ownership transfer uses conditional `defer` rollback; deep records are released
 in reverse order, all cleanup is attempted, and the first cleanup error is
@@ -1993,7 +1993,7 @@ than mutating an accepted record. Inherited and uncacheable commands remain on
 the ordinary execution path and cannot report cache hits.
 
 Borrowed scalar text uses `&[char]` directly. `fs::PathView` adds nominal path
-semantics over borrowed scalar text, while `std::StringBuf` and `fs::PathBuf`
+semantics over borrowed scalar text, while `std::String` and `fs::PathBuf`
 own caller-allocated storage.
 `PathBuf::join` and `PathBuf::join_component` append with a native separator
 and explicit allocator use.

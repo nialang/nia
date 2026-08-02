@@ -1,7 +1,7 @@
 using pkg::hash as hashPackage;
 using pkg::string as stringPackage;
 
-extend[H] stringPackage::StringBuf : hashPackage::Hash[H]
+extend[H] stringPackage::String : hashPackage::Hash[H]
 where H: hashPackage::Hasher
 {
     fn hash(&self, hasher: &mut H) void {

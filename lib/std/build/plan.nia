@@ -294,7 +294,7 @@ extend PlanEncoder {
                         self.writeString(argument.payload.value.text()).?;
                     } else if argument.kind == CommandArgumentKind::PackageInput {
                         self.writeU8(1).?;
-                        self.writePackagePath(fs::PathView::init(argument.payload.value.as_slice())).?;
+                        self.writePackagePath(fs::PathView::init(argument.payload.value.text())).?;
                     } else if argument.kind == CommandArgumentKind::BuildInput {
                         self.writeU8(1).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
@@ -328,7 +328,7 @@ extend PlanEncoder {
                 self.writeCount(inputCount).?;
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::PackageInput {
-                        self.writePackagePath(fs::PathView::init(argument.payload.value.as_slice())).?;
+                        self.writePackagePath(fs::PathView::init(argument.payload.value.text())).?;
                     } else if argument.kind == CommandArgumentKind::BuildInput {
                         self.writeBuildPath(argument.payload.value.text()).?;
                     } else if argument.kind == CommandArgumentKind::ArtifactInput {
