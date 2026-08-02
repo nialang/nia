@@ -6,14 +6,16 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_std_string_compares_and_searches_scalar_text() {
-    let root = temp_dir("emit_exe_std_string_compares_and_searches_scalar_text");
+fn emit_exe_std_string_compares_searches_and_hashes_scalar_text() {
+    let root = temp_dir("emit_exe_std_string_compares_searches_and_hashes_scalar_text");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
 using std;
+using std::collections;
+using std::hash;
 using std::mem;
 using std::process;
 using std::string;
@@ -100,6 +102,70 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if lambdaCount != 2usize {
         return process::exit(8)!;
+    }
+
+    let mut borrowedHasher = hash::Wyhash::init(17u64);
+    text.hash(&mut borrowedHasher);
+    let borrowedHash = borrowedHasher.finish();
+
+    let mut manualHasher = hash::Wyhash::init(17u64);
+    text.len().hash(&mut manualHasher);
+    for &ch in text.iter() {
+        ch.hash(&mut manualHasher);
+    }
+    if borrowedHash != manualHasher.finish() {
+        return process::exit(9)!;
+    }
+
+    let mut ownedText = std::StringBuf::from_slice(page, text).exit().?;
+    defer ownedText.deinit(page).exit().?;
+    let mut ownedHasher = hash::Wyhash::init(17u64);
+    ownedText.hash(&mut ownedHasher);
+    if borrowedHash != ownedHasher.finish() {
+        return process::exit(10)!;
+    }
+
+    let mut equalText = std::StringBuf::from_slice(page, text).exit().?;
+    defer equalText.deinit(page).exit().?;
+    let mut differentText = std::StringBuf::from_slice(page, &"alpha λ beta").exit().?;
+    defer differentText.deinit(page).exit().?;
+    if ownedText != equalText or ownedText == differentText {
+        return process::exit(11)!;
+    }
+
+    let mut lookup = std::StringBuf::from_slice(page, text).exit().?;
+    defer lookup.deinit(page).exit().?;
+    let stored = std::StringBuf::from_slice(page, text).exit().?;
+    let mut map = std::HashMap[std::StringBuf, i32]::init_seed_capacity(
+        page,
+        23u64,
+        1usize,
+    ).exit().?;
+    defer map.deinit(page).exit().?;
+    if map.put_assume_capacity(stored, 41) is ?old {
+        _ = old;
+        return process::exit(12)!;
+    }
+    if not map.contains_key(&lookup) {
+        return process::exit(13)!;
+    }
+    if map.get(&lookup) is ?value {
+        if value.* != 41 {
+            return process::exit(14)!;
+        }
+    } else {
+        return process::exit(15)!;
+    }
+
+    let mut removedKey: std::StringBuf;
+    if map.remove_entry(&lookup) is ?entry {
+        removedKey = entry.into_key();
+    } else {
+        return process::exit(16)!;
+    }
+    removedKey.deinit(page).exit().?;
+    if not map.is_empty() {
+        return process::exit(17)!;
     }
     !{}
 }

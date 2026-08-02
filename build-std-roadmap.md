@@ -2172,6 +2172,27 @@ operation rather than overloading reference equality. This closes equality and
 substring search only: ordering, hash/provider composition, owned-text naming,
 and the repeated allocator protocol remain open.
 
+Standard-library reconstruction progress (2026-08-02, scalar-text hash batch):
+`[char]` now implements `Hash[H]` by committing scalar count followed by each
+scalar value, and the demand-loaded `string/hash` provider delegates
+`StringBuf` hashing to that borrowed representation. `StringBuf` content
+`Eq[StringBuf]` completes the existing `DefaultHashMapContext` bounds, so two
+independently allocated equal keys hash and compare identically. Runtime
+conformance checks the scalar stream against a manually driven `Wyhash`, checks
+borrowed/owned identity, exercises `==` and `!=`, and retrieves a default map
+entry through a separately allocated equal key. It also found that implementing
+`ne` as `not self.eq(other)` re-entered method/provider resolution and produced
+incorrect runtime behavior; both provider methods now delegate directly to the
+unambiguous content operation.
+
+This accepts hash and owned-equality provider semantics, not the surrounding
+collection ownership workflow. `HashMap[StringBuf, V]` still requires an owned
+lookup key instead of a borrowed `[char]`, and collection teardown does not
+deeply deinitialize allocating keys. The conformance program must remove and
+explicitly release its stored key. Borrowed-key lookup, rejected/replaced key
+ownership, and element cleanup now join owned-text naming and the repeated
+allocator protocol as concrete follow-up design work.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically

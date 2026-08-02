@@ -1,8 +1,12 @@
+pub(pkg) module hash;
+
 using pkg::collections;
 using pkg::fmt;
 using pkg::io;
 using pkg::mem;
 using pkg::unicode;
+
+using pkg::string::hash as stringHash;
 
 pub enum TextError {
     InvalidUtf8(unicode::Utf8DecodeError),
@@ -186,6 +190,16 @@ extend StringBuf {
 
     pub fn into_owned_slice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
         self.text.into_owned_slice(allocator)
+    }
+}
+
+extend StringBuf : Eq[StringBuf] {
+    fn eq(&self, other: &StringBuf) bool {
+        self.equals(other.text())
+    }
+
+    fn ne(&self, other: &StringBuf) bool {
+        not self.equals(other.text())
     }
 }
 

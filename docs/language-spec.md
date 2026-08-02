@@ -3048,6 +3048,10 @@ Borrowed `[char]` and `StringBuf` provide `equals`, `startsWith`, `endsWith`,
 first matching scalar index as `?usize`. An empty needle matches at index zero;
 all five operations are allocation-free, and owned text delegates to its
 borrowed scalar view.
+`[char]` and `StringBuf` implement `std::hash::Hash[H]` when `H` implements
+`Hasher`. Text hashing writes the scalar count followed by each scalar value;
+`StringBuf` delegates to that borrowed representation and implements content
+`Eq[StringBuf]`, so equal owned text has equal hash output.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 

@@ -191,6 +191,15 @@ scalars directly and do not allocate. `find` returns the first scalar index as
 is both a prefix and suffix. Owned text delegates to its borrowed view rather
 than maintaining a second search implementation. Content equality is named
 explicitly instead of treating reference equality as text equality.
+With `std::hash` imported, `[char]` and `StringBuf` implement `Hash[H]` for
+every `Hasher`. The hash commits the scalar count followed by each scalar value;
+it is not a hash of an incidental UTF-8 encoding. `StringBuf` also implements
+content `Eq[StringBuf]`, and equal borrowed/owned scalar sequences produce the
+same hash. This satisfies `DefaultHashMapContext`, but the current collection
+surface is not yet an accepted owned-text workflow: lookup requires an owned
+`StringBuf` key, and map teardown does not recursively deinitialize owned keys.
+Maintained conformance therefore removes and explicitly deinitializes its key;
+borrowed-key lookup and element cleanup remain collection/ownership work.
 Filesystem path decoding currently maps each of those values explicitly to
 `fs::Error::Invalid` and clears partial output on failure. That is an
 intentional compatibility boundary for the still-coarse filesystem facade, not
@@ -209,7 +218,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | transactional mutation plus borrowed/owned equality and search accepted; naming and common allocator protocol remain open |
+| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | transactional mutation plus equality/search/hash providers accepted; naming, borrowed map lookup, and common allocator protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `StringBuf::fromUtf8`, `StringBuf::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
