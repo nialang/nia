@@ -20,16 +20,16 @@ fn run(init: Init) mem::Error!void {
 
     // Reserve before repeated insertion when an approximate size is known.
     scores.reserve(allocator, 8usize).?;
-    _ = scores.put(allocator, 7, 70).?;
-    _ = scores.put(allocator, 42, 420).?;
-    _ = scores.put(allocator, 9, 90).?;
+    _ = scores.insert(allocator, 7, 70).?;
+    _ = scores.insert(allocator, 42, 420).?;
+    _ = scores.insert(allocator, 9, 90).?;
     // get_or_put returns an entry slot. value() is a pointer to the stored
     // value, so .* reads or writes through that pointer.
     let mut answer_slot = scores.get_or_put(allocator, 42).?;
     answer_slot.value().* = answer_slot.value().* + 1;
     switch scores.get_entry_mut(&42) {
         mut ?entry => {
-            entry.value_mut().* = entry.value().* + 9;
+            entry.valueMut().* = entry.value().* + 9;
         },
         null => {
             return mem::Error::Invalid!;

@@ -2236,6 +2236,32 @@ key removal paths. `removeEntryBy` returns the key for explicit cleanup. Map
 teardown and rejected/replaced incoming-key ownership remain open alongside the
 common allocator protocol.
 
+Standard-library reconstruction progress (2026-08-02, owned map insertion
+batch): reviewed `insert`/`insertAssumeCapacity` operations now return an
+optional `HashMapReplacement`. Inserting a new key returns `null`, while
+replacing the value for an equal stored key retains the stored key and returns
+both the rejected incoming key and the replaced stored value.
+`insertIfAbsent` and its assume-capacity form return an optional complete
+incoming entry when no insertion occurs. The former `put`, `fetch_put`,
+`put_if_absent`, and assume-capacity spellings are physically absent rather than
+kept as ownership-losing compatibility paths.
+The adjacent owned-entry methods are now `intoKey`/`intoValue`, and mutable
+entry access is `valueMut`; the former snake-case spellings have no aliases.
+
+The result design deliberately uses Nia's native optional rather than a
+single-field result wrapper or a tag enum plus generic union. The latter would
+freeze the temporary enum-plus-union emulation prohibited by the language
+decision gate, while the wrapper would add no invariant beyond the optional.
+The resulting `if result is ?replacement` spelling is the native single-branch
+workflow. Runtime conformance uses independently allocated equal `String` keys
+and proves replacement and
+if-absent rejection both return the incoming allocation for explicit release;
+the stored key remains available for borrowed lookup and later removal.
+Fallible calls retain the established transparent transfer rule: allocating
+named inputs remain caller-owned until success and use conditional `defer`
+rollback. Deep map element cleanup, the ownership-losing `get_or_put` entry
+family, and the common allocator protocol remain open.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically

@@ -205,10 +205,29 @@ match `&[N]char` as a trait argument and generic calls do not apply the slice
 coercion before inference.
 
 `removeEntryBy` returns the stored key so allocating ownership can be released.
-Map teardown still does not recursively deinitialize owned keys, and insertion
-that rejects or replaces an equal incoming key still lacks an ownership-return
-contract. Maintained conformance therefore removes and explicitly deinitializes
-its key; element cleanup and rejected/replaced key ownership remain open.
+After error propagation, `insert` yields `?HashMapReplacement`. A new key
+produces `null`; an equal stored key keeps its original key allocation and the
+replacement payload contains both the rejected incoming key and the replaced
+stored value. `insertIfAbsent` similarly yields `?HashMapEntry`, whose payload
+is the complete incoming entry when the key was already present. The
+assume-capacity variants return those optionals directly with the same ownership
+results. This makes `if result is ?replacement` the ordinary single-branch
+cleanup spelling and removes the former `put`/`fetch_put`/`put_if_absent`
+surfaces that silently lost owned inputs.
+Returned entries transfer their fields with `intoKey()` and `intoValue()`;
+mutable entry views expose `valueMut()`. The former snake-case methods are
+absent rather than duplicated.
+
+For a fallible insertion, ownership remains with the caller until the method
+returns success; callers transferring allocating named values use a conditional
+`defer` and mark transfer only after success, as elsewhere in reviewed std.
+Map teardown still does not recursively deinitialize owned keys or values. The
+older `get_or_put` entry family also remains outside the accepted ownership
+surface because an existing entry can reject an incoming key or value without
+returning it. Maintained String conformance explicitly takes back rejected keys,
+deinitializes them, then removes and deinitializes the stored key. Deep element
+cleanup, the entry family, and the common allocator protocol remain open.
+
 The one owned scalar-text type is named `String`, not `StringBuf`: it stores
 Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed
 construction and ownership methods use `initCapacity`, `fromOwnedSlice`,

@@ -452,12 +452,10 @@ fn run(init: process::Init) mem::Error!void {
 
     let mut i = 0;
     while i < 64 {
-        switch map.put(&mut gpa, i, i * 10) {
-            !old => { switch old {
-         ?value => { return mem::Error::Invalid!; },
-         null => { },
-     }; },
-            err! => { return err!; },
+        let result = map.insert(&mut gpa, i, i * 10).?;
+        if result is ?unexpected {
+            _ = unexpected;
+            return mem::Error::Invalid!;
         }
         i += 1;
     }
@@ -475,14 +473,13 @@ fn run(init: process::Init) mem::Error!void {
         null => { return mem::Error::Invalid!; },
     }
 
-    switch map.put(&mut gpa, 42, 7) {
-        !old => { switch old {
-         ?value => { if value != 420 {
-                        return mem::Error::Invalid!;
-                    } },
-         null => { return mem::Error::Invalid!; },
-     }; },
-        err! => { return err!; },
+    let replacedAnswer = map.insert(&mut gpa, 42, 7).?;
+    if replacedAnswer is ?replacement {
+        if replacement.intoReplacedValue() != 420 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
     }
     switch map.get_mut(&42) {
         mut ?value => { value.* = value.* + 1; },
@@ -504,7 +501,7 @@ fn run(init: process::Init) mem::Error!void {
         mut ?entry => { if entry.key().* != 42 or entry.value().* != 8 {
                     return mem::Error::Invalid!;
                 }
-                entry.value_mut().* = 9; },
+                entry.valueMut().* = 9; },
         null => { return mem::Error::Invalid!; },
     }
     switch map.get(&42) {
@@ -524,7 +521,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     for mut entry in map.iter_mut() {
         if entry.key().* == 42 {
-            entry.value_mut().* = entry.value().* + 2;
+            entry.valueMut().* = entry.value().* + 2;
         }
     }
     switch map.get(&42) {
@@ -593,12 +590,10 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    switch map.put(&mut gpa, 74, 740) {
-        !old => { switch old {
-         ?value => { return mem::Error::Invalid!; },
-         null => { },
-     }; },
-        err! => { return err!; },
+    let firstSeventyFour = map.insert(&mut gpa, 74, 740).?;
+    if firstSeventyFour is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
     }
     switch map.get(&74) {
         ?value => { if value.* != 740 {
@@ -606,14 +601,13 @@ fn run(init: process::Init) mem::Error!void {
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.fetch_put(&mut gpa, 74, 741) {
-        !old => { switch old {
-         ?value => { if value != 740 {
-                        return mem::Error::Invalid!;
-                    } },
-         null => { return mem::Error::Invalid!; },
-     }; },
-        err! => { return err!; },
+    let replacedSeventyFour = map.insert(&mut gpa, 74, 741).?;
+    if replacedSeventyFour is ?replacement {
+        if replacement.intoReplacedValue() != 740 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
     }
     switch map.fetch_remove(&74) {
         ?entry => { if entry.key().* != 74 or entry.value().* != 741 {
@@ -627,17 +621,18 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    switch map.put_if_absent(&mut gpa, 5, 50) {
-        !inserted => { if not inserted {
-                return mem::Error::Invalid!;
-            } },
-        err! => { return err!; },
+    let vacantFive = map.insertIfAbsent(&mut gpa, 5, 50).?;
+    if vacantFive is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
     }
-    switch map.put_if_absent(&mut gpa, 5, 500) {
-        !inserted => { if inserted {
-                return mem::Error::Invalid!;
-            } },
-        err! => { return err!; },
+    let occupiedFive = map.insertIfAbsent(&mut gpa, 5, 500).?;
+    if occupiedFive is ?rejected {
+        if rejected.key().* != 5 or rejected.value().* != 500 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
     }
     switch map.get(&5) {
         ?value => { if value.* != 50 {
@@ -684,8 +679,8 @@ fn run(init: process::Init) mem::Error!void {
 
     let mut set_like = std::HashMap[i32, Unit]::init_seed(99u64);
     defer set_like.deinit(&mut gpa).?;
-    _ = set_like.put(&mut gpa, 1, {}).?;
-    _ = set_like.put(&mut gpa, 2, {}).?;
+    _ = set_like.insert(&mut gpa, 1, {}).?;
+    _ = set_like.insert(&mut gpa, 2, {}).?;
     if not set_like.contains_key(&1) or not set_like.contains_key(&2) {
         return mem::Error::Invalid!;
     }
@@ -702,21 +697,18 @@ fn run(init: process::Init) mem::Error!void {
         0u64,
     );
     defer unit_keys.deinit(&mut gpa).?;
-    switch unit_keys.put(&mut gpa, {}, 11) {
-        !old => { switch old {
-         ?value => { return mem::Error::Invalid!; },
-         null => { },
-     }; },
-        err! => { return err!; },
+    let firstUnit = unit_keys.insert(&mut gpa, {}, 11).?;
+    if firstUnit is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
     }
-    switch unit_keys.put(&mut gpa, {}, 22) {
-        !old => { switch old {
-         ?value => { if value != 11 {
-                        return mem::Error::Invalid!;
-                    } },
-         null => { return mem::Error::Invalid!; },
-     }; },
-        err! => { return err!; },
+    let replacedUnit = unit_keys.insert(&mut gpa, {}, 22).?;
+    if replacedUnit is ?replacement {
+        if replacement.intoReplacedValue() != 11 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
     }
     if unit_keys.len() != 1usize {
         return mem::Error::Invalid!;
@@ -746,7 +738,7 @@ fn run(init: process::Init) mem::Error!void {
     while round < 4 {
         let mut key = 0;
         while key < 28 {
-            _ = churn.put(&mut gpa, key, key + round).?;
+            _ = churn.insert(&mut gpa, key, key + round).?;
             key += 1;
         }
         key = 0;
@@ -764,7 +756,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     let mut key = 100;
     while key < 128 {
-        _ = churn.put(&mut gpa, key, key * 2).?;
+        _ = churn.insert(&mut gpa, key, key * 2).?;
         key += 1;
     }
     if churn.len() != 28usize {
@@ -791,7 +783,7 @@ fn run(init: process::Init) mem::Error!void {
     let tombstone_capacity = tombstones.capacity();
     key = 0;
     while key < 56 {
-        _ = tombstones.put(&mut gpa, key, key).?;
+        _ = tombstones.insert(&mut gpa, key, key).?;
         key += 1;
     }
     key = 0;
@@ -810,7 +802,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 32 {
-        _ = tombstones.put(&mut gpa, key + 200, key * 4).?;
+        _ = tombstones.insert(&mut gpa, key + 200, key * 4).?;
         key += 1;
     }
     if tombstones.len() != 32usize or tombstones.capacity() != tombstone_capacity {
@@ -854,7 +846,7 @@ fn run(init: process::Init) mem::Error!void {
     if tombstones.len() != 0usize or tombstones.capacity() != tombstone_capacity {
         return mem::Error::Invalid!;
     }
-    _ = tombstones.put(&mut gpa, 777, 888).?;
+    _ = tombstones.insert(&mut gpa, 777, 888).?;
     switch tombstones.get(&777) {
         ?value => { if value.* != 888 {
                 return mem::Error::Invalid!;
@@ -887,7 +879,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 10 {
-        _ = tombstones.put(&mut gpa, key, key * 11).?;
+        _ = tombstones.insert(&mut gpa, key, key * 11).?;
         key += 1;
     }
     tombstones.reserve(&mut gpa, 64usize).?;
@@ -916,11 +908,11 @@ fn run(init: process::Init) mem::Error!void {
     rollback.reserve(&mut fail_allocator, 14usize).?;
     key = 0;
     while key < 14 {
-        _ = rollback.put(&mut fail_allocator, key, key * 10).?;
+        _ = rollback.insert(&mut fail_allocator, key, key * 10).?;
         key += 1;
     }
     fail_allocator.fail_next_alloc();
-    switch rollback.put(&mut fail_allocator, 99, 990) {
+    switch rollback.insert(&mut fail_allocator, 99, 990) {
         !old => { _ = old;
                 return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -972,7 +964,7 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
     fail_allocator.clear_failures();
-    _ = rollback.put(&mut fail_allocator, 99, 990).?;
+    _ = rollback.insert(&mut fail_allocator, 99, 990).?;
     switch rollback.get(&99) {
         ?value => { if value.* != 990 {
                 return mem::Error::Invalid!;
@@ -985,7 +977,7 @@ fn run(init: process::Init) mem::Error!void {
     rollback_get.reserve(&mut fail_allocator, 7usize).?;
     key = 0;
     while key < 7 {
-        _ = rollback_get.put(&mut fail_allocator, key, key).?;
+        _ = rollback_get.insert(&mut fail_allocator, key, key).?;
         key += 1;
     }
     fail_allocator.fail_next_alloc();
@@ -1019,7 +1011,7 @@ fn run(init: process::Init) mem::Error!void {
     free_fail.reserve(&mut free_fail_allocator, 14usize).?;
     key = 0;
     while key < 14 {
-        _ = free_fail.put(&mut free_fail_allocator, key, key + 5).?;
+        _ = free_fail.insert(&mut free_fail_allocator, key, key + 5).?;
         key += 1;
     }
     let old_free_fail_capacity = free_fail.capacity();
@@ -1089,7 +1081,7 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
     free_fail_allocator.clear_failures();
-    _ = free_fail.put(&mut free_fail_allocator, 90, 900).?;
+    _ = free_fail.insert(&mut free_fail_allocator, 90, 900).?;
     switch free_fail.get(&90) {
         ?value => { if value.* != 900 {
                 return mem::Error::Invalid!;
@@ -1105,7 +1097,7 @@ fn run(init: process::Init) mem::Error!void {
     collisions.reserve(&mut gpa, 16usize).?;
     key = 0;
     while key < 20 {
-        _ = collisions.put(&mut gpa, key, key + 1000).?;
+        _ = collisions.insert(&mut gpa, key, key + 1000).?;
         key += 1;
     }
     if collisions.len() != 20usize {
@@ -1133,7 +1125,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 100;
     while key < 110 {
-        _ = collisions.put(&mut gpa, key, key + 2000).?;
+        _ = collisions.insert(&mut gpa, key, key + 2000).?;
         key += 1;
     }
     if collisions.len() != 20usize {
@@ -1162,21 +1154,20 @@ fn run(init: process::Init) mem::Error!void {
         19u64,
     );
     defer modulo.deinit(&mut gpa).?;
-    switch modulo.put(&mut gpa, Key::init(1), 10) {
-        !old => { switch old {
-         ?value => { return mem::Error::Invalid!; },
-         null => { },
-     }; },
-        err! => { return err!; },
+    let firstModulo = modulo.insert(&mut gpa, Key::init(1), 10).?;
+    if firstModulo is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
     }
-    switch modulo.put(&mut gpa, Key::init(6), 60) {
-        !old => { switch old {
-         ?value => { if value != 10 {
-                        return mem::Error::Invalid!;
-                    } },
-         null => { return mem::Error::Invalid!; },
-     }; },
-        err! => { return err!; },
+    let replacedModulo = modulo.insert(&mut gpa, Key::init(6), 60).?;
+    if replacedModulo is ?replacement {
+        if replacement.rejectedKey().*.value != 6
+            or replacement.intoReplacedValue() != 10
+        {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
     }
     if modulo.len() != 1usize {
         return mem::Error::Invalid!;
@@ -1202,7 +1193,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 20;
     while key < 60 {
-        _ = modulo.put(&mut gpa, Key::init(key), key * 3).?;
+        _ = modulo.insert(&mut gpa, Key::init(key), key * 3).?;
         key += 1;
     }
     if modulo.len() != 5usize {
@@ -1227,7 +1218,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 8 {
-        _ = tail_probe.put(&mut gpa, key, key + 100).?;
+        _ = tail_probe.insert(&mut gpa, key, key + 100).?;
         key += 1;
     }
     key = 0;
@@ -1246,12 +1237,10 @@ fn run(init: process::Init) mem::Error!void {
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch tail_probe.put(&mut gpa, 16, 1600) {
-        !old => { switch old {
-         ?value => { return mem::Error::Invalid!; },
-         null => { },
-     }; },
-        err! => { return err!; },
+    let tailInsert = tail_probe.insert(&mut gpa, 16, 1600).?;
+    if tailInsert is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
     }
     switch tail_probe.get(&16) {
         ?value => { if value.* != 1600 {
@@ -1260,7 +1249,7 @@ fn run(init: process::Init) mem::Error!void {
         null => { return mem::Error::Invalid!; },
     }
     tail_probe.clear();
-    _ = tail_probe.put(&mut gpa, 0, 700).?;
+    _ = tail_probe.insert(&mut gpa, 0, 700).?;
     switch tail_probe.get(&0) {
         ?value => { if value.* != 700 {
                 return mem::Error::Invalid!;
@@ -1330,8 +1319,8 @@ fn run(init: process::Init) mem::Error!void {
     let mut map = std::HashMap[i32, i32]::init_seed(42u64);
     defer map.deinit(&mut page).?;
 
-    _ = map.put(&mut page, 1, 10).?;
-    _ = map.put(&mut page, 2, 20).?;
+    _ = map.insert(&mut page, 1, 10).?;
+    _ = map.insert(&mut page, 2, 20).?;
     debug::print(&"hash_map={}\n", &[&map]);
     !{}
 }
@@ -1395,16 +1384,13 @@ fn run(init: process::Init) mem::Error!void {
         let op = step % 6;
         if op == 0 {
             let was_present = present[slot];
-            switch model_map.put(&mut gpa, slot, step + 1000) {
-                !old => { switch old {
-         ?value => { if not was_present or value != expected[slot] {
-                                return mem::Error::Invalid!;
-                            } },
-         null => { if was_present {
-                                return mem::Error::Invalid!;
-                            } },
-     }; },
-                err! => { return err!; },
+            let result = model_map.insert(&mut gpa, slot, step + 1000).?;
+            if result is ?replacement {
+                if not was_present or replacement.intoReplacedValue() != expected[slot] {
+                    return mem::Error::Invalid!;
+                }
+            } else if was_present {
+                return mem::Error::Invalid!;
             }
             if not was_present {
                 expected_len += 1usize;
@@ -1440,16 +1426,21 @@ fn run(init: process::Init) mem::Error!void {
             expected[slot] = step + 2000;
         } else if op == 3 {
             let was_present = present[slot];
-            switch model_map.put_if_absent(&mut gpa, slot, step + 3000) {
-                !inserted => { if inserted == was_present {
-                            return mem::Error::Invalid!;
-                        }
-                        if inserted {
-                            expected_len += 1usize;
-                            present[slot] = true;
-                            expected[slot] = step + 3000;
-                        } },
-                err! => { return err!; },
+            let result = model_map.insertIfAbsent(&mut gpa, slot, step + 3000).?;
+            if result is ?rejected {
+                if not was_present
+                    or rejected.key().* != slot
+                    or rejected.value().* != step + 3000
+                {
+                    return mem::Error::Invalid!;
+                }
+            } else {
+                if was_present {
+                    return mem::Error::Invalid!;
+                }
+                expected_len += 1usize;
+                present[slot] = true;
+                expected[slot] = step + 3000;
             }
         } else if op == 4 {
             switch model_map.get(&slot) {
@@ -1462,16 +1453,13 @@ fn run(init: process::Init) mem::Error!void {
             }
         } else {
             let was_present = present[slot];
-            switch model_map.fetch_put(&mut gpa, slot, step + 4000) {
-                !old => { switch old {
-         ?value => { if not was_present or value != expected[slot] {
-                                return mem::Error::Invalid!;
-                            } },
-         null => { if was_present {
-                                return mem::Error::Invalid!;
-                            } },
-     }; },
-                err! => { return err!; },
+            let result = model_map.insert(&mut gpa, slot, step + 4000).?;
+            if result is ?replacement {
+                if not was_present or replacement.intoReplacedValue() != expected[slot] {
+                    return mem::Error::Invalid!;
+                }
+            } else if was_present {
+                return mem::Error::Invalid!;
             }
             if not was_present {
                 expected_len += 1usize;
@@ -1532,7 +1520,7 @@ fn run(init: process::Init) mem::Error!void {
         }
         key += 1;
     }
-    _ = model_map.put(&mut gpa, 3, 12345).?;
+    _ = model_map.insert(&mut gpa, 3, 12345).?;
     switch cloned_model.get(&3) {
         ?value => { if value.* == 12345 {
                 return mem::Error::Invalid!;
@@ -1633,7 +1621,7 @@ fn run(init: process::Init) mem::Error!void {
     map.reserve_exact(&mut allocator, 14usize).?;
     let mut key = 0;
     while key < 14 {
-        _ = map.put(&mut allocator, key, key).?;
+        _ = map.insert(&mut allocator, key, key).?;
         key += 1;
     }
 
@@ -1650,8 +1638,8 @@ fn run(init: process::Init) mem::Error!void {
 
     map.reserve_exact(&mut allocator, 2usize).?;
     allocator.fail_next_alloc();
-    _ = map.put(&mut allocator, 100, 1000).?;
-    _ = map.put(&mut allocator, 101, 1010).?;
+    _ = map.insert(&mut allocator, 100, 1000).?;
+    _ = map.insert(&mut allocator, 101, 1010).?;
 
     if map.len() != 2usize {
         return mem::Error::Invalid!;
@@ -1718,20 +1706,26 @@ fn run(init: process::Init) mem::Error!void {
     defer map.deinit(&mut page).?;
 
     map.reserve(&mut page, 4usize).?;
-    switch map.put_assume_capacity(1, 10) {
-        ?old => { return mem::Error::Invalid!; },
-        null => { },
-    }
-    switch map.put_assume_capacity(1, 11) {
-        ?old => { if old != 10 {
-                return mem::Error::Invalid!;
-            } },
-        null => { return mem::Error::Invalid!; },
-    }
-    if map.put_if_absent_assume_capacity(1, 99) {
+    let firstInsert = map.insertAssumeCapacity(1, 10);
+    if firstInsert is ?unexpected {
+        _ = unexpected;
         return mem::Error::Invalid!;
     }
-    if not map.put_if_absent_assume_capacity(2, 20) {
+    let replacementInsert = map.insertAssumeCapacity(1, 11);
+    if replacementInsert is ?replacement {
+        if replacement.intoReplacedValue() != 10 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
+    }
+    let occupiedInsert = map.insertIfAbsentAssumeCapacity(1, 99);
+    if occupiedInsert is null {
+        return mem::Error::Invalid!;
+    }
+    let vacantInsert = map.insertIfAbsentAssumeCapacity(2, 20);
+    if vacantInsert is ?unexpected {
+        _ = unexpected;
         return mem::Error::Invalid!;
     }
 
