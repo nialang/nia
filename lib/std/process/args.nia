@@ -7,11 +7,11 @@ using types::{Arg, Args, ArgsIter};
 
 extend Arg {
     fn init(ptr: &u8) Arg {
-        { text: cstring::CStringView::from_ptr(ptr) }
+        { text: cstring::CStringView::fromPtrUnchecked(ptr) }
     }
 
     pub fn raw_ptr(&self) &u8 {
-        self.text.raw_ptr()
+        self.text.rawPtr()
     }
 
     pub fn cstring(&self) cstring::CStringView {

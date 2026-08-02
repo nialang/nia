@@ -1,25 +1,37 @@
 using pkg::fmt;
+using pkg::slice;
+
+pub enum CStringError: i32 {
+    EmptyInput = 1,
+    MissingTerminator = 2,
+    InteriorNul = 3,
+}
 
 pub struct CStringView {
     ptr: &u8,
 }
 
 extend CStringView {
-    pub fn from_ptr(ptr: &u8) CStringView {
+    pub fn fromPtrUnchecked(ptr: &u8) CStringView {
         { ptr: ptr }
     }
 
-    pub fn from_bytes(bytes: &[u8]) ?CStringView {
-        if bytes.len() == 0usize {
-            return null;
+    pub fn fromBytes(bytes: &[u8]) CStringError!CStringView {
+        if bytes.len() == 0 {
+            return CStringError::EmptyInput!;
         }
-        if bytes[bytes.len() - 1usize] != 0u8 {
-            return null;
+        if bytes[bytes.len() - 1] != 0 {
+            return CStringError::MissingTerminator!;
         }
-        ?CStringView::from_ptr(bytes.ptr())
+        for &byte in (&bytes[0..bytes.len() - 1]).iter() {
+            if byte == 0 {
+                return CStringError::InteriorNul!;
+            }
+        }
+        !CStringView::fromPtrUnchecked(bytes.ptr())
     }
 
-    pub fn raw_ptr(&self) &u8 {
+    pub fn rawPtr(&self) &u8 {
         self.ptr
     }
 
@@ -35,8 +47,8 @@ extend CStringView {
         & self.ptr[0..self.len()]
     }
 
-    pub fn is_empty(&self) bool {
-        self.len() == 0usize
+    pub fn isEmpty(&self) bool {
+        self.len() == 0
     }
 }
 

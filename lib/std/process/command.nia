@@ -79,11 +79,11 @@ extend Command {
         options.set_stderr(self.stderr.as_os_stdio().?).as_process_setup_error().?;
         switch self.cwd {
             ?cwd => {
-                options.set_cwd(cwd.raw_ptr());
+                options.set_cwd(cwd.rawPtr());
             },
             null => {},
         }
-        spawn_with_options(self.path.raw_ptr(), self.argv, self.envp, options)
+        spawn_with_options(self.path.rawPtr(), self.argv, self.envp, options)
     }
 
     pub fn run(&self) Error!Term {
@@ -135,7 +135,7 @@ pub(pkg) fn run_path_args(
     argv.append_slice(allocator, args).as_process_setup_error().?;
     argv.push(allocator, 0usize as &u8).as_process_setup_error().?;
     let raw_argv = argv.as_slice().ptr();
-    let command = Command::init(cstring::CStringView::from_ptr(encoded_path.ptr()), raw_argv, envp);
+    let command = Command::init(cstring::CStringView::fromPtrUnchecked(encoded_path.ptr()), raw_argv, envp);
     command.run()
 }
 
