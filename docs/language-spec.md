@@ -3037,6 +3037,8 @@ Borrowed scalar text uses the language-native `&[char]` representation.
 conversion: empty bytes are valid empty text, invalid non-empty sequences return
 `std::TextError::InvalidUtf8`, and allocation failures return
 `std::TextError::Allocation`.
+`StringBuf::appendUtf8(allocator, bytes)` has the same error model and preserves
+the original scalar text when validation or allocation fails.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 

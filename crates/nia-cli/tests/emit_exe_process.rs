@@ -1801,6 +1801,63 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if text.text().len() != 7usize {
         return process::exit(6)!;
     }
+
+    let suffix: [3]u8 = [b' ', 0xceu8, 0xbbu8];
+    switch text.appendUtf8(page, &suffix) {
+        !ok => { _ = ok; },
+        error! => {
+            _ = error;
+            return process::exit(28)!;
+        },
+    }
+    if text.text().len() != 9usize or text.text()[8].codepoint() != 0x03bbu32 {
+        return process::exit(29)!;
+    }
+
+    let invalidSuffix: [4]u8 = [b'x', 0xe2u8, 0x28u8, 0xa1u8];
+    switch text.appendUtf8(page, &invalidSuffix) {
+        !ok => {
+            _ = ok;
+            return process::exit(30)!;
+        },
+        std::TextError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidContinuation)! => {},
+        error! => {
+            _ = error;
+            return process::exit(31)!;
+        },
+    }
+    if text.text().len() != 9usize or text.text()[8].codepoint() != 0x03bbu32 {
+        return process::exit(32)!;
+    }
+
+    let mut appendStorage: [12]u8 = [0; 12];
+    let mut appendAllocator = mem::FixedBufferAllocator::init(&mut appendStorage[..]);
+    let mut boundedText = switch std::StringBuf::fromUtf8(&mut appendAllocator, &b"ok") {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(33)!;
+        },
+    };
+    defer boundedText.deinit(&mut appendAllocator).exit().?;
+    switch boundedText.appendUtf8(&mut appendAllocator, &b"!") {
+        !ok => {
+            _ = ok;
+            return process::exit(34)!;
+        },
+        std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(35)!;
+        },
+    }
+    if boundedText.text().len() != 2usize
+        or boundedText.text()[0] != 'o'
+        or boundedText.text()[1] != 'k'
+    {
+        return process::exit(36)!;
+    }
+
     let mut path = std::PathBuf::from_path(page, std::PathView::init(&"root")).exit().?;
     defer path.deinit(page).exit().?;
     path.join_component(page, &"child").exit().?;
