@@ -1682,10 +1682,6 @@ fn hasUtf8Error(
             _ = error;
             false
         },
-        std::TextError::Format(error)! => {
-            _ = error;
-            false
-        },
     }
 }
 
@@ -1917,7 +1913,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
             return process::exit(39)!;
         },
-        std::TextError::Format(fmt::Error::InvalidTemplate)! => {},
+        std::TextFormatError::Format(fmt::Error::InvalidTemplate)! => {},
         error! => {
             _ = error;
             return process::exit(40)!;
@@ -1934,7 +1930,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
             return process::exit(42)!;
         },
-        std::TextError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
+        std::TextFormatError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
         error! => {
             _ = error;
             return process::exit(43)!;
@@ -1950,7 +1946,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
             return process::exit(45)!;
         },
-        std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
+        std::TextFormatError::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
             return process::exit(46)!;
@@ -1974,7 +1970,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
             return process::exit(48)!;
         },
-        std::TextError::Allocation(mem::Error::Invalid)! => {},
+        std::TextFormatError::Allocation(mem::Error::Invalid)! => {},
         error! => {
             _ = error;
             return process::exit(49)!;

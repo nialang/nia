@@ -25,7 +25,7 @@ fn run(init: Init) mem::Error!void {
     values.push(allocator, 30).?;
 
     let mut total = 0;
-    for &item in values.iter() {
+    for &item in values {
         total += item;
     }
 

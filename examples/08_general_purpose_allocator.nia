@@ -27,7 +27,7 @@ fn run(init: Init) mem::Error!void {
     values.push(gpa, 30).?;
 
     let mut total = 0;
-    for &value in values.iter() {
+    for &value in values {
         total += value;
     }
 

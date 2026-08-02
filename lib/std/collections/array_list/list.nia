@@ -58,7 +58,7 @@ where T: Sized
     }
 
     pub fn iterMut(&mut self) slice::SliceIterMut[T] {
-        self.asMutSlice().iter_mut()
+        self.asMutSlice().iterMut()
     }
 
     pub fn get(&self, index: usize) ?&T {

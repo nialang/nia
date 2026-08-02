@@ -230,8 +230,10 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
   load/store/read-modify-write/compare-exchange/fence helpers. It is a thin
   standard-library facade over the compiler atomic builtins.
-- `std::slice` defines `SliceIter`, and slices provide `.iter()` for explicit
-  read-only iteration.
+- `std::slice` defines `SliceIter` and `SliceIterMut`. Borrowed slices are
+  iterable directly with `for`; both `&[T]` and `&mut [T]` yield `&T` through
+  that shared protocol. Use `.iterMut()` explicitly when the loop needs `&mut
+  T` items.
 - `std::iter` defines iterator support types. Native range values such as
   `0usize..len`, `1i64..4i64`, `2usize..=4usize`, and `5usize..` are iterable
   directly; the backing iterator types live under `std::iter` as `Range`,
@@ -1734,15 +1736,24 @@ for item in iter {
 }
 ```
 
-`for pattern in expr` requires `expr` to implement the builtin `Iterator`
-trait. The loop does not perform ordinary method lookup for a method named
-`next`, does not bind to any standard-library module path, and does not
-implicitly call `.iter()` or `.iter_read()`. Collection and range iteration
-must be expressed by values or adapters that explicitly implement `Iterator`.
+`for pattern in expr` requires `expr` to implement the builtin `Iterable`
+trait. `Iterable::Iter` must implement the builtin `Iterator` trait, and its
+`Iterator::Item` must equal `Iterable::Item`. The loop calls the builtin
+`Iterable::iter` provider and then repeatedly calls the builtin
+`Iterator::next` provider. It does not perform ordinary method lookup for
+methods with those names and does not bind to any standard-library module path.
+Types expose collection-specific iteration by implementing `Iterable`; an
+`Iterator` also satisfies `Iterable` intrinsically with itself as `Iter`.
 
-The builtin iterator protocol is:
+The builtin iteration protocol is:
 
 ```nia
+trait Iterable {
+    type Item;
+    type Iter;
+    fn iter(&self) Iter;
+}
+
 trait Iterator {
     type Item;
     fn next(&mut self) ?Item;
@@ -3078,8 +3089,11 @@ conversion: empty bytes are valid empty text, invalid non-empty sequences return
 the original scalar text when validation or allocation fails.
 `String::appendFormat(allocator, template, args)` formats through a temporary
 byte buffer and then performs typed UTF-8 append. It returns
-`TextError::Format` for formatting failures and preserves the original text for
-formatting, UTF-8, allocation, or temporary-buffer cleanup failure.
+`TextFormatError`, which distinguishes `Format`, `InvalidUtf8`, and
+`Allocation`, and preserves the original text for formatting, UTF-8,
+allocation, or temporary-buffer cleanup failure. `TextError` contains only the
+`InvalidUtf8` and `Allocation` cases that UTF-8 construction and append can
+actually produce.
 Borrowed `[char]` and `String` provide `equals`, `startsWith`, `endsWith`,
 `find`, and `contains` as scalar-text content operations. `find` returns the
 first matching scalar index as `?usize`. An empty needle matches at index zero;
@@ -3281,7 +3295,7 @@ fn add(a: i32, b: i32) i32 {
 
 fn sum(xs: &[i32]) i32 {
     let mut total = 0;
-    for &value in xs.iter() {
+    for &value in xs {
         total += value;
     }
     total

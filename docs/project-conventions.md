@@ -82,3 +82,9 @@ Use `&values[..]` for an intentionally explicit whole-slice value and range
 syntax for an actual subrange. Maintained examples should exercise adjacent and
 multiline strings, contextual aggregate literals, pointer-array coercion, and
 `if ... is`; parser-only coverage does not establish a usable idiom.
+
+When a value implements `Iterable`, write `for pattern in value` directly.
+Call `.iter()` when an iterator must be named or passed to an adapter, and call
+`.iterMut()` when mutation of borrowed elements is the intended contract. Do
+not make ordinary collection scans spell out a provider method that `for`
+already expresses.

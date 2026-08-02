@@ -21,7 +21,7 @@ extend Point {
 fn sum(values: &[i32]) i32 {
     let mut total = 0;
     // Slice iteration yields &i32 items. The &value pattern copies out each i32.
-    for &value in values.iter() {
+    for &value in values {
         total += value;
     }
     total

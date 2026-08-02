@@ -15,7 +15,7 @@ fn fillScores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) me
 
 fn sum(values: &[i32]) i32 {
     let mut total = 0;
-    for &value in values.iter() {
+    for &value in values {
         total += value;
     }
     total

@@ -19,11 +19,7 @@ where T: Sized
 extend[T] SliceIter[T]
 where T: Sized
 {
-    pub fn init(items: &[T]) SliceIter[T] {
-        { ptr: items.ptr(), len: items.len(), index: 0 }
-    }
-
-    pub fn from_raw_parts(ptr: &T, len: usize) SliceIter[T] {
+    fn fromRawParts(ptr: &T, len: usize) SliceIter[T] {
         { ptr: ptr, len: len, index: 0 }
     }
 
@@ -31,7 +27,7 @@ where T: Sized
         self.len - self.index
     }
 
-    pub fn is_empty(&self) bool {
+    pub fn isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -39,11 +35,7 @@ where T: Sized
 extend[T] SliceIterMut[T]
 where T: Sized
 {
-    pub fn init(items: &mut [T]) SliceIterMut[T] {
-        { ptr: items.ptr_mut(), len: items.len(), index: 0 }
-    }
-
-    pub fn from_raw_parts(ptr: &mut T, len: usize) SliceIterMut[T] {
+    fn fromRawParts(ptr: &mut T, len: usize) SliceIterMut[T] {
         { ptr: ptr, len: len, index: 0 }
     }
 
@@ -51,7 +43,7 @@ where T: Sized
         self.len - self.index
     }
 
-    pub fn is_empty(&self) bool {
+    pub fn isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -75,21 +67,13 @@ where T: Sized
 extend[T] SliceIter[T] : iter::DoubleEndedIterator
 where T: Sized
 {
-    pub fn next_back(&mut self) ?[SliceIter[T] as Iterator]::Item {
+    pub fn nextBack(&mut self) ?[SliceIter[T] as Iterator]::Item {
         if self.index >= self.len {
             null
         } else {
-            self.len -= 1usize;
+            self.len -= 1;
             ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &T)
         }
-    }
-}
-
-extend[T] SliceIter[T]
-where T: Sized
-{
-    pub fn rev(self) iter::Rev[SliceIter[T]] {
-        iter::Rev[SliceIter[T]]::init(self)
     }
 }
 
@@ -112,21 +96,13 @@ where T: Sized
 extend[T] SliceIterMut[T] : iter::DoubleEndedIterator
 where T: Sized
 {
-    pub fn next_back(&mut self) ?[SliceIterMut[T] as Iterator]::Item {
+    pub fn nextBack(&mut self) ?[SliceIterMut[T] as Iterator]::Item {
         if self.index >= self.len {
             null
         } else {
-            self.len -= 1usize;
+            self.len -= 1;
             ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &mut T)
         }
-    }
-}
-
-extend[T] SliceIterMut[T]
-where T: Sized
-{
-    pub fn rev(self) iter::Rev[SliceIterMut[T]] {
-        iter::Rev[SliceIterMut[T]]::init(self)
     }
 }
 
@@ -134,11 +110,11 @@ extend[T] [T]
 where T: Sized
 {
     pub fn iter(&self) SliceIter[T] {
-        SliceIter[T]::from_raw_parts(self.ptr(), self.len())
+        SliceIter[T]::fromRawParts(self.ptr(), self.len())
     }
 
-    pub fn iter_mut(&mut self) SliceIterMut[T] {
-        SliceIterMut[T]::from_raw_parts(self.ptr_mut(), self.len())
+    pub fn iterMut(&mut self) SliceIterMut[T] {
+        SliceIterMut[T]::fromRawParts(self.ptr_mut(), self.len())
     }
 }
 
@@ -149,6 +125,28 @@ where T: Sized
     type Iter = SliceIter[T];
 
     pub fn iter(&self) SliceIter[T] {
-        SliceIter[T]::from_raw_parts(self.ptr(), self.len())
+        SliceIter[T]::fromRawParts(self.ptr(), self.len())
+    }
+}
+
+extend[T] &[T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = SliceIter[T];
+
+    pub fn iter(&self) SliceIter[T] {
+        SliceIter[T]::fromRawParts(self.*.ptr(), self.*.len())
+    }
+}
+
+extend[T] &mut [T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = SliceIter[T];
+
+    pub fn iter(&self) SliceIter[T] {
+        SliceIter[T]::fromRawParts(self.*.ptr(), self.*.len())
     }
 }

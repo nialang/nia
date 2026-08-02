@@ -23,7 +23,7 @@ extend CStringView {
         if bytes[bytes.len() - 1] != 0 {
             return CStringError::MissingTerminator!;
         }
-        for &byte in (&bytes[0..bytes.len() - 1]).iter() {
+        for &byte in &bytes[0..bytes.len() - 1] {
             if byte == 0 {
                 return CStringError::InteriorNul!;
             }
@@ -36,9 +36,9 @@ extend CStringView {
     }
 
     pub fn len(&self) usize {
-        let mut len = 0usize;
-        while self.ptr[len] != 0u8 {
-            len += 1usize;
+        let mut len: usize = 0;
+        while self.ptr[len] != 0 {
+            len += 1;
         }
         len
     }
@@ -61,15 +61,15 @@ extend CStringView : fmt::Format {
         if spec.presentation() != fmt::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
             return fmt::Error::InvalidTemplate!;
         }
-        let content_width = formatter.precision_width(self.len(), spec);
-        formatter.write_padding_before(content_width, spec).?;
+        let contentWidth = formatter.precision_width(self.len(), spec);
+        formatter.write_padding_before(contentWidth, spec).?;
         let bytes = self.bytes();
-        let mut index = 0usize;
-        while index < bytes.len() and index < content_width {
+        let mut index: usize = 0;
+        while index < bytes.len() and index < contentWidth {
             formatter.write_byte(bytes[index]).?;
-            index += 1usize;
+            index += 1;
         }
-        formatter.write_padding_after(content_width, spec)
+        formatter.write_padding_after(contentWidth, spec)
     }
 }
 

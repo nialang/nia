@@ -3,7 +3,7 @@ pub(pkg) module range;
 using pkg::iter::range;
 
 pub trait DoubleEndedIterator : Iterator {
-    fn next_back(&mut self) ?[Self as Iterator]::Item;
+    fn nextBack(&mut self) ?[Self as Iterator]::Item;
 }
 
 pub struct Take[I]
@@ -22,7 +22,7 @@ where I: DoubleEndedIterator
 extend[I] Take[I]
 where I: Iterator
 {
-    pub fn init(iter: I, remaining: usize) Take[I] {
+    fn init(iter: I, remaining: usize) Take[I] {
         { iter: iter, remaining: remaining }
     }
 }
@@ -33,12 +33,12 @@ where I: Iterator
     type Item = [I as Iterator]::Item;
 
     pub fn next(&mut self) ?[I as Iterator]::Item {
-        if self.remaining == 0usize {
+        if self.remaining == 0 {
             return null;
         }
         switch self.iter.next() {
             ?value => {
-                self.remaining -= 1usize;
+                self.remaining -= 1;
                 ?value
             },
             null => {
@@ -51,13 +51,13 @@ where I: Iterator
 extend[I] Take[I] : DoubleEndedIterator
 where I: DoubleEndedIterator
 {
-    pub fn next_back(&mut self) ?[Take[I] as Iterator]::Item {
-        if self.remaining == 0usize {
+    pub fn nextBack(&mut self) ?[Take[I] as Iterator]::Item {
+        if self.remaining == 0 {
             return null;
         }
-        switch self.iter.next_back() {
+        switch self.iter.nextBack() {
             ?value => {
-                self.remaining -= 1usize;
+                self.remaining -= 1;
                 ?value
             },
             null => {
@@ -70,7 +70,7 @@ where I: DoubleEndedIterator
 extend[I] Rev[I]
 where I: DoubleEndedIterator
 {
-    pub fn init(iter: I) Rev[I] {
+    fn init(iter: I) Rev[I] {
         { iter: iter }
     }
 }
@@ -81,14 +81,14 @@ where I: DoubleEndedIterator
     type Item = [I as Iterator]::Item;
 
     pub fn next(&mut self) ?[I as Iterator]::Item {
-        self.iter.next_back()
+        self.iter.nextBack()
     }
 }
 
 extend[I] Rev[I] : DoubleEndedIterator
 where I: DoubleEndedIterator
 {
-    pub fn next_back(&mut self) ?[Rev[I] as Iterator]::Item {
+    pub fn nextBack(&mut self) ?[Rev[I] as Iterator]::Item {
         self.iter.next()
     }
 }
@@ -102,13 +102,13 @@ where I: Iterator
 
     pub fn count(self) usize {
         let mut iter = self;
-        let mut total = 0usize;
+        let mut total: usize = 0;
         let mut done = false;
         while done == false {
             switch iter.next() {
                 ?value => {
                     _ = value;
-                    total += 1usize;
+                    total += 1;
                 },
                 null => {
                     done = true;
@@ -116,6 +116,14 @@ where I: Iterator
             }
         }
         total
+    }
+}
+
+extend[I] I
+where I: DoubleEndedIterator
+{
+    pub fn rev(self) Rev[I] {
+        Rev[I]::init(self)
     }
 }
 
