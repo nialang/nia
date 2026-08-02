@@ -78,7 +78,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
-    let mut owned = std::StringBuf::from_slice(page, text).exit().?;
+    let mut owned = std::String::fromSlice(page, text).exit().?;
     defer owned.deinit(page).exit().?;
     if not owned.equals(text)
         or not owned.startsWith(&"alpha")
@@ -117,7 +117,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(9)!;
     }
 
-    let mut ownedText = std::StringBuf::from_slice(page, text).exit().?;
+    let mut ownedText = std::String::fromSlice(page, text).exit().?;
     defer ownedText.deinit(page).exit().?;
     let mut ownedHasher = hash::Wyhash::init(17u64);
     ownedText.hash(&mut ownedHasher);
@@ -125,18 +125,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(10)!;
     }
 
-    let mut equalText = std::StringBuf::from_slice(page, text).exit().?;
+    let mut equalText = std::String::fromSlice(page, text).exit().?;
     defer equalText.deinit(page).exit().?;
-    let mut differentText = std::StringBuf::from_slice(page, &"alpha λ beta").exit().?;
+    let mut differentText = std::String::fromSlice(page, &"alpha λ beta").exit().?;
     defer differentText.deinit(page).exit().?;
     if ownedText != equalText or ownedText == differentText {
         return process::exit(11)!;
     }
 
-    let mut lookup = std::StringBuf::from_slice(page, text).exit().?;
+    let mut lookup = std::String::fromSlice(page, text).exit().?;
     defer lookup.deinit(page).exit().?;
-    let stored = std::StringBuf::from_slice(page, text).exit().?;
-    let mut map = std::HashMap[std::StringBuf, i32]::init_seed_capacity(
+    let stored = std::String::fromSlice(page, text).exit().?;
+    let mut map = std::HashMap[std::String, i32]::init_seed_capacity(
         page,
         23u64,
         1usize,
@@ -157,7 +157,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(15)!;
     }
 
-    let mut removedKey: std::StringBuf;
+    let mut removedKey: std::String;
     if map.remove_entry(&lookup) is ?entry {
         removedKey = entry.into_key();
     } else {

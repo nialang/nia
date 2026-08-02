@@ -56,7 +56,7 @@ providers.
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
 | `mem` allocators/copy/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | unchecked operations and duplicated raw/list surfaces are not classified; allocator repeats at every call | audit checked vs explicitly unchecked APIs; narrow public surface |
-| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | retain native slice borrowing; finish owned-text naming and allocator design |
+| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
 | `slice` and iterators | graph scans, argv/import construction | mostly foundational, but trapping convenience methods need checked/unchecked classification | retain minimal core after conformance |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | coarse `Invalid/TooLong/Io`; fixed encoded path capacity; relative/root policy implicit | redesign typed path ownership, roots, and contextual errors |
@@ -136,7 +136,7 @@ The std review also treats language ergonomics as a system rather than a list of
 working primitives. Text must be sampled end to end from string literals and
 UTF-8 conversion through borrowed/owned values, formatting, mutation,
 comparison, paths, OS boundaries, allocation failure, and defer cleanup. The
-current existence of `[char]`, `StringBuf`, Unicode helpers, and
+current existence of `[char]`, `String`, Unicode helpers, and
 formatting traits does not by itself establish a coherent string API.
 
 Compiler-known traits receive the same scrutiny. Operators and structural place
@@ -167,14 +167,14 @@ The current audit sets this design direction:
 `Utf8DecodeError!Utf8Decode`. `Empty`, `Truncated`, `InvalidLeadingByte`,
 `InvalidContinuation`, `Overlong`, and `InvalidScalar` are distinct values;
 the former optional decoder is absent and has no compatibility alias.
-`StringBuf::fromUtf8(allocator, bytes)` and
-`StringBuf::appendUtf8(allocator, bytes)` are the whole-buffer owned boundaries
+`String::fromUtf8(allocator, bytes)` and
+`String::appendUtf8(allocator, bytes)` are the whole-buffer owned boundaries
 and return `TextError`: empty bytes are valid empty text, non-empty invalid
 input retains its `Utf8DecodeError`, and allocation failure remains a separate
 payload. Both validate and count before allocating or changing visible length;
 failed construction returns no partial value, while failed append preserves the
 original text.
-`StringBuf::appendFormat(allocator, template, args)` formats into temporary
+`String::appendFormat(allocator, template, args)` formats into temporary
 bytes, validates those bytes through the same UTF-8 append boundary, and only
 then commits scalar text. `TextError::Format` preserves template/argument
 failures, while writer allocation and invalid formatted bytes remain
@@ -184,22 +184,28 @@ precedence and an infallible conditional `defer` restores the old scalar
 length. The current ordinary spelling imports `std::fmt` and gives the
 heterogeneous argument array one type annotation, for example
 `let args: [2]&fmt::Format = [&value, &ch]`, before passing `&args`.
-Borrowed `[char]` and `StringBuf` expose the same content operations:
+Borrowed `[char]` and `String` expose the same content operations:
 `equals`, `startsWith`, `endsWith`, `find`, and `contains`. They compare Unicode
 scalars directly and do not allocate. `find` returns the first scalar index as
 `?usize`; an empty needle is found at index zero, so it is also contained and
 is both a prefix and suffix. Owned text delegates to its borrowed view rather
 than maintaining a second search implementation. Content equality is named
 explicitly instead of treating reference equality as text equality.
-With `std::hash` imported, `[char]` and `StringBuf` implement `Hash[H]` for
+With `std::hash` imported, `[char]` and `String` implement `Hash[H]` for
 every `Hasher`. The hash commits the scalar count followed by each scalar value;
-it is not a hash of an incidental UTF-8 encoding. `StringBuf` also implements
-content `Eq[StringBuf]`, and equal borrowed/owned scalar sequences produce the
+it is not a hash of an incidental UTF-8 encoding. `String` also implements
+content `Eq[String]`, and equal borrowed/owned scalar sequences produce the
 same hash. This satisfies `DefaultHashMapContext`, but the current collection
 surface is not yet an accepted owned-text workflow: lookup requires an owned
-`StringBuf` key, and map teardown does not recursively deinitialize owned keys.
+`String` key, and map teardown does not recursively deinitialize owned keys.
 Maintained conformance therefore removes and explicitly deinitializes its key;
 borrowed-key lookup and element cleanup remain collection/ownership work.
+The one owned scalar-text type is named `String`, not `StringBuf`: it stores
+Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed
+construction and ownership methods use `initCapacity`, `fromOwnedSlice`,
+`fromSlice`, `textMut`, `isEmpty`, `ensureTotalCapacity`, and `intoOwnedSlice`.
+`text()` is the only read-only borrowed view. No compatibility type alias or
+duplicate `as_slice()` accessor is retained.
 Filesystem path decoding currently maps each of those values explicitly to
 `fs::Error::Invalid` and clears partial output on failure. That is an
 intentional compatibility boundary for the still-coarse filesystem facade, not
@@ -218,9 +224,9 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | transactional mutation plus equality/search/hash providers accepted; naming, borrowed map lookup, and common allocator protocol remain open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | name, mutation, equality/search/hash accepted; borrowed map lookup and common allocator protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
-| UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `StringBuf::fromUtf8`, `StringBuf::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
+| UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | text encoding and UTF-8 host-argument decoding | `PathError`, then `fs::Error` | Unicode mapping is explicit; OS-native representation and richer errors remain open |
 | process argument/environment | `Arg` / `EnvVar` byte views and command-owned C buffers | process facade and build typed arguments | `process::Error`, formatting parse errors | raw host service retained; BuildPlan uses typed paths/values |

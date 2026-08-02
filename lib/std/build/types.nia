@@ -57,12 +57,12 @@ pub struct TargetView {
 }
 
 pub(pkg) struct TargetStorage {
-    arch: string::StringBuf,
-    vendor: string::StringBuf,
-    os: string::StringBuf,
-    env: string::StringBuf,
-    abi: string::StringBuf,
-    endian: string::StringBuf,
+    arch: string::String,
+    vendor: string::String,
+    os: string::String,
+    env: string::String,
+    abi: string::String,
+    endian: string::String,
     pointerWidth: u32,
 }
 
@@ -86,11 +86,11 @@ pub struct AggregateStep {
 }
 
 pub struct UncacheableStep {
-    description: string::StringBuf,
+    description: string::String,
 }
 
 pub struct GeneratedFileStep {
-    output: string::StringBuf,
+    output: string::String,
     contents: collections::ArrayList[u8],
 }
 
@@ -105,7 +105,7 @@ pub struct RunOptions {
 
 pub struct RunExecutableStep {
     target: ExecutableHandle,
-    arguments: collections::ArrayList[string::StringBuf],
+    arguments: collections::ArrayList[string::String],
 }
 
 pub enum CommandArgumentKind: i32 {
@@ -161,7 +161,7 @@ pub struct ExternalCommandOptions {
 }
 
 pub(pkg) union OwnedCommandArgumentPayload {
-    value: string::StringBuf,
+    value: string::String,
     artifact: ExecutableHandle,
 }
 
@@ -171,12 +171,12 @@ pub(pkg) struct OwnedCommandArgument {
 }
 
 pub(pkg) struct OwnedCommandEnvironmentInput {
-    name: string::StringBuf,
-    value: string::StringBuf,
+    name: string::String,
+    value: string::String,
 }
 
 pub struct ExternalCommandStep {
-    program: string::StringBuf,
+    program: string::String,
     arguments: collections::ArrayList[OwnedCommandArgument],
     workingDirectory: fs::PathBuf,
     resourceClass: ActionResourceClass,
@@ -196,7 +196,7 @@ pub union StepPayload {
 
 pub struct Step {
     index: usize,
-    name: string::StringBuf,
+    name: string::String,
     kind: StepKind,
     payload: StepPayload,
 }
@@ -216,7 +216,7 @@ pub struct ModuleOptions {
 
 pub struct Module {
     index: usize,
-    name: string::StringBuf,
+    name: string::String,
     sourceRoot: ModuleSourceRoot,
     rootSource: fs::PathBuf,
     optimization: OptimizationMode,
@@ -230,7 +230,7 @@ pub struct ModuleImport {
 
 pub struct OwnedModuleImport {
     index: usize,
-    name: string::StringBuf,
+    name: string::String,
     path: fs::PathBuf,
 }
 
@@ -243,9 +243,9 @@ pub struct ExecutableOptions {
 
 pub struct ExecutableTarget {
     index: usize,
-    name: string::StringBuf,
+    name: string::String,
     rootModule: ModuleHandle,
-    outputName: string::StringBuf,
+    outputName: string::String,
     runtime: Runtime,
     targetRole: TargetRole,
 }
