@@ -644,11 +644,18 @@ impl<'a> BodyChecker<'a> {
         inner: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        let expected = expected.map(|expected| self.normalization.normalize(expected));
         let expected_elem = expected.and_then(|expected| match self.interner.get(expected) {
             Some(TyKind::Optional { elem }) => Some(*elem),
             _ => None,
         });
-        let elem = self.check_expr_with_expected(inner, expected_elem);
+        let actual = self.check_expr_with_expected(inner, expected_elem);
+        let elem = if let Some(expected_elem) = expected_elem {
+            self.expect_expr_type(inner, expected_elem, actual, "optional value");
+            expected_elem
+        } else {
+            actual
+        };
         self.record_expr_node_type(inner, elem);
         self.interner.intern(TyKind::Optional { elem })
     }
@@ -658,6 +665,7 @@ impl<'a> BodyChecker<'a> {
         inner: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        let expected = expected.map(|expected| self.normalization.normalize(expected));
         let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -678,6 +686,7 @@ impl<'a> BodyChecker<'a> {
         inner: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        let expected = expected.map(|expected| self.normalization.normalize(expected));
         let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
         else {
             self.diagnostics.push(Diagnostic::user_error_at(

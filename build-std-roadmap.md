@@ -2432,6 +2432,36 @@ new directory from silently falling back into an unowned serial loop.
 The repaired gate passes all 14 fixtures plus that index test in `159.31s` on
 the same 8 GiB WSL view, down from the former `1291.21s` serial unoptimized run.
 
+Standard-library reconstruction progress (2026-08-02, checked slice access
+batch): Nia's direct indexing and slicing syntax deliberately performs no
+runtime bounds checks, so std now owns the ordinary data-dependent path through
+optional `get`, `getMut`, `first`, `firstMut`, `last`, and `lastMut` methods.
+`getRange` and `getRangeMut` validate half-open bounds, accept `len, len` as an
+empty range, and reject reversed or overlong ranges before using the native
+slice operation. There are no duplicate unchecked methods: `slice[index]` and
+`&slice[start..end]` already spell that precondition-bearing primitive.
+
+The maintained narrow-facade executable uses direct `for`, `if access is
+?value` for a single read-only branch, and exhaustive `switch` with
+`mut ?value` for mutable references. It covers in-range and out-of-range
+elements, empty and non-empty endpoints, valid empty/middle ranges, reversed
+ranges, overlong ranges, and mutation through a checked subrange. This audit
+also found that `ArrayList::asMutSlice` exposed allocation capacity rather than
+logical length, representing uninitialized slots as live `T` values despite
+the initialized-value contract. It now returns only `0..len`; list checked
+access delegates to the slice implementation, and focused ArrayList
+conformance asserts the mutable view length.
+
+Rechecking the scalar-text workflow after slice provider invalidation exposed a
+contextual-inference bug that an older persistent result had hidden:
+`String.find` returns `?usize`, but its ordinary `return ?0` defaulted the
+wrapped literal to `i32`. Optional construction now normalizes the expected
+wrapper, checks the payload against its `T`, and materializes contextual numeric
+literals before forming `?T`. Error-union success and failure constructors
+normalize their expected wrappers through the same boundary. Focused body
+coverage proves `?0` under `?usize`, `!1` under `i32!u8`, and `2!` under
+`u8!i32`; no redundant suffix was added to std.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

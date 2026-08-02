@@ -57,7 +57,7 @@ providers.
 | `mem` allocators/copy/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | reviewed owned extraction and initialized-value mutation surface; allocator repeats at every allocating call | retain narrow initialized-value surface; finish common allocator protocol |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
-| `slice` and iterators | graph scans, argv/import construction | borrowed iteration and adapter surface reviewed; broader checked/unchecked slice operations remain | retain direct borrowed iteration and minimal adapters; continue operation audit |
+| `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
 | `io` | stdout/stderr/files | public runtime type exposes `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade, hide OS provider and test partial writes |
@@ -262,6 +262,20 @@ of `DoubleEndedIterator`, rather than a copy on every slice and range iterator.
 The protocol and range APIs use lower-camel `nextBack`, `forwardChecked`,
 `backwardChecked`, and `fromBounds` names; former snake-case spellings are not
 aliases.
+
+Slices expose optional `get`, `getMut`, `first`, `firstMut`, `last`, and
+`lastMut` accessors. `getRange` and `getRangeMut` validate a half-open
+`start, end` pair, accept an empty range at `len`, and reject reversed or
+out-of-bounds ranges before invoking native slicing. Direct indexing and range
+syntax remain the explicit unchecked primitives because the language performs
+no runtime bounds check; std does not add duplicate `getUnchecked` or
+`sliceUnchecked` methods. Maintained code uses `if access is ?value` for one
+read-only branch and `switch` with `mut ?value` when classifying a mutable
+optional reference.
+
+`ArrayList::asMutSlice` exposes only its initialized logical length, never the
+allocation capacity. Its checked element access delegates to the slice methods
+so list and slice bounds semantics have one implementation owner.
 
 The reviewed map surface uses lower-camel names throughout public and provider
 code. `clear` retains allocation, `deinit` releases it, `reserve` guarantees

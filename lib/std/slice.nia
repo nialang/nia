@@ -109,6 +109,66 @@ where T: Sized
 extend[T] [T]
 where T: Sized
 {
+    pub fn isEmpty(&self) bool {
+        self.len() == 0
+    }
+
+    pub fn get(&self, index: usize) ?&T {
+        if index >= self.len() {
+            null
+        } else {
+            ?&self[index]
+        }
+    }
+
+    pub fn getMut(&mut self, index: usize) ?&mut T {
+        if index >= self.len() {
+            null
+        } else {
+            ?&mut self[index]
+        }
+    }
+
+    pub fn first(&self) ?&T {
+        self.get(0)
+    }
+
+    pub fn firstMut(&mut self) ?&mut T {
+        self.getMut(0)
+    }
+
+    pub fn last(&self) ?&T {
+        if self.len() == 0 {
+            null
+        } else {
+            self.get(self.len() - 1)
+        }
+    }
+
+    pub fn lastMut(&mut self) ?&mut T {
+        if self.len() == 0 {
+            null
+        } else {
+            self.getMut(self.len() - 1)
+        }
+    }
+
+    pub fn getRange(&self, start: usize, end: usize) ?&[T] {
+        if start > end or end > self.len() {
+            null
+        } else {
+            ?&self[start..end]
+        }
+    }
+
+    pub fn getRangeMut(&mut self, start: usize, end: usize) ?&mut [T] {
+        if start > end or end > self.len() {
+            null
+        } else {
+            ?&mut self[start..end]
+        }
+    }
+
     pub fn iter(&self) SliceIter[T] {
         SliceIter[T]::fromRawParts(self.ptr(), self.len())
     }

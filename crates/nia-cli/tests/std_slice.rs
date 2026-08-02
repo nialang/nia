@@ -64,6 +64,94 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(5)!;
     }
 
+    let valueSlice = &values[..];
+    if valueSlice.get(2) is ?value {
+        if value.* != 5 {
+            return process::exit(6)!;
+        }
+    } else {
+        return process::exit(7)!;
+    }
+    if valueSlice.get(5) is ?unexpected {
+        _ = unexpected;
+        return process::exit(8)!;
+    }
+    if valueSlice.first() is ?value {
+        if value.* != 2 {
+            return process::exit(9)!;
+        }
+    } else {
+        return process::exit(10)!;
+    }
+    if valueSlice.last() is ?value {
+        if value.* != 11 {
+            return process::exit(11)!;
+        }
+    } else {
+        return process::exit(12)!;
+    }
+
+    switch valueSlice.getRange(1, 4) {
+        ?middle => {
+            if middle.len() != 3 or sum(middle) != 15 {
+                return process::exit(13)!;
+            }
+        },
+        null => { return process::exit(14)!; },
+    }
+    if valueSlice.getRange(4, 2) is ?unexpected {
+        _ = unexpected;
+        return process::exit(15)!;
+    }
+    if valueSlice.getRange(0, 6) is ?unexpected {
+        _ = unexpected;
+        return process::exit(16)!;
+    }
+
+    let empty = &values[values.len()..values.len()];
+    if empty.first() is ?unexpected {
+        _ = unexpected;
+        return process::exit(17)!;
+    }
+    if empty.last() is ?unexpected {
+        _ = unexpected;
+        return process::exit(18)!;
+    }
+    switch empty.getRange(0, 0) {
+        ?range => {
+            if not range.isEmpty() {
+                return process::exit(19)!;
+            }
+        },
+        null => { return process::exit(20)!; },
+    }
+
+    let mut checked: [4]i32 = [1, 2, 3, 4];
+    let mut checkedSlice = &mut checked[..];
+    switch checkedSlice.getMut(1) {
+        mut ?value => { value.* = 20; },
+        null => { return process::exit(21)!; },
+    }
+    switch checkedSlice.firstMut() {
+        mut ?value => { value.* = 10; },
+        null => { return process::exit(22)!; },
+    }
+    switch checkedSlice.lastMut() {
+        mut ?value => { value.* = 40; },
+        null => { return process::exit(23)!; },
+    }
+    switch checkedSlice.getRangeMut(1, 3) {
+        mut ?range => {
+            for value in range.iterMut() {
+                value.* += 1;
+            }
+        },
+        null => { return process::exit(24)!; },
+    }
+    if checked[0] != 10 or checked[1] != 21 or checked[2] != 4 or checked[3] != 40 {
+        return process::exit(25)!;
+    }
+
     !{}
 }
 "#,

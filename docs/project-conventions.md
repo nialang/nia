@@ -40,6 +40,9 @@ fixtures should resemble ordinary user code. Do not add numeric suffixes merely
 to make compiler tests more explicit when the surrounding signature, field,
 place, or expression already determines the type. Such annotations reduce the
 repository's routine coverage of contextual inference and can hide regressions.
+Expected optional and error-union return types also provide payload context, so
+write `return ?0`, `!1`, or `2!` rather than suffixing the payload solely to
+repeat the wrapper's declared type.
 
 Keep explicit literal types where width is the contract: ABI and layout values,
 serialization, hashes and bit operations, overflow boundaries, mixed-width
