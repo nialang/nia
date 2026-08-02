@@ -41,9 +41,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(1)!;
     }
 
-    if not foundAt(text.find(&"λ"), 6usize)
-        or not foundAt(text.find(&"λ beta"), 6usize)
-        or not foundAt(text.find(&""), 0usize)
+    if not foundAt(text.find(&"λ"), 6)
+        or not foundAt(text.find(&"λ beta"), 6)
+        or not foundAt(text.find(&""), 0)
         or not text.contains(&"beta")
         or not text.contains(&"")
         or text.contains(&"gamma")
@@ -56,7 +56,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let overlapping: &[char] = &"ababa";
-    if not foundAt(overlapping.find(&"aba"), 0usize)
+    if not foundAt(overlapping.find(&"aba"), 0)
         or not overlapping.endsWith(&"aba")
         or overlapping.startsWith(&"bab")
     {
@@ -67,7 +67,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not empty.equals(&"")
         or not empty.startsWith(&"")
         or not empty.endsWith(&"")
-        or not foundAt(empty.find(&""), 0usize)
+        or not foundAt(empty.find(&""), 0)
     {
         return process::exit(5)!;
     }
@@ -83,7 +83,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not owned.equals(text)
         or not owned.startsWith(&"alpha")
         or not owned.endsWith(&"λ")
-        or not foundAt(owned.find(&"beta"), 8usize)
+        or not foundAt(owned.find(&"beta"), 8)
         or not owned.contains(&"λ beta")
     {
         return process::exit(6)!;
@@ -94,13 +94,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(7)!;
     }
 
-    let mut lambdaCount = 0usize;
+    let mut lambdaCount = 0;
     for &ch in text.iter() {
         if ch == 'λ' {
-            lambdaCount += 1usize;
+            lambdaCount += 1;
         }
     }
-    if lambdaCount != 2usize {
+    if lambdaCount != 2 {
         return process::exit(8)!;
     }
 
@@ -134,10 +134,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let stored = std::String::fromSlice(page, text).exit().?;
-    let mut map = std::HashMap[std::String, i32]::init_seed_capacity(
+    let mut map = std::HashMap[std::String, i32]::initSeedCapacity(
         page,
         23u64,
-        1usize,
+        1,
     ).exit().?;
     defer map.deinit(page).exit().?;
     let initialInsert = map.insertAssumeCapacity(stored, 41);
@@ -234,8 +234,31 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(16)!;
     }
     removedKey.deinit(page).exit().?;
-    if not map.is_empty() {
+    if not map.isEmpty() {
         return process::exit(17)!;
+    }
+
+    map.reserve(page, 2).exit().?;
+    let drainOne = std::String::fromSlice(page, &"drain one").exit().?;
+    let drainTwo = std::String::fromSlice(page, &"drain two").exit().?;
+    if map.insertAssumeCapacity(drainOne, 50) is ?unexpected {
+        _ = unexpected;
+        return process::exit(18)!;
+    }
+    if map.insertAssumeCapacity(drainTwo, 70) is ?unexpected {
+        _ = unexpected;
+        return process::exit(18)!;
+    }
+    let mut drainedCount = 0;
+    let mut drainedTotal = 0;
+    for entry in map.drain() {
+        drainedCount += 1;
+        drainedTotal += entry.value().*;
+        let mut key = entry.intoKey();
+        key.deinit(page).exit().?;
+    }
+    if drainedCount != 2 or drainedTotal != 120 or not map.isEmpty() {
+        return process::exit(18)!;
     }
     !{}
 }

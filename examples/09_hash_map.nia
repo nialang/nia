@@ -14,20 +14,20 @@ fn run(init: Init) mem::Error!void {
     defer gpa.deinit().ok().?;
     let allocator = &mut gpa;
 
-    // init_seed is deterministic, which keeps example output stable.
-    let mut scores = std::HashMap[i32, i32]::init_seed(2024u64);
+    // initSeed is deterministic, which keeps example output stable.
+    let mut scores = std::HashMap[i32, i32]::initSeed(2024u64);
     defer scores.deinit(allocator).?;
 
     // Reserve before repeated insertion when an approximate size is known.
-    scores.reserve(allocator, 8usize).?;
+    scores.reserve(allocator, 8).?;
     _ = scores.insert(allocator, 7, 70).?;
     _ = scores.insert(allocator, 42, 420).?;
     _ = scores.insert(allocator, 9, 90).?;
     // getOrInsert returns the stored entry slot and any rejected input.
-    let mut answer_slot = scores.getOrInsert(allocator, 42, 0).?;
-    _ = answer_slot.intoRejected();
-    answer_slot.value().* = answer_slot.value().* + 1;
-    switch scores.get_entry_mut(&42) {
+    let mut answerSlot = scores.getOrInsert(allocator, 42, 0).?;
+    _ = answerSlot.intoRejected();
+    answerSlot.value().* = answerSlot.value().* + 1;
+    switch scores.getEntryMut(&42) {
         mut ?entry => {
             entry.valueMut().* = entry.value().* + 9;
         },
@@ -35,7 +35,7 @@ fn run(init: Init) mem::Error!void {
             return mem::Error::Invalid!;
         },
     }
-    for value in scores.values_mut() {
+    for value in scores.valuesMut() {
         value.* = value.* / 10;
     }
 
@@ -49,13 +49,13 @@ fn run(init: Init) mem::Error!void {
         },
     }
 
-    let mut removed_key = 0;
-    let mut removed_value = 0;
-    // remove_entry transfers the removed key and value out of the map.
-    switch scores.remove_entry(&7) {
+    let mut removedKey = 0;
+    let mut removedValue = 0;
+    // removeEntry transfers the removed key and value out of the map.
+    switch scores.removeEntry(&7) {
         ?entry => {
-            removed_key = entry.key().*;
-            removed_value = entry.value().*;
+            removedKey = entry.key().*;
+            removedValue = entry.value().*;
         },
         null => {
             return mem::Error::Invalid!;
@@ -68,15 +68,15 @@ fn run(init: Init) mem::Error!void {
     }
 
     let mut len = scores.len();
-    let mut has_seven = scores.contains_key(&7);
+    let mut hasSeven = scores.containsKey(&7);
 
     debug::print(&"hash_map len={} answer={} removed_key={} removed_value={} total={} has_seven={}\n", &[
         &len,
         &answer,
-        &removed_key,
-        &removed_value,
+        &removedKey,
+        &removedValue,
         &total,
-        &has_seven,
+        &hasSeven,
     ]);
     debug::print(&"hash_map entries={}\n", &[&scores]);
     !{}

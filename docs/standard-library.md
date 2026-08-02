@@ -232,6 +232,23 @@ if-absent, and entry insertion, deinitializes them, then removes and
 deinitializes the stored key. Deep element cleanup, a future lazy construction
 entry API, and the common allocator protocol remain open.
 
+`HashMap::drain()` is the explicit bulk ownership-transfer path. Its iterator
+scans the bucket array once and returns owned `HashMapEntry` values, so callers
+can use ordinary `for`, `intoKey()`/`intoValue()`, and type-specific `deinit`
+operations. Each produced entry is removed immediately; stopping early leaves
+unvisited entries in the map. Exhaustion restores the empty control table and
+retains capacity for reuse. `ArrayList::pop()` provides the corresponding
+owned-element extraction primitive for lists. Neither container stores an
+allocator or infers element cleanup.
+
+The reviewed map surface uses lower-camel names throughout public and provider
+code. `clear` retains allocation, `deinit` releases it, `reserve` guarantees
+additional insertion capacity, and `removeEntry` transfers an owned key/value
+pair. The duplicate `clearRetainingCapacity`, `clearAndFree`, `reserveExact`,
+`fetchRemove`, and `getKeyValue` entry points are absent rather than retained as
+aliases. `ensureUnusedCapacity` is an implementation detail; the distinct
+public `ensureTotalCapacity` operation establishes an absolute capacity floor.
+
 The one owned scalar-text type is named `String`, not `StringBuf`: it stores
 Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed
 construction and ownership methods use `initCapacity`, `fromOwnedSlice`,

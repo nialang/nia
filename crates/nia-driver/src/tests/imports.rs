@@ -1435,7 +1435,7 @@ using std::mem;
 fn main() mem::Error!usize {
     let mut buffer: [4096]u8 = [0; 4096];
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
-    let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
+    let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::initSeed(1u64);
     defer map.deinit(&mut allocator).?;
     _ = map.insert(&mut allocator, 1, 2).?;
     !map.len()
@@ -1572,7 +1572,7 @@ using std::mem;
 fn main() mem::Error!usize {
     let mut buffer: [4096]u8 = [0; 4096];
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
-    let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
+    let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::initSeed(1u64);
     defer map.deinit(&mut allocator).?;
     _ = map.insert(&mut allocator, 1, 2).?;
     !map.len()

@@ -2281,6 +2281,35 @@ allocation is explicitly released. Lazy value construction remains a future
 entry-API design rather than preserving uninitialized storage as convenience.
 Deep element cleanup and the common allocator protocol remain open.
 
+Standard-library reconstruction progress (2026-08-02, owned map drain batch):
+`HashMap::drain()` and `HashMapDrainWithContext` provide linear bulk ownership
+transfer without storing an allocator or inventing automatic drop. Each
+iterator step copies out one `HashMapEntry`, marks that bucket deleted, and
+updates the live length. Early termination therefore leaves only unvisited
+entries owned by the map. Full exhaustion restores the empty control table and
+growth budget so retained capacity is immediately reusable.
+
+Runtime conformance drains primitive entries, verifies count/value totals and
+capacity reuse, then inserts again through the assume-capacity path. Owned-text
+conformance drains independently allocated `String` keys through ordinary
+`for`, transfers each key with `intoKey()`, and explicitly deinitializes it
+before map storage teardown. This accepts linear explicit element extraction,
+not a hidden destructor protocol: cleanup error aggregation and the common
+allocator protocol remain open.
+
+The same batch completes the HashMap lower-camel migration across public APIs,
+fields, parameters, locals, and package providers. There are no compatibility
+aliases: duplicate `clearRetainingCapacity`, `clearAndFree`, `reserveExact`,
+`fetchRemove`, and `getKeyValue` surfaces are physically removed, while
+`ensureUnusedCapacity` becomes a private implementation helper behind
+`reserve`. Contextual decimal literals omit `usize`; direct place-driven
+updates such as `self.len += 1` compile without annotation, and linear bucket
+scans use `for index in 0..capacity` so the range endpoint supplies the index
+type. HashMap provider modules import `pkg::iter::range` directly, so those
+loops remain valid through the narrow `std::collections` facade instead of
+depending on the root facade to activate Range's `Iterable` implementation.
+Algorithm-width `u8`/`u64` literals remain explicit.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically
