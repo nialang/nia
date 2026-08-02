@@ -299,17 +299,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(22)!;
     }
     let mut mutableItems = list.asMutSlice();
+    if mutableItems.len() != list.len() {
+        return process::exit(23)!;
+    }
     mutableItems[2] = 77;
     if list.asSlice()[2] != 77 {
-        return process::exit(23)!;
+        return process::exit(24)!;
     }
     list.clear();
     if not list.isEmpty() {
-        return process::exit(24)!;
+        return process::exit(25)!;
     }
     switch list.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(25)!; },
+        error! => { return process::exit(26)!; },
     }
     !{}
 }

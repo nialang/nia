@@ -175,6 +175,36 @@ fn main(flag: bool, x: usize) usize {
 }
 
 #[test]
+fn infers_wrapped_numeric_literals_from_return_types() {
+    let checked = pipeline(
+        r#"
+fn optionalIndex(flag: bool) ?usize {
+    if flag {
+        return ?0;
+    }
+    null
+}
+
+fn successByte() i32!u8 {
+    !1
+}
+
+fn failureByte() u8!i32 {
+    2!
+}
+
+fn main(flag: bool) i32 {
+    _ = optionalIndex(flag);
+    _ = successByte();
+    _ = failureByte();
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn allows_never_if_branches_to_converge_to_the_other_branch_type() {
     let checked = pipeline(
         r#"

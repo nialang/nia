@@ -372,6 +372,12 @@ for an unsuffixed numeric literal on either side. An explicit suffix is never
 overridden by the peer operand. Shift counts are checked independently and do
 not determine the type of the value being shifted.
 
+An expected optional or error-union type supplies context to its constructed
+payload. For example, `return ?0` in a function returning `?usize`, `!1` where
+`E!u8` is expected, and `2!` where `u8!i32` is expected infer `usize`, `u8`, and
+`u8` respectively. The wrapper does not force an otherwise contextual numeric
+literal to default to `i32`.
+
 Boolean literals:
 
 ```nia
@@ -842,6 +848,20 @@ implements neither. Range values do not implement `Len`.
 Nia does not provide built-in runtime bounds checks. The programmer is
 responsible for ensuring that the selected memory range is valid.
 
+With `std::slice` loaded, slices provide checked library operations for
+ordinary data-dependent access. `get(index)` and `getMut(index)` return an
+optional element reference. `first`/`firstMut` and `last`/`lastMut` do the same
+for the endpoints. `getRange(start, end)` and `getRangeMut(start, end)` use a
+half-open range and return an optional slice; they return `null` when
+`start > end` or `end > len`, while `len, len` is a valid empty range. These
+methods validate before using the native indexing or slicing operation.
+
+Direct `slice[index]` and `&slice[start..end]` remain the explicit unchecked
+language primitives. The standard library does not duplicate them under an
+`unchecked` method name. A single read-only checked branch can use
+`if slice.get(index) is ?value`; mutable optional references use an explicitly
+mutable pattern such as `switch slice.getMut(index) { mut ?value => ... }`.
+
 The base of a slice construction may be an array, another slice, or a
 single-element pointer:
 
@@ -877,7 +897,8 @@ let mut b: ?i32 = null;
 ```
 
 `null` and `?value` require an expected optional type when the full optional
-type cannot otherwise be inferred.
+type cannot otherwise be inferred. When an expected `?T` is present, it is also
+the expected type of `value`.
 
 Error union types are written `E!T`, where `E` is the error value type and `T`
 is the success value type. `!value` constructs the success case and `error!`

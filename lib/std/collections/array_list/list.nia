@@ -50,7 +50,7 @@ where T: Sized
     }
 
     pub fn asMutSlice(&mut self) &mut [T] {
-        self.items
+        &mut self.items[0..self.len()]
     }
 
     pub fn iter(&self) slice::SliceIter[T] {
@@ -62,19 +62,11 @@ where T: Sized
     }
 
     pub fn get(&self, index: usize) ?&T {
-        if index >= self.len() {
-            null
-        } else {
-            ?&self.items[index]
-        }
+        self.asSlice().get(index)
     }
 
     pub fn getMut(&mut self, index: usize) ?&mut T {
-        if index >= self.len() {
-            null
-        } else {
-            ?&mut self.items[index]
-        }
+        self.asMutSlice().getMut(index)
     }
 
     pub fn first(&self) ?&T {
@@ -86,19 +78,11 @@ where T: Sized
     }
 
     pub fn last(&self) ?&T {
-        if self.len() == 0 {
-            null
-        } else {
-            ?&self.items[self.len() - 1]
-        }
+        self.asSlice().last()
     }
 
     pub fn lastMut(&mut self) ?&mut T {
-        if self.len() == 0 {
-            null
-        } else {
-            ?&mut self.items[self.len() - 1]
-        }
+        self.asMutSlice().lastMut()
     }
 
     pub fn clear(&mut self) void {
