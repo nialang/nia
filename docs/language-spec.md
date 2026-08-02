@@ -124,6 +124,11 @@ replaced stored value. `insertIfAbsent` similarly returns
 rejected entry directly; that entry contains both incoming values when no
 insertion occurs. The former `put`, `fetch_put`, and `put_if_absent` entry
 points are absent because they discarded allocating incoming keys or values.
+`getOrInsert(allocator, key, value)` returns `HashMapGetOrInsertResult`, which
+provides the stored key/value references and returns an equal rejected incoming
+entry through `intoRejected()`. `getOrInsertAssumeCapacity` has the same result
+without allocation failure. The former no-value `get_or_put` operations are
+absent because they exposed an uninitialized stored value.
 
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.

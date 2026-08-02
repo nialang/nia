@@ -11,7 +11,7 @@ using entries::{
     HashMapEntry,
     HashMapEntryMut,
     HashMapEntryRef,
-    HashMapGetOrPutResult,
+    HashMapGetOrInsertResult,
     HashMapReplacement,
 };
 using types::{HashMapContext, HashMapLookupContext};
@@ -407,19 +407,19 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    pub fn get_or_put_value(
+    pub fn getOrInsert(
         &mut self,
         allocator: &mut mem::Allocator,
         key: K,
         value: V,
-    ) mem::Error!HashMapGetOrPutResult[K, V] {
+    ) mem::Error!HashMapGetOrInsertResult[K, V] {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
             ?index => {
                 return !{
                     key: &self.keys[index],
                     value: &mut self.values[index],
-                    found_existing: true,
+                    rejected: ?{ key: key, value: value },
                 };
             },
             null => {
@@ -430,22 +430,22 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !{
             key: &self.keys[index],
             value: &mut self.values[index],
-            found_existing: false,
+            rejected: null,
         }
     }
 
-    pub fn get_or_put_value_assume_capacity(
+    pub fn getOrInsertAssumeCapacity(
         &mut self,
         key: K,
         value: V,
-    ) HashMapGetOrPutResult[K, V] {
+    ) HashMapGetOrInsertResult[K, V] {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
             ?index => {
                 return {
                     key: &self.keys[index],
                     value: &mut self.values[index],
-                    found_existing: true,
+                    rejected: ?{ key: key, value: value },
                 };
             },
             null => {
@@ -456,58 +456,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         {
             key: &self.keys[index],
             value: &mut self.values[index],
-            found_existing: false,
-        }
-    }
-
-    pub fn get_or_put(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        key: K,
-    ) mem::Error!HashMapGetOrPutResult[K, V] {
-        let value_hash = self.hash_key(&key);
-        switch self.find_index(&key, value_hash) {
-            ?index => {
-                return !{
-                    key: &self.keys[index],
-                    value: &mut self.values[index],
-                    found_existing: true,
-                };
-            },
-            null => {
-            },
-        }
-
-        let index = self.insert_new_uninitialized_index(allocator, key).?;
-        !{
-            key: &self.keys[index],
-            value: &mut self.values[index],
-            found_existing: false,
-        }
-    }
-
-    pub fn get_or_put_assume_capacity(
-        &mut self,
-        key: K,
-    ) HashMapGetOrPutResult[K, V] {
-        let value_hash = self.hash_key(&key);
-        switch self.find_index(&key, value_hash) {
-            ?index => {
-                return {
-                    key: &self.keys[index],
-                    value: &mut self.values[index],
-                    found_existing: true,
-                };
-            },
-            null => {
-            },
-        }
-
-        let index = self.insert_new_uninitialized_index_assume_capacity(key);
-        {
-            key: &self.keys[index],
-            value: &mut self.values[index],
-            found_existing: false,
+            rejected: null,
         }
     }
 

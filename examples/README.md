@@ -112,7 +112,7 @@ should receive that same handle.
   `PageAllocator`, ordinary heap allocation, `ArrayList`, and cleanup with
   `defer`.
 - `09_hash_map.nia`: `std::HashMap` with explicit allocator ownership,
-  `get_or_put` entry slots, mutable entry/value iteration, removal, and
+  `getOrInsert` entry slots, mutable entry/value iteration, removal, and
   formatted output.
 - `modules/main.nia`: file modules, aliases, selected `using`, `pub using`, and
   formatted results from imported code.

@@ -170,6 +170,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else {
         return process::exit(12)!;
     }
+    let entryIncoming = std::String::fromSlice(page, text).exit().?;
+    let mut entryResult = map.getOrInsertAssumeCapacity(entryIncoming, 100);
+    if entryResult.intoRejected() is ?rejected {
+        if rejected.value().* != 100 {
+            return process::exit(12)!;
+        }
+        let mut entryRejectedKey = rejected.intoKey();
+        entryRejectedKey.deinit(page).exit().?;
+    } else {
+        return process::exit(12)!;
+    }
+    if entryResult.value().* != 41 {
+        return process::exit(12)!;
+    }
     if not map.containsKeyBy(text) {
         return process::exit(13)!;
     }

@@ -19,12 +19,12 @@ where K: Sized, V: Sized
     value: &mut V,
 }
 
-pub struct HashMapGetOrPutResult[K, V]
+pub struct HashMapGetOrInsertResult[K, V]
 where K: Sized, V: Sized
 {
     key: &K,
     value: &mut V,
-    found_existing: bool,
+    rejected: ?HashMapEntry[K, V],
 }
 
 pub struct HashMapReplacement[K, V]
@@ -82,7 +82,7 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapGetOrPutResult[K, V]
+extend[K, V] HashMapGetOrInsertResult[K, V]
 where K: Sized, V: Sized
 {
     pub fn key(&self) &K {
@@ -93,8 +93,8 @@ where K: Sized, V: Sized
         self.value
     }
 
-    pub fn found_existing(&self) bool {
-        self.found_existing
+    pub fn intoRejected(self) ?HashMapEntry[K, V] {
+        self.rejected
     }
 }
 

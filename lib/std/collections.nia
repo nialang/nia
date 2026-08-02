@@ -18,7 +18,7 @@ pub using hash_map::{
     HashMapEntry,
     HashMapEntryMut,
     HashMapEntryRef,
-    HashMapGetOrPutResult,
+    HashMapGetOrInsertResult,
     HashMapIter,
     HashMapIterMut,
     HashMapKeys,

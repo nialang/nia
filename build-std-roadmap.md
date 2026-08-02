@@ -2262,6 +2262,25 @@ named inputs remain caller-owned until success and use conditional `defer`
 rollback. Deep map element cleanup, the ownership-losing `get_or_put` entry
 family, and the common allocator protocol remain open.
 
+Standard-library reconstruction progress (2026-08-02, owned map entry batch):
+the ownership-losing `get_or_put_value` family is replaced by lower-camel
+`getOrInsert` and `getOrInsertAssumeCapacity`. `HashMapGetOrInsertResult`
+contains references to the stored key and mutable value plus an optional
+rejected incoming entry. When the key is new, the supplied value is initialized
+before the result becomes visible. When an equal key exists,
+`intoRejected()` returns both incoming values and the stored value is unchanged.
+The no-value `get_or_put` operations are physically removed because exposing an
+uninitialized `V` is not an ordinary safe collection workflow.
+
+This result wrapper has a real invariant unlike the rejected single-optional
+insertion wrapper explored in the preceding batch: it composes a stored entry
+view with conditionally returned ownership. Focused conformance covers new and
+existing entries, assume-capacity insertion, allocation rollback, randomized
+model churn, and independently allocated equal `String` keys whose rejected
+allocation is explicitly released. Lazy value construction remains a future
+entry-API design rather than preserving uninitialized storage as convenience.
+Deep element cleanup and the common allocator protocol remain open.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically
