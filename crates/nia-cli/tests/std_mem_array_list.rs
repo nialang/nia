@@ -17,6 +17,22 @@ using std;
 using std::mem;
 using std::process;
 
+fn sumBorrowed(values: &std::ArrayList[i32]) i32 {
+    let mut total = 0;
+    for &value in values {
+        total += value;
+    }
+    total
+}
+
+fn sumMutBorrowed(values: &mut std::ArrayList[i32]) i32 {
+    let mut total = 0;
+    for &value in values {
+        total += value;
+    }
+    total
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
@@ -127,6 +143,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch iterList.push(page, 3) {
         !ok => { _ = ok; },
         error! => { return process::exit(77)!; },
+    }
+    if sumBorrowed(&iterList) != 6 or sumMutBorrowed(&mut iterList) != 6 {
+        return process::exit(81)!;
     }
     for value in iterList.iterMut() {
         value.* = value.* * 2;

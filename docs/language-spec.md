@@ -233,8 +233,11 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::slice` defines `SliceIter` and `SliceIterMut`. Borrowed slices are
   iterable directly with `for`; both `&[T]` and `&mut [T]` yield `&T` through
   that shared protocol. Use `.iterMut()` explicitly when the loop needs `&mut
-  T` items. Slices whose elements implement `Eq[T]` also provide ordered
-  sequence comparison, prefix/suffix, and contiguous search operations.
+  T` items. Slices whose elements implement `Eq[T]` also provide sequence
+  equality, prefix/suffix, and contiguous search operations; `Ord[T]` enables
+  lexicographic comparison.
+- `std::cmp` defines the closed `Ordering` result used by lexicographic slice
+  comparison: `Less`, `Equal`, and `Greater`.
 - `std::iter` defines iterator support types. Native range values such as
   `0usize..len`, `1i64..4i64`, `2usize..=4usize`, and `5usize..` are iterable
   directly; the backing iterator types live under `std::iter` as `Range`,
@@ -870,6 +873,15 @@ against an empty slice; a needle longer than the receiver does not match.
 Mutable slice values can call these read-only receiver methods directly: method
 resolution applies the same `&mut [T]` to `&[T]` coercion accepted at ordinary
 typed boundaries.
+
+`copyFrom(source)` is the ordinary slice copy operation. It copies
+`min(receiver.len(), source.len())` initialized element representations,
+handles overlapping ranges, and returns that element count. The return value
+makes a short destination observable and cannot be ignored implicitly.
+`copyFrom` is a shallow value copy; it does not call a user cloning or cleanup
+protocol. For `T: Ord[T]`, `compare(other)` compares elements
+lexicographically and returns `std::cmp::Ordering`. If their common prefix is
+equal, the shorter slice compares less.
 
 The base of a slice construction may be an array, another slice, or a
 single-element pointer:
@@ -2128,6 +2140,17 @@ compiler-proven slice implementations.
 `ptr` must have type `&u8` or `&mut u8`, and `T` must be `Sized`. The caller is
 responsible for ensuring that at least `@size[T]()` readable bytes are available
 at `ptr`; the builtin only relaxes alignment, not bounds or initialization.
+
+`std::builtin::memcpy[T](destination, source)` and
+`std::builtin::memmove[T](destination, source)` copy the common slice prefix as
+raw element representation and return `void`. Both require initialized,
+readable source elements and writable destination elements. `memcpy` copies
+forward and requires the copied ranges not to overlap in a way that changes a
+later source element; `memmove` selects a safe direction and permits overlap.
+`std::builtin::memset(destination, byte)` fills every byte of a mutable `u8`
+slice. These are compiler primitives for std and low-level code. Ordinary code
+uses `slice.copyFrom`, whose count result exposes short copies and whose
+implementation selects the overlap-safe primitive.
 
 SIMD vector builtins operate on primitive vector types such as `u8x16` and
 `boolx16`. `@splat[Vec](value)` constructs a vector whose lanes all contain

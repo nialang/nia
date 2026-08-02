@@ -24,12 +24,7 @@ fn byte_sum(bytes: &[u8]) usize {
 
 fn copy_name(output: &mut [u8]) usize {
     let source = b"nia";
-    let mut index: usize = 0;
-    while index < source.len() and index < output.len() {
-        output[index] = source[index];
-        index += 1;
-    }
-    index
+    output.copyFrom(&source)
 }
 
 pub fn main(init: Init) ExitCode!void {

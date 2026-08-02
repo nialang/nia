@@ -1,5 +1,5 @@
 using pkg::io::traits;
-using pkg::mem;
+using pkg::slice;
 
 using traits::{Reader, Writer};
 
@@ -46,7 +46,7 @@ where R: Reader
             count = self.len();
         }
 
-        mem::copy_forwards[u8](&mut bytes[0..count], &self.buffer[self.start..(self.start + count)]);
+        _ = (&mut bytes[0..count]).copyFrom(&self.buffer[self.start..(self.start + count)]);
         self.start += count;
         if self.start == self.end {
             self.discard_buffered();
@@ -103,11 +103,7 @@ where W: Writer
     }
 
     fn append_buffered(&mut self, bytes: &[u8]) void {
-        let mut index = 0usize;
-        while index < bytes.len() {
-            self.buffer[self.len + index] = bytes[index];
-            index += 1usize;
-        }
+        _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
     }
 }

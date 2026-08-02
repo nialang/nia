@@ -1,5 +1,5 @@
 using pkg::io::traits;
-using pkg::mem;
+using pkg::slice;
 
 using traits::{BufferError, Reader, Writer};
 
@@ -38,7 +38,7 @@ extend FixedBufferWriter {
         if bytes.len() > self.buffer.len() - self.len {
             return BufferError::NoSpace!;
         }
-        mem::copy_forwards[u8](&mut self.buffer[self.len..(self.len + bytes.len())], bytes);
+        _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
         !{}
     }
@@ -58,7 +58,7 @@ extend FixedBufferWriter : Writer {
             count = remaining;
         }
 
-        mem::copy_forwards[u8](&mut self.buffer[self.len..(self.len + count)], &bytes[0..count]);
+        _ = (&mut self.buffer[self.len..(self.len + count)]).copyFrom(&bytes[0..count]);
         self.len += count;
         !count
     }
@@ -88,7 +88,7 @@ extend FixedBufferReader : Reader {
             count = remaining;
         }
 
-        mem::copy_forwards[u8](&mut bytes[0..count], &self.buffer[self.cursor..(self.cursor + count)]);
+        _ = (&mut bytes[0..count]).copyFrom(&self.buffer[self.cursor..(self.cursor + count)]);
         self.cursor += count;
         !count
     }

@@ -1,0 +1,5 @@
+pub enum Ordering: i32 {
+    Less = 1,
+    Equal = 2,
+    Greater = 3,
+}

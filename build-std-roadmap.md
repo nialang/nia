@@ -2486,6 +2486,41 @@ test-only `std::mem` import also exposed `fs::path` relying on `mem` to activate
 checked arithmetic transitively; the path provider now imports `pkg::math`
 directly.
 
+Standard-library reconstruction progress (2026-08-03, slice copy and ordering
+batch): ordinary contiguous copying is now the overlap-safe
+`destination.copyFrom(source) -> usize` operation. It copies the common prefix,
+so a short destination is represented by the returned count rather than hidden
+behind the former `void` helpers. Repository Nia cannot discard that result
+implicitly: maintained internals use `_ =` only where their constructed ranges
+already prove an exact copy, while the slice tutorial returns the count to its
+caller. Runtime conformance covers exact, long-destination, short-destination,
+left/right overlap, and zero-sized element paths.
+
+Lexicographic ordering is `slice.compare(other)` for `T: Ord[T]`, returning the
+new closed `std::cmp::Ordering` type. Comparison is no longer presented as a
+memory operation. The obsolete `mem::copy_forwards`, `mem::copy_backwards`,
+`mem::order`, `mem::Order`, and the entire `mem::copy` provider are physically
+removed without aliases. ArrayList mutation/allocation, allocator remap, I/O
+buffers, Wyhash staging, and maintained examples all use the slice surface.
+The language specification now also records the compiler-backed distinction:
+`memcpy` is forward and has an overlap precondition, `memmove` is overlap-safe,
+and both are shallow representation operations over the common slice prefix.
+
+Like pointer-slice types, `&ArrayList[T]` and `&mut ArrayList[T]` implement
+`Iterable` directly so borrowed collection parameters retain the ordinary
+`for item in values` spelling. Both providers yield `&T`; mutable element
+iteration remains the explicit `iterMut()` operation because `Iterable::iter`
+receives a shared borrow. This also keeps generic formatting independent of an
+implicit compiler dereference rule.
+
+The borrowed provider exposed an LLVM call-lowering bug rather than a reason to
+retreat to explicit `.iter()`: a method whose extension target was already a
+pointer lost the additional borrow required by its `&self` receiver. Pointer
+receivers are now passed through directly only when their type actually matches
+the ABI parameter (including the outer mutable-to-read-only coercion); nested
+pointer receiver methods take the required address. LLVM-level and executable
+coverage preserve that distinction.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

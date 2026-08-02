@@ -637,7 +637,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if matches!(
                     self.module.ty_kind(receiver.ty),
                     Some(TyKind::Pointer { .. })
-                ) {
+                ) && self.pointer_receiver_matches_passing_ty(receiver.ty, passing_ty)
+                {
                     return self.emit_expr(receiver);
                 }
                 if is_addressable_receiver(receiver) {
@@ -657,6 +658,34 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return false;
         };
         self.module.same_type_for_equiv(*elem, passing_ty)
+    }
+
+    fn pointer_receiver_matches_passing_ty(
+        &self,
+        receiver_ty: InternedTyId,
+        passing_ty: InternedTyId,
+    ) -> bool {
+        if self.module.same_type_for_equiv(receiver_ty, passing_ty) {
+            return true;
+        }
+        let (
+            Some(TyKind::Pointer {
+                is_readonly: false,
+                elem: receiver_elem,
+            }),
+            Some(TyKind::Pointer {
+                is_readonly: true,
+                elem: passing_elem,
+            }),
+        ) = (
+            self.module.ty_kind(receiver_ty),
+            self.module.ty_kind(passing_ty),
+        )
+        else {
+            return false;
+        };
+        self.module
+            .same_type_for_equiv(*receiver_elem, *passing_elem)
     }
 
     fn is_fat_receiver_passing_ty(&self, ty: InternedTyId) -> bool {
