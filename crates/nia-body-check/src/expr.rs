@@ -1130,24 +1130,26 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         let output_is_boolean = builtin_trait_output_is_boolean(trait_id);
-        if output_is_boolean
-            && self.is_numeric_literal_expr(lhs)
-            && !self.is_numeric_literal_expr(rhs)
-        {
+        let mut prechecked_rhs = None;
+        if self.is_untyped_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
             let rhs_actual = self.check_expr(rhs);
             let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
-            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
-            self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");
-            return self.finish_builtin_operator_expr(BuiltinOperatorFinish {
-                span,
-                trait_id,
-                op: BuiltinOperatorOp::Binary(op),
-                lhs,
-                lhs_actual,
-                rhs,
-                rhs_actual,
-                expected,
-            });
+            if self.is_numeric(rhs_ty) && self.can_expected_type_drive_builtin_operator(rhs_ty, op)
+            {
+                let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
+                self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");
+                return self.finish_builtin_operator_expr(BuiltinOperatorFinish {
+                    span,
+                    trait_id,
+                    op: BuiltinOperatorOp::Binary(op),
+                    lhs,
+                    lhs_actual,
+                    rhs,
+                    rhs_actual,
+                    expected,
+                });
+            }
+            prechecked_rhs = Some(rhs_actual);
         }
 
         let lhs_expected = (!output_is_boolean).then_some(()).and_then(|_| {
@@ -1167,7 +1169,10 @@ impl<'a> BodyChecker<'a> {
         } else {
             None
         };
-        let rhs_actual = self.check_expr_with_expected(rhs, rhs_expected);
+        let rhs_actual = match prechecked_rhs {
+            Some(rhs_actual) => rhs_actual,
+            None => self.check_expr_with_expected(rhs, rhs_expected),
+        };
         if let Some(expected) = rhs_expected {
             self.expect_expr_type(rhs, expected, rhs_actual, "binary operator");
         }

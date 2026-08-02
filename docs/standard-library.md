@@ -55,7 +55,7 @@ providers.
 | --- | --- | --- | --- |
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
 | `mem` allocators/copy/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape |
-| `collections::ArrayList` | steps, edges, modules, targets, path decoding | unchecked operations and duplicated raw/list surfaces are not classified; allocator repeats at every call | audit checked vs explicitly unchecked APIs; narrow public surface |
+| `collections::ArrayList` | steps, edges, modules, targets, path decoding | reviewed owned extraction and initialized-value mutation surface; allocator repeats at every allocating call | retain narrow initialized-value surface; finish common allocator protocol |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
 | `slice` and iterators | graph scans, argv/import construction | mostly foundational, but trapping convenience methods need checked/unchecked classification | retain minimal core after conformance |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
@@ -240,6 +240,16 @@ unvisited entries in the map. Exhaustion restores the empty control table and
 retains capacity for reuse. `ArrayList::pop()` provides the corresponding
 owned-element extraction primitive for lists. Neither container stores an
 allocator or infers element cleanup.
+
+`ArrayList` exposes only initialized-value operations. `push`, `appendSlice`,
+`insert`, `insertSlice`, and `replaceRange` finish initialization before
+returning; the former public slot-growth, arbitrary `resize`, allocated-storage,
+and unused-capacity slice APIs are absent. `truncate` is the only
+length-discarding operation. `shrinkToFit` and `shrinkToCapacity` may release
+storage but never remove elements. `clear` retains allocation and `deinit`
+releases it; the duplicate cleanup and append spellings have no aliases.
+`reserveExact` remains because, unlike `reserve`, it deliberately avoids
+geometric growth.
 
 The reviewed map surface uses lower-camel names throughout public and provider
 code. `clear` retains allocation, `deinit` releases it, `reserve` guarantees

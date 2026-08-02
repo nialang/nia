@@ -47,14 +47,14 @@ extend PlanEncoder {
     }
 
     fn data(&self) &[u8] {
-        self.bytes.as_slice()
+        self.bytes.asSlice()
     }
 
     fn writeBytes(&mut self, value: &[u8]) Error!void {
         if value.len() > maxPlanBytes - self.bytes.len() {
             return invalidPlan();
         }
-        self.bytes.append_slice(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
+        self.bytes.appendSlice(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
     }
 
     fn writeU8(&mut self, value: u8) Error!void {
@@ -240,7 +240,7 @@ extend PlanEncoder {
                 self.writeU8(3).?;
                 self.writeBuildPath(step.payload.generatedFile.output.text()).?;
                 self.writeU32(step.payload.generatedFile.contents.len() as u32).?;
-                self.writeBytes(step.payload.generatedFile.contents.as_slice())
+                self.writeBytes(step.payload.generatedFile.contents.asSlice())
             },
             StepKind::Uncacheable => {
                 self.writeU8(5).?;
@@ -366,7 +366,7 @@ extend PlanEncoder {
         self.writeCount(dependencyCount).?;
         for &edge in build.dependencies.iter() {
             if edge.step.index == step.index {
-                let dependency = build.steps.as_slice()[edge.dependency.index];
+                let dependency = build.steps.asSlice()[edge.dependency.index];
                 self.writeNodeKey(dependency.name.text()).?;
             }
         }
@@ -377,7 +377,7 @@ extend PlanEncoder {
         switch handle {
             ?step => {
                 self.writeU8(1).?;
-                self.writeNodeKey(build.steps.as_slice()[step.index].name.text())
+                self.writeNodeKey(build.steps.asSlice()[step.index].name.text())
             },
             null => self.writeU8(0),
         }
@@ -397,14 +397,14 @@ extend PlanEncoder {
         }
         self.writeCount(build.executables.len()).?;
         for &target in build.executables.iter() {
-            self.writeArtifact(target, build.modules.as_slice()).?;
+            self.writeArtifact(target, build.modules.asSlice()).?;
         }
         self.writeCount(build.steps.len()).?;
         for &step in build.steps.iter() {
             self.writeAction(
                 step,
-                build.modules.as_slice(),
-                build.executables.as_slice(),
+                build.modules.asSlice(),
+                build.executables.asSlice(),
                 build.artifactTarget(),
             ).?;
         }

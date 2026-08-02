@@ -1,13 +1,13 @@
 using pkg::mem;
 
-pub fn dangling_slice[T](len: usize) &mut [T]
+pub fn danglingSlice[T](len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = std::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 
-pub fn block_items[T](block: mem::Block, len: usize) &mut [T]
+pub fn blockItems[T](block: mem::Block, len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = block.ptr() as &mut T;

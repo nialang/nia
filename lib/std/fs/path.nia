@@ -17,10 +17,10 @@ extend PathView {
         bytes: &[u8],
         out: &mut collections::ArrayList[char],
     ) Error!PathView {
-        out.clear_retaining_capacity();
+        out.clear();
         let mut complete = false;
         defer if not complete {
-            out.clear_retaining_capacity();
+            out.clear();
         };
         let mut index = 0usize;
         while index < bytes.len() {
@@ -36,7 +36,7 @@ extend PathView {
             index += decoded.len();
         }
         complete = true;
-        !PathView::init(out.as_slice())
+        !PathView::init(out.asSlice())
     }
 
     pub fn text(&self) &[char] {
