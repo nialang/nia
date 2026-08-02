@@ -33,23 +33,6 @@ where T: Sized
     }
 }
 
-pub fn equal[T](left: &[T], right: &[T]) bool
-where T: Eq[T]
-{
-    if left.len() != right.len() {
-        return false;
-    }
-
-    let mut index = 0usize;
-    while index < left.len() {
-        if left[index] != right[index] {
-            return false;
-        }
-        index += 1usize;
-    }
-    true
-}
-
 pub fn order[T](left: &[T], right: &[T]) Order
 where T: Ord[T]
 {

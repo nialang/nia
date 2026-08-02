@@ -185,13 +185,14 @@ precedence and an infallible conditional `defer` restores the old scalar
 length. The current ordinary spelling imports `std::fmt` and gives the
 heterogeneous argument array one type annotation, for example
 `let args: [2]&fmt::Format = [&value, &ch]`, before passing `&args`.
-Borrowed `[char]` and `String` expose the same content operations:
-`equals`, `startsWith`, `endsWith`, `find`, and `contains`. They compare Unicode
-scalars directly and do not allocate. `find` returns the first scalar index as
-`?usize`; an empty needle is found at index zero, so it is also contained and
-is both a prefix and suffix. Owned text delegates to its borrowed view rather
-than maintaining a second search implementation. Content equality is named
-explicitly instead of treating reference equality as text equality.
+Generic slices whose elements implement `Eq[T]` provide `equals`, `startsWith`,
+`endsWith`, `find`, and `contains` as allocation-free ordered-sequence
+operations. Borrowed `[char]` therefore gets the scalar-text vocabulary from
+the slice API, while `String` delegates to its borrowed view rather than
+maintaining a second search implementation. `find` returns the first element
+index as `?usize`; an empty needle is found at index zero, so it is also
+contained and is both a prefix and suffix. Content equality is named explicitly
+instead of treating reference equality as sequence equality.
 With `std::hash` imported, `[char]` and `String` implement `Hash[H]` for
 every `Hasher`. The hash commits the scalar count followed by each scalar value;
 it is not a hash of an incidental UTF-8 encoding. `String` also implements
@@ -272,6 +273,14 @@ no runtime bounds check; std does not add duplicate `getUnchecked` or
 `sliceUnchecked` methods. Maintained code uses `if access is ?value` for one
 read-only branch and `switch` with `mut ?value` when classifying a mutable
 optional reference.
+
+For `T: Eq[T]`, slices also expose `equals`, `startsWith`, `endsWith`, `find`,
+and `contains`. Search is for a complete contiguous slice, returns the first
+matching element index, and treats an empty needle as present at zero. These
+methods work directly on both `&[T]` and `&mut [T]`; a mutable slice may call a
+read-only slice receiver through the ordinary mutable-to-read-only coercion.
+The former `mem::equal(left, right)` helper is physically absent rather than an
+alias for `left.equals(right)`.
 
 `ArrayList::asMutSlice` exposes only its initialized logical length, never the
 allocation capacity. Its checked element access delegates to the slice methods

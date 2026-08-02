@@ -233,7 +233,8 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::slice` defines `SliceIter` and `SliceIterMut`. Borrowed slices are
   iterable directly with `for`; both `&[T]` and `&mut [T]` yield `&T` through
   that shared protocol. Use `.iterMut()` explicitly when the loop needs `&mut
-  T` items.
+  T` items. Slices whose elements implement `Eq[T]` also provide ordered
+  sequence comparison, prefix/suffix, and contiguous search operations.
 - `std::iter` defines iterator support types. Native range values such as
   `0usize..len`, `1i64..4i64`, `2usize..=4usize`, and `5usize..` are iterable
   directly; the backing iterator types live under `std::iter` as `Range`,
@@ -861,6 +862,14 @@ language primitives. The standard library does not duplicate them under an
 `unchecked` method name. A single read-only checked branch can use
 `if slice.get(index) is ?value`; mutable optional references use an explicitly
 mutable pattern such as `switch slice.getMut(index) { mut ?value => ... }`.
+
+When `T: Eq[T]`, `equals`, `startsWith`, `endsWith`, `find`, and `contains`
+operate on complete contiguous element sequences. `find` returns the first
+matching element index as `?usize`. An empty needle matches at zero, including
+against an empty slice; a needle longer than the receiver does not match.
+Mutable slice values can call these read-only receiver methods directly: method
+resolution applies the same `&mut [T]` to `&[T]` coercion accepted at ordinary
+typed boundaries.
 
 The base of a slice construction may be an array, another slice, or a
 single-element pointer:
@@ -3115,11 +3124,11 @@ byte buffer and then performs typed UTF-8 append. It returns
 allocation, or temporary-buffer cleanup failure. `TextError` contains only the
 `InvalidUtf8` and `Allocation` cases that UTF-8 construction and append can
 actually produce.
-Borrowed `[char]` and `String` provide `equals`, `startsWith`, `endsWith`,
-`find`, and `contains` as scalar-text content operations. `find` returns the
-first matching scalar index as `?usize`. An empty needle matches at index zero;
-all five operations are allocation-free, and owned text delegates to its
-borrowed scalar view.
+Borrowed `[char]` receives `equals`, `startsWith`, `endsWith`, `find`, and
+`contains` from the generic slice sequence API. `String` exposes the same
+scalar-text content operations by delegating to its borrowed view. `find`
+returns the first matching scalar index as `?usize`. An empty needle matches at
+index zero, and all five operations are allocation-free.
 `[char]` and `String` implement `std::hash::Hash[H]` when `H` implements
 `Hasher`. Text hashing writes the scalar count followed by each scalar value;
 `String` delegates to that borrowed representation and implements content

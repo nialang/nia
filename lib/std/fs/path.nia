@@ -1,5 +1,6 @@
 using pkg::error;
 using pkg::fs::types;
+using pkg::math;
 using pkg::mem;
 using pkg::slice;
 using pkg::string;

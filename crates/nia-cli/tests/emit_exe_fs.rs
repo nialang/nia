@@ -1638,11 +1638,11 @@ fn emit_exe_std_fs_can_iterate_dir_entries() {
         &main,
         r#"
 using std::fs;
-using std::mem;
 using std::process;
+using std::slice;
 
 fn bytes_equal(left: &[u8], right: &[u8]) bool {
-    mem::equal[u8](left, right)
+    left.equals(right)
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {

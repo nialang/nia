@@ -167,6 +167,26 @@ fn main() i32 {
 }
 
 #[test]
+fn mutable_slice_can_call_readonly_pointee_extension_method() {
+    let checked = pipeline(
+        r#"
+extend[T] [T]
+where T: Sized
+{
+    fn inspect(&self) bool {
+        true
+    }
+}
+
+fn main(values: &mut [i32]) bool {
+    values.inspect()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn associated_function_and_field_access_use_extension_owner_type() {
     let checked = pipeline(
         r#"

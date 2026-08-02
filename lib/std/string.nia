@@ -4,6 +4,7 @@ using pkg::collections;
 using pkg::fmt;
 using pkg::io;
 using pkg::mem;
+using pkg::slice;
 using pkg::unicode;
 
 using pkg::string::hash as stringHash;
@@ -197,65 +198,6 @@ extend String : Eq[String] {
 
     fn ne(&self, other: &String) bool {
         not self.equals(other.text())
-    }
-}
-
-extend [char] {
-    pub fn equals(&self, other: &[char]) bool {
-        if self.len() != other.len() {
-            return false;
-        }
-
-        let mut index: usize = 0;
-        while index < self.len() {
-            if self[index] != other[index] {
-                return false;
-            }
-            index += 1;
-        }
-        true
-    }
-
-    pub fn startsWith(&self, prefix: &[char]) bool {
-        if prefix.len() > self.len() {
-            return false;
-        }
-        (&self[0..prefix.len()]).equals(prefix)
-    }
-
-    pub fn endsWith(&self, suffix: &[char]) bool {
-        if suffix.len() > self.len() {
-            return false;
-        }
-        (&self[(self.len() - suffix.len())..]).equals(suffix)
-    }
-
-    pub fn find(&self, needle: &[char]) ?usize {
-        if needle.len() == 0 {
-            return ?0;
-        }
-        if needle.len() > self.len() {
-            return null;
-        }
-
-        let lastStart = self.len() - needle.len();
-        let mut index: usize = 0;
-        while index <= lastStart {
-            if (&self[index..(index + needle.len())]).equals(needle) {
-                return ?index;
-            }
-            index += 1;
-        }
-        null
-    }
-
-    pub fn contains(&self, needle: &[char]) bool {
-        if self.find(needle) is ?index {
-            _ = index;
-            true
-        } else {
-            false
-        }
     }
 }
 
