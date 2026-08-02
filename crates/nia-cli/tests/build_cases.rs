@@ -9,93 +9,140 @@ use nia_test_support::{
     fixture_relative_path,
 };
 
+macro_rules! build_cases {
+    ($($name:ident),+ $(,)?) => {
+        const BUILD_CASE_NAMES: &[&str] = &[$(stringify!($name)),+];
+
+        $(
+            #[test]
+            fn $name() {
+                run_build_case(stringify!($name));
+            }
+        )+
+    };
+}
+
+build_cases!(
+    bare_runtime,
+    configured_optimization,
+    configured_success,
+    dependency_cycle,
+    duplicate_module,
+    duplicate_target,
+    executable_dependency,
+    invalid_output,
+    invalid_target,
+    missing_default,
+    missing_script,
+    step_order,
+    unknown_step,
+    unselected_dependency_cycle,
+);
+
 #[test]
-fn build_cases_match_expectations() {
-    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+fn configured_build_fixtures_have_independent_tests() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
-    let workspaces = std::env::temp_dir().join(format!("nia-build-cases-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&workspaces);
+    let configured = case_directories(&fixtures, "build")
+        .into_iter()
+        .map(|path| {
+            path.file_name()
+                .expect("build case directory has a name")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        configured,
+        BUILD_CASE_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>()
+    );
+}
 
-    for case_root in case_directories(&fixtures, "build") {
-        let mut manifest = CaseManifest::load(&case_root);
-        let manifest_path = manifest.path().to_owned();
-        let mode = manifest.required("mode");
-        manifest.expect("resource", TestWorkload::Build.as_str());
-        let contract = manifest.required("contract");
-        let step = manifest.required("step");
-        let workspace = workspaces.join(
-            case_root
-                .file_name()
-                .expect("build case directory has a name"),
-        );
-        copy_case_tree(&case_root, &workspace);
+fn run_build_case(name: &str) {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
+    let case_root = fixtures.join(name);
+    assert!(case_root.is_dir(), "build case {name:?} is not a fixture");
+    let mut manifest = CaseManifest::load(&case_root);
+    let manifest_path = manifest.path().to_owned();
+    let mode = manifest.required("mode");
+    let workload = match manifest.required("resource").as_str() {
+        "compiler" => TestWorkload::Compiler,
+        "build" => TestWorkload::Build,
+        resource => panic!("unknown build case resource {resource:?}"),
+    };
+    let _resources = nia_test_support::acquire_test_resources(workload);
+    let contract = manifest.required("contract");
+    let step = manifest.required("step");
+    let workspace = support::temp_dir(&format!("build-case-{name}"));
+    copy_case_tree(&case_root, &workspace);
 
-        let mut command = support::nia_command();
-        command.arg("build");
-        if contract == "step-order" {
-            command.arg("--jobs=1");
-        }
-        let command_root = if mode == "configured-build-success" {
-            command.arg("--timings=detail").arg("--timings-format=json");
-            let nested = workspace.join("src/nested");
-            std::fs::create_dir_all(&nested).expect("create nested build case directory");
-            nested
-        } else {
-            workspace.clone()
-        };
-        if step != "default" {
-            command.arg(&step);
-        }
-        let output = command
-            .arg("--root")
-            .arg(&command_root)
-            .output_timeout_without_resources("run build metadata case");
+    let mut command = support::nia_command();
+    command.arg("build");
+    if contract == "step-order" {
+        command.arg("--jobs=1");
+    }
+    let command_root = if mode == "configured-build-success" {
+        command.arg("--timings=detail").arg("--timings-format=json");
+        let nested = workspace.join("src/nested");
+        std::fs::create_dir_all(&nested).expect("create nested build case directory");
+        nested
+    } else {
+        workspace.to_path_buf()
+    };
+    if step != "default" {
+        command.arg(&step);
+    }
+    let output = command
+        .arg("--root")
+        .arg(&command_root)
+        .output_timeout_without_resources("run build metadata case");
 
-        match mode.as_str() {
-            "dependency-success" => {
-                manifest.finish();
-                assert_dependency_success(&contract, &workspace, &output);
-            }
-            "runner-error" => {
-                let runner_status = manifest.required_i32("runner-status");
-                let forbidden = manifest.required("forbidden");
-                manifest.finish();
-                assert_runner_error(
-                    &contract,
-                    runner_status,
-                    &workspace,
-                    &fixture_path_or_none(&manifest_path, &workspace, forbidden),
-                    &output,
-                );
-            }
-            "missing-script-error" => {
-                manifest.finish();
-                assert!(!output.status.success());
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                assert!(stderr.contains("failed to find `build.nia`"), "{stderr}");
-                assert!(
-                    stderr.contains(&workspace.to_string_lossy().to_string()),
-                    "{stderr}"
-                );
-            }
-            "configured-build-success" => {
-                let contracts = manifest.required_list("contracts");
-                manifest.finish();
-                assert_configured_build_success(&contracts, &workspace, &output);
-            }
-            "module-check-success" => {
-                manifest.finish();
-                assert!(
-                    output.status.success(),
-                    "stderr:\n{}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            _ => panic!(
-                "unknown build case mode {mode:?} in {}",
-                manifest_path.display()
-            ),
+    match mode.as_str() {
+        "dependency-success" => {
+            manifest.finish();
+            assert_dependency_success(&contract, &workspace, &output);
         }
+        "runner-error" => {
+            let runner_status = manifest.required_i32("runner-status");
+            let forbidden = manifest.required("forbidden");
+            manifest.finish();
+            assert_runner_error(
+                &contract,
+                runner_status,
+                &workspace,
+                &fixture_path_or_none(&manifest_path, &workspace, forbidden),
+                &output,
+            );
+        }
+        "missing-script-error" => {
+            manifest.finish();
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("failed to find `build.nia`"), "{stderr}");
+            assert!(
+                stderr.contains(workspace.to_string_lossy().as_ref()),
+                "{stderr}"
+            );
+        }
+        "configured-build-success" => {
+            let contracts = manifest.required_list("contracts");
+            manifest.finish();
+            assert_configured_build_success(&contracts, &workspace, &output);
+        }
+        "module-check-success" => {
+            manifest.finish();
+            assert!(
+                output.status.success(),
+                "stderr:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        _ => panic!(
+            "unknown build case mode {mode:?} in {}",
+            manifest_path.display()
+        ),
     }
 }
 

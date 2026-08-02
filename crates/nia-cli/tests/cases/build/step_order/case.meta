@@ -1,4 +1,4 @@
 mode=dependency-success
-resource=build
+resource=compiler
 contract=step-order
 step=check

@@ -1,5 +1,5 @@
 mode=runner-error
-resource=build
+resource=compiler
 contract=missing-default
 step=default
 runner-status=22

@@ -1,5 +1,5 @@
 mode=runner-error
-resource=build
+resource=compiler
 contract=invalid-output
 step=default
 runner-status=22

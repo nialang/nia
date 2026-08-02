@@ -1,4 +1,4 @@
 mode=missing-script-error
-resource=build
+resource=compiler
 contract=missing-script
 step=default

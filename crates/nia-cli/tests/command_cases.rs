@@ -74,9 +74,7 @@ fn run_check_configuration(
 ) {
     assert_success(&command(["check"], default_std_source));
 
-    let cache_root = std::env::temp_dir().join(format!("nia-command-cache-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&cache_root);
-    std::fs::create_dir_all(&cache_root).expect("create command cache root");
+    let cache_root = support::temp_dir("command-cache");
     let cache = cache_root.join("cache");
     let mut first = support::nia_command();
     let first = first

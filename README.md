@@ -298,9 +298,11 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test
 ```
 
-Compiler and CLI integration tests share an automatic resource budget, so the
-default Cargo test command is safe on machines with different CPU and memory
-sizes. Environment variables used by the project are cataloged in
+Compiler and CLI integration tests share an automatic resource budget and
+remove their scoped scratch trees when each test ends. The test profile uses
+light optimization because these tests execute the compiler as the program
+under test; line-table debug information keeps artifacts inspectable without
+the full-debug target growth. Environment variables used by the project are cataloged in
 [docs/contributing.md](docs/contributing.md).
 
 Do not add lint suppressions just to pass Clippy. Fix the code instead, or
