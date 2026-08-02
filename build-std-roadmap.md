@@ -392,9 +392,9 @@ surface has capability but no single ergonomic contract:
 - adjacent and multiline literals cover compile-time construction, while
   runtime concatenation is split between append and formatting without one
   documented choice;
-- UTF-8 decoding currently uses optional absence for empty, truncated, and
-  invalid input, while path conversion then mixes encoding, NUL, allocation,
-  capacity, filesystem, and OS errors;
+- scalar UTF-8 decoding is typed, and owned text now has a whole-buffer
+  `StringBuf::fromUtf8` boundary; empty input is valid text while non-empty
+  truncation and invalid sequences retain their decoder cause;
 - comparison, search, hashing, splitting, replacement, parsing, and formatting
   must work consistently across borrowed literals and owned text rather than
   requiring wrapper-specific adapters.
@@ -2107,6 +2107,21 @@ Nia slice iteration and pointer destructuring; the conformance program uses
 `if value is !pattern` for a single success path and `switch` for exhaustive
 error classification, so this batch records user-facing Nia idioms rather than
 only exercising the underlying representation.
+
+Standard-library reconstruction progress (2026-08-02, typed owned UTF-8
+batch): `StringBuf::fromUtf8(allocator, bytes)` now performs a two-pass decode
+and returns `TextError!StringBuf`. `TextError::InvalidUtf8` preserves the
+specific `Utf8DecodeError`, while `TextError::Allocation` preserves the memory
+failure. Empty bytes produce empty scalar text; non-empty truncated, leading,
+continuation, overlong, and invalid-scalar sequences are rejected before an
+owned result is returned. The generated runner now decodes target triple text
+through `StringBuf` and reserves `PathView` decoding for actual filesystem
+arguments, so ordinary text no longer borrows a path API. Runtime conformance
+covers non-ASCII iteration, empty input, all five non-empty decoder failures,
+fixed-buffer OOM, and nested `switch` error patterns. This closes the
+whole-buffer owned UTF-8 conversion boundary only: incremental append,
+formatting into scalar text, owned-text naming, and the common allocator
+protocol remain open.
 
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,

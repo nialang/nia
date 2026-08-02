@@ -1626,8 +1626,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_exposes_cstr_from_std_root() {
-    let root = temp_dir("emit_exe_exposes_cstr_from_std_root");
+fn emit_exe_exposes_std_root_text_and_cstring() {
+    let root = temp_dir("emit_exe_exposes_std_root_text_and_cstring");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -1636,6 +1636,23 @@ fn emit_exe_exposes_cstr_from_std_root() {
 using std;
 using std::mem;
 using std::process;
+
+fn hasUtf8Error(
+    result: std::TextError!std::StringBuf,
+    expected: std::unicode::Utf8DecodeError,
+) bool {
+    switch result {
+        !value => {
+            _ = value;
+            false
+        },
+        std::TextError::InvalidUtf8(actual)! => actual == expected,
+        std::TextError::Allocation(error)! => {
+            _ = error;
+            false
+        },
+    }
+}
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut page_allocator = mem::PageAllocator::init();
@@ -1694,6 +1711,90 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
         return process::exit(5)!;
     }
+
+    let utf8: [6]u8 = [b'n', b'i', b'a', b' ', 0xceu8, 0xbbu8];
+    if std::StringBuf::fromUtf8(page, &utf8) is !value {
+        let mut decoded = value;
+        defer decoded.deinit(page).exit().?;
+        let expected = "nia lambda";
+        let mut index = 0usize;
+        for &ch in decoded.text().iter() {
+            if index < 4usize {
+                if ch != expected[index] {
+                    return process::exit(15)!;
+                }
+            } else if ch.codepoint() != 0x03bbu32 {
+                return process::exit(16)!;
+            }
+            index += 1usize;
+        }
+        if index != 5usize {
+            return process::exit(17)!;
+        }
+    } else {
+        return process::exit(18)!;
+    }
+
+    if std::StringBuf::fromUtf8(page, &b"") is !empty {
+        let mut emptyText = empty;
+        defer emptyText.deinit(page).exit().?;
+        if emptyText.text().len() != 0usize {
+            return process::exit(19)!;
+        }
+    } else {
+        return process::exit(20)!;
+    }
+
+    let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    if not hasUtf8Error(
+        std::StringBuf::fromUtf8(page, &truncated),
+        std::unicode::Utf8DecodeError::Truncated,
+    ) {
+        return process::exit(21)!;
+    }
+    let invalidLeading: [1]u8 = [0xffu8];
+    if not hasUtf8Error(
+        std::StringBuf::fromUtf8(page, &invalidLeading),
+        std::unicode::Utf8DecodeError::InvalidLeadingByte,
+    ) {
+        return process::exit(22)!;
+    }
+    let invalidContinuation: [3]u8 = [0xe2u8, 0x28u8, 0xa1u8];
+    if not hasUtf8Error(
+        std::StringBuf::fromUtf8(page, &invalidContinuation),
+        std::unicode::Utf8DecodeError::InvalidContinuation,
+    ) {
+        return process::exit(23)!;
+    }
+    let overlong: [2]u8 = [0xc0u8, 0x80u8];
+    if not hasUtf8Error(
+        std::StringBuf::fromUtf8(page, &overlong),
+        std::unicode::Utf8DecodeError::Overlong,
+    ) {
+        return process::exit(24)!;
+    }
+    let invalidScalar: [3]u8 = [0xedu8, 0xa0u8, 0x80u8];
+    if not hasUtf8Error(
+        std::StringBuf::fromUtf8(page, &invalidScalar),
+        std::unicode::Utf8DecodeError::InvalidScalar,
+    ) {
+        return process::exit(25)!;
+    }
+
+    let mut tiny: [1]u8 = [0];
+    let mut fixed = mem::FixedBufferAllocator::init(&mut tiny[..]);
+    switch std::StringBuf::fromUtf8(&mut fixed, &b"nia") {
+        !value => {
+            _ = value;
+            return process::exit(26)!;
+        },
+        std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(27)!;
+        },
+    }
+
     let mut text = std::StringBuf::from_slice(page, &"nia").exit().?;
     defer text.deinit(page).exit().?;
     text.append(page, &" std").exit().?;
@@ -1719,13 +1820,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe std root CStringView");
+        .output_timeout_for_build("run nia emit --exe std root text and CStringView");
     assert!(
         emit.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&emit.stderr)
     );
-    let status = Command::new(&exe).status_timeout("run emitted std root CStringView executable");
+    let status =
+        Command::new(&exe).status_timeout("run emitted std root text and CStringView executable");
     assert_eq!(status.code(), Some(0));
 }
 
