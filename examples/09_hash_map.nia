@@ -63,7 +63,7 @@ fn run(init: Init) mem::Error!void {
     }
 
     let mut total = 0;
-    for entry in scores.iter() {
+    for entry in scores {
         total += entry.value().*;
     }
 

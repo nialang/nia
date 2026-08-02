@@ -334,6 +334,66 @@ fn main(value: &i32) i32 {
 }
 
 #[test]
+fn borrowed_slice_iterable_providers_guide_for_pointer_patterns() {
+    let checked = pipeline(
+        r#"
+struct ReadIter[T]
+where T: Sized
+{}
+
+extend[T] ReadIter[T] : Iterator
+where T: Sized
+{
+    type Item = &T;
+
+    fn next(&mut self) ?&T {
+        null
+    }
+}
+
+extend[T] &[T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = ReadIter[T];
+
+    fn iter(&self) ReadIter[T] {
+        {}
+    }
+}
+
+extend[T] &mut [T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = ReadIter[T];
+
+    fn iter(&self) ReadIter[T] {
+        {}
+    }
+}
+
+fn sum(values: &[i32]) i32 {
+    let mut total = 0;
+    for &value in values {
+        total += value;
+    }
+    total
+}
+
+fn sumMutView(values: &mut [i32]) i32 {
+    let mut total = 0;
+    for &value in values {
+        total += value;
+    }
+    total
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn accepts_local_pointer_binding_patterns() {
     let checked = pipeline(
         r#"

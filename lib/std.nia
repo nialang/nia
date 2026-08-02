@@ -28,7 +28,7 @@ pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap};
 pub using cstring::{CStringError, CStringView};
 pub using fs::{PathBuf, PathView};
-pub using string::{String, TextError};
+pub using string::{String, TextError, TextFormatError};
 
 using pkg::iter::range;
 using pkg::hash;

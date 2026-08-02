@@ -2141,7 +2141,7 @@ append batch): `StringBuf::appendFormat(allocator, template, args)` formats into
 an allocator-owned temporary byte list and commits only through
 `appendUtf8`. `StringBuf` therefore does not pretend to be an arbitrary byte
 writer, and a custom `Format` implementation that emits invalid UTF-8 cannot
-violate scalar-text storage. `TextError::Format` preserves checked-template
+violate scalar-text storage. The format-specific error preserves checked-template
 errors; a writer side channel recovers the concrete memory error otherwise
 collapsed into `fmt::Error::Write`; invalid formatted bytes remain a typed UTF-8
 failure. Temporary-buffer release is an explicit pre-commit step; an
@@ -2356,12 +2356,10 @@ mutation before writing a separator, so OOM preserves the original path.
 Runtime conformance covers non-ASCII UTF-8 ownership, precise decode and encode
 errors, the terminating-NUL view, and join rollback under a bounded allocator.
 
-Provider encoding uses ordinary `for &item in slice.iter()` loops and imports
-`pkg::slice` explicitly so the narrow fs facade does not rely on root-facade
-activation. Attempting `for item in &slice` exposed that for-target resolution
-does not currently auto-dereference `&[T]` to the existing `[T]: Iterable`
-implementation; direct borrowed-slice iteration remains a language ergonomics
-follow-up rather than a reason to restore index-heavy std code.
+Provider encoding imports `pkg::slice` explicitly so the narrow fs facade does
+not rely on root-facade activation. Borrowed-slice `Iterable` providers now let
+encoding use ordinary `for &item in slice` loops. This is an implementation for
+the expression's actual `&[T]` type, not a compiler auto-dereference exception.
 
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
@@ -2379,6 +2377,41 @@ Implementation and conformance code retain ordinary Nia `for` iteration,
 sum must be classified. This accepts the borrowed role only: the public
 owned-text name, allocator protocol, mutation/format composition, and broader
 text workflow remain active API exploration rather than frozen design.
+
+Standard-library reconstruction progress (2026-08-02, borrowed-slice iteration
+batch): `&[T]` and `&mut [T]` now implement `Iterable` directly. Both yield
+`&T` because `Iterable::iter` receives a shared borrow of the iterable;
+mutation remains explicit through `iterMut()` and `SliceIterMut`. Path and
+C-string providers plus maintained examples use direct `for &value in slice`
+or direct collection iteration instead of ceremonial `.iter()` calls.
+
+The slice/iterator surface is lower camel with no compatibility aliases:
+`isEmpty`, `iterMut`, `nextBack`, `forwardChecked`, `backwardChecked`, and
+`fromBounds` replace the old spellings. Unused public slice-iterator
+constructors are removed, raw-pointer constructors and range provider
+constructors are private, and one generic `DoubleEndedIterator::rev()`
+extension replaces four per-type copies. Context-driven counters and steps no
+longer carry redundant numeric suffixes.
+
+Body-check conformance proves provider implementations on both pointer-slice
+types guide `for &value` bindings. A narrow `std::slice` executable covers
+borrowed parameters, a temporary sub-slice, read-only direct iteration of a
+mutable slice, explicit reverse mutable iteration, and iterator length state.
+The language specification now records the actual two-stage contract:
+`Iterable` supplies `Iter`, which must implement `Iterator` with the same item
+type; iterator values satisfy `Iterable` intrinsically. No general automatic
+dereference rule was added.
+
+Full configured-build validation also removed two stale generated-runner
+dependencies left behind by the owned text and path batches. Target fields now
+use `string::String`; path arguments own `fs::PathBuf` values constructed by
+`fromUtf8`, with no `StringBuf`, `ArrayList[char]` path scratch storage, or
+`from_utf8_into`. Generated argument indices and offsets rely on their `usize`
+parameter context instead of suffixing every literal. The exercise exposed an
+over-broad error union: UTF-8 construction could never produce the former
+format variant but exhaustive `switch` still had to classify it. `TextError`
+now contains only `InvalidUtf8` and `Allocation`, while `appendFormat` returns
+the distinct `TextFormatError` that adds `Format`.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

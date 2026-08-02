@@ -17,7 +17,7 @@ extend PathView {
 
     pub fn encode(&self, storage: &mut [u8]) PathError!EncodedPath {
         let mut out: usize = 0;
-        for &ch in self.text().iter() {
+        for &ch in self.text() {
             if ch.codepoint() == 0 {
                 return PathError::ContainsNul!;
             }
@@ -29,7 +29,7 @@ extend PathView {
             if next >= storage.len() {
                 return PathError::TooLong!;
             }
-            for &byte in encoded.bytes().iter() {
+            for &byte in encoded.bytes() {
                 storage[out] = byte;
                 out += 1;
             }

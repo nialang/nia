@@ -11,6 +11,11 @@ using pkg::string::hash as stringHash;
 pub enum TextError {
     InvalidUtf8(unicode::Utf8DecodeError),
     Allocation(mem::Error),
+}
+
+pub enum TextFormatError {
+    InvalidUtf8(unicode::Utf8DecodeError),
+    Allocation(mem::Error),
     Format(fmt::Error),
 }
 
@@ -52,7 +57,7 @@ extend String {
         defer if not complete {
             out.deinit(allocator).asTextError().?;
         };
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < bytes.len() {
             let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
                 !value => value,
@@ -78,7 +83,7 @@ extend String {
         defer if not complete {
             self.text.truncate(oldLen);
         };
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < bytes.len() {
             let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
                 !value => value,
@@ -96,7 +101,7 @@ extend String {
         allocator: &mut mem::Allocator,
         template: &[char],
         args: &[&fmt::Format],
-    ) TextError!void {
+    ) TextFormatError!void {
         let oldLen = self.len();
         let mut committed = false;
         defer if not committed {
@@ -201,12 +206,12 @@ extend [char] {
             return false;
         }
 
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < self.len() {
             if self[index] != other[index] {
                 return false;
             }
-            index += 1usize;
+            index += 1;
         }
         true
     }
@@ -215,7 +220,7 @@ extend [char] {
         if prefix.len() > self.len() {
             return false;
         }
-        (&self[0usize..prefix.len()]).equals(prefix)
+        (&self[0..prefix.len()]).equals(prefix)
     }
 
     pub fn endsWith(&self, suffix: &[char]) bool {
@@ -226,20 +231,20 @@ extend [char] {
     }
 
     pub fn find(&self, needle: &[char]) ?usize {
-        if needle.len() == 0usize {
-            return ?0usize;
+        if needle.len() == 0 {
+            return ?0;
         }
         if needle.len() > self.len() {
             return null;
         }
 
         let lastStart = self.len() - needle.len();
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index <= lastStart {
             if (&self[index..(index + needle.len())]).equals(needle) {
                 return ?index;
             }
-            index += 1usize;
+            index += 1;
         }
         null
     }
@@ -267,7 +272,7 @@ extend TextFormatWriter {
         self.bytes.deinit(self.allocator)
     }
 
-    fn finish(&mut self, primary: ?TextError) TextError!void {
+    fn finish(&mut self, primary: ?TextFormatError) TextFormatError!void {
         switch self.deinit() {
             !ok => {
                 _ = ok;
@@ -276,21 +281,21 @@ extend TextFormatWriter {
                     null => !{},
                 }
             },
-            error! => TextError::Allocation(error)!,
+            error! => TextFormatError::Allocation(error)!,
         }
     }
 
-    fn appendTo(&mut self, out: &mut String) TextError!void {
-        out.appendUtf8(self.allocator, self.bytes.asSlice())
+    fn appendTo(&mut self, out: &mut String) TextFormatError!void {
+        out.appendUtf8(self.allocator, self.bytes.asSlice()).asTextFormatError()
     }
 
-    fn textError(&self, error: fmt::Error) TextError {
+    fn textError(&self, error: fmt::Error) TextFormatError {
         if error == fmt::Error::Write {
             if self.failure is ?failure {
-                return TextError::Allocation(failure);
+                return TextFormatError::Allocation(failure);
             }
         }
-        TextError::Format(error)
+        TextFormatError::Format(error)
     }
 }
 
@@ -316,14 +321,14 @@ extend TextFormatWriter : io::Writer {
 }
 
 fn utf8ScalarCount(bytes: &[u8]) TextError!usize {
-    let mut count = 0usize;
-    let mut index = 0usize;
+    let mut count: usize = 0;
+    let mut index: usize = 0;
     while index < bytes.len() {
         let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
             !value => value,
             error! => return TextError::InvalidUtf8(error)!,
         };
-        count += 1usize;
+        count += 1;
         index += decoded.len();
     }
     !count
@@ -334,6 +339,16 @@ extend[T] mem::Error!T {
         switch self {
             !value => !value,
             error! => TextError::Allocation(error)!,
+        }
+    }
+}
+
+extend[T] TextError!T {
+    fn asTextFormatError(self) TextFormatError!T {
+        switch self {
+            !value => !value,
+            TextError::InvalidUtf8(error)! => TextFormatError::InvalidUtf8(error)!,
+            TextError::Allocation(error)! => TextFormatError::Allocation(error)!,
         }
     }
 }

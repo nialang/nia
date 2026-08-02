@@ -16,7 +16,7 @@ fn write_first(values: &mut [i32], value: i32) void {
 
 fn byte_sum(bytes: &[u8]) usize {
     let mut total: usize = 0;
-    for &byte in bytes.iter() {
+    for &byte in bytes {
         total += byte as usize;
     }
     total

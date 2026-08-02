@@ -57,7 +57,7 @@ providers.
 | `mem` allocators/copy/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | reviewed owned extraction and initialized-value mutation surface; allocator repeats at every allocating call | retain narrow initialized-value surface; finish common allocator protocol |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
-| `slice` and iterators | graph scans, argv/import construction | mostly foundational, but trapping convenience methods need checked/unchecked classification | retain minimal core after conformance |
+| `slice` and iterators | graph scans, argv/import construction | borrowed iteration and adapter surface reviewed; broader checked/unchecked slice operations remain | retain direct borrowed iteration and minimal adapters; continue operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
 | `io` | stdout/stderr/files | public runtime type exposes `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade, hide OS provider and test partial writes |
@@ -176,9 +176,10 @@ failed construction returns no partial value, while failed append preserves the
 original text.
 `String::appendFormat(allocator, template, args)` formats into temporary
 bytes, validates those bytes through the same UTF-8 append boundary, and only
-then commits scalar text. `TextError::Format` preserves template/argument
-failures, while writer allocation and invalid formatted bytes remain
-`Allocation` and `InvalidUtf8`. A failed call preserves the original text.
+then commits scalar text. Its `TextFormatError` distinguishes `Format`,
+`Allocation`, and `InvalidUtf8`; the narrower `TextError` returned by UTF-8
+construction and append contains only the latter two cases those operations can
+produce. A failed call preserves the original text.
 Temporary-buffer release completes before commit; a release failure takes
 precedence and an infallible conditional `defer` restores the old scalar
 length. The current ordinary spelling imports `std::fmt` and gives the
@@ -251,6 +252,17 @@ releases it; the duplicate cleanup and append spellings have no aliases.
 `reserveExact` remains because, unlike `reserve`, it deliberately avoids
 geometric growth.
 
+Borrowed slices implement `Iterable` directly. `for &value in items` is the
+ordinary read-only spelling for both `&[T]` and `&mut [T]`; the shared
+`Iterable::iter(&self)` contract never manufactures mutable element references.
+Call `iterMut()` explicitly to receive `&mut T`. `SliceIter` and
+`SliceIterMut` expose `len`, `isEmpty`, and the ordinary iterator protocol, but
+their raw-pointer constructors are private. `rev()` is one generic extension
+of `DoubleEndedIterator`, rather than a copy on every slice and range iterator.
+The protocol and range APIs use lower-camel `nextBack`, `forwardChecked`,
+`backwardChecked`, and `fromBounds` names; former snake-case spellings are not
+aliases.
+
 The reviewed map surface uses lower-camel names throughout public and provider
 code. `clear` retains allocation, `deinit` releases it, `reserve` guarantees
 additional insertion capacity, and `removeEntry` transfers an owned key/value
@@ -289,7 +301,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | name, mutation, equality/search/hash and borrowed map lookup accepted; collection cleanup and common allocator protocol remain open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/hash and borrowed map lookup accepted; collection cleanup and common allocator protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
