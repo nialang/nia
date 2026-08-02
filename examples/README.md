@@ -36,7 +36,7 @@ Process arguments and environment entries are C-string-backed views; use
 `arg.bytes()` for raw argument bytes, `arg.cstring()` for the underlying
 `std::CStringView`, parse the argument directly with `fmt::parse[T](arg)`, or
 format the argument value directly with `{}`.
-Use `init.args().program()` for argv[0], `for arg in init.args().skip_program()`
+Use `init.args().program()` for argv[0], `for arg in init.args().skipProgram()`
 for application arguments, and `for env in init.env().iter()` for environment
 traversal.
 

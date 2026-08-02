@@ -10,7 +10,7 @@ extend Arg {
         { text: cstring::CStringView::fromPtrUnchecked(ptr) }
     }
 
-    pub fn raw_ptr(&self) &u8 {
+    pub fn rawPtr(&self) &u8 {
         self.text.rawPtr()
     }
 
@@ -26,8 +26,8 @@ extend Arg {
         self.text.len()
     }
 
-    pub fn is_empty(&self) bool {
-        self.len() == 0usize
+    pub fn isEmpty(&self) bool {
+        self.len() == 0
     }
 }
 
@@ -62,12 +62,12 @@ extend Args {
         self.len
     }
 
-    pub fn is_empty(&self) bool {
+    pub fn isEmpty(&self) bool {
         self.len == 0
     }
 
     pub fn program(&self) ?Arg {
-        self.get(0usize)
+        self.get(0)
     }
 
     pub fn get(&self, index: usize) ?Arg {
@@ -79,14 +79,14 @@ extend Args {
     }
 
     pub fn iter(&self) ArgsIter {
-        ArgsIter::init(self.*, 0usize)
+        ArgsIter::init(self.*, 0)
     }
 
-    pub fn skip_program(&self) ArgsIter {
-        ArgsIter::init(self.*, 1usize)
+    pub fn skipProgram(&self) ArgsIter {
+        ArgsIter::init(self.*, 1)
     }
 
-    pub fn raw_argv(&self) &&u8 {
+    pub fn rawArgv(&self) &&u8 {
         self.ptr
     }
 }
@@ -117,7 +117,7 @@ extend ArgsIter : Iterator {
                 return null;
             },
         };
-        self.index += 1usize;
+        self.index += 1;
         ?value
     }
 }

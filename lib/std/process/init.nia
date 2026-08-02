@@ -21,11 +21,11 @@ extend Init {
         Env::init(self.envp)
     }
 
-    pub fn raw_argv(&self) &&u8 {
+    pub fn rawArgv(&self) &&u8 {
         self.argv
     }
 
-    pub fn raw_envp(&self) &&u8 {
+    pub fn rawEnvp(&self) &&u8 {
         self.envp
     }
 

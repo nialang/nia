@@ -18,7 +18,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/true\0";
     let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
-    let mut child = switch process::spawn_raw(&path[0], &argv[0], init.raw_envp()) {
+    let mut child = switch process::spawn_raw(&path[0], &argv[0], init.rawEnvp()) {
         !value => {
             value
         },
@@ -84,7 +84,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/false\0";
     let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
-    let mut child = switch process::spawn_raw(&path[0], &argv[0], init.raw_envp()) {
+    let mut child = switch process::spawn_raw(&path[0], &argv[0], init.rawEnvp()) {
         !value => {
             value
         },
@@ -159,7 +159,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     let term = switch command.run() {
         !value => {
             value
@@ -218,7 +218,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let message = b"ignored-output\0";
     let mut argv: [3]&u8 = [path.rawPtr(), &message[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     let term = switch command.run() {
         !value => {
@@ -285,7 +285,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let flag = b"-c\0";
     let script = b"echo ignored-error >&2\0";
     let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stderr(process::StdIo::Ignore).exit().?;
     let term = switch command.run() {
         !value => {
@@ -353,7 +353,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let flag = b"-c\0";
     let script = b"cat >/dev/null; echo ignored-output; echo ignored-error >&2\0";
     let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdin(process::StdIo::Ignore).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
@@ -420,7 +420,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     let child = switch command.spawn() {
         !value => {
             value
@@ -482,7 +482,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut bad_argv: [2]&u8 = [bad_path.rawPtr(), 0usize as &u8];
     let mut index = 0usize;
     while index < 128usize {
-        let mut bad = process::Command::init(bad_path, &bad_argv[0], init.raw_envp());
+        let mut bad = process::Command::init(bad_path, &bad_argv[0], init.rawEnvp());
         bad.set_stdin(process::StdIo::Pipe).exit().?;
         bad.set_stdout(process::StdIo::Pipe).exit().?;
         bad.set_stderr(process::StdIo::Pipe).exit().?;
@@ -513,7 +513,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut good_argv: [2]&u8 = [good_path.rawPtr(), 0usize as &u8];
-    let mut good = process::Command::init(good_path, &good_argv[0], init.raw_envp());
+    let mut good = process::Command::init(good_path, &good_argv[0], init.rawEnvp());
     good.set_stdin(process::StdIo::Ignore).exit().?;
     good.set_stdout(process::StdIo::Ignore).exit().?;
     good.set_stderr(process::StdIo::Ignore).exit().?;
@@ -578,7 +578,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let flag = b"-c\0";
     let script = b"printf pipe-output\0";
     let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
     let mut child = switch command.spawn() {
         !value => {
@@ -678,7 +678,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
     let mut child = switch command.spawn() {
         !value => {
@@ -767,7 +767,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Pipe).exit().?;
     let mut child = switch command.spawn() {
@@ -873,7 +873,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
     let mut child = switch command.spawn() {
@@ -941,7 +941,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -1015,7 +1015,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -1109,7 +1109,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
     let mut child = switch command.spawn() {
@@ -1196,7 +1196,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let flag = b"-c\0";
     let script = b"while true; do sleep 1; done\0";
     let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
     let mut child = switch command.spawn() {
@@ -1293,7 +1293,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let flag = b"-c\0";
     let script = b"while true; do sleep 1; done\0";
     let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
     let mut child = switch command.spawn() {
@@ -1410,7 +1410,7 @@ pub fn main(init: process::Init) process::ExitCode!void {{
     let flag = b"-c\0";
     let script = b"test \"$(basename \"$PWD\")\" = child-cwd\0";
     let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_cwd(cwd);
     let term = switch command.run() {{
         !value => {{
@@ -1480,7 +1480,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
     let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
     command.set_cwd(cwd);
     let child = switch command.spawn() {
         !value => {
@@ -1536,7 +1536,7 @@ fn should_skip(arg: std::process::Arg) bool {
 
 pub fn main(init: Init) ExitCode!void {
     let args = init.args();
-    let mut paths = args.skip_program();
+    let mut paths = args.skipProgram();
     while true {
         let path = switch paths.next() {
             ?value => {
@@ -2684,8 +2684,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_exposes_process_args_without_raw_argv() {
-    let root = temp_dir("emit_exe_exposes_process_args_without_raw_argv");
+fn emit_exe_exposes_process_args_as_values() {
+    let root = temp_dir("emit_exe_exposes_process_args_as_values");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -2697,40 +2697,57 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut args = init.args();
+    if args.isEmpty() {
+        return process::exit(23)!;
+    }
     if args.len() != 3 {
         return process::exit(1)!;
     }
+    let rawArgv = args.rawArgv();
+    if rawArgv as usize != init.rawArgv() as usize {
+        return process::exit(24)!;
+    }
     switch args.program() {
-        ?program => { if program.is_empty() {
+        ?program => { if program.isEmpty() {
                 return process::exit(9)!;
-            } },
+            }
+            if program.rawPtr() as usize != rawArgv[0] as usize {
+                return process::exit(25)!;
+            }
+        },
         null => { return process::exit(10)!; },
     }
-    let mut iter = args.skip_program();
-    if iter.remaining() != 2usize {
+    let mut iter = args.skipProgram();
+    if iter.remaining() != 2 {
         return process::exit(11)!;
     }
     let mut first_arg = switch iter.next() {
         ?value => { value },
         null => { return process::exit(2)!; },
     };
-    if iter.remaining() != 1usize {
+    if iter.remaining() != 1 {
         return process::exit(12)!;
     }
     let mut second_arg = switch iter.next() {
         ?value => { value },
         null => { return process::exit(3)!; },
     };
-    if iter.remaining() != 0usize {
+    if iter.remaining() != 0 {
         return process::exit(13)!;
     }
-    let mut for_count = 0usize;
-    for arg in args.skip_program() {
-        if for_count == 0usize {
-            if arg.len() != 3usize {
+    if first_arg.isEmpty() or second_arg.isEmpty() {
+        return process::exit(26)!;
+    }
+    if first_arg.rawPtr() as usize != rawArgv[1] as usize or second_arg.rawPtr() as usize != rawArgv[2] as usize {
+        return process::exit(27)!;
+    }
+    let mut for_count = 0;
+    for arg in args.skipProgram() {
+        if for_count == 0 {
+            if arg.len() != 3 {
                 return process::exit(18)!;
             }
-        } else if for_count == 1usize {
+        } else if for_count == 1 {
             switch fmt::parse[u16](arg) {
                 !value => {
                     if value != 1234u16 {
@@ -2744,9 +2761,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         } else {
             return process::exit(21)!;
         }
-        for_count += 1usize;
+        for_count += 1;
     }
-    if for_count != 2usize {
+    if for_count != 2 {
         return process::exit(22)!;
     }
     let mut first = first_arg.bytes();
@@ -2776,7 +2793,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print(&"{:_>5.2}", &[&first_arg]).exit().?;
     let written = writer.written();
-    if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
+    if written.len() != 5 or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return process::exit(8)!;
     }
     switch iter.next() {
@@ -2826,21 +2843,34 @@ fn starts_with_needle(bytes: &[u8]) bool {
     if bytes.len() < needle.len() {
         return false;
     }
-    let mut index = 0usize;
+    let mut index: usize = 0;
     while index < needle.len() {
         if bytes[index] != needle[index] {
             return false;
         }
-        index += 1usize;
+        index += 1;
     }
     true
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    for item in init.env().iter() {
+    let env = init.env();
+    let rawEnvp = env.rawEnvp();
+    if rawEnvp as usize != init.rawEnvp() as usize {
+        return process::exit(3)!;
+    }
+    let mut index: usize = 0;
+    for item in env.iter() {
         if starts_with_needle(item.bytes()) {
+            if item.isEmpty() {
+                return process::exit(4)!;
+            }
+            if item.rawPtr() as usize != rawEnvp[index] as usize {
+                return process::exit(5)!;
+            }
             return !{};
         }
+        index += 1;
     }
     return process::exit(2)!;
 }
