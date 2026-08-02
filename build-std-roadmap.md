@@ -2413,6 +2413,25 @@ format variant but exhaustive `switch` still had to classify it. `TextError`
 now contains only `InvalidUtf8` and `Allocation`, while `appendFormat` returns
 the distinct `TextFormatError` that adds `Format`.
 
+Test-infrastructure repair (2026-08-02): the WSL failure was not evidence of a
+release-compiler regression. A bounded `dependency_cycle` runner performed the
+same 27,073 compiler queries in every profile, but took `86.1s` through the
+former unoptimized test binary, `16.24s` with the repaired `opt-level = 1` test
+profile, and `13.9s` through release. Earlier `90-108s` production-path cache
+samples are therefore integration correctness timings, not release trend
+points.
+
+The audit also found `target/debug` at roughly `192 GiB`, with 200-320 obsolete
+hashed variants for several compiler crates, plus CLI scratch workspaces whose
+compiler caches survived on the WSL `/tmp` tmpfs. Dev and test profiles now use
+line-table debug information, shared test-directory guards remove complete
+scratch trees on drop, and the 14 build fixtures are independent libtest cases.
+Runner-only fixtures reserve one compiler slot while the three nested-compiler
+fixtures retain the conservative build weight. A fixture-index test prevents a
+new directory from silently falling back into an unowned serial loop.
+The repaired gate passes all 14 fixtures plus that index test in `159.31s` on
+the same 8 GiB WSL view, down from the former `1291.21s` serial unoptimized run.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

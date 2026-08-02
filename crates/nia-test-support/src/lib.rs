@@ -4,11 +4,16 @@ mod cases;
 pub use cases::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
 use std::{
+    ffi::OsStr,
     fs,
     io::{self, Read},
+    ops::Deref,
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Output, Stdio},
-    sync::{Condvar, Mutex, MutexGuard, OnceLock},
+    sync::{
+        Condvar, Mutex, MutexGuard, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -22,6 +27,50 @@ const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
 
 static COMPILER_POOL: OnceLock<ResourcePool> = OnceLock::new();
+static TEST_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+pub struct TestDir {
+    path: PathBuf,
+}
+
+impl Deref for TestDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for TestDir {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<OsStr> for TestDir {
+    fn as_ref(&self) -> &OsStr {
+        self.path.as_os_str()
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+pub fn test_dir(name: &str) -> TestDir {
+    let id = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "nia-test-{name}-{}-{:?}-{id}",
+        std::process::id(),
+        std::thread::current().id(),
+    ));
+    let _ = fs::remove_dir_all(&path);
+    fs::create_dir_all(&path)
+        .unwrap_or_else(|error| panic!("create test directory {}: {error}", path.display()));
+    TestDir { path }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TestWorkload {
@@ -497,6 +546,15 @@ mod tests {
     }
 
     #[test]
+    fn test_directories_are_removed_when_the_owner_drops() {
+        let directory = test_dir("scoped-directory");
+        let path = directory.to_path_buf();
+        fs::write(directory.join("owned"), b"test").expect("write test directory fixture");
+        drop(directory);
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn compiler_limit_always_allows_progress() {
         assert_eq!(compiler_limit(0, Some(0)), 1);
         assert_eq!(compiler_limit(16, None), UNKNOWN_MEMORY_PARALLEL_COMPILERS);
@@ -516,7 +574,8 @@ mod tests {
 
     #[test]
     fn weighted_sessions_return_their_full_capacity() {
-        let pool = ResourcePool::new(4, test_slot_root("weighted_sessions"));
+        let root = test_slot_root("weighted-sessions");
+        let pool = ResourcePool::new(4, root.to_path_buf());
         let session = pool.acquire_session(TestWorkload::Build.resource_request());
         assert_eq!(*lock_unpoisoned(&pool.available), 2);
         drop(session);
@@ -534,9 +593,9 @@ mod tests {
 
     #[test]
     fn process_slots_coordinate_independent_pools() {
-        let root = test_slot_root("cross_process_slots");
-        let first = ResourcePool::new(2, root.clone());
-        let second = ResourcePool::new(2, root);
+        let root = test_slot_root("cross-process-slots");
+        let first = ResourcePool::new(2, root.to_path_buf());
+        let second = ResourcePool::new(2, root.to_path_buf());
         let session = first.acquire_session(ResourceRequest::new(2, 1));
         assert!(second.slot_root.join("0").is_dir());
         assert!(second.slot_root.join("1").is_dir());
@@ -547,12 +606,13 @@ mod tests {
 
     #[test]
     fn process_slots_block_independent_pools_until_release() {
-        let root = test_slot_root("cross_process_blocking");
-        let first = ResourcePool::new(1, root.clone());
+        let root = test_slot_root("cross-process-blocking");
+        let first = ResourcePool::new(1, root.to_path_buf());
+        let waiter_root = root.to_path_buf();
         let first_session = first.acquire_session(ResourceRequest::new(1, 1));
         let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
         let waiter = std::thread::spawn(move || {
-            let second = ResourcePool::new(1, root);
+            let second = ResourcePool::new(1, waiter_root);
             let second_session = second.acquire_session(ResourceRequest::new(1, 1));
             acquired_tx.send(()).expect("report acquired process slot");
             drop(second_session);
@@ -581,10 +641,7 @@ mod tests {
         );
     }
 
-    fn test_slot_root(name: &str) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("nia-test-support-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        root
+    fn test_slot_root(name: &str) -> TestDir {
+        test_dir(&format!("test-support-{name}"))
     }
 }

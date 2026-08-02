@@ -478,24 +478,27 @@ runner objects and all three link results, and reported zero object/link misses.
 The dominant remaining cost is therefore runner compilation and compiler-plan
 validation, not execution of `build.nia`.
 
-A 2026-08-02 production `CompilerEmit` action-cache sample sharpens that split.
-The copied `configured_optimization` fixture took 90.947 seconds cold, with
-86.340 seconds compiling the runner and 4.598 seconds executing the plan. The
-unchanged run took 31.032 seconds, with 30.609 seconds compiling the runner and
-0.417 seconds validating/executing the plan; it reported one build-action cache
-hit. The warm object/link hits belong to runner compilation. The artifact emit
-performed no semantic, codegen, or link execution after action validation, so
-this result credits the action cut without hiding the runner bottleneck.
+A 2026-08-02 production-path `CompilerEmit` action-cache integration sample
+sharpens that split. It was executed by the then-unoptimized test-profile
+compiler and is not comparable to the release baseline above. The copied
+`configured_optimization` fixture took 90.947 seconds cold, with 86.340 seconds
+compiling the runner and 4.598 seconds executing the plan. The unchanged run
+took 31.032 seconds, with 30.609 seconds compiling the runner and 0.417 seconds
+validating/executing the plan; it reported one build-action cache hit. The warm
+object/link hits belong to runner compilation. The artifact emit performed no
+semantic, codegen, or link execution after action validation, so this result
+credits the action cut without treating test-profile wall time as a compiler
+release trend.
 
-A 2026-08-02 copied production `configured_success` sample exercises the
-external-command cache together with compiler emit, a real generated runner,
-and two staged command outputs. The cold run took 119.939 seconds: 108.052
-seconds compiled the runner and 11.876 seconds executed the plan. The unchanged
-run reported two of two build-action cache hits, reduced plan execution to
-0.728 seconds, and restored both command outputs correctly. Its 39.030-second
-total remained dominated by 38.294 seconds of runner compilation. This sample
-therefore demonstrates the process-execution cut without changing the existing
-runner-compilation bottleneck diagnosis.
+A 2026-08-02 copied production-path `configured_success` integration sample
+exercises the external-command cache together with compiler emit, a real
+generated runner, and two staged command outputs. It used the same unoptimized
+test-profile compiler. The cold run took 119.939 seconds: 108.052 seconds
+compiled the runner and 11.876 seconds executed the plan. The unchanged run
+reported two of two build-action cache hits, reduced plan execution to 0.728
+seconds, and restored both command outputs correctly. Its 39.030-second total
+remained dominated by 38.294 seconds of runner compilation. This sample proves
+the process-execution cut but is not release performance evidence.
 
 This measurement exposed a cache correctness boundary. Codegen partition
 definition membership must be canonicalized by stable source definition
@@ -506,11 +509,29 @@ end-to-end dependency chain and could perturb downstream definition identity;
 the typed in-session query remains the semantic owner.
 
 The 14-case CLI build suite is a correctness gate, not the performance
-baseline. It loops fixtures serially, gives every fixture an isolated workspace
-and cache, and holds one conservatively weighted build resource permit for the
-whole matrix. Its wall time consequently amplifies absolute cold compilation
-cost and resource waiting. Performance conclusions use the isolated repeated
-workload above and its deterministic counters.
+baseline. Every fixture is an independent libtest case with an isolated scoped
+workspace and cache. Runner-only contracts reserve one compiler slot; cases
+that execute a nested compiler action reserve the conservative build weight.
+Libtest can therefore schedule independent fixtures while the shared resource
+pool remains the authority for actual compiler concurrency. A fixture-index
+test requires every configured directory to have a named libtest owner.
+
+The 2026-08-02 test-infrastructure audit measured the same small
+`dependency_cycle` runner at 86.1 seconds with the former unoptimized test
+profile, 16.24 seconds with `opt-level = 1`, and 13.9 seconds with the release
+compiler. All three performed the same 27,073 query executions, so this was a
+profile mismatch rather than a compiler-query regression. The audit also found
+a 192 GiB legacy `target/debug` containing hundreds of obsolete compiler
+variants and unowned CLI scratch caches on the WSL `/tmp` tmpfs. Line-table
+debug profiles limit future artifact size; scoped test-directory guards remove
+scratch caches on both success and unwind. Performance conclusions continue to
+use the isolated release workload and its deterministic counters.
+
+With the repaired profile, fixture ownership, and resource classification, the
+complete gate passed all 14 fixtures plus the fixture-index test in 159.31
+seconds on the same 8 GiB WSL resource view. The former serial, unoptimized run
+had taken 1291.21 seconds. This is test-infrastructure evidence, not a release
+compiler performance threshold.
 
 ## 7. Proposal Decision Gates
 
@@ -535,7 +556,9 @@ libtest concurrency; resource limits are derived from effective CPU, VM/system
 memory, and cgroups rather than hidden WSL or CI profiles.
 
 Subprocess tests and baseline tools use bounded time and process-tree cleanup.
-The end-to-end configured build case is the owner of generated-runner codegen
+Scratch workspaces use owned guards and are removed when the test ends rather
+than accumulating compiler caches in a memory-backed temporary filesystem. The
+end-to-end configured build case is the owner of generated-runner codegen
 coverage; a duplicate unaccounted unit-test compilation is not permitted.
 
 Fault injection must prove that the injected operation is the operation under

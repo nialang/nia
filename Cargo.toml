@@ -142,3 +142,10 @@ nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
 nia-opt = { path = "crates/nia-opt" }
 llvm-sys = { version = "221.0.1", features = ["prefer-dynamic"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
+opt-level = 1

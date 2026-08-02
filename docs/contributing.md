@@ -42,17 +42,31 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-Libtest keeps its normal platform-selected concurrency. Tests that create a
-complete compiler, LLVM, or build session additionally share a cross-process
-memory budget derived from effective CPU and memory limits. The test budget is
-at most half of visible memory, build commands are charged at twice the weight
-of ordinary compiler work, and new work waits while system or cgroup available
-memory is under pressure. Machine categories do not select separate test paths:
-WSL uses the Linux VM's visible resources, containers and constrained rental
-hosts use the tightest inherited cgroup limit, and bare Linux hosts use system
-resources. If memory cannot be detected, compiler-heavy tests run serially.
-This keeps the default command conservative without private environment
-variables or a workspace-wide libtest thread restriction.
+Libtest keeps its normal platform-selected concurrency. Independently
+schedulable tests that create a complete compiler, LLVM, or build session share
+a cross-process memory budget derived from effective CPU and memory limits. The
+test budget is at most half of visible memory, nested build commands are charged
+at twice the scheduling weight of ordinary compiler work, and new work waits
+while system or cgroup available memory is under pressure. Machine categories
+do not select separate test paths: WSL uses the Linux VM's visible resources,
+containers and constrained rental hosts use the tightest inherited cgroup
+limit, and bare Linux hosts use system resources. If memory cannot be detected,
+compiler-heavy tests run serially. This keeps the default command conservative
+without private environment variables or a workspace-wide libtest thread
+restriction.
+
+The `test` profile uses `opt-level = 1` because integration tests execute Nia as
+a compiler, not merely as a command parser. Debug assertions and overflow
+checks remain enabled. The `dev` and `test` profiles retain line tables instead
+of full variable debug information so repeated compiler variants consume less
+disk. Cargo does not garbage-collect old workspace target variants; a checkout
+that predates this profile may need an explicit `cargo clean` once after useful
+diagnostic artifacts have been preserved.
+
+Test scratch storage must have an owner. CLI tests use
+`nia_test_support::test_dir`, whose guard removes the complete tree on drop,
+including failure unwinding. Do not return an unowned `PathBuf` rooted in the
+system temporary directory from a shared test helper.
 
 Do not add `allow` or `expect` attributes to bypass lints. Fix the code instead.
 
