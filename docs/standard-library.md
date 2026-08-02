@@ -17,6 +17,21 @@ Current experimental build and std APIs may be changed or removed without a
 compatibility shim. Historical spellings and duplicate facades belong in Git,
 not permanent adapters.
 
+Standard-library reconstruction is also language-usage research. Long-standing
+APIs are not successful merely because they compile or expose the required
+primitive: representative Nia programs must be able to discover and compose
+them without routinely bypassing `std`, rebuilding the abstraction locally, or
+dropping to platform providers. Each reviewed slice starts from a user workflow,
+records the idiomatic Nia spelling it enables, and treats awkward ownership,
+error propagation, cleanup, or conversion at adjacent APIs as design evidence
+for the next slice.
+
+Native and compiler-backed operations are inputs to that work, not the default
+public shape. A capability remains an ordinary Nia implementation when the
+language can express it clearly. `@[builtin]`, inline assembly, raw pointers,
+and platform calls stay at the narrowest layer that requires them; high-level
+APIs are judged by whether users can avoid those layers in ordinary programs.
+
 ## 2. Target Layers
 
 ```text
@@ -173,7 +188,7 @@ LLVM before deleting its builtin declaration.
 | owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/format with explicit allocator | `mem::Error` | one-type naming and common mutation protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First` | `Utf8DecodeError` | scalar decoder accepted; validated whole-buffer type remains open |
-| C string | `CStringView` over NUL-terminated bytes | `from_bytes` | optional validity today | typed embedded/missing-NUL review remains open |
+| C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | text encoding and UTF-8 host-argument decoding | `PathError`, then `fs::Error` | Unicode mapping is explicit; OS-native representation and richer errors remain open |
 | process argument/environment | `Arg` / `EnvVar` byte views and command-owned C buffers | process facade and build typed arguments | `process::Error`, formatting parse errors | raw host service retained; BuildPlan uses typed paths/values |
 

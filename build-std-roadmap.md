@@ -420,6 +420,15 @@ types. Its required decisions and acceptance order are:
    formatting, path encoding, process execution, and `defer` cleanup before
    broad std renaming.
 
+This track is explicitly an API and Nia-idiom exploration, not only a contract
+migration. For every slice, representative programs must show the intended
+ordinary Nia spelling and identify where users would still bypass `std`, write
+the facility themselves, or descend to raw/native providers. A low-level
+primitive passing conformance tests does not close its public API design when
+the adjacent ownership, propagation, cleanup, or conversion workflow remains
+awkward. Those findings feed the next bounded slice instead of being hidden by
+compatibility helpers.
+
 Legal aggregate and literal forms are not removed to manufacture style
 uniformity. Ordinary repository code writes type information once and uses
 direct array-pointer coercion when a slice is expected; alternate legal forms
@@ -2081,6 +2090,23 @@ publishes the current text/path/process role and error-flow matrix. This closes
 the scalar decoder slice only: whole-buffer validated UTF-8, C-string errors,
 OS path representation, borrowed-wrapper retirement, owned-text naming, and
 the convenience-trait audit remain open.
+
+Standard-library reconstruction progress (2026-08-02, typed C-string
+validation batch): checked slice construction is now
+`CStringView::fromBytes`, returning `CStringError!CStringView`. Zero-length
+slices, missing trailing NUL bytes, and interior NUL bytes are distinct
+failures. The
+former optional `from_bytes` API is absent and has no compatibility alias;
+`fromPtrUnchecked` remains the explicit trusted boundary for external pointers
+whose allocation extent cannot be validated by the view. Runtime conformance covers
+successful construction and all three error categories. This closes checked
+C-string slice validation only: owned C-string storage, process command-owned
+argument construction, the process facade's remaining legacy naming, and
+OS-facing ownership remain open. The implementation deliberately uses ordinary
+Nia slice iteration and pointer destructuring; the conformance program uses
+`if value is !pattern` for a single success path and `switch` for exhaustive
+error classification, so this batch records user-facing Nia idioms rather than
+only exercising the underlying representation.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

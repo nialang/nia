@@ -129,11 +129,16 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
   and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
   so callers can write `io_call().exit().?`.
 - `std::cstring` defines `CStringView`, a non-owning view of a NUL-terminated byte
-  sequence. It provides `from_ptr` for external C string pointers,
-  `from_bytes` for NUL-terminated byte slices such as `b"name\0"`, `raw_ptr`,
-  `len`, `bytes`, and `is_empty`, and implements `std::fmt::Format` as raw byte
-  output. `CStringView` does not imply UTF-8 validity and is not required for FFI APIs
-  that can operate directly on `&u8`.
+  sequence. It provides `fromPtrUnchecked` for trusted external C string pointers,
+  checked `fromBytes` for NUL-terminated byte slices such as `b"name\0"`,
+  `rawPtr`, `len`, `bytes`, and `isEmpty`, and implements `std::fmt::Format`
+  as raw byte output. `fromBytes` returns `CStringError!CStringView` and
+  distinguishes zero-length input (`EmptyInput`), a missing terminator, and an
+  interior NUL. The empty C string `b"\0"` is valid.
+  `CStringView` does not imply UTF-8 validity and is not required for FFI APIs
+  that can operate directly on `&u8`. A `fromPtrUnchecked` caller must ensure
+  the pointer remains valid and reaches an accessible NUL byte for every view
+  operation.
 - `std::os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
 - `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.

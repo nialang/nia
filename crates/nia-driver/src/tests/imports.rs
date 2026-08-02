@@ -1195,11 +1195,11 @@ fn std_facade_type_can_be_imported_directly() {
 using std::CStringView;
 
 fn main() void {
-    switch CStringView::from_bytes(&b"nia\0") {
-        ?text => {
+    switch CStringView::fromBytes(&b"nia\0") {
+        !text => {
             _ = text;
         },
-        null => {},
+        error! => {},
     }
 }
 "#,
@@ -1216,11 +1216,11 @@ fn std_facade_type_can_be_named_by_package_root_path() {
         &root.join("main.nia"),
         r#"
 fn main() void {
-    switch std::CStringView::from_bytes(&b"nia\0") {
-        ?text => {
+    switch std::CStringView::fromBytes(&b"nia\0") {
+        !text => {
             _ = text;
         },
-        null => {},
+        error! => {},
     }
 }
 "#,

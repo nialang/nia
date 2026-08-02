@@ -68,7 +68,7 @@ fn query_loader_loads_reexported_std_type_module_dependencies() {
 using std::CStringView;
 
 fn main() void {
-_ = CStringView::from_ptr(&0u8);
+_ = CStringView::fromPtrUnchecked(&0u8);
 }
 "#,
     );
