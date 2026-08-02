@@ -1036,6 +1036,74 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_utf8_path_conversion_is_typed_and_transactional() {
+    let root = temp_dir("emit_exe_std_fs_utf8_path_conversion_is_typed_and_transactional");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::collections;
+using std::fs;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut page = mem::PageAllocator::init();
+    let mut text = collections::ArrayList[char]::init();
+    defer text.deinit(&mut page).exit().?;
+
+    let valid: [3]u8 = [b'A', 0xceu8, 0xbbu8];
+    let path = switch fs::PathView::from_utf8_into(&mut page, &valid, &mut text) {
+        !value => value,
+        error! => { _ = error; return process::exit(1)!; },
+    };
+    if path.text().len() != 2usize
+        or path.text()[0] != 'A'
+        or path.text()[1].codepoint() != 0x03bbu32
+    {
+        return process::exit(2)!;
+    }
+
+    let invalid: [5]u8 = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
+    switch fs::PathView::from_utf8_into(&mut page, &invalid, &mut text) {
+        !value => { _ = value; return process::exit(3)!; },
+        error! => if error != fs::Error::Invalid {
+            return process::exit(4)!;
+        },
+    }
+    if text.len() != 0usize {
+        return process::exit(5)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs UTF-8 path conversion");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .status_timeout("run emitted UTF-8 path conversion executable")
+            .code(),
+        Some(0)
+    );
+}
+
+#[test]
 fn emit_exe_std_fs_reports_invalid_and_missing_paths() {
     let root = temp_dir("emit_exe_std_fs_reports_invalid_and_missing_paths");
     let main = root.join("main.nia");

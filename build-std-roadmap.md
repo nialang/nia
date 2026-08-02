@@ -2064,6 +2064,24 @@ every Phase F task and acceptance item. The next build-system phase is Phase G;
 the independent standard-library reconstruction track remains open and must
 close before Phase G freezes its broader text/path-facing artifact APIs.
 
+Standard-library reconstruction progress (2026-08-02, typed UTF-8 decode
+batch): the optional `utf8_decode_first` API is physically replaced by
+lower-camel `decodeUtf8First` returning `Utf8DecodeError!Utf8Decode`. Empty
+input, truncation, invalid leading bytes, invalid continuation bytes, overlong
+forms, and invalid Unicode scalar values are separate error values. Runtime
+conformance covers a successful non-ASCII scalar and every error category.
+
+`PathView::from_utf8_into` consumes the typed decoder and explicitly maps its
+six causes into the current coarse `fs::Error::Invalid` boundary. It now clears
+partial decoded output on Unicode or allocation failure, so callers never
+observe a successful prefix as the result of a failed replacement. A real
+filesystem-path executable proves valid ASCII/non-ASCII decoding, explicit
+invalid-path mapping, and transactional cleanup. The stable std document now
+publishes the current text/path/process role and error-flow matrix. This closes
+the scalar decoder slice only: whole-buffer validated UTF-8, C-string errors,
+OS path representation, borrowed-wrapper retirement, owned-text naming, and
+the convenience-trait audit remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

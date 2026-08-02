@@ -177,11 +177,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let euro_bytes: [3]u8 = [0xe2u8, 0x82u8, 0xacu8];
-    let euro = switch unicode::utf8_decode_first(&euro_bytes) {
-        ?decoded => {
+    let euro = switch unicode::decodeUtf8First(&euro_bytes) {
+        !decoded => {
             decoded
         },
-        null => {
+        error! => {
+            _ = error;
             return process::exit(7)!;
         },
     };
@@ -190,12 +191,50 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let overlong: [2]u8 = [0xc0u8, 0x80u8];
-    switch unicode::utf8_decode_first(&overlong) {
-        ?decoded => {
-            _ = decoded;
-            return process::exit(9)!;
+    switch unicode::decodeUtf8First(&overlong) {
+        !decoded => { _ = decoded; return process::exit(9)!; },
+        error! => if error != unicode::Utf8DecodeError::Overlong {
+            return process::exit(12)!;
         },
-        null => {},
+    }
+
+    switch unicode::decodeUtf8First(&overlong[0..0]) {
+        !decoded => { _ = decoded; return process::exit(13)!; },
+        error! => if error != unicode::Utf8DecodeError::Empty {
+            return process::exit(14)!;
+        },
+    }
+
+    let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    switch unicode::decodeUtf8First(&truncated) {
+        !decoded => { _ = decoded; return process::exit(15)!; },
+        error! => if error != unicode::Utf8DecodeError::Truncated {
+            return process::exit(16)!;
+        },
+    }
+
+    let invalid_leading: [1]u8 = [0x80u8];
+    switch unicode::decodeUtf8First(&invalid_leading) {
+        !decoded => { _ = decoded; return process::exit(17)!; },
+        error! => if error != unicode::Utf8DecodeError::InvalidLeadingByte {
+            return process::exit(18)!;
+        },
+    }
+
+    let invalid_continuation: [3]u8 = [0xe2u8, 0x28u8, 0xa1u8];
+    switch unicode::decodeUtf8First(&invalid_continuation) {
+        !decoded => { _ = decoded; return process::exit(19)!; },
+        error! => if error != unicode::Utf8DecodeError::InvalidContinuation {
+            return process::exit(20)!;
+        },
+    }
+
+    let invalid_scalar: [3]u8 = [0xedu8, 0xa0u8, 0x80u8];
+    switch unicode::decodeUtf8First(&invalid_scalar) {
+        !decoded => { _ = decoded; return process::exit(21)!; },
+        error! => if error != unicode::Utf8DecodeError::InvalidScalar {
+            return process::exit(22)!;
+        },
     }
 
     !{}
