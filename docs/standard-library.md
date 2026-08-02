@@ -167,6 +167,11 @@ The current audit sets this design direction:
 `Utf8DecodeError!Utf8Decode`. `Empty`, `Truncated`, `InvalidLeadingByte`,
 `InvalidContinuation`, `Overlong`, and `InvalidScalar` are distinct values;
 the former optional decoder is absent and has no compatibility alias.
+`StringBuf::fromUtf8(allocator, bytes)` is the whole-buffer owned boundary and
+returns `TextError!StringBuf`: empty bytes are valid empty text, non-empty
+invalid input retains its `Utf8DecodeError`, and allocation failure remains a
+separate payload. The constructor validates and counts before allocating, so a
+failed conversion never returns a partially populated owned value.
 Filesystem path decoding currently maps each of those values explicitly to
 `fs::Error::Invalid` and clears partial output on failure. That is an
 intentional compatibility boundary for the still-coarse filesystem facade, not
@@ -185,9 +190,9 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/format with explicit allocator | `mem::Error` | one-type naming and common mutation protocol remain open |
+| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/`fromUtf8` with explicit allocator | `mem::Error`, `TextError` | whole-buffer UTF-8 construction accepted; naming and common mutation protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
-| UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First` | `Utf8DecodeError` | scalar decoder accepted; validated whole-buffer type remains open |
+| UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `StringBuf::fromUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | text encoding and UTF-8 host-argument decoding | `PathError`, then `fs::Error` | Unicode mapping is explicit; OS-native representation and richer errors remain open |
 | process argument/environment | `Arg` / `EnvVar` byte views and command-owned C buffers | process facade and build typed arguments | `process::Error`, formatting parse errors | raw host service retained; BuildPlan uses typed paths/values |

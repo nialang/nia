@@ -510,6 +510,7 @@ using std::fs;
 using std::io;
 using std::mem;
 using std::process;
+using std::string;
 using buildScript;
 
 extend[T] build::Error!T {
@@ -548,12 +549,12 @@ extend[T] build::Error!T {
 }
 
 struct TargetText {
-    arch: collections::ArrayList[char],
-    vendor: collections::ArrayList[char],
-    os: collections::ArrayList[char],
-    env: collections::ArrayList[char],
-    abi: collections::ArrayList[char],
-    endian: collections::ArrayList[char],
+    arch: string::StringBuf,
+    vendor: string::StringBuf,
+    os: string::StringBuf,
+    env: string::StringBuf,
+    abi: string::StringBuf,
+    endian: string::StringBuf,
 }
 
 fn rememberTargetCleanupError(
@@ -575,12 +576,12 @@ fn rememberTargetCleanupError(
 extend TargetText {
     fn init() TargetText {
         {
-            arch: collections::ArrayList[char]::init(),
-            vendor: collections::ArrayList[char]::init(),
-            os: collections::ArrayList[char]::init(),
-            env: collections::ArrayList[char]::init(),
-            abi: collections::ArrayList[char]::init(),
-            endian: collections::ArrayList[char]::init(),
+            arch: string::StringBuf::init(),
+            vendor: string::StringBuf::init(),
+            os: string::StringBuf::init(),
+            env: string::StringBuf::init(),
+            abi: string::StringBuf::init(),
+            endian: string::StringBuf::init(),
         }
     }
 
@@ -601,6 +602,37 @@ extend TargetText {
         }
         !{}
     }
+}
+
+fn textArg(
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    index: usize,
+    storage: &mut string::StringBuf,
+    subject: build::ErrorSubject,
+) build::Error!&[char] {
+    let arg = switch init.args().get(index) {
+        ?value => value,
+        null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
+    };
+    storage.* = switch string::StringBuf::fromUtf8(allocator, arg.bytes()) {
+        !text => text,
+        string::TextError::InvalidUtf8(error)! => {
+            _ = error;
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: subject,
+            }!;
+        },
+        string::TextError::Allocation(error)! => {
+            return build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: subject,
+                cause: build::ErrorCause::Memory(error),
+            }!;
+        },
+    };
+    !storage.text()
 }
 
 fn pathArg(
@@ -631,12 +663,12 @@ fn targetArg(
     storage: &mut TargetText,
     subject: build::ErrorSubject,
 ) build::Error!build::TargetView {
-    let arch = pathArg(init, allocator, startIndex, &mut storage.arch, subject).?.text();
-    let vendor = pathArg(init, allocator, startIndex + 1usize, &mut storage.vendor, subject).?.text();
-    let os = pathArg(init, allocator, startIndex + 2usize, &mut storage.os, subject).?.text();
-    let env = pathArg(init, allocator, startIndex + 3usize, &mut storage.env, subject).?.text();
-    let abi = pathArg(init, allocator, startIndex + 4usize, &mut storage.abi, subject).?.text();
-    let endian = pathArg(init, allocator, startIndex + 5usize, &mut storage.endian, subject).?.text();
+    let arch = textArg(init, allocator, startIndex, &mut storage.arch, subject).?;
+    let vendor = textArg(init, allocator, startIndex + 1usize, &mut storage.vendor, subject).?;
+    let os = textArg(init, allocator, startIndex + 2usize, &mut storage.os, subject).?;
+    let env = textArg(init, allocator, startIndex + 3usize, &mut storage.env, subject).?;
+    let abi = textArg(init, allocator, startIndex + 4usize, &mut storage.abi, subject).?;
+    let endian = textArg(init, allocator, startIndex + 5usize, &mut storage.endian, subject).?;
     let pointerWidthArg = switch init.args().get(startIndex + 6usize) {
         ?value => {
             value
@@ -1087,11 +1119,14 @@ mod tests {
         assert!(runner.source.contains("using std::fs;"));
         assert!(runner.source.contains("using std::io;"));
         assert!(runner.source.contains("using std::mem;"));
+        assert!(runner.source.contains("using std::string;"));
         assert!(runner.source.contains("using buildScript;"));
         assert!(runner.source.contains("fn pathArg("));
+        assert!(runner.source.contains("fn textArg("));
         assert!(runner.source.contains("fn targetArg("));
         assert!(runner.source.contains("fn reportAndExit("));
         assert!(runner.source.contains("fs::PathView::from_utf8_into("));
+        assert!(runner.source.contains("string::StringBuf::fromUtf8("));
         assert!(runner.source.contains("let mut api = build::Build::init("));
         assert!(
             runner

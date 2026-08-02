@@ -3033,6 +3033,10 @@ A conforming Nia compiler supports:
 Borrowed scalar text uses the language-native `&[char]` representation.
 `std::fs::PathView` remains a nominal borrowed path over `&[char]`, while
 `std::StringBuf` and `std::fs::PathBuf` own caller-allocated storage.
+`std::StringBuf::fromUtf8(allocator, bytes)` performs typed whole-buffer
+conversion: empty bytes are valid empty text, invalid non-empty sequences return
+`std::TextError::InvalidUtf8`, and allocation failures return
+`std::TextError::Allocation`.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 
