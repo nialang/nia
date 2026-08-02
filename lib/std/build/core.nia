@@ -97,11 +97,11 @@ extend BuildPaths {
         defer if not transferred {
             paths.deinit(allocator).?;
         };
-        paths.packageRoot = fs::PathBuf::from_path(allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
-        paths.buildDir = fs::PathBuf::from_path(allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
-        paths.cacheDir = fs::PathBuf::from_path(allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
-        paths.toolchainExecutable = fs::PathBuf::from_path(allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
-        paths.toolchainResourceRoot = fs::PathBuf::from_path(allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
+        paths.packageRoot = fs::PathBuf::fromView(allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
+        paths.buildDir = fs::PathBuf::fromView(allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
+        paths.cacheDir = fs::PathBuf::fromView(allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
+        paths.toolchainExecutable = fs::PathBuf::fromView(allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
+        paths.toolchainResourceRoot = fs::PathBuf::fromView(allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
         transferred = true;
         !paths
     }
@@ -1115,7 +1115,7 @@ extend ExternalCommandStep {
             allocator,
             options.program,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        command.workingDirectory = fs::PathBuf::from_path(
+        command.workingDirectory = fs::PathBuf::fromView(
             allocator,
             options.workingDirectory,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1447,7 +1447,7 @@ extend Module {
             moduleRecord.deinit(allocator).?;
         };
         moduleRecord.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
-        moduleRecord.rootSource = fs::PathBuf::from_path(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
+        moduleRecord.rootSource = fs::PathBuf::fromView(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.imports = cloneModuleImports(allocator, options.imports).?;
         transferred = true;
         !moduleRecord
@@ -1488,7 +1488,7 @@ extend OwnedModuleImport {
             owned.deinit(allocator).?;
         };
         owned.name = string::String::fromSlice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
-        owned.path = fs::PathBuf::from_path(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
+        owned.path = fs::PathBuf::fromView(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         transferred = true;
         !owned
     }

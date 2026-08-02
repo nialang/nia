@@ -23,10 +23,10 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut page = mem::PageAllocator::init();
-    let mut path = fs::PathBuf::from_path(&mut page, fs::PathView::init(&"subdir")).exit().?;
+    let mut path = fs::PathBuf::fromView(&mut page, fs::PathView::init(&"subdir")).exit().?;
     defer path.deinit(&mut page).exit().?;
 
-    path.join_component(&mut page, &"/inside.txt").exit().?;
+    path.joinComponent(&mut page, &"/inside.txt").exit().?;
     let expected: &[char] = &"subdir/inside.txt";
     if path.text().len() != expected.len() {
         return process::exit(1)!;
@@ -1036,45 +1036,85 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_fs_utf8_path_conversion_is_typed_and_transactional() {
-    let root = temp_dir("emit_exe_std_fs_utf8_path_conversion_is_typed_and_transactional");
+fn emit_exe_std_fs_path_from_utf8_preserves_decode_errors() {
+    let root = temp_dir("emit_exe_std_fs_path_from_utf8_preserves_decode_errors");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-using std::collections;
 using std::fs;
 using std::mem;
 using std::process;
+using std::string;
+using std::unicode;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut page = mem::PageAllocator::init();
-    let mut text = collections::ArrayList[char]::init();
-    defer text.deinit(&mut page).exit().?;
 
     let valid: [3]u8 = [b'A', 0xceu8, 0xbbu8];
-    let path = switch fs::PathView::from_utf8_into(&mut page, &valid, &mut text) {
+    let mut path = switch fs::PathBuf::fromUtf8(&mut page, &valid) {
         !value => value,
         error! => { _ = error; return process::exit(1)!; },
     };
-    if path.text().len() != 2usize
+    defer path.deinit(&mut page).exit().?;
+    if path.text().len() != 2
         or path.text()[0] != 'A'
         or path.text()[1].codepoint() != 0x03bbu32
     {
         return process::exit(2)!;
     }
 
-    let invalid: [5]u8 = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
-    switch fs::PathView::from_utf8_into(&mut page, &invalid, &mut text) {
-        !value => { _ = value; return process::exit(3)!; },
-        error! => if error != fs::Error::Invalid {
-            return process::exit(4)!;
-        },
+    let mut encodedStorage: [4]u8 = [0; 4];
+    let encoded = switch path.encode(&mut encodedStorage) {
+        !value => value,
+        error! => { _ = error; return process::exit(3)!; },
+    };
+    if encoded.len() != 3
+        or encoded.bytes()[0] != b'A'
+        or encoded.nulTerminatedBytes().len() != 4
+        or encoded.nulTerminatedBytes()[3] != 0
+    {
+        return process::exit(4)!;
     }
-    if text.len() != 0usize {
-        return process::exit(5)!;
+
+    let invalid: [5]u8 = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
+    switch fs::PathBuf::fromUtf8(&mut page, &invalid) {
+        !value => { _ = value; return process::exit(5)!; },
+        string::TextError::InvalidUtf8(unicode::Utf8DecodeError::InvalidContinuation)! => {},
+        error! => { _ = error; return process::exit(6)!; },
+    }
+
+    let mut invalidStorage: [16]u8 = [0; 16];
+    switch fs::PathView::init(&"bad\0path").encode(&mut invalidStorage) {
+        !value => { _ = value; return process::exit(7)!; },
+        fs::PathError::ContainsNul! => {},
+        error! => { _ = error; return process::exit(8)!; },
+    }
+
+    let mut shortStorage: [3]u8 = [0; 3];
+    switch path.encode(&mut shortStorage) {
+        !value => { _ = value; return process::exit(9)!; },
+        fs::PathError::TooLong! => {},
+        error! => { _ = error; return process::exit(10)!; },
+    }
+
+    let mut fixedStorage: [96]u8 = [0; 96];
+    let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage);
+    let mut bounded = fs::PathBuf::init();
+    bounded.append(&mut fixed, &"base").exit().?;
+    defer bounded.deinit(&mut fixed).exit().?;
+    switch bounded.joinComponent(&mut fixed, &"component-that-requires-growth") {
+        !ok => { _ = ok; return process::exit(11)!; },
+        mem::Error::OutOfMemory! => {},
+        error! => { _ = error; return process::exit(12)!; },
+    }
+    if bounded.text().len() != 4
+        or bounded.text()[0] != 'b'
+        or bounded.text()[3] != 'e'
+    {
+        return process::exit(13)!;
     }
     !{}
 }
@@ -1088,7 +1128,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe fs UTF-8 path conversion");
+        .output_timeout_for_build("run nia emit --exe fs UTF-8 path construction");
 
     assert!(
         output.status.success(),
@@ -1097,7 +1137,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert_eq!(
         Command::new(&exe)
-            .status_timeout("run emitted UTF-8 path conversion executable")
+            .status_timeout("run emitted UTF-8 path construction executable")
             .code(),
         Some(0)
     );

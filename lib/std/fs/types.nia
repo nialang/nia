@@ -29,7 +29,7 @@ pub enum Error: i32 {
 }
 
 pub enum PathError: i32 {
-    Invalid = 1,
+    ContainsNul = 1,
     TooLong = 36,
     _,
 }

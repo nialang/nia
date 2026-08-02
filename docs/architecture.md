@@ -1995,8 +1995,11 @@ the ordinary execution path and cannot report cache hits.
 Borrowed scalar text uses `&[char]` directly. `fs::PathView` adds nominal path
 semantics over borrowed scalar text, while `std::String` and `fs::PathBuf`
 own caller-allocated storage.
-`PathBuf::join` and `PathBuf::join_component` append with a native separator
-and explicit allocator use.
+`PathBuf::fromUtf8` preserves typed text decoding failures, and pure owned path
+operations report allocator failures directly. `PathBuf::joinComponent` is the
+single component-join operation; it reserves the full append before changing
+visible path text. `PathView::encode` and `PathBuf::encode` are the checked
+OS-byte boundary and the only ordinary constructors of `EncodedPath`.
 
 Global module-map options:
 

@@ -2338,6 +2338,31 @@ includes division, comparison, equality, non-numeric peers, and explicit
 suffixes. This is a compiler correction discovered by std idiom cleanup, not a
 reason to restore redundant suffixes.
 
+Standard-library reconstruction progress (2026-08-02, typed path ownership
+batch): `PathView` remains the nominal borrowed scalar-path role and `PathBuf`
+owns its scalar storage. `PathBuf::fromUtf8` now constructs the owned path
+directly and preserves `TextError`; the former public `from_utf8_into` scratch
+ArrayList protocol and its collapsed `fs::Error::Invalid` result are physically
+absent. Pure owned copy, capacity, mutation, join, and release operations report
+`mem::Error` rather than pretending allocation is a filesystem failure.
+
+The public path surface is lower camel with no aliases. Duplicate
+`to_path_buf`/`from_path`, `join`/`join_component`, and
+`encode`/`encode_bytes` pairs are reduced to `fromView`, `joinComponent`, and
+one typed `encode`. Encoding distinguishes `PathError::ContainsNul` from
+`PathError::TooLong`, and `EncodedPath::init` is private so checked encoding is
+the only ordinary construction path. `joinComponent` reserves its complete
+mutation before writing a separator, so OOM preserves the original path.
+Runtime conformance covers non-ASCII UTF-8 ownership, precise decode and encode
+errors, the terminating-NUL view, and join rollback under a bounded allocator.
+
+Provider encoding uses ordinary `for &item in slice.iter()` loops and imports
+`pkg::slice` explicitly so the narrow fs facade does not rely on root-facade
+activation. Attempting `for item in &slice` exposed that for-target resolution
+does not currently auto-dereference `&[T]` to the existing `[T]: Iterable`
+implementation; direct borrowed-slice iteration remains a language ergonomics
+follow-up rather than a reason to restore index-heavy std code.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically
