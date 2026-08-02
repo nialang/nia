@@ -8,7 +8,7 @@ using pkg::collections::hash_map::types;
 
 using context::DefaultHashMapContext;
 using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult};
-using types::HashMapContext;
+using types::{HashMapContext, HashMapLookupContext};
 
 pub struct HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
@@ -238,6 +238,67 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn get_key_value(&self, key: &K) ?HashMapEntryRef[K, V] {
         self.get_entry(key)
+    }
+
+    pub fn containsKeyBy[Q](&self, query: Q) bool
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            _ = index;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn getBy[Q](&self, query: Q) ?&V
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            ?&self.values[index]
+        } else {
+            null
+        }
+    }
+
+    pub fn getMutBy[Q](&mut self, query: Q) ?&mut V
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            ?&mut self.values[index]
+        } else {
+            null
+        }
+    }
+
+    pub fn getEntryBy[Q](&self, query: Q) ?HashMapEntryRef[K, V]
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            ?{ key: &self.keys[index], value: &self.values[index] }
+        } else {
+            null
+        }
+    }
+
+    pub fn getEntryMutBy[Q](&mut self, query: Q) ?HashMapEntryMut[K, V]
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            ?{ key: &self.keys[index], value: &mut self.values[index] }
+        } else {
+            null
+        }
+    }
+
+    pub fn getKeyBy[Q](&self, query: Q) ?&K
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            ?&self.keys[index]
+        } else {
+            null
+        }
     }
 
     pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!HashMapWithContext[K, V, C] {
@@ -511,6 +572,20 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.remove_entry(key)
     }
 
+    pub fn removeEntryBy[Q](&mut self, query: Q) ?HashMapEntry[K, V]
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
+        if self.find_query_index[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
+            let foundKey = self.keys[index];
+            let value = self.values[index];
+            self.set_ctrl(index, raw::ctrl_deleted);
+            self.len -= 1usize;
+            ?{ key: foundKey, value: value }
+        } else {
+            null
+        }
+    }
+
     pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         self.ensure_unused_capacity(allocator, additional)
     }
@@ -556,20 +631,25 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn find_index(&self, key: &K, value_hash: u64) ?usize {
+        self.find_query_index[&K](key, value_hash)
+    }
+
+    fn find_query_index[Q](&self, query: Q, valueHash: u64) ?usize
+    where Q: Sized, C: HashMapLookupContext[K, Q]
+    {
         if self.bucket_capacity() == 0usize {
             return null;
         }
 
-        let needle = raw::tag(value_hash);
-        let mut cursor = raw::ProbeCursor::init(value_hash, self.bucket_capacity());
-
+        let needle = raw::tag(valueHash);
+        let mut cursor = raw::ProbeCursor::init(valueHash, self.bucket_capacity());
         while cursor.has_remaining() {
             let group = raw::ProbeGroup::load(self.ctrl, &cursor, needle);
             let mut matches = group.match_mask;
             while matches != 0usize {
                 let offset = raw::first_set(matches);
                 let index = cursor.index(offset);
-                if self.context.eql(&self.keys[index], key) {
+                if self.context.eqlQuery(&self.keys[index], query) {
                     return ?index;
                 }
                 matches = raw::clear_lowest_set(matches);
@@ -577,7 +657,6 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             if group.empty_mask != 0usize {
                 return null;
             }
-
             cursor.advance_group();
         }
         null

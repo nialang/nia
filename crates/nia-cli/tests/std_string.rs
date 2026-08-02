@@ -133,8 +133,6 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(11)!;
     }
 
-    let mut lookup = std::String::fromSlice(page, text).exit().?;
-    defer lookup.deinit(page).exit().?;
     let stored = std::String::fromSlice(page, text).exit().?;
     let mut map = std::HashMap[std::String, i32]::init_seed_capacity(
         page,
@@ -146,19 +144,51 @@ pub fn main(init: process::Init) process::ExitCode!void {
         _ = old;
         return process::exit(12)!;
     }
-    if not map.contains_key(&lookup) {
+    if not map.containsKeyBy(text) {
         return process::exit(13)!;
     }
-    if map.get(&lookup) is ?value {
+    if map.getBy(text) is ?value {
         if value.* != 41 {
             return process::exit(14)!;
         }
     } else {
         return process::exit(15)!;
     }
+    if map.getMutBy(text) is ?value {
+        value.* = 42;
+    } else {
+        return process::exit(15)!;
+    }
+    if map.getEntryBy(text) is ?entry {
+        if not entry.key().equals(text) or entry.value().* != 42 {
+            return process::exit(15)!;
+        }
+    } else {
+        return process::exit(15)!;
+    }
+    if map.getEntryMutBy(text) is ?value {
+        let mut entry = value;
+        entry.value_mut().* = 43;
+    } else {
+        return process::exit(15)!;
+    }
+    if map.getKeyBy(text) is ?key {
+        if not key.equals(text) {
+            return process::exit(15)!;
+        }
+    } else {
+        return process::exit(15)!;
+    }
+    if map.getBy[&[char]](&"missing") is ?unexpected {
+        _ = unexpected;
+        return process::exit(15)!;
+    }
 
     let mut removedKey: std::String;
-    if map.remove_entry(&lookup) is ?entry {
+    if map.removeEntryBy(text) is ?entry {
+        if entry.value().* != 43 {
+            return process::exit(16)!;
+        }
         removedKey = entry.into_key();
     } else {
         return process::exit(16)!;

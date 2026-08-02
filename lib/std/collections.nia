@@ -14,6 +14,7 @@ pub using hash_map::{
     DefaultHashMapContext,
     HashMap,
     HashMapContext,
+    HashMapLookupContext,
     HashMapEntry,
     HashMapEntryMut,
     HashMapEntryRef,

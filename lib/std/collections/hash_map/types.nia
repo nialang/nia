@@ -2,3 +2,20 @@ pub trait HashMapContext[K] {
     fn hash(&self, seed: u64, key: &K) u64;
     fn eql(&self, left: &K, right: &K) bool;
 }
+
+pub trait HashMapLookupContext[K, Q] {
+    fn hashQuery(&self, seed: u64, query: Q) u64;
+    fn eqlQuery(&self, key: &K, query: Q) bool;
+}
+
+extend[K, C] C : HashMapLookupContext[K, &K]
+where K: Sized, C: HashMapContext[K]
+{
+    fn hashQuery(&self, seed: u64, query: &K) u64 {
+        self.hash(seed, query)
+    }
+
+    fn eqlQuery(&self, key: &K, query: &K) bool {
+        self.eql(key, query)
+    }
+}

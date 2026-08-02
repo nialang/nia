@@ -195,11 +195,20 @@ With `std::hash` imported, `[char]` and `String` implement `Hash[H]` for
 every `Hasher`. The hash commits the scalar count followed by each scalar value;
 it is not a hash of an incidental UTF-8 encoding. `String` also implements
 content `Eq[String]`, and equal borrowed/owned scalar sequences produce the
-same hash. This satisfies `DefaultHashMapContext`, but the current collection
-surface is not yet an accepted owned-text workflow: lookup requires an owned
-`String` key, and map teardown does not recursively deinitialize owned keys.
-Maintained conformance therefore removes and explicitly deinitializes its key;
-borrowed-key lookup and element cleanup remain collection/ownership work.
+same hash. `HashMapLookupContext[K, Q]` separates stored-key and query-view
+types. The default context supports `String` keys queried by `&[char]` through
+`containsKeyBy`, `getBy`, `getMutBy`, `getEntryBy`, `getEntryMutBy`, `getKeyBy`,
+and `removeEntryBy`; these operations do not allocate. A slice variable infers
+the query type directly. A literal currently needs one method annotation, for
+example `map.getBy[&[char]](&"name")`, because provider impl patterns cannot
+match `&[N]char` as a trait argument and generic calls do not apply the slice
+coercion before inference.
+
+`removeEntryBy` returns the stored key so allocating ownership can be released.
+Map teardown still does not recursively deinitialize owned keys, and insertion
+that rejects or replaces an equal incoming key still lacks an ownership-return
+contract. Maintained conformance therefore removes and explicitly deinitializes
+its key; element cleanup and rejected/replaced key ownership remain open.
 The one owned scalar-text type is named `String`, not `StringBuf`: it stores
 Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed
 construction and ownership methods use `initCapacity`, `fromOwnedSlice`,
@@ -224,7 +233,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | name, mutation, equality/search/hash accepted; borrowed map lookup and common allocator protocol remain open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | name, mutation, equality/search/hash and borrowed map lookup accepted; collection cleanup and common allocator protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
