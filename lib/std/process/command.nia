@@ -1,20 +1,20 @@
 using pkg::collections;
-using pkg::cstring;
 using pkg::error;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
 using pkg::process::child;
 using pkg::process::types;
+using pkg::unicode;
 
-using types::{Child, Command, Error, StdIo, Term};
+using types::{Child, Command, Env, Error, StdIo, Term};
 
 extend Command {
-    pub fn init(path: cstring::CStringView, argv: &&u8, envp: &&u8) Command {
+    pub fn init(path: fs::PathView, env: Env) Command {
         {
             path: path,
-            argv: argv,
-            envp: envp,
+            arguments: null,
+            env: env,
             stdin: StdIo::Inherit,
             stdout: StdIo::Inherit,
             stderr: StdIo::Inherit,
@@ -22,16 +22,16 @@ extend Command {
         }
     }
 
-    pub fn path(&self) cstring::CStringView {
+    pub fn path(&self) fs::PathView {
         self.path
     }
 
-    pub fn argv(&self) &&u8 {
-        self.argv
+    pub fn arguments(&self) ?&[&[char]] {
+        self.arguments
     }
 
-    pub fn envp(&self) &&u8 {
-        self.envp
+    pub fn env(&self) Env {
+        self.env
     }
 
     pub fn stdin(&self) StdIo {
@@ -46,97 +46,176 @@ extend Command {
         self.stderr
     }
 
-    pub fn cwd(&self) ?cstring::CStringView {
+    pub fn cwd(&self) ?fs::PathView {
         self.cwd
     }
 
-    pub fn set_stdin(&mut self, behavior: StdIo) Error!void {
-        _ = behavior.as_os_stdio().?;
-        self.stdin = behavior;
-        !{}
+    pub fn withArguments(self, arguments: &[&[char]]) Command {
+        {
+            path: self.path,
+            arguments: ?arguments,
+            env: self.env,
+            stdin: self.stdin,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            cwd: self.cwd,
+        }
     }
 
-    pub fn set_stdout(&mut self, behavior: StdIo) Error!void {
-        _ = behavior.as_os_stdio().?;
-        self.stdout = behavior;
-        !{}
+    pub fn withStdin(self, behavior: StdIo) Command {
+        {
+            path: self.path,
+            arguments: self.arguments,
+            env: self.env,
+            stdin: behavior,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            cwd: self.cwd,
+        }
     }
 
-    pub fn set_stderr(&mut self, behavior: StdIo) Error!void {
-        _ = behavior.as_os_stdio().?;
-        self.stderr = behavior;
-        !{}
+    pub fn withStdout(self, behavior: StdIo) Command {
+        {
+            path: self.path,
+            arguments: self.arguments,
+            env: self.env,
+            stdin: self.stdin,
+            stdout: behavior,
+            stderr: self.stderr,
+            cwd: self.cwd,
+        }
     }
 
-    pub fn set_cwd(&mut self, cwd: cstring::CStringView) void {
-        self.cwd = ?cwd;
+    pub fn withStderr(self, behavior: StdIo) Command {
+        {
+            path: self.path,
+            arguments: self.arguments,
+            env: self.env,
+            stdin: self.stdin,
+            stdout: self.stdout,
+            stderr: behavior,
+            cwd: self.cwd,
+        }
+    }
+
+    pub fn withCwd(self, cwd: fs::PathView) Command {
+        {
+            path: self.path,
+            arguments: self.arguments,
+            env: self.env,
+            stdin: self.stdin,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            cwd: ?cwd,
+        }
     }
 
     pub fn spawn(&self) Error!Child {
-        let mut options = os::SpawnOptions::init();
-        options.set_stdin(self.stdin.as_os_stdio().?).as_process_setup_error().?;
-        options.set_stdout(self.stdout.as_os_stdio().?).as_process_setup_error().?;
-        options.set_stderr(self.stderr.as_os_stdio().?).as_process_setup_error().?;
-        switch self.cwd {
-            ?cwd => {
-                options.set_cwd(cwd.rawPtr());
+        let mut pageAllocator = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut pageAllocator;
+        self.spawnWithAllocator(allocator)
+    }
+
+    pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
+        let mut pathStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let encodedPath = self.path.encode(&mut pathStorage[..]).asFsError().asProcessSetupError().?;
+
+        let mut argumentBytes = collections::ArrayList[u8]::init();
+        defer argumentBytes.deinit(allocator).asProcessSetupError().?;
+        argumentBytes.appendSlice(allocator, encodedPath.nulTerminatedBytes()).asProcessSetupError().?;
+        switch self.arguments {
+            ?arguments => {
+                for &argument in arguments {
+                    appendArgument(allocator, &mut argumentBytes, argument).?;
+                }
             },
             null => {},
         }
-        spawn_with_options(self.path.rawPtr(), self.argv, self.envp, options)
+
+        let mut argv = collections::ArrayList[&u8]::init();
+        defer argv.deinit(allocator).asProcessSetupError().?;
+        let bytes = argumentBytes.asSlice();
+        let mut start: usize = 0;
+        while start < bytes.len() {
+            argv.push(allocator, &bytes[start]).asProcessSetupError().?;
+            while bytes[start] != 0 {
+                start += 1;
+            }
+            start += 1;
+        }
+        argv.push(allocator, 0usize as &u8).asProcessSetupError().?;
+
+        let mut options = os::SpawnOptions::init();
+        options.set_stdin(self.stdin.asOsStdio()).asProcessSetupError().?;
+        options.set_stdout(self.stdout.asOsStdio()).asProcessSetupError().?;
+        options.set_stderr(self.stderr.asOsStdio()).asProcessSetupError().?;
+        let mut cwdStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        switch self.cwd {
+            ?cwd => {
+                let encodedCwd = cwd.encode(&mut cwdStorage[..]).asFsError().asProcessSetupError().?;
+                options.set_cwd(encodedCwd.ptr());
+            },
+            null => {},
+        }
+        spawnWithOptions(bytes.ptr(), argv.asSlice().ptr(), self.env.rawEnvp(), options)
     }
 
     pub fn run(&self) Error!Term {
         let mut child = self.spawn().?;
         child.wait()
     }
+
+    pub fn runWithAllocator(&self, allocator: &mut mem::Allocator) Error!Term {
+        let mut child = self.spawnWithAllocator(allocator).?;
+        child.wait()
+    }
 }
 
 extend StdIo {
-    fn as_os_stdio(self) Error!os::StdIo {
+    fn asOsStdio(self) os::StdIo {
         switch self {
-            StdIo::Inherit => !os::StdIo::Inherit,
-            StdIo::Ignore => !os::StdIo::Ignore,
-            StdIo::Pipe => !os::StdIo::Pipe,
-            _ => Error::Invalid!,
+            StdIo::Inherit => os::StdIo::Inherit,
+            StdIo::Ignore => os::StdIo::Ignore,
+            StdIo::Pipe => os::StdIo::Pipe,
         }
     }
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
-    let pid = os::spawn_raw(path, argv, envp).as_process_error().?;
+pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
+    let pid = os::spawn_raw(path, argv, envp).asProcessError().?;
     !Child::init(pid)
 }
 
-pub fn spawn_with_options(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
-    let result = os::spawn(path, argv, envp, options).as_process_error().?;
-    !Child::from_spawn_result(result)
+fn spawnWithOptions(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
+    let result = os::spawn(path, argv, envp, options).asProcessError().?;
+    !Child::fromSpawnResult(result)
 }
 
-pub fn spawn(command: &Command) Error!Child {
-    command.spawn()
-}
-
-pub fn run(command: &Command) Error!Term {
-    command.run()
-}
-
-pub(pkg) fn run_path_args(
+fn appendArgument(
     allocator: &mut mem::Allocator,
-    path: fs::PathView,
-    args: &[&u8],
-    envp: &&u8,
-) Error!Term {
-    let mut path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-    let encoded_path = path.encode(&mut path_storage[..]).asFsError().as_process_setup_error().?;
-    let mut argv = collections::ArrayList[&u8]::init();
-    defer argv.deinit(allocator).as_process_setup_error().?;
-    argv.push(allocator, encoded_path.ptr()).as_process_setup_error().?;
-    argv.appendSlice(allocator, args).as_process_setup_error().?;
-    argv.push(allocator, 0usize as &u8).as_process_setup_error().?;
-    let rawArgv = argv.asSlice().ptr();
-    let command = Command::init(cstring::CStringView::fromPtrUnchecked(encoded_path.ptr()), rawArgv, envp);
-    command.run()
+    bytes: &mut collections::ArrayList[u8],
+    argument: &[char],
+) Error!void {
+    let mut byteLen: usize = 0;
+    for &ch in argument {
+        if ch.codepoint() == 0 {
+            return Error::Invalid!;
+        }
+        byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
+            ?value => value,
+            null => return Error::OutOfMemory!,
+        };
+    }
+    let needed = switch byteLen.checked_add(1) {
+        ?value => value,
+        null => return Error::OutOfMemory!,
+    };
+    bytes.reserve(allocator, needed).asProcessSetupError().?;
+    for &ch in argument {
+        bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
+    }
+    bytes.appendAssumeCapacity(0);
+    !{}
 }
 
 extend os::SpawnError : error::IntoError[Error] {
@@ -154,13 +233,13 @@ extend os::SpawnError : error::IntoError[Error] {
 }
 
 extend os::SpawnError {
-    fn as_process_error(self) Error {
+    fn asProcessError(self) Error {
         self.into_error()
     }
 }
 
 extend[T] os::SpawnError!T {
-    fn as_process_error(self) Error!T {
+    fn asProcessError(self) Error!T {
         self.cast_error()
     }
 }
@@ -176,13 +255,13 @@ extend os::Error : error::IntoError[Error] {
 }
 
 extend os::Error {
-    fn as_process_setup_error(self) Error {
+    fn asProcessSetupError(self) Error {
         self.into_error()
     }
 }
 
 extend[T] os::Error!T {
-    fn as_process_setup_error(self) Error!T {
+    fn asProcessSetupError(self) Error!T {
         self.cast_error()
     }
 }
@@ -198,13 +277,13 @@ extend fs::Error : error::IntoError[Error] {
 }
 
 extend fs::Error {
-    fn as_process_setup_error(self) Error {
+    fn asProcessSetupError(self) Error {
         self.into_error()
     }
 }
 
 extend[T] fs::Error!T {
-    fn as_process_setup_error(self) Error!T {
+    fn asProcessSetupError(self) Error!T {
         self.cast_error()
     }
 }
@@ -220,7 +299,7 @@ extend mem::Error : error::IntoError[Error] {
 }
 
 extend[T] mem::Error!T {
-    fn as_process_setup_error(self) Error!T {
+    fn asProcessSetupError(self) Error!T {
         self.cast_error()
     }
 }

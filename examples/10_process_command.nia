@@ -1,0 +1,15 @@
+using std::fs;
+using std::process;
+using process::{ExitCode, Init};
+
+pub fn main(init: Init) ExitCode!void {
+    let arguments: [1]&[char] = [&"nia process command"];
+    // The executable path becomes argv[0]; arguments contains only user arguments.
+    let command = process::Command::init(fs::PathView::init(&"/bin/echo"), init.env())
+        .withArguments(&arguments);
+    let term = command.run().exit().?;
+    if not term.succeeded() {
+        return process::exit(1)!;
+    }
+    !{}
+}

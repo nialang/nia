@@ -15,7 +15,7 @@ extend fs::Error : error::IntoError[ExitCode] {
 }
 
 extend fs::Error {
-    pub fn as_exit_code(self) ExitCode {
+    pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -31,7 +31,7 @@ extend os::Error : error::IntoError[ExitCode] {
 }
 
 extend os::Error {
-    pub fn as_exit_code(self) ExitCode {
+    pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -49,7 +49,7 @@ extend Error : error::IntoError[ExitCode] {
 }
 
 extend Error {
-    pub fn as_exit_code(self) ExitCode {
+    pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -79,7 +79,7 @@ extend fmt::Error : error::IntoError[ExitCode] {
 }
 
 extend fmt::Error {
-    pub fn as_exit_code(self) ExitCode {
+    pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -102,7 +102,7 @@ extend io::BufferError : error::IntoError[ExitCode] {
 }
 
 extend io::BufferError {
-    pub fn as_exit_code(self) ExitCode {
+    pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -125,7 +125,7 @@ extend mem::Error : error::IntoError[ExitCode] {
 }
 
 extend mem::Error {
-    pub fn as_exit_code(self) ExitCode {
+    pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }

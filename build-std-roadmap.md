@@ -2530,6 +2530,26 @@ accepts naming for borrowed host views only; command-owned argument
 construction, spawn/wait errors, OS-facing ownership, and the broader process
 command API remain open.
 
+Standard-library reconstruction progress (2026-08-03, typed process command
+batch): `Command` now borrows `PathView`, scalar `&[&[char]]` arguments, and an
+`Env` view instead of exposing `CStringView`, `&&u8`, and caller-built argv.
+The executable path is argv[0]; spawn-time lowering validates path/NUL rules,
+UTF-8 encodes arguments into temporary storage, builds the native pointer
+array, and frees it before returning. Ordinary `spawn`/`run` use page-backed
+temporary allocation, while `spawnWithAllocator`/`runWithAllocator` retain an
+explicit bounded/failure-injection path. Runtime coverage proves non-ASCII
+arguments, embedded-NUL rejection before exec, allocator failure, cwd, stdio
+pipes, failed-spawn cleanup, wait caching, and signals.
+
+Command configuration uses immutable `withArguments`, `withStdin`,
+`withStdout`, `withStderr`, and `withCwd` values. Duplicate free `spawn`/`run`,
+the raw `Command::init` contract, public raw wait-status helpers, and the
+incomplete `run_path_args` bridge are physically absent. `spawnRaw` remains the
+single explicit raw process boundary. The surrounding child/term API is lower
+camel, with `succeeded`, `exitCode`, `signalCode`, `takeStdin`, `tryWait`, and
+`killWith`. Typed spawn/wait error payloads, custom environment ownership, and
+the lower-level public `std::os` naming/ownership audit remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

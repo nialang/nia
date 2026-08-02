@@ -4,7 +4,7 @@ using pkg::process::types;
 using types::{Child, ChildState, ChildStateKind, ChildStatePayload, Error, ExitedChild, RunningChild, Signal, Term};
 
 extend Child {
-    pub fn init(pid: os::ProcessId) Child {
+    pub(pkg) fn init(pid: os::ProcessId) Child {
         {
             state: ChildState::running(pid),
             stdin: null,
@@ -13,7 +13,7 @@ extend Child {
         }
     }
 
-    pub fn from_spawn_result(result: os::SpawnResult) Child {
+    pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         {
             state: ChildState::running(result.pid()),
             stdin: result.stdin(),
@@ -26,28 +26,28 @@ extend Child {
         self.state.pid()
     }
 
-    pub fn take_stdin(&mut self) ?os::FileHandle {
+    pub fn takeStdin(&mut self) ?os::FileHandle {
         let handle = self.stdin;
         self.stdin = null;
         handle
     }
 
-    pub fn take_stdout(&mut self) ?os::FileHandle {
+    pub fn takeStdout(&mut self) ?os::FileHandle {
         let handle = self.stdout;
         self.stdout = null;
         handle
     }
 
-    pub fn take_stderr(&mut self) ?os::FileHandle {
+    pub fn takeStderr(&mut self) ?os::FileHandle {
         let handle = self.stderr;
         self.stderr = null;
         handle
     }
 
-    pub fn close_stdin(&mut self) Error!void {
-        switch self.take_stdin() {
+    pub fn closeStdin(&mut self) Error!void {
+        switch self.takeStdin() {
             ?handle => {
-                handle.close().as_process_error(Error::CloseStdin)
+                handle.close().asProcessError(Error::CloseStdin)
             },
             null => {
                 !{}
@@ -55,10 +55,10 @@ extend Child {
         }
     }
 
-    pub fn close_stdout(&mut self) Error!void {
-        switch self.take_stdout() {
+    pub fn closeStdout(&mut self) Error!void {
+        switch self.takeStdout() {
             ?handle => {
-                handle.close().as_process_error(Error::CloseStdout)
+                handle.close().asProcessError(Error::CloseStdout)
             },
             null => {
                 !{}
@@ -66,10 +66,10 @@ extend Child {
         }
     }
 
-    pub fn close_stderr(&mut self) Error!void {
-        switch self.take_stderr() {
+    pub fn closeStderr(&mut self) Error!void {
+        switch self.takeStderr() {
             ?handle => {
-                handle.close().as_process_error(Error::CloseStderr)
+                handle.close().asProcessError(Error::CloseStderr)
             },
             null => {
                 !{}
@@ -77,14 +77,14 @@ extend Child {
         }
     }
 
-    pub fn close_pipes(&mut self) Error!void {
-        self.close_stdin().?;
-        self.close_stdout().?;
-        self.close_stderr().?;
+    pub fn closePipes(&mut self) Error!void {
+        self.closeStdin().?;
+        self.closeStdout().?;
+        self.closeStderr().?;
         !{}
     }
 
-    pub fn wait_raw(&mut self) Error!os::WaitStatus {
+    fn waitStatus(&mut self) Error!os::WaitStatus {
         switch self.state.status() {
             ?status => {
                 return !status;
@@ -92,15 +92,15 @@ extend Child {
             null => {},
         }
         let pid = self.state.pid();
-        self.close_stdin().?;
-        let status = os::wait(pid).as_process_error(Error::Wait).?;
+        self.closeStdin().?;
+        let status = os::wait(pid).asProcessError(Error::Wait).?;
         self.state = ChildState::exited(pid, status);
-        self.close_stdout().?;
-        self.close_stderr().?;
+        self.closeStdout().?;
+        self.closeStderr().?;
         !status
     }
 
-    pub fn try_wait_raw(&mut self) Error! ?os::WaitStatus {
+    fn tryWaitStatus(&mut self) Error! ?os::WaitStatus {
         switch self.state.status() {
             ?status => {
                 return !(?status);
@@ -108,11 +108,11 @@ extend Child {
             null => {},
         }
         let pid = self.state.pid();
-        let status = os::try_wait(pid).as_process_error(Error::TryWait).?;
+        let status = os::try_wait(pid).asProcessError(Error::TryWait).?;
         switch status {
             ?value => {
                 self.state = ChildState::exited(pid, value);
-                self.close_pipes().?;
+                self.closePipes().?;
                 !(?value)
             },
             null => {
@@ -122,15 +122,15 @@ extend Child {
     }
 
     pub fn wait(&mut self) Error!Term {
-        let status = self.wait_raw().?;
-        !Term::from_wait_status(status)
+        let status = self.waitStatus().?;
+        !Term::fromWaitStatus(status)
     }
 
-    pub fn try_wait(&mut self) Error! ?Term {
-        let status = self.try_wait_raw().?;
+    pub fn tryWait(&mut self) Error! ?Term {
+        let status = self.tryWaitStatus().?;
         switch status {
             ?value => {
-                !(?Term::from_wait_status(value))
+                !(?Term::fromWaitStatus(value))
             },
             null => {
                 !null
@@ -139,17 +139,17 @@ extend Child {
     }
 
     pub fn kill(&mut self) Error!Term {
-        self.kill_with(Signal::Term)
+        self.killWith(Signal::Term)
     }
 
-    pub fn kill_with(&mut self, signal: Signal) Error!Term {
+    pub fn killWith(&mut self, signal: Signal) Error!Term {
         switch self.state.status() {
             ?status => {
-                return !Term::from_wait_status(status);
+                return !Term::fromWaitStatus(status);
             },
             null => {},
         }
-        os::kill_with(self.state.pid(), signal as i32).as_process_error(Error::Kill).?;
+        os::kill_with(self.state.pid(), signal as i32).asProcessError(Error::Kill).?;
         self.wait()
     }
 }
@@ -209,7 +209,7 @@ extend ExitedChild {
 }
 
 extend os::Error {
-    fn as_process_error(self, context: Error) Error {
+    fn asProcessError(self, context: Error) Error {
         switch self {
             os::Error::Invalid => Error::Invalid,
             os::Error::System => Error::System,
@@ -219,13 +219,13 @@ extend os::Error {
 }
 
 extend[T] os::Error!T {
-    fn as_process_error(self, context: Error) Error!T {
+    fn asProcessError(self, context: Error) Error!T {
         switch self {
             !value => {
                 !value
             },
             error! => {
-                error.as_process_error(context)!
+                error.asProcessError(context)!
             },
         }
     }

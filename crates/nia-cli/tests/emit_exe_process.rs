@@ -18,7 +18,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/true\0";
     let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
-    let mut child = switch process::spawn_raw(&path[0], &argv[0], init.rawEnvp()) {
+    let mut child = switch process::spawnRaw(&path[0], &argv[0], init.rawEnvp()) {
         !value => {
             value
         },
@@ -34,10 +34,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(3)!;
     }
-    let code = switch term.exit_code() {
+    let code = switch term.exitCode() {
         ?value => {
             value
         },
@@ -84,7 +84,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/false\0";
     let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
-    let mut child = switch process::spawn_raw(&path[0], &argv[0], init.rawEnvp()) {
+    let mut child = switch process::spawnRaw(&path[0], &argv[0], init.rawEnvp()) {
         !value => {
             value
         },
@@ -100,10 +100,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    if term.exited_success() {
+    if term.succeeded() {
         return process::exit(3)!;
     }
-    let code = switch term.exit_code() {
+    let code = switch term.exitCode() {
         ?value => {
             value
         },
@@ -138,38 +138,60 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_process_command_run_reports_term() {
-    let root = temp_dir("emit_exe_std_process_command_run_reports_term");
+fn emit_exe_std_process_command_encodes_text_arguments() {
+    let root = temp_dir("emit_exe_std_process_command_encodes_text_arguments");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
 using std;
+using std::mem;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/true\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
+    let invalidArguments: [1]&[char] = [&"bad\0argument"];
+    let invalid = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withArguments(&invalidArguments);
+    switch invalid.spawn() {
+        !child => {
+            _ = child;
             return process::exit(1)!;
         },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
+        process::Error::Invalid! => {},
+        error! => {
+            return process::exit(2)!;
+        },
+    }
+
+    let mut tinyStorage: [1]u8 = [0];
+    let mut fixed = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
+    let allocator: &mut mem::Allocator = &mut fixed;
+    let noMemory = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
+    switch noMemory.spawnWithAllocator(allocator) {
+        !child => {
+            _ = child;
+            return process::exit(5)!;
+        },
+        process::Error::OutOfMemory! => {},
+        error! => {
+            return process::exit(6)!;
+        },
+    }
+
+    let arguments: [4]&[char] = [&"-c", &"test \"$1\" = \"λ\"", &"nia", &"λ"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments);
     let term = switch command.run() {
         !value => {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::exit(3)!;
         },
     };
-    if not term.exited_success() {
-        return process::exit(3)!;
+    if not term.succeeded() {
+        return process::exit(4)!;
     }
     !{}
 }
@@ -183,14 +205,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe std process command run");
+        .output_timeout_for_build("run nia emit --exe std process typed command arguments");
     assert!(
         emit.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let status = Command::new(&exe).status_timeout("run emitted std process command executable");
+    let status =
+        Command::new(&exe).status_timeout("run emitted std process typed command executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -207,19 +230,10 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/echo\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let message = b"ignored-output\0";
-    let mut argv: [3]&u8 = [path.rawPtr(), &message[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdout(process::StdIo::Ignore).exit().?;
+    let arguments: [1]&[char] = [&"ignored-output"];
+    let command = process::Command::init(std::PathView::init(&"/bin/echo"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Ignore);
     let term = switch command.run() {
         !value => {
             value
@@ -228,7 +242,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(3)!;
     }
     let mut buffer: [64]u8 = [0; 64];
@@ -273,20 +287,10 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/sh\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let flag = b"-c\0";
-    let script = b"echo ignored-error >&2\0";
-    let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stderr(process::StdIo::Ignore).exit().?;
+    let arguments: [2]&[char] = [&"-c", &"echo ignored-error >&2"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStderr(process::StdIo::Ignore);
     let term = switch command.run() {
         !value => {
             value
@@ -295,7 +299,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(3)!;
     }
     let mut buffer: [64]u8 = [0; 64];
@@ -341,22 +345,12 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/sh\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let flag = b"-c\0";
-    let script = b"cat >/dev/null; echo ignored-output; echo ignored-error >&2\0";
-    let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdin(process::StdIo::Ignore).exit().?;
-    command.set_stdout(process::StdIo::Ignore).exit().?;
-    command.set_stderr(process::StdIo::Ignore).exit().?;
+    let arguments: [2]&[char] = [&"-c", &"cat >/dev/null; echo ignored-output; echo ignored-error >&2"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStdin(process::StdIo::Ignore)
+        .withStdout(process::StdIo::Ignore)
+        .withStderr(process::StdIo::Ignore);
     let term = switch command.run() {
         !value => {
             value
@@ -365,7 +359,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(3)!;
     }
     let mut buffer: [64]u8 = [0; 64];
@@ -410,17 +404,10 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
+    let command = process::Command::init(
+        std::PathView::init(&"/definitely/not/a/nia/process-test-binary"),
+        init.env(),
+    );
     let child = switch command.spawn() {
         !value => {
             value
@@ -470,29 +457,20 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let bad_path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let bad_path = switch std::CStringView::fromBytes(&bad_path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut bad_argv: [2]&u8 = [bad_path.rawPtr(), 0usize as &u8];
-    let mut index = 0usize;
-    while index < 128usize {
-        let mut bad = process::Command::init(bad_path, &bad_argv[0], init.rawEnvp());
-        bad.set_stdin(process::StdIo::Pipe).exit().?;
-        bad.set_stdout(process::StdIo::Pipe).exit().?;
-        bad.set_stderr(process::StdIo::Pipe).exit().?;
+    let badPath = std::PathView::init(&"/definitely/not/a/nia/process-test-binary");
+    let mut index = 0;
+    while index < 128 {
+        let bad = process::Command::init(badPath, init.env())
+            .withStdin(process::StdIo::Pipe)
+            .withStdout(process::StdIo::Pipe)
+            .withStderr(process::StdIo::Pipe);
         let child = switch bad.spawn() {
             !value => {
                 value
             },
             error! => {
                 if error == process::Error::SpawnExec {
-                    index += 1usize;
+                    index += 1;
                     continue;
                 } else {
                     return process::exit(2)!;
@@ -503,20 +481,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
 
-    let good_path_bytes = b"/bin/true\0";
-    let good_path = switch std::CStringView::fromBytes(&good_path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(4)!;
-        },
-    };
-    let mut good_argv: [2]&u8 = [good_path.rawPtr(), 0usize as &u8];
-    let mut good = process::Command::init(good_path, &good_argv[0], init.rawEnvp());
-    good.set_stdin(process::StdIo::Ignore).exit().?;
-    good.set_stdout(process::StdIo::Ignore).exit().?;
-    good.set_stderr(process::StdIo::Ignore).exit().?;
+    let good = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withStdin(process::StdIo::Ignore)
+        .withStdout(process::StdIo::Ignore)
+        .withStderr(process::StdIo::Ignore);
     let term = switch good.run() {
         !value => {
             value
@@ -525,7 +493,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(5)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(6)!;
     }
     !{}
@@ -566,20 +534,10 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/sh\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let flag = b"-c\0";
-    let script = b"printf pipe-output\0";
-    let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdout(process::StdIo::Pipe).exit().?;
+    let arguments: [2]&[char] = [&"-c", &"printf pipe-output"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Pipe);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -588,7 +546,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    let handle = switch child.take_stdout() {
+    let handle = switch child.takeStdout() {
         ?value => {
             value
         },
@@ -609,7 +567,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(4)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(5)!;
     }
     let expected: [11]u8 = [
@@ -668,18 +626,8 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/true\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdout(process::StdIo::Pipe).exit().?;
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withStdout(process::StdIo::Pipe);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -688,7 +636,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    let handle = switch child.take_stdout() {
+    let handle = switch child.takeStdout() {
         ?value => {
             value
         },
@@ -704,7 +652,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(4)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(5)!;
     }
     let mut byte: [1]u8 = [0];
@@ -757,19 +705,9 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/cat\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdin(process::StdIo::Pipe).exit().?;
-    command.set_stdout(process::StdIo::Pipe).exit().?;
+    let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
+        .withStdin(process::StdIo::Pipe)
+        .withStdout(process::StdIo::Pipe);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -779,7 +717,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
 
-    let stdin_handle = switch child.take_stdin() {
+    let stdin_handle = switch child.takeStdin() {
         ?value => {
             value
         },
@@ -793,7 +731,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     writer.flush().exit().?;
     stdin_handle.close().exit().?;
 
-    let stdout_handle = switch child.take_stdout() {
+    let stdout_handle = switch child.takeStdout() {
         ?value => {
             value
         },
@@ -815,7 +753,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(5)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(6)!;
     }
 
@@ -863,19 +801,9 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/cat\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdin(process::StdIo::Pipe).exit().?;
-    command.set_stdout(process::StdIo::Ignore).exit().?;
+    let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
+        .withStdin(process::StdIo::Pipe)
+        .withStdout(process::StdIo::Ignore);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -892,7 +820,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(4)!;
     }
     !{}
@@ -931,17 +859,7 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/true\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -966,7 +884,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(4)!;
         },
     };
-    if not first.exited_success() or not second.exited_success() {
+    if not first.succeeded() or not second.succeeded() {
         return process::exit(5)!;
     }
     !{}
@@ -1005,17 +923,7 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/true\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -1026,7 +934,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let mut spins = 0usize;
     while spins < 100000usize {
-        let maybe = switch child.try_wait() {
+        let maybe = switch child.tryWait() {
             !value => {
                 value
             },
@@ -1036,10 +944,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         };
         switch maybe {
             ?term => {
-                if not term.exited_success() {
+                if not term.succeeded() {
                     return process::exit(4)!;
                 }
-                let again = switch child.try_wait() {
+                let again = switch child.tryWait() {
                     !value => {
                         value
                     },
@@ -1049,7 +957,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 };
                 switch again {
                     ?cached => {
-                        if not cached.exited_success() {
+                        if not cached.succeeded() {
                             return process::exit(6)!;
                         }
                     },
@@ -1099,19 +1007,9 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/cat\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdin(process::StdIo::Pipe).exit().?;
-    command.set_stdout(process::StdIo::Ignore).exit().?;
+    let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
+        .withStdin(process::StdIo::Pipe)
+        .withStdout(process::StdIo::Ignore);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -1120,7 +1018,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    let first = switch child.try_wait() {
+    let first = switch child.tryWait() {
         !value => {
             value
         },
@@ -1135,7 +1033,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
         null => {},
     }
-    child.close_stdin().exit().?;
+    child.closeStdin().exit().?;
     let term = switch child.wait() {
         !value => {
             value
@@ -1144,7 +1042,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(5)!;
         },
     };
-    if not term.exited_success() {
+    if not term.succeeded() {
         return process::exit(6)!;
     }
     !{}
@@ -1184,21 +1082,11 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/sh\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let flag = b"-c\0";
-    let script = b"while true; do sleep 1; done\0";
-    let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdout(process::StdIo::Ignore).exit().?;
-    command.set_stderr(process::StdIo::Ignore).exit().?;
+    let arguments: [2]&[char] = [&"-c", &"while true; do sleep 1; done"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Ignore)
+        .withStderr(process::StdIo::Ignore);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -1215,7 +1103,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     };
-    let signal = switch term.signal_code() {
+    let signal = switch term.signalCode() {
         ?value => {
             value
         },
@@ -1234,7 +1122,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(6)!;
         },
     };
-    let cached_signal = switch cached.signal_code() {
+    let cached_signal = switch cached.signalCode() {
         ?value => {
             value
         },
@@ -1281,21 +1169,11 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/sh\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let flag = b"-c\0";
-    let script = b"while true; do sleep 1; done\0";
-    let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_stdout(process::StdIo::Ignore).exit().?;
-    command.set_stderr(process::StdIo::Ignore).exit().?;
+    let arguments: [2]&[char] = [&"-c", &"while true; do sleep 1; done"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Ignore)
+        .withStderr(process::StdIo::Ignore);
     let mut child = switch command.spawn() {
         !value => {
             value
@@ -1304,7 +1182,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    let term = switch child.kill_with(process::Signal::Kill) {
+    let term = switch child.killWith(process::Signal::Kill) {
         !value => {
             value
         },
@@ -1312,7 +1190,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     };
-    let signal = switch term.signal_code() {
+    let signal = switch term.signalCode() {
         ?value => {
             value
         },
@@ -1323,7 +1201,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if signal != 9 {
         return process::exit(5)!;
     }
-    let cached = switch child.try_wait() {
+    let cached = switch child.tryWait() {
         !value => {
             value
         },
@@ -1333,7 +1211,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     switch cached {
         ?cached_term => {
-            let cached_signal = switch cached_term.signal_code() {
+            let cached_signal = switch cached_term.signalCode() {
                 ?value => {
                     value
                 },
@@ -1380,7 +1258,7 @@ fn emit_exe_std_process_command_can_set_cwd() {
     std::fs::create_dir(&child_dir).expect("create child cwd");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    let cwd_literal = format!("{}\0", child_dir.display());
+    let cwd_literal = child_dir.display().to_string();
     std::fs::write(
         &main,
         format!(
@@ -1389,29 +1267,10 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {{
-    let path_bytes = b"/bin/sh\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {{
-        !value => {{
-            value
-        }},
-        error! => {{
-            return process::exit(1)!;
-        }},
-    }};
-    let cwd_bytes = b"{cwd_literal}";
-    let cwd = switch std::CStringView::fromBytes(&cwd_bytes) {{
-        !value => {{
-            value
-        }},
-        error! => {{
-            return process::exit(2)!;
-        }},
-    }};
-    let flag = b"-c\0";
-    let script = b"test \"$(basename \"$PWD\")\" = child-cwd\0";
-    let mut argv: [4]&u8 = [path.rawPtr(), &flag[0], &script[0], 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_cwd(cwd);
+    let arguments: [2]&[char] = [&"-c", &"test \"$(basename \"$PWD\")\" = child-cwd"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withCwd(std::PathView::init(&"{cwd_literal}"));
     let term = switch command.run() {{
         !value => {{
             value
@@ -1420,7 +1279,7 @@ pub fn main(init: process::Init) process::ExitCode!void {{
             return process::exit(3)!;
         }},
     }};
-    if not term.exited_success() {{
+    if not term.succeeded() {{
         return process::exit(4)!;
     }}
     !{{}}
@@ -1461,27 +1320,8 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let path_bytes = b"/bin/true\0";
-    let path = switch std::CStringView::fromBytes(&path_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(1)!;
-        },
-    };
-    let cwd_bytes = b"/definitely/not/a/nia/process-test-cwd\0";
-    let cwd = switch std::CStringView::fromBytes(&cwd_bytes) {
-        !value => {
-            value
-        },
-        error! => {
-            return process::exit(2)!;
-        },
-    };
-    let mut argv: [2]&u8 = [path.rawPtr(), 0usize as &u8];
-    let mut command = process::Command::init(path, &argv[0], init.rawEnvp());
-    command.set_cwd(cwd);
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withCwd(std::PathView::init(&"/definitely/not/a/nia/process-test-cwd"));
     let child = switch command.spawn() {
         !value => {
             value
@@ -2388,7 +2228,7 @@ pub fn main(init: process::Init) ExitCode!void {
     if (exit(11) as i32) != 11 {
         return exit(2)!;
     }
-    if (fs::Error::NotFound.as_exit_code() as i32) != 2 {
+    if (fs::Error::NotFound.asExitCode() as i32) != 2 {
         return exit(3)!;
     }
     let picked = pick_result().exit().?;
