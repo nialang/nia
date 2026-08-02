@@ -1,10 +1,11 @@
+using pkg::iter::range;
 using pkg::math;
 using pkg::mem;
 using pkg::os;
 
-pub const ctrl_empty: u8 = 0xffu8;
-pub const ctrl_deleted: u8 = 0x80u8;
-pub const group_width: usize = 8usize;
+pub const ctrlEmpty: u8 = 0xffu8;
+pub const ctrlDeleted: u8 = 0x80u8;
+pub const groupWidth: usize = 8;
 
 pub struct ProbeCursor {
     pos: usize,
@@ -14,74 +15,74 @@ pub struct ProbeCursor {
 }
 
 pub struct ProbeGroup {
-    match_mask: usize,
-    empty_mask: usize,
-    available_mask: usize,
+    matchMask: usize,
+    emptyMask: usize,
+    availableMask: usize,
 }
 
 extend ProbeGroup {
     pub fn load(ctrl: &[u8], cursor: &ProbeCursor, needle: u8) ProbeGroup {
         let bytes = std::builtin::load_unaligned[u8x8](&ctrl[cursor.pos]);
 
-        let match_mask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](needle));
-        let empty_mask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrl_empty));
-        let deleted_mask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrl_deleted));
+        let matchMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](needle));
+        let emptyMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrlEmpty));
+        let deletedMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrlDeleted));
 
         {
-            match_mask: match_mask,
-            empty_mask: empty_mask,
-            available_mask: empty_mask | deleted_mask,
+            matchMask: matchMask,
+            emptyMask: emptyMask,
+            availableMask: emptyMask | deletedMask,
         }
     }
 }
 
 extend ProbeCursor {
-    pub fn init(value_hash: u64, capacity: usize) ProbeCursor {
-        let mask = capacity - 1usize;
+    pub fn init(valueHash: u64, capacity: usize) ProbeCursor {
+        let mask = capacity - 1;
         {
-            pos: (value_hash as usize) & mask,
-            stride: 0usize,
-            visited: 0usize,
+            pos: (valueHash as usize) & mask,
+            stride: 0,
+            visited: 0,
             capacity: capacity,
         }
     }
 
-    pub fn has_remaining(&self) bool {
+    pub fn hasRemaining(&self) bool {
         self.visited < self.capacity
     }
 
     pub fn index(&self, offset: usize) usize {
-        (self.pos + offset) & (self.capacity - 1usize)
+        (self.pos + offset) & (self.capacity - 1)
     }
 
-    pub fn advance_group(&mut self) void {
-        self.stride += group_width;
-        self.pos = (self.pos + self.stride) & (self.capacity - 1usize);
-        self.visited += group_width;
+    pub fn advanceGroup(&mut self) void {
+        self.stride += groupWidth;
+        self.pos = (self.pos + self.stride) & (self.capacity - 1);
+        self.visited += groupWidth;
     }
 }
 
-pub fn dangling_slice[T]() &mut [T]
+pub fn danglingSlice[T]() &mut [T]
 where T: Sized
 {
     let mut ptr = std::builtin::align[T]() as &mut T;
     &mut ptr[0..0]
 }
 
-pub fn dangling_len_slice[T](len: usize) &mut [T]
+pub fn danglingLenSlice[T](len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = std::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 
-pub fn random_seed() os::Error!u64 {
+pub fn randomSeed() os::Error!u64 {
     let mut bytes: [8]u8 = [0; 8];
     os::random(&mut bytes[..]).?;
-    !read_u64(&bytes[..])
+    !readU64(&bytes[..])
 }
 
-pub fn read_u64(bytes: &[u8]) u64 {
+pub fn readU64(bytes: &[u8]) u64 {
     (bytes[0] as u64)
         | ((bytes[1] as u64) << 8u64)
         | ((bytes[2] as u64) << 16u64)
@@ -92,27 +93,27 @@ pub fn read_u64(bytes: &[u8]) u64 {
         | ((bytes[7] as u64) << 56u64)
 }
 
-pub fn tag(value_hash: u64) u8 {
-    ((value_hash >> 57u64) as u8) & 0x7fu8
+pub fn tag(valueHash: u64) u8 {
+    ((valueHash >> 57u64) as u8) & 0x7fu8
 }
 
-pub fn is_full(control: u8) bool {
+pub fn isFull(control: u8) bool {
     (control & 0x80u8) == 0u8
 }
 
-pub fn first_set(mask: usize) usize {
+pub fn firstSet(mask: usize) usize {
     std::builtin::ctz[usize](mask)
 }
 
-pub fn clear_lowest_set(mask: usize) usize {
-    mask & (mask - 1usize)
+pub fn clearLowestSet(mask: usize) usize {
+    mask & (mask - 1)
 }
 
-pub fn ctrl_allocation_len(capacity: usize) mem::Error!usize {
-    if capacity == 0usize {
-        return !0usize;
+pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
+    if capacity == 0 {
+        return !0;
     }
-    switch capacity.checked_add(group_width - 1usize) {
+    switch capacity.checked_add(groupWidth - 1) {
         ?value => {
             !value
         },
@@ -122,47 +123,43 @@ pub fn ctrl_allocation_len(capacity: usize) mem::Error!usize {
     }
 }
 
-pub fn mirror_ctrl_tail(ctrl: &mut [u8], bucket_count: usize) void {
-    if bucket_count == 0usize {
+pub fn mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) void {
+    if bucketCount == 0 {
         return;
     }
-    let mut index = 0usize;
-    while index < group_width - 1usize {
-        ctrl[bucket_count + index] = ctrl[index];
-        index += 1usize;
+    for index in 0..(groupWidth - 1) {
+        ctrl[bucketCount + index] = ctrl[index];
     }
 }
 
-pub fn fill_ctrl(ctrl: &mut [u8], value: u8) void {
-    let mut index = 0usize;
-    while index < ctrl.len() {
+pub fn fillCtrl(ctrl: &mut [u8], value: u8) void {
+    for index in 0..ctrl.len() {
         ctrl[index] = value;
-        index += 1usize;
     }
 }
 
-pub fn usable_capacity(buckets: usize) usize {
-    if buckets == 0usize {
-        0usize
-    } else if buckets < 8usize {
-        buckets - 1usize
+pub fn usableCapacity(buckets: usize) usize {
+    if buckets == 0 {
+        0
+    } else if buckets < 8 {
+        buckets - 1
     } else {
-        (buckets / 8usize) * 7usize
+        (buckets / 8) * 7
     }
 }
 
-pub fn capacity_to_buckets(capacity: usize) mem::Error!usize {
-    if capacity == 0usize {
-        return !0usize;
+pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
+    if capacity == 0 {
+        return !0;
     }
-    if capacity <= 7usize {
-        return !8usize;
+    if capacity <= 7 {
+        return !8;
     }
-    if capacity <= 14usize {
-        return !16usize;
+    if capacity <= 14 {
+        return !16;
     }
 
-    let multiplied = switch capacity.checked_mul(8usize) {
+    let multiplied = switch capacity.checked_mul(8) {
         ?value => {
             value
         },
@@ -170,7 +167,7 @@ pub fn capacity_to_buckets(capacity: usize) mem::Error!usize {
             return mem::Error::OutOfMemory!;
         },
     };
-    let biased = switch multiplied.checked_add(6usize) {
+    let biased = switch multiplied.checked_add(6) {
         ?value => {
             value
         },
@@ -178,11 +175,11 @@ pub fn capacity_to_buckets(capacity: usize) mem::Error!usize {
             return mem::Error::OutOfMemory!;
         },
     };
-    let adjusted = biased / 7usize;
-    next_power_of_two(adjusted)
+    let adjusted = biased / 7;
+    nextPowerOfTwo(adjusted)
 }
 
-pub fn max_usize(left: usize, right: usize) usize {
+pub fn maxUsize(left: usize, right: usize) usize {
     if left > right {
         left
     } else {
@@ -190,10 +187,10 @@ pub fn max_usize(left: usize, right: usize) usize {
     }
 }
 
-pub fn next_power_of_two(value: usize) mem::Error!usize {
-    let mut n = 1usize;
+pub fn nextPowerOfTwo(value: usize) mem::Error!usize {
+    let mut n: usize = 1;
     while n < value {
-        n = switch n.checked_mul(2usize) {
+        n = switch n.checked_mul(2) {
             ?next => {
                 next
             },

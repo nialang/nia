@@ -129,6 +129,12 @@ provides the stored key/value references and returns an equal rejected incoming
 entry through `intoRejected()`. `getOrInsertAssumeCapacity` has the same result
 without allocation failure. The former no-value `get_or_put` operations are
 absent because they exposed an uninitialized stored value.
+`drain()` returns a `HashMapDrain` iterator of owned `HashMapEntry` values.
+Each `next()` removes exactly the entry it returns; exhausting the iterator
+leaves the map empty while retaining reusable capacity.
+Reviewed map APIs use lower-camel names without compatibility aliases. `clear`
+retains capacity, `deinit` releases allocation, `reserve` accepts additional
+capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.

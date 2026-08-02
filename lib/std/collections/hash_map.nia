@@ -20,6 +20,8 @@ pub using entries::{
     HashMapReplacement,
 };
 pub using iterators::{
+    HashMapDrain,
+    HashMapDrainWithContext,
     HashMapIter,
     HashMapIterMut,
     HashMapKeys,
