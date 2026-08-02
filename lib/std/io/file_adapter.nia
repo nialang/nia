@@ -1,8 +1,8 @@
 using pkg::fs;
 using pkg::io::runtime;
 using pkg::io::traits;
-using pkg::mem;
 using pkg::os;
+using pkg::slice;
 
 using traits::{Reader, Writer};
 using runtime::Io;
@@ -159,10 +159,7 @@ extend FileReader {
             count = self.len();
         }
 
-        mem::copy_forwards[u8](
-            &mut bytes[0..count],
-            &self.buffer[self.start..(self.start + count)],
-        );
+        _ = (&mut bytes[0..count]).copyFrom(&self.buffer[self.start..(self.start + count)]);
         self.start += count;
         if self.start == self.end {
             self.discard_buffered();

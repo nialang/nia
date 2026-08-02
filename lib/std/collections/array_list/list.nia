@@ -125,7 +125,7 @@ where T: Sized
 
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, len);
-        mem::copy_forwards[T](newItems, self.asSlice());
+        _ = newItems.copyFrom(self.asSlice());
         switch allocator.free(oldBlock) {
             !ok => {
                 _ = ok;
@@ -154,7 +154,7 @@ where T: Sized
         let layout = mem::Layout::array[T](len).?;
         let block = allocator.alloc(layout).?;
         let mut out = raw::blockItems[T](block, len);
-        mem::copy_forwards[T](out, self.asSlice());
+        _ = out.copyFrom(self.asSlice());
         !out
     }
 
@@ -208,7 +208,7 @@ where T: Sized
             let newLen = len - 1;
             let mut items = self.allocatedItems();
             if index < newLen {
-                mem::copy_forwards[T](&mut items[index..newLen], &items[(index + 1)..len]);
+                _ = (&mut items[index..newLen]).copyFrom(&items[(index + 1)..len]);
             }
             self.items = &mut items[0..newLen];
             ?value
@@ -244,7 +244,7 @@ where T: Sized
 
         let mut items = self.allocatedItems();
         if end < len {
-            mem::copy_forwards[T](&mut items[start..(len - count)], &items[end..len]);
+            _ = (&mut items[start..(len - count)]).copyFrom(&items[end..len]);
         }
         self.items = &mut items[0..(len - count)];
         !{}
@@ -264,7 +264,7 @@ where T: Sized
             let copyLayout = mem::Layout::array[T](values.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.as_slice[T]();
-            mem::copy_forwards[T](copy, values);
+            _ = copy.copyFrom(values);
             switch self.insertStableSlice(allocator, index, copy) {
                 !ok => {
                     _ = ok;
@@ -312,7 +312,7 @@ where T: Sized
             let copyLayout = mem::Layout::array[T](values.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.as_slice[T]();
-            mem::copy_forwards[T](copy, values);
+            _ = copy.copyFrom(values);
             switch self.replaceRangeStable(allocator, start, count, copy) {
                 !ok => {
                     _ = ok;
@@ -336,7 +336,7 @@ where T: Sized
 
     fn insertStableSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!void {
         let mut slots = self.addManyAtUninitialized(allocator, index, values.len()).?;
-        mem::copy_forwards[T](slots, values);
+        _ = slots.copyFrom(values);
         !{}
     }
 
@@ -354,7 +354,7 @@ where T: Sized
         if replacementLen == count {
             if replacementLen != 0 {
                 let mut items = self.allocatedItems();
-                mem::copy_forwards[T](&mut items[start..end], values);
+                _ = (&mut items[start..end]).copyFrom(values);
             }
             return !{};
         }
@@ -364,10 +364,10 @@ where T: Sized
             let newLen = len - removedExtra;
             let mut items = self.allocatedItems();
             if replacementLen != 0 {
-                mem::copy_forwards[T](&mut items[start..(start + replacementLen)], values);
+                _ = (&mut items[start..(start + replacementLen)]).copyFrom(values);
             }
             if end < len {
-                mem::copy_forwards[T](&mut items[(start + replacementLen)..newLen], &items[end..len]);
+                _ = (&mut items[(start + replacementLen)..newLen]).copyFrom(&items[end..len]);
             }
             self.items = &mut items[0..newLen];
             return !{};
@@ -385,9 +385,9 @@ where T: Sized
         self.ensureTotalCapacity(allocator, newLen).?;
         let mut items = self.allocatedItems();
         if end < len {
-            mem::copy_backwards[T](&mut items[(start + replacementLen)..newLen], &items[end..len]);
+            _ = (&mut items[(start + replacementLen)..newLen]).copyFrom(&items[end..len]);
         }
-        mem::copy_forwards[T](&mut items[start..(start + replacementLen)], values);
+        _ = (&mut items[start..(start + replacementLen)]).copyFrom(values);
         self.items = &mut items[0..newLen];
         !{}
     }
@@ -443,7 +443,7 @@ where T: Sized
             let copyLayout = mem::Layout::array[T](items.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.as_slice[T]();
-            mem::copy_forwards[T](copy, items);
+            _ = copy.copyFrom(items);
             switch self.appendStableSlice(allocator, copy) {
                 !ok => {
                     _ = ok;
@@ -467,13 +467,13 @@ where T: Sized
 
     fn appendStableSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
         let mut out = self.addManyUninitialized(allocator, items.len()).?;
-        mem::copy_forwards[T](out, items);
+        _ = out.copyFrom(items);
         !{}
     }
 
     pub fn appendSliceAssumeCapacity(&mut self, items: &[T]) void {
         let mut out = self.addManyUninitializedAssumeCapacity(items.len());
-        mem::copy_forwards[T](out, items);
+        _ = out.copyFrom(items);
     }
 
     pub fn appendAssumeCapacity(&mut self, value: T) void {
@@ -561,7 +561,7 @@ where T: Sized
         }
         let mut items = self.allocatedItems();
         if count != 0 and index < len {
-            mem::copy_backwards[T](&mut items[(index + count)..newLen], &items[index..len]);
+            _ = (&mut items[(index + count)..newLen]).copyFrom(&items[index..len]);
         }
         self.items = &mut items[0..newLen];
         &mut items[index..(index + count)]
@@ -612,7 +612,7 @@ where T: Sized
 
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, targetCapacity);
-        mem::copy_forwards[T](&mut newItems[0..self.len()], self.asSlice());
+        _ = (&mut newItems[0..self.len()]).copyFrom(self.asSlice());
         switch allocator.free(oldBlock) {
             !ok => {
                 _ = ok;
@@ -677,7 +677,7 @@ where T: Sized
 
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, capacity);
-        mem::copy_forwards[T](newItems, self.asSlice());
+        _ = newItems.copyFrom(self.asSlice());
         switch allocator.free(oldBlock) {
             !ok => {
                 _ = ok;
@@ -765,5 +765,27 @@ where T: Sized
 
     pub fn iter(&self) slice::SliceIter[T] {
         self.asSlice().iter()
+    }
+}
+
+extend[T] &ArrayList[T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = slice::SliceIter[T];
+
+    pub fn iter(&self) slice::SliceIter[T] {
+        self.*.iter()
+    }
+}
+
+extend[T] &mut ArrayList[T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = slice::SliceIter[T];
+
+    pub fn iter(&self) slice::SliceIter[T] {
+        self.*.iter()
     }
 }

@@ -182,6 +182,45 @@ extend[T] &T {
 }
 
 #[test]
+fn borrows_pointer_values_again_for_ref_receiver_extensions() {
+    let root = temp_dir("borrows_pointer_values_again_for_ref_receiver_extensions");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Cell {
+    value: i32,
+}
+
+extend &Cell {
+    fn read(&self) i32 {
+        self.*.value
+    }
+}
+
+fn inspect(value: &Cell) i32 {
+    value.read()
+}
+
+fn main() i32 {
+    let cell = Cell { value: 42 };
+    inspect(&cell)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    let read = mangled_symbol(ir, '@', "read");
+    assert!(ir.contains(&format!("call i32 {read}(ptr %value)")), "{ir}");
+}
+
+#[test]
 fn emits_specialized_associated_extension_function_calls() {
     let root = temp_dir("emits_specialized_associated_extension_function_calls");
     let main = root.join("main.nia");

@@ -7,6 +7,7 @@
 pub module atomic;
 pub module builtin;
 pub module build;
+pub module cmp;
 pub module collections;
 pub module cstring;
 pub module debug;

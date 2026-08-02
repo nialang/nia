@@ -97,8 +97,8 @@ should receive that same handle.
 - `00_minimal.nia`: the smallest debug-printing executable entry.
 - `01_values_control_flow.nia`: structs, methods, slices, ranges, `switch`,
   `defer`, debug printing, and exit-code checks.
-- `02_slices_and_strings.nia`: arrays, slices, byte strings, string pointers, and
-  mutable slice writes.
+- `02_slices_and_strings.nia`: arrays, slices, byte strings, string pointers,
+  mutable slice writes, and count-returning `copyFrom`.
 - `03_stdout.nia`: standard-library stdout through `std::io` and `std::fmt`.
 - `04_array_list.nia`: `std::ArrayList` with `std::mem.FixedBufferAllocator`,
   slice iteration, and formatted list output.

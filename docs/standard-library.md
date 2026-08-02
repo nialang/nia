@@ -54,7 +54,7 @@ providers.
 | Slice | Current use by build | Maturity finding | Disposition |
 | --- | --- | --- | --- |
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
-| `mem` allocators/copy/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape |
+| `mem` allocators/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape; ordinary slice copy/compare no longer lives here |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | reviewed owned extraction and initialized-value mutation surface; allocator repeats at every allocating call | retain narrow initialized-value surface; finish common allocator protocol |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
@@ -264,6 +264,10 @@ The protocol and range APIs use lower-camel `nextBack`, `forwardChecked`,
 `backwardChecked`, and `fromBounds` names; former snake-case spellings are not
 aliases.
 
+Borrowed `ArrayList` parameters follow the same rule: both `&ArrayList[T]` and
+`&mut ArrayList[T]` are directly iterable and yield `&T`. Mutable element
+iteration remains the explicit `iterMut()` operation.
+
 Slices expose optional `get`, `getMut`, `first`, `firstMut`, `last`, and
 `lastMut` accessors. `getRange` and `getRangeMut` validate a half-open
 `start, end` pair, accept an empty range at `len`, and reject reversed or
@@ -281,6 +285,17 @@ methods work directly on both `&[T]` and `&mut [T]`; a mutable slice may call a
 read-only slice receiver through the ordinary mutable-to-read-only coercion.
 The former `mem::equal(left, right)` helper is physically absent rather than an
 alias for `left.equals(right)`.
+
+Mutable slices expose `copyFrom(source) -> usize`. It copies the common prefix,
+handles overlapping source and destination ranges, and returns the number of
+elements copied. Nia rejects an implicitly discarded non-`void` result, so a
+caller either uses the count or writes an explicit `_ =` where surrounding
+bounds already prove an exact copy. The operation is a shallow value copy; it
+does not invoke a cloning or cleanup protocol for element-owned resources.
+For `T: Ord[T]`, `compare(other)` performs lexicographic comparison and returns
+`std::cmp::Ordering::{Less, Equal, Greater}`. The former
+`mem::copy_forwards`, `mem::copy_backwards`, `mem::order`, and `mem::Order`
+surfaces are physically absent, with no aliases.
 
 `ArrayList::asMutSlice` exposes only its initialized logical length, never the
 allocation capacity. Its checked element access delegates to the slice methods

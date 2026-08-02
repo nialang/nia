@@ -8,12 +8,6 @@ pub enum Error: i32 {
     _,
 }
 
-pub enum Order: i32 {
-    Less = 1,
-    Equal = 2,
-    Greater = 3,
-}
-
 pub struct Layout {
     size: usize,
     align: usize,

@@ -1,5 +1,5 @@
-using pkg::mem::copy;
 using pkg::mem::types;
+using pkg::slice;
 
 using types::{Block, Error, Layout};
 
@@ -96,6 +96,6 @@ extend Block {
         }
         let from_bytes = self.bytes();
         let mut to_bytes = to.bytes();
-        copy::copy_forwards[u8](&mut to_bytes[0..count], &from_bytes[0..count]);
+        _ = (&mut to_bytes[0..count]).copyFrom(&from_bytes[0..count]);
     }
 }

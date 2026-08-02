@@ -13,12 +13,15 @@ fn emit_exe_std_slice_direct_borrowed_iteration() {
     std::fs::write(
         &main,
         r#"
+using std::cmp;
 using std::process;
 using std::slice;
 
 struct Token {
     value: i32,
 }
+
+struct Marker {}
 
 extend Token : Eq[Token] {
     fn eq(&self, other: &Token) bool {
@@ -172,6 +175,66 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if checked[0] != 10 or checked[1] != 21 or checked[2] != 4 or checked[3] != 40 {
         return process::exit(25)!;
+    }
+
+    let mut wideCopy: [5]i32 = [0, 0, 0, 44, 55];
+    let wideSource: [3]i32 = [11, 22, 33];
+    let mut wideCopyView = &mut wideCopy[..];
+    if wideCopyView.copyFrom(&wideSource) != 3
+        or wideCopy[0] != 11
+        or wideCopy[1] != 22
+        or wideCopy[2] != 33
+        or wideCopy[3] != 44
+        or wideCopy[4] != 55
+    {
+        return process::exit(31)!;
+    }
+
+    let mut shortCopy: [2]i32 = [0, 0];
+    let mut shortCopyView = &mut shortCopy[..];
+    if shortCopyView.copyFrom(&wideSource) != 2
+        or shortCopy[0] != 11
+        or shortCopy[1] != 22
+    {
+        return process::exit(32)!;
+    }
+
+    let mut overlapRight: [5]i32 = [1, 2, 3, 4, 5];
+    if (&mut overlapRight[1..]).copyFrom(&overlapRight[0..4]) != 4
+        or not (&overlapRight[..]).equals(&[1, 1, 2, 3, 4])
+    {
+        return process::exit(33)!;
+    }
+    let mut overlapLeft: [5]i32 = [1, 2, 3, 4, 5];
+    if (&mut overlapLeft[0..4]).copyFrom(&overlapLeft[1..]) != 4
+        or not (&overlapLeft[..]).equals(&[2, 3, 4, 5, 5])
+    {
+        return process::exit(34)!;
+    }
+
+    let mut markers: [2]Marker = [Marker {}, Marker {}];
+    let markerSource: [3]Marker = [Marker {}, Marker {}, Marker {}];
+    if (&mut markers[..]).copyFrom(&markerSource) != 2 {
+        return process::exit(35)!;
+    }
+
+    let mut emptyCopy: [0]i32 = [];
+    if (&mut emptyCopy[..]).copyFrom(&wideSource) != 0
+        or wideCopyView.copyFrom(&emptyCopy) != 0
+    {
+        return process::exit(37)!;
+    }
+
+    let low: &[i32] = &[1, 2];
+    let high: &[i32] = &[1, 3];
+    let prefix: &[i32] = &[1];
+    if low.compare(high) != cmp::Ordering::Less
+        or high.compare(low) != cmp::Ordering::Greater
+        or low.compare(low) != cmp::Ordering::Equal
+        or prefix.compare(low) != cmp::Ordering::Less
+        or (&emptyCopy[..]).compare(prefix) != cmp::Ordering::Less
+    {
+        return process::exit(36)!;
     }
 
     let sequence: [5]i32 = [1, 2, 1, 2, 3];

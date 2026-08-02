@@ -1,3 +1,4 @@
+using pkg::cmp;
 using pkg::iter;
 using pkg::iter::range;
 
@@ -170,6 +171,15 @@ where T: Sized
         }
     }
 
+    pub fn copyFrom(&mut self, source: &[T]) usize {
+        let mut count = self.len();
+        if source.len() < count {
+            count = source.len();
+        }
+        std::builtin::memmove(&mut self[0..count], &source[0..count]);
+        count
+    }
+
     pub fn iter(&self) SliceIter[T] {
         SliceIter[T]::fromRawParts(self.ptr(), self.len())
     }
@@ -232,6 +242,34 @@ where T: Sized + Eq[T]
             true
         } else {
             false
+        }
+    }
+}
+
+extend[T] [T]
+where T: Sized + Ord[T]
+{
+    pub fn compare(&self, other: &[T]) cmp::Ordering {
+        let mut len = self.len();
+        if other.len() < len {
+            len = other.len();
+        }
+
+        for index in 0..len {
+            if self[index] < other[index] {
+                return cmp::Ordering::Less;
+            }
+            if self[index] > other[index] {
+                return cmp::Ordering::Greater;
+            }
+        }
+
+        if self.len() < other.len() {
+            cmp::Ordering::Less
+        } else if self.len() > other.len() {
+            cmp::Ordering::Greater
+        } else {
+            cmp::Ordering::Equal
         }
     }
 }
