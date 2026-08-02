@@ -14,12 +14,16 @@ use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFi
 
 mod compiler_check;
 mod compiler_emit;
+mod external_command;
 
 pub(crate) use compiler_check::{
     CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
 };
 pub(crate) use compiler_emit::{
     CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup,
+};
+pub(crate) use external_command::{
+    ExternalCommandCache, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,
 };
 
 const GENERATED_FILE_MAGIC: &[u8; 8] = b"NIAGEN01";
@@ -50,6 +54,12 @@ pub enum ActionCacheMissReason {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionCacheInvalidation {
+    Command,
+    ExternalTool,
+    Environment,
+    Inputs,
+    Dependencies,
+    WorkingDirectory,
     Contents,
     Artifact,
     Sources,
