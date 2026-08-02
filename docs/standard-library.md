@@ -148,11 +148,14 @@ The current audit sets this design direction:
   `defer` cleanup must form one reviewable protocol rather than requiring users
   to reconstruct ownership at each call.
 
-The current `utf8_decode_first` optional result is not an acceptable final error
-contract because empty input, truncation, invalid leading bytes, invalid
-continuations, overlong forms, and invalid scalar values are different states.
-Likewise, converting all text/path failures directly into `fs::Error` loses
-information needed by build diagnostics and process boundaries.
+`unicode::decodeUtf8First` now returns
+`Utf8DecodeError!Utf8Decode`. `Empty`, `Truncated`, `InvalidLeadingByte`,
+`InvalidContinuation`, `Overlong`, and `InvalidScalar` are distinct values;
+the former optional decoder is absent and has no compatibility alias.
+Filesystem path decoding currently maps each of those values explicitly to
+`fs::Error::Invalid` and clears partial output on failure. That is an
+intentional compatibility boundary for the still-coarse filesystem facade, not
+the final path diagnostic model.
 
 Initial convenience-trait dispositions are deliberately asymmetric. `Char` is
 a Unicode conversion API rather than polymorphic language dispatch.
@@ -161,6 +164,24 @@ implementations for structural arrays, slices, or data pointers, but that does
 not require builtin trait identity. Each migration must trace symbol identity,
 type/projection solving, const evaluation, reachability, backend dispatch, and
 LLVM before deleting its builtin declaration.
+
+### 4.1 Text, Path, And Process Error-Flow Matrix
+
+| Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
+| --- | --- | --- | --- | --- |
+| borrowed scalar text | `&[char]`, plus redundant `StringView` | literals, slices, format input | none for borrowing | `&[char]` is provisional; wrapper retirement remains open |
+| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/format with explicit allocator | `mem::Error` | one-type naming and common mutation protocol remain open |
+| arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
+| UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First` | `Utf8DecodeError` | scalar decoder accepted; validated whole-buffer type remains open |
+| C string | `CStringView` over NUL-terminated bytes | `from_bytes` | optional validity today | typed embedded/missing-NUL review remains open |
+| filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | text encoding and UTF-8 host-argument decoding | `PathError`, then `fs::Error` | Unicode mapping is explicit; OS-native representation and richer errors remain open |
+| process argument/environment | `Arg` / `EnvVar` byte views and command-owned C buffers | process facade and build typed arguments | `process::Error`, formatting parse errors | raw host service retained; BuildPlan uses typed paths/values |
+
+Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
+the sum of each scalar's encoded `Utf8::len()` and is not interchangeable with
+scalar count. A NUL scalar is valid scalar text but is rejected when crossing a
+C-string or encoded-path boundary. Invalid UTF-8 is a decode failure before a
+path exists; OS path rejection occurs after representation conversion.
 
 ## 5. Ownership And Error Baseline
 

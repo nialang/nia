@@ -22,19 +22,24 @@ extend PathView {
         out: &mut collections::ArrayList[char],
     ) Error!PathView {
         out.clear_retaining_capacity();
+        let mut complete = false;
+        defer if not complete {
+            out.clear_retaining_capacity();
+        };
         let mut index = 0usize;
         while index < bytes.len() {
-            let decoded = switch unicode::utf8_decode_first(&bytes[index..]) {
-                ?value => {
+            let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
+                !value => {
                     value
                 },
-                null => {
-                    return Error::Invalid!;
+                decodeError! => {
+                    return utf8DecodeErrorAsFsError(decodeError)!;
                 },
             };
             out.push(allocator, decoded.char()).as_fs_error().?;
             index += decoded.len();
         }
+        complete = true;
         !PathView::init(out.as_slice())
     }
 
@@ -192,6 +197,17 @@ fn append_component_to_string_buf(
 
 fn is_separator(ch: char) bool {
     ch == '/'
+}
+
+fn utf8DecodeErrorAsFsError(decodeError: unicode::Utf8DecodeError) Error {
+    switch decodeError {
+        unicode::Utf8DecodeError::Empty => Error::Invalid,
+        unicode::Utf8DecodeError::Truncated => Error::Invalid,
+        unicode::Utf8DecodeError::InvalidLeadingByte => Error::Invalid,
+        unicode::Utf8DecodeError::InvalidContinuation => Error::Invalid,
+        unicode::Utf8DecodeError::Overlong => Error::Invalid,
+        unicode::Utf8DecodeError::InvalidScalar => Error::Invalid,
+    }
 }
 
 extend EncodedPath {

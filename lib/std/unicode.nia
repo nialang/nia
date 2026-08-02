@@ -8,6 +8,15 @@ pub struct Utf8Decode {
     len: usize,
 }
 
+pub enum Utf8DecodeError: i32 {
+    Empty = 1,
+    Truncated = 2,
+    InvalidLeadingByte = 3,
+    InvalidContinuation = 4,
+    Overlong = 5,
+    InvalidScalar = 6,
+}
+
 extend Utf8 {
     pub fn init(bytes: [4]u8, len: usize) Utf8 {
         { bytes: bytes, len: len }
@@ -84,9 +93,9 @@ pub fn is_valid_scalar_value(value: u32) bool {
     value <= 0x10ffffu32 and not (value >= 0xd800u32 and value <= 0xdfffu32)
 }
 
-pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
+pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!Utf8Decode {
     if bytes.len() == 0usize {
-        return null;
+        return Utf8DecodeError::Empty!;
     }
     let first = bytes[0];
     let mut code: u32;
@@ -100,46 +109,46 @@ pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
     } else if (first & 0xf0u8) == 0xe0u8 {
         code = (first & 0x0fu8) as u32;
         width = 3usize;
-    } else if (first & 0xf8u8) == 0xf0u8 {
+    } else if (first & 0xf8u8) == 0xf0u8 and first <= 0xf4u8 {
         code = (first & 0x07u8) as u32;
         width = 4usize;
     } else {
-        return null;
+        return Utf8DecodeError::InvalidLeadingByte!;
     }
     if bytes.len() < width {
-        return null;
+        return Utf8DecodeError::Truncated!;
     }
     let mut index = 1usize;
     while index < width {
         let continuation = bytes[index];
         if (continuation & 0xc0u8) != 0x80u8 {
-            return null;
+            return Utf8DecodeError::InvalidContinuation!;
         }
         code = (code << 6u32) | ((continuation & 0x3fu8) as u32);
         index += 1usize;
     }
-    if not is_valid_utf8_scalar_for_width(code, width) {
-        return null;
+    if isOverlongUtf8(code, width) {
+        return Utf8DecodeError::Overlong!;
+    }
+    if not is_valid_scalar_value(code) {
+        return Utf8DecodeError::InvalidScalar!;
     }
     switch code.char() {
         ?ch => {
-            ?Utf8Decode::init(ch, width)
+            !Utf8Decode::init(ch, width)
         },
         null => {
-            null
+            Utf8DecodeError::InvalidScalar!
         },
     }
 }
 
-fn is_valid_utf8_scalar_for_width(code: u32, width: usize) bool {
-    if not is_valid_scalar_value(code) {
-        return false;
-    }
+fn isOverlongUtf8(code: u32, width: usize) bool {
     switch width {
-        1usize => code <= 0x7fu32,
-        2usize => code >= 0x80u32 and code <= 0x7ffu32,
-        3usize => code >= 0x800u32 and code <= 0xffffu32,
-        4usize => code >= 0x10000u32 and code <= 0x10ffffu32,
-        _ => false,
+        1usize => false,
+        2usize => code < 0x80u32,
+        3usize => code < 0x800u32,
+        4usize => code < 0x10000u32,
+        _ => true,
     }
 }
