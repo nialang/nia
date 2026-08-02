@@ -2123,6 +2123,19 @@ whole-buffer owned UTF-8 conversion boundary only: incremental append,
 formatting into scalar text, owned-text naming, and the common allocator
 protocol remain open.
 
+Standard-library reconstruction progress (2026-08-02, transactional UTF-8
+append batch): `StringBuf::appendUtf8(allocator, bytes)` validates and counts
+the complete byte slice, checks the resulting scalar length, and reserves
+capacity before changing visible text. Invalid UTF-8 and allocation failure
+therefore leave the original buffer unchanged; an internal conditional `defer`
+also truncates back to the original length if the already-validated second
+decode cannot complete. Runtime conformance appends a non-ASCII scalar, rejects
+an invalid sequence after a valid byte prefix without retaining that prefix,
+and uses a bounded allocator to prove OOM rollback. The calling program uses
+payload `switch` patterns for precise failure classification. This closes
+transactional whole-buffer UTF-8 append only: formatter composition, the owned
+text name, and the repeated allocator protocol remain open.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically
