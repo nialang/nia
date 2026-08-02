@@ -132,9 +132,9 @@ pub(pkg) fn run_path_args(
     let mut argv = collections::ArrayList[&u8]::init();
     defer argv.deinit(allocator).as_process_setup_error().?;
     argv.push(allocator, encoded_path.ptr()).as_process_setup_error().?;
-    argv.append_slice(allocator, args).as_process_setup_error().?;
+    argv.appendSlice(allocator, args).as_process_setup_error().?;
     argv.push(allocator, 0usize as &u8).as_process_setup_error().?;
-    let raw_argv = argv.as_slice().ptr();
+    let raw_argv = argv.asSlice().ptr();
     let command = Command::init(cstring::CStringView::fromPtrUnchecked(encoded_path.ptr()), raw_argv, envp);
     command.run()
 }

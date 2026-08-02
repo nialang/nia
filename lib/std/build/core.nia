@@ -180,20 +180,20 @@ extend Build {
         let mut index = self.steps.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.steps.as_mut_slice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut firstError, self.steps.asMutSlice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError(Operation::Release, Subject::Steps));
         rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         index = self.executables.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.executables.as_mut_slice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut firstError, self.executables.asMutSlice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError(Operation::Release, Subject::Executables));
         index = self.modules.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.modules.as_mut_slice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut firstError, self.modules.asMutSlice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError(Operation::Release, Subject::Modules));
         rememberCleanupError(&mut firstError, self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
@@ -327,7 +327,7 @@ extend Build {
             },
             null => {},
         }
-        self.dependencies.ensure_unused_capacity(
+        self.dependencies.reserve(
             self.allocator,
             artifactInputCount,
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
@@ -522,7 +522,7 @@ extend Build {
     }
 
     fn validateDependencyGraph(&mut self) Error!void {
-        let mut indegree = collections::ArrayList[usize]::init_capacity(
+        let mut indegree = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
@@ -533,17 +533,17 @@ extend Build {
             index += 1;
         }
         for &edge in self.dependencies.iter() {
-            indegree.as_mut_slice()[edge.step.index()] += 1;
+            indegree.asMutSlice()[edge.step.index()] += 1;
         }
 
-        let mut ready = collections::ArrayList[usize]::init_capacity(
+        let mut ready = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
         defer ready.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
         index = 0;
         while index < indegree.len() {
-            if indegree.as_slice()[index] == 0 {
+            if indegree.asSlice()[index] == 0 {
                 ready.push(self.allocator, index).asBuildError(Operation::Retain, Subject::Dependencies).?;
             }
             index += 1;
@@ -551,13 +551,13 @@ extend Build {
 
         let mut cursor: usize = 0;
         while cursor < ready.len() {
-            let completed = ready.as_slice()[cursor];
+            let completed = ready.asSlice()[cursor];
             cursor += 1;
             for &edge in self.dependencies.iter() {
                 if edge.dependency.index() == completed {
                     let dependent = edge.step.index();
-                    indegree.as_mut_slice()[dependent] -= 1;
-                    if indegree.as_slice()[dependent] == 0 {
+                    indegree.asMutSlice()[dependent] -= 1;
+                    if indegree.asSlice()[dependent] == 0 {
                         ready.push(self.allocator, dependent).asBuildError(Operation::Retain, Subject::Dependencies).?;
                     }
                 }
@@ -565,8 +565,8 @@ extend Build {
         }
         if cursor != self.steps.len() {
             for &edge in self.dependencies.iter() {
-                if indegree.as_slice()[edge.step.index()] != 0
-                    and indegree.as_slice()[edge.dependency.index()] != 0
+                if indegree.asSlice()[edge.step.index()] != 0
+                    and indegree.asSlice()[edge.dependency.index()] != 0
                 {
                     return Error::StepCycle {
                         step: edge.step.index(),
@@ -803,7 +803,7 @@ extend GeneratedFileStep {
             generated.deinit(allocator, index).?;
         };
         generated.output = string::String::fromSlice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        generated.contents.append_slice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        generated.contents.appendSlice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
         transferred = true;
         !generated
     }
@@ -854,7 +854,7 @@ extend RunExecutableStep {
         };
         switch options.arguments {
             ?arguments => {
-                run.arguments = collections::ArrayList[string::String]::init_capacity(
+                run.arguments = collections::ArrayList[string::String]::initCapacity(
                     allocator,
                     arguments.len(),
                 ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -884,7 +884,7 @@ extend RunExecutableStep {
             argumentIndex -= 1;
             rememberCleanupError(
                 &mut firstError,
-                self.arguments.as_mut_slice()[argumentIndex]
+                self.arguments.asMutSlice()[argumentIndex]
                     .deinit(allocator)
                     .asBuildError(Operation::Release, Subject::Step(index)),
             );
@@ -1121,7 +1121,7 @@ extend ExternalCommandStep {
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         switch options.arguments {
             ?arguments => {
-                command.arguments = collections::ArrayList[OwnedCommandArgument]::init_capacity(
+                command.arguments = collections::ArrayList[OwnedCommandArgument]::initCapacity(
                     allocator,
                     arguments.len(),
                 ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1139,7 +1139,7 @@ extend ExternalCommandStep {
         }
         switch options.environment {
             ?environment => {
-                command.environment = collections::ArrayList[OwnedCommandEnvironmentInput]::init_capacity(
+                command.environment = collections::ArrayList[OwnedCommandEnvironmentInput]::initCapacity(
                     allocator,
                     environment.len(),
                 ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -1166,7 +1166,7 @@ extend ExternalCommandStep {
             environmentIndex -= 1;
             rememberCleanupError(
                 &mut firstError,
-                self.environment.as_mut_slice()[environmentIndex].deinit(allocator, index),
+                self.environment.asMutSlice()[environmentIndex].deinit(allocator, index),
             );
         }
         rememberCleanupError(
@@ -1178,7 +1178,7 @@ extend ExternalCommandStep {
             argumentIndex -= 1;
             rememberCleanupError(
                 &mut firstError,
-                self.arguments.as_mut_slice()[argumentIndex].deinit(allocator, index),
+                self.arguments.asMutSlice()[argumentIndex].deinit(allocator, index),
             );
         }
         rememberCleanupError(
@@ -1458,7 +1458,7 @@ extend Module {
         let mut index = self.imports.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.imports.as_mut_slice()[index].deinit(allocator));
+            rememberCleanupError(&mut firstError, self.imports.asMutSlice()[index].deinit(allocator));
         }
         rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
         rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
@@ -1812,7 +1812,7 @@ fn cloneModuleImports(
     } else {
         &[]
     };
-    let mut owned = collections::ArrayList[OwnedModuleImport]::init_capacity(
+    let mut owned = collections::ArrayList[OwnedModuleImport]::initCapacity(
         allocator,
         items.len(),
     ).asBuildError(Operation::Retain, Subject::Modules).?;
@@ -1843,7 +1843,7 @@ fn deinitModuleImports(
     let mut index = imports.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, imports.as_mut_slice()[index].deinit(allocator));
+        rememberCleanupError(&mut firstError, imports.asMutSlice()[index].deinit(allocator));
     }
     rememberCleanupError(&mut firstError, imports.deinit(allocator).asBuildError(Operation::Release, Subject::Modules));
     cleanupResult(firstError)

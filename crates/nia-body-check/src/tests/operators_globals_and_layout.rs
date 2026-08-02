@@ -79,6 +79,67 @@ fn main() usize {
 }
 
 #[test]
+fn infers_unsuffixed_left_literal_from_binary_peer() {
+    let checked = pipeline(
+        r#"
+fn divide(size: usize) usize {
+    64 / size
+}
+
+fn compare(size: usize) bool {
+    1 < size
+}
+
+fn equal(size: usize) bool {
+    1 == size
+}
+
+fn divideFloat(value: f32) f32 {
+    1.0 / value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn does_not_infer_numeric_literal_from_non_numeric_binary_peer() {
+    let checked = pipeline(
+        r#"
+fn main(flag: bool) bool {
+    1 == flag
+}
+"#,
+    );
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("trait bound not satisfied: i32: Eq[bool]"),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn explicit_left_numeric_suffix_is_not_overridden_by_binary_peer() {
+    let checked = pipeline(
+        r#"
+fn main(size: usize) u32 {
+    64u32 / size
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("trait bound not satisfied: u32: Div[usize]")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_vector_operator_builtin_traits() {
     let checked = pipeline(
         r#"

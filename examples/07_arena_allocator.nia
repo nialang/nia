@@ -5,7 +5,7 @@ using std::mem;
 using std::process;
 using process::{Init, ExitCode};
 
-fn fill_scores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!void {
+fn fillScores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!void {
     // allocator is already a handle. Pass it on directly.
     list.push(allocator, 8).?;
     list.push(allocator, 13).?;
@@ -32,11 +32,11 @@ fn run(init: Init) mem::Error!void {
     let allocator = &mut arena;
 
     let mut scores = std::ArrayList[i32]::init();
-    fill_scores(&mut scores, allocator).?;
+    fillScores(&mut scores, allocator).?;
 
-    let mut first_total = sum(scores.as_slice());
-    let mut first_capacity = arena.query_capacity();
-    let mut first_used = arena.query_used();
+    let mut firstTotal = sum(scores.asSlice());
+    let mut firstCapacity = arena.query_capacity();
+    let mut firstUsed = arena.query_used();
 
     // Every slice or container allocation from the arena becomes invalid after
     // reset. Only keep copied scalar results across this boundary.
@@ -49,19 +49,19 @@ fn run(init: Init) mem::Error!void {
     labels[0] = b'o';
     labels[1] = b'k';
 
-    let mut bytes_len = labels.len();
-    let mut retained_capacity = arena.query_capacity();
-    let mut retained_used = arena.query_used();
+    let mut bytesLen = labels.len();
+    let mut retainedCapacity = arena.query_capacity();
+    let mut retainedUsed = arena.query_used();
 
     debug::print(
         &"arena first_total={} capacity={} used={} retained_capacity={} retained_used={} scratch_len={}\n",
         &[
-            &first_total,
-            &first_capacity,
-            &first_used,
-            &retained_capacity,
-            &retained_used,
-            &bytes_len,
+            &firstTotal,
+            &firstCapacity,
+            &firstUsed,
+            &retainedCapacity,
+            &retainedUsed,
+            &bytesLen,
         ],
     );
 

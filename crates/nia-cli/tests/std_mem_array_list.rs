@@ -22,7 +22,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
     let mut exact: std::ArrayList[i32];
-    switch std::ArrayList[i32]::init_capacity(page, 3) {
+    switch std::ArrayList[i32]::initCapacity(page, 3) {
         !value => { exact = value; },
         error! => { return process::exit(1)!; },
     }
@@ -47,33 +47,33 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(28)!; },
     }
-    let inserted_tail: [2]i32 = [4, 5];
-    switch ops.insert_slice(page, 3, &inserted_tail[..]) {
+    let insertedTail: [2]i32 = [4, 5];
+    switch ops.insertSlice(page, 3, &insertedTail[..]) {
         !ok => { _ = ok; },
         error! => { return process::exit(29)!; },
     }
-    let expected_ops: [5]i32 = [1, 2, 3, 4, 5];
-    if not mem::equal[i32](ops.as_slice(), &expected_ops[..]) {
+    let expectedOps: [5]i32 = [1, 2, 3, 4, 5];
+    if not mem::equal[i32](ops.asSlice(), &expectedOps[..]) {
         return process::exit(30)!;
     }
-    switch ops.ordered_remove(1) {
+    switch ops.orderedRemove(1) {
         ?value => { if value != 2 {
                     return process::exit(31)!;
                 } },
         null => { return process::exit(32)!; },
     }
-    let expected_ordered: [4]i32 = [1, 3, 4, 5];
-    if not mem::equal[i32](ops.as_slice(), &expected_ordered[..]) {
+    let expectedOrdered: [4]i32 = [1, 3, 4, 5];
+    if not mem::equal[i32](ops.asSlice(), &expectedOrdered[..]) {
         return process::exit(33)!;
     }
-    switch ops.swap_remove(0) {
+    switch ops.swapRemove(0) {
         ?value => { if value != 1 {
                     return process::exit(34)!;
                 } },
         null => { return process::exit(35)!; },
     }
-    let expected_swap: [3]i32 = [5, 3, 4];
-    if not mem::equal[i32](ops.as_slice(), &expected_swap[..]) {
+    let expectedSwap: [3]i32 = [5, 3, 4];
+    if not mem::equal[i32](ops.asSlice(), &expectedSwap[..]) {
         return process::exit(36)!;
     }
     switch ops.deinit(page) {
@@ -82,7 +82,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut alias = std::ArrayList[i32]::init();
-    switch alias.reserve_exact(page, 2) {
+    switch alias.reserveExact(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(38)!; },
     }
@@ -94,20 +94,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(40)!; },
     }
-    switch alias.append_slice(page, alias.as_slice()) {
+    switch alias.appendSlice(page, alias.asSlice()) {
         !ok => { _ = ok; },
         error! => { return process::exit(41)!; },
     }
-    let expected_alias_append: [4]i32 = [1, 2, 1, 2];
-    if not mem::equal[i32](alias.as_slice(), &expected_alias_append[..]) {
+    let expectedAliasAppend: [4]i32 = [1, 2, 1, 2];
+    if not mem::equal[i32](alias.asSlice(), &expectedAliasAppend[..]) {
         return process::exit(42)!;
     }
-    switch alias.insert_slice(page, 1, alias.as_slice()) {
+    switch alias.insertSlice(page, 1, alias.asSlice()) {
         !ok => { _ = ok; },
         error! => { return process::exit(43)!; },
     }
-    let expected_alias_insert: [8]i32 = [1, 1, 2, 1, 2, 2, 1, 2];
-    if not mem::equal[i32](alias.as_slice(), &expected_alias_insert[..]) {
+    let expectedAliasInsert: [8]i32 = [1, 1, 2, 1, 2, 2, 1, 2];
+    if not mem::equal[i32](alias.asSlice(), &expectedAliasInsert[..]) {
         return process::exit(44)!;
     }
     switch alias.deinit(page) {
@@ -115,46 +115,46 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => { return process::exit(45)!; },
     }
 
-    let mut iter_list = std::ArrayList[i32]::init();
-    switch iter_list.push(page, 1) {
+    let mut iterList = std::ArrayList[i32]::init();
+    switch iterList.push(page, 1) {
         !ok => { _ = ok; },
         error! => { return process::exit(75)!; },
     }
-    switch iter_list.push(page, 2) {
+    switch iterList.push(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(76)!; },
     }
-    switch iter_list.push(page, 3) {
+    switch iterList.push(page, 3) {
         !ok => { _ = ok; },
         error! => { return process::exit(77)!; },
     }
-    for value in iter_list.iter_mut() {
+    for value in iterList.iterMut() {
         value.* = value.* * 2;
     }
-    for value in iter_list.iter_mut().rev().take(2usize) {
+    for value in iterList.iterMut().rev().take(2) {
         value.* += 1;
     }
-    let mut iter_sum = 0;
-    for &value in iter_list {
-        iter_sum += value;
+    let mut iterSum = 0;
+    for &value in iterList {
+        iterSum += value;
     }
-    if iter_sum != 14 {
+    if iterSum != 14 {
         return process::exit(80)!;
     }
-    let expected_iter_mut: [3]i32 = [2, 5, 7];
-    if not mem::equal[i32](iter_list.as_slice(), &expected_iter_mut[..]) {
+    let expectedIterMut: [3]i32 = [2, 5, 7];
+    if not mem::equal[i32](iterList.asSlice(), &expectedIterMut[..]) {
         return process::exit(78)!;
     }
-    switch iter_list.deinit(page) {
+    switch iterList.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(79)!; },
     }
 
     let mut list = std::ArrayList[i32]::init();
-    if list.len() != 0 or not list.is_empty() {
+    if list.len() != 0 or not list.isEmpty() {
         return process::exit(4)!;
     }
-    switch list.reserve_exact(page, 2) {
+    switch list.reserveExact(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(5)!; },
     }
@@ -179,7 +179,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if list.len() != 6 or list.capacity() < 6 {
         return process::exit(10)!;
     }
-    let items = list.as_slice();
+    let items = list.asSlice();
     if items[0] != 0 or items[1] != 10 or items[5] != 50 {
         return process::exit(11)!;
     }
@@ -206,134 +206,86 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 return process::exit(70)!; },
         null => { },
     }
-    switch list.get_mut(4) {
+    switch list.getMut(4) {
         mut ?value => { value.* = 44; },
         null => { return process::exit(71)!; },
     }
-    switch list.last_mut() {
+    switch list.lastMut() {
         mut ?value => { value.* = 55; },
         null => { return process::exit(72)!; },
     }
-    let expected_after_accessors: [6]i32 = [0, 10, 20, 30, 44, 55];
-    if not mem::equal[i32](list.as_slice(), &expected_after_accessors[..]) {
+    let expectedAfterAccessors: [6]i32 = [0, 10, 20, 30, 44, 55];
+    if not mem::equal[i32](list.asSlice(), &expectedAfterAccessors[..]) {
         return process::exit(73)!;
     }
 
     let more: [3]i32 = [60, 70, 80];
-    switch list.append_slice(page, &more[..]) {
+    switch list.appendSlice(page, &more[..]) {
         !ok => { _ = ok; },
         error! => { return process::exit(12)!; },
     }
-    if list.len() != 9 or list.as_slice()[8] != 80 {
+    if list.len() != 9 or list.asSlice()[8] != 80 {
         return process::exit(13)!;
     }
 
-    switch list.add_one(page) {
-        mut !slot => { slot.* = 90; },
+    switch list.push(page, 90) {
+        !ok => { _ = ok; },
         error! => { return process::exit(14)!; },
     }
-    if list.len() != 10 or list.as_slice()[9] != 90 {
+    if list.len() != 10 or list.asSlice()[9] != 90 {
         return process::exit(15)!;
     }
 
-    switch list.add_many_as_slice(page, 2) {
-        mut !slots => { slots[0] = 100;
-                slots[1] = 110; },
+    let added: [2]i32 = [100, 110];
+    switch list.appendSlice(page, &added[..]) {
+        !ok => { _ = ok; },
         error! => { return process::exit(16)!; },
     }
-    if list.len() != 12 or list.as_slice()[11] != 110 {
+    if list.len() != 12 or list.asSlice()[11] != 110 {
         return process::exit(17)!;
     }
 
-    switch list.add_many_at(page, 2, 2) {
-        mut !slots => { slots[0] = 21;
-                slots[1] = 22; },
+    let inserted: [2]i32 = [21, 22];
+    switch list.insertSlice(page, 2, &inserted[..]) {
+        !ok => { _ = ok; },
         error! => { return process::exit(46)!; },
     }
-    if list.len() != 14 or list.as_slice()[2] != 21 or list.as_slice()[3] != 22 or list.as_slice()[4] != 20 {
+    if list.len() != 14 or list.asSlice()[2] != 21 or list.asSlice()[3] != 22 or list.asSlice()[4] != 20 {
         return process::exit(47)!;
     }
 
-    list.append_assume_capacity(120);
-    if list.len() != 15 or list.as_slice()[14] != 120 {
+    switch list.reserveExact(page, 1) {
+        !ok => { _ = ok; },
+        error! => { return process::exit(48)!; },
+    }
+    list.appendAssumeCapacity(120);
+    if list.len() != 15 or list.asSlice()[14] != 120 {
         return process::exit(48)!;
     }
 
-    switch list.resize(page, 18) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(49)!; },
-    }
-    if list.len() != 18 {
-        return process::exit(50)!;
-    }
-    let mut unused = list.unused_capacity_slice();
-    if unused.len() < 2 {
-        return process::exit(51)!;
-    }
-    unused[0] = 180;
-    unused[1] = 190;
-    switch list.add_many_as_slice(page, 2) {
-        !slots => { if slots[0] != 180 or slots[1] != 190 {
-                    return process::exit(52)!;
-                } },
-        error! => { return process::exit(53)!; },
-    }
-    if list.len() != 20 {
-        return process::exit(54)!;
-    }
-
-    switch list.resize(page, 12) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(55)!; },
-    }
-    if list.len() != 12 {
-        return process::exit(56)!;
-    }
-
-    let before_shrink_capacity = list.capacity();
-    switch list.shrink_to_len(page) {
+    list.truncate(10);
+    let beforeShrinkCapacity = list.capacity();
+    switch list.shrinkToFit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(57)!; },
     }
-    if list.len() != 12 or list.capacity() > before_shrink_capacity or list.capacity() < list.len() {
+    if list.len() != 10 or list.capacity() > beforeShrinkCapacity or list.capacity() < list.len() {
         return process::exit(58)!;
     }
 
-    switch list.reserve_exact(page, 4) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(59)!; },
-    }
-    list.expand_to_capacity();
-    if list.len() != list.capacity() {
-        return process::exit(60)!;
-    }
-
-    switch list.shrink_and_free(page, 10) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(61)!; },
-    }
-    if list.len() != 10 or list.capacity() < 10 {
-        return process::exit(62)!;
-    }
-
-    let allocated = list.allocated_slice();
-    if allocated.len() != list.capacity() {
-        return process::exit(63)!;
-    }
-
-    let retained_capacity = list.capacity();
-    list.shrink_retaining_capacity(10);
-    if list.len() != 10 or list.capacity() != retained_capacity {
+    let retainedCapacity = list.capacity();
+    list.truncate(10);
+    if list.len() != 10 or list.capacity() != retainedCapacity {
         return process::exit(18)!;
     }
 
-    switch list.reserve_exact(page, 2) {
+    switch list.reserveExact(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(74)!; },
     }
     let tail: [2]i32 = [100, 110];
-    list.append_slice_assume_capacity(&tail[..]);
-    if list.len() != 12 or list.as_slice()[10] != 100 or list.as_slice()[11] != 110 {
+    list.appendSliceAssumeCapacity(&tail[..]);
+    if list.len() != 12 or list.asSlice()[10] != 100 or list.asSlice()[11] != 110 {
         return process::exit(19)!;
     }
 
@@ -346,16 +298,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if list.len() != 11 {
         return process::exit(22)!;
     }
-    let mut mutable_items = list.as_mut_slice();
-    mutable_items[2] = 77;
-    if list.as_slice()[2] != 77 {
+    let mut mutableItems = list.asMutSlice();
+    mutableItems[2] = 77;
+    if list.asSlice()[2] != 77 {
         return process::exit(23)!;
     }
-    list.clear_retaining_capacity();
-    if not list.is_empty() {
+    list.clear();
+    if not list.isEmpty() {
         return process::exit(24)!;
     }
-    switch list.clear_and_free(page) {
+    switch list.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(25)!; },
     }
@@ -384,8 +336,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_array_list_can_shrink_to_zero_capacity_and_reuse() {
-    let root = temp_dir("emit_exe_std_array_list_can_shrink_to_zero_capacity_and_reuse");
+fn emit_exe_std_array_list_preserves_elements_while_shrinking_and_reuses() {
+    let root = temp_dir("emit_exe_std_array_list_preserves_elements_while_shrinking_and_reuses");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -408,9 +360,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(2)!; },
     }
-    switch list.shrink_to_capacity(page, 0) {
+    switch list.shrinkToCapacity(page, 0) {
         !ok => { _ = ok; },
         error! => { return process::exit(3)!; },
+    }
+    if list.len() != 2 or list.capacity() != 2 {
+        return process::exit(4)!;
+    }
+    list.clear();
+    switch list.shrinkToFit(page) {
+        !ok => { _ = ok; },
+        error! => { return process::exit(4)!; },
     }
     if list.len() != 0 or list.capacity() != 0 {
         return process::exit(4)!;
@@ -425,7 +385,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => { return process::exit(6)!; },
     }
     let expected: [2]i32 = [30, 40];
-    if not mem::equal[i32](list.as_slice(), &expected[..]) {
+    if not mem::equal[i32](list.asSlice(), &expected[..]) {
         return process::exit(7)!;
     }
     switch list.deinit(page) {
@@ -488,26 +448,26 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => { cloned = value; },
         error! => { return process::exit(3)!; },
     }
-    let mut source_items = source.as_mut_slice();
-    source_items[0] = 9;
-    let expected_source: [2]i32 = [9, 2];
-    let expected_clone: [2]i32 = [1, 2];
-    if not mem::equal[i32](source.as_slice(), &expected_source[..]) {
+    let mut sourceItems = source.asMutSlice();
+    sourceItems[0] = 9;
+    let expectedSource: [2]i32 = [9, 2];
+    let expectedClone: [2]i32 = [1, 2];
+    if not mem::equal[i32](source.asSlice(), &expectedSource[..]) {
         return process::exit(4)!;
     }
-    if not mem::equal[i32](cloned.as_slice(), &expected_clone[..]) {
+    if not mem::equal[i32](cloned.asSlice(), &expectedClone[..]) {
         return process::exit(5)!;
     }
 
     let mut owned: &mut [i32];
-    switch source.into_owned_slice(page) {
+    switch source.intoOwnedSlice(page) {
         !value => { owned = value; },
         error! => { return process::exit(6)!; },
     }
     if source.len() != 0 or source.capacity() != 0 {
         return process::exit(7)!;
     }
-    if not mem::equal[i32](owned, &expected_source[..]) {
+    if not mem::equal[i32](owned, &expectedSource[..]) {
         return process::exit(8)!;
     }
     switch page.free_slice[i32](owned) {
@@ -523,9 +483,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     external[0] = 4;
     external[1] = 5;
     external[2] = 6;
-    let mut adopted = std::ArrayList[i32]::from_owned_slice(external);
-    let expected_adopted: [3]i32 = [4, 5, 6];
-    if adopted.capacity() != 3 or not mem::equal[i32](adopted.as_slice(), &expected_adopted[..]) {
+    let mut adopted = std::ArrayList[i32]::fromOwnedSlice(external);
+    let expectedAdopted: [3]i32 = [4, 5, 6];
+    if adopted.capacity() != 3 or not mem::equal[i32](adopted.asSlice(), &expectedAdopted[..]) {
         return process::exit(11)!;
     }
     switch adopted.deinit(page) {
@@ -590,14 +550,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(3)!; },
     }
-    switch list.resize(page, 16) {
+    switch list.push(page, {}) {
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }
-    if list.len() != 16 or list.capacity() != usize::MAX {
+    switch list.push(page, {}) {
+        !ok => { _ = ok; },
+        error! => { return process::exit(4)!; },
+    }
+    switch list.push(page, {}) {
+        !ok => { _ = ok; },
+        error! => { return process::exit(4)!; },
+    }
+    if list.len() != 4 or list.capacity() != usize::MAX {
         return process::exit(5)!;
     }
-    switch list.shrink_and_free(page, 3) {
+    list.truncate(3);
+    switch list.shrinkToFit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(6)!; },
     }
@@ -644,7 +613,7 @@ using std;
 using std::mem;
 using std::process;
 
-fn expect_invalid(result: mem::Error!void) process::ExitCode!void {
+fn expectInvalid(result: mem::Error!void) process::ExitCode!void {
     switch result {
         !ok => { _ = ok;
                 return process::exit(90)!; },
@@ -664,44 +633,44 @@ pub fn main(init: process::Init) process::ExitCode!void {
     defer list.deinit(page).exit().?;
 
     let initial: [8]i32 = [0, 1, 2, 3, 4, 5, 6, 7];
-    list.append_slice(page, &initial[..]).exit().?;
+    list.appendSlice(page, &initial[..]).exit().?;
 
-    list.remove_range(2, 3).exit().?;
-    let after_remove: [5]i32 = [0, 1, 5, 6, 7];
-    if not mem::equal[i32](list.as_slice(), &after_remove[..]) {
+    list.removeRange(2, 3).exit().?;
+    let afterRemove: [5]i32 = [0, 1, 5, 6, 7];
+    if not mem::equal[i32](list.asSlice(), &afterRemove[..]) {
         return process::exit(1)!;
     }
 
-    let same_len: [2]i32 = [10, 11];
-    list.replace_range(page, 1, 2, &same_len[..]).exit().?;
-    let after_same_len: [5]i32 = [0, 10, 11, 6, 7];
-    if not mem::equal[i32](list.as_slice(), &after_same_len[..]) {
+    let sameLen: [2]i32 = [10, 11];
+    list.replaceRange(page, 1, 2, &sameLen[..]).exit().?;
+    let afterSameLen: [5]i32 = [0, 10, 11, 6, 7];
+    if not mem::equal[i32](list.asSlice(), &afterSameLen[..]) {
         return process::exit(2)!;
     }
 
     let smaller: [1]i32 = [20];
-    list.replace_range(page, 2, 2, &smaller[..]).exit().?;
-    let after_smaller: [4]i32 = [0, 10, 20, 7];
-    if not mem::equal[i32](list.as_slice(), &after_smaller[..]) {
+    list.replaceRange(page, 2, 2, &smaller[..]).exit().?;
+    let afterSmaller: [4]i32 = [0, 10, 20, 7];
+    if not mem::equal[i32](list.asSlice(), &afterSmaller[..]) {
         return process::exit(3)!;
     }
 
     let larger: [4]i32 = [30, 31, 32, 33];
-    list.replace_range(page, 1, 1, &larger[..]).exit().?;
-    let after_larger: [7]i32 = [0, 30, 31, 32, 33, 20, 7];
-    if not mem::equal[i32](list.as_slice(), &after_larger[..]) {
+    list.replaceRange(page, 1, 1, &larger[..]).exit().?;
+    let afterLarger: [7]i32 = [0, 30, 31, 32, 33, 20, 7];
+    if not mem::equal[i32](list.asSlice(), &afterLarger[..]) {
         return process::exit(4)!;
     }
 
-    list.replace_range(page, 2, 3, list.as_slice()).exit().?;
-    let after_alias_replace: [11]i32 = [0, 30, 0, 30, 31, 32, 33, 20, 7, 20, 7];
-    if not mem::equal[i32](list.as_slice(), &after_alias_replace[..]) {
+    list.replaceRange(page, 2, 3, list.asSlice()).exit().?;
+    let afterAliasReplace: [11]i32 = [0, 30, 0, 30, 31, 32, 33, 20, 7, 20, 7];
+    if not mem::equal[i32](list.asSlice(), &afterAliasReplace[..]) {
         return process::exit(5)!;
     }
 
     list.truncate(6);
-    let after_truncate: [6]i32 = [0, 30, 0, 30, 31, 32];
-    if not mem::equal[i32](list.as_slice(), &after_truncate[..]) {
+    let afterTruncate: [6]i32 = [0, 30, 0, 30, 31, 32];
+    if not mem::equal[i32](list.asSlice(), &afterTruncate[..]) {
         return process::exit(6)!;
     }
     list.truncate(99);
@@ -709,32 +678,25 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(7)!;
     }
 
-    let mut owned = list.to_owned_slice(page).exit().?;
-    if not mem::equal[i32](owned, list.as_slice()) {
+    let mut owned = list.toOwnedSlice(page).exit().?;
+    if not mem::equal[i32](owned, list.asSlice()) {
         return process::exit(8)!;
     }
     owned[0] = 1234;
-    if list.as_slice()[0] == 1234 {
+    if list.asSlice()[0] == 1234 {
         return process::exit(9)!;
     }
     page.free_slice[i32](owned).exit().?;
 
-    expect_invalid(list.remove_range(7, 1)).?;
-    expect_invalid(list.remove_range(5, 2)).?;
-    let invalid_values: [1]i32 = [99];
-    expect_invalid(list.replace_range(page, 7, 0, &invalid_values[..])).?;
-    expect_invalid(list.replace_range(page, 5, 2, &invalid_values[..])).?;
-    if not mem::equal[i32](list.as_slice(), &after_truncate[..]) {
+    expectInvalid(list.removeRange(7, 1)).?;
+    expectInvalid(list.removeRange(5, 2)).?;
+    let invalidValues: [1]i32 = [99];
+    expectInvalid(list.replaceRange(page, 7, 0, &invalidValues[..])).?;
+    expectInvalid(list.replaceRange(page, 5, 2, &invalidValues[..])).?;
+    if not mem::equal[i32](list.asSlice(), &afterTruncate[..]) {
         return process::exit(10)!;
     }
 
-    let mut zero = std::ArrayList[void]::init();
-    zero.resize(page, 4).exit().?;
-    let mut zero_owned = zero.to_owned_slice(page).exit().?;
-    if zero_owned.len() != 4 {
-        return process::exit(11)!;
-    }
-    zero.deinit(page).exit().?;
     !{}
 }
 "#,

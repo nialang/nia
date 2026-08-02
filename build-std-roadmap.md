@@ -2310,6 +2310,34 @@ loops remain valid through the narrow `std::collections` facade instead of
 depending on the root facade to activate Range's `Iterable` implementation.
 Algorithm-width `u8`/`u64` literals remain explicit.
 
+Standard-library reconstruction progress (2026-08-02, initialized array-list
+batch): `ArrayList` now uses lower-camel names across its public surface,
+provider fields/locals, build, string, process, examples, and conformance.
+Duplicate `clearRetainingCapacity`, `clearAndFree`, and `extendFromSlice`
+operations are physically removed. Public `addOne`, `addManyAsSlice`,
+`addManyAt`, arbitrary `resize`, `expandToCapacity`, `allocatedSlice`, and
+`unusedCapacitySlice` operations are also removed because they represented
+uninitialized storage as live `T` values. Their uninitialized mechanics remain
+private implementation details behind operations that initialize every new
+element before returning.
+
+`truncate` is the sole length-discarding command. `shrinkToFit` and
+`shrinkToCapacity` preserve every element and only reduce allocation; callers
+use `clear` explicitly before releasing empty retained capacity. `reserveExact`
+is retained as a real non-geometric allocation contract, while duplicate
+ensure-unused and precise-total helpers become private. ZST, owned-slice,
+aliasing insert/replace, assume-capacity, post-shrink reuse, and range
+conformance all pass through the initialized API.
+
+This batch also exposed and fixes asymmetric binary literal inference:
+`64 / elemLen` formerly defaulted the unsuffixed left operand to `i32` despite
+the concrete `usize` peer. Body checking now lets a concrete right operand
+drive an unsuffixed left numeric literal for arithmetic, bitwise, comparison,
+and equality operators when the peer is numeric; focused regression coverage
+includes division, comparison, equality, non-numeric peers, and explicit
+suffixes. This is a compiler correction discovered by std idiom cleanup, not a
+reason to restore redundant suffixes.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically

@@ -112,6 +112,11 @@ facade for selected direct names; it currently exposes `std::iter`,
 Containers are organized under `std::collections` internally, but the root
 facade keeps the ordinary user-facing entry points at `std::ArrayList` and
 `std::HashMap`.
+`ArrayList` uses lower-camel initialized-value APIs. Capacity growth is exposed
+through `reserve`, `reserveExact`, and `ensureTotalCapacity`; `truncate` changes
+length, while `shrinkToFit` and `shrinkToCapacity` never discard elements.
+Public operations do not expose uninitialized element slots or capacity as a
+live `&mut [T]`.
 `HashMapLookupContext[K, Q]` permits lookup with a query-view type distinct from
 the stored key. The default context implements `String` lookup by borrowed
 `&[char]`; `containsKeyBy`, `getBy`, `getMutBy`, `getEntryBy`, `getEntryMutBy`,
@@ -358,6 +363,12 @@ let mut z = 1.0e-3f64;
 The suffix selects the literal's type before contextual inference. The value
 must be finite and representable in that type. Integer suffixes are invalid on
 floating literals.
+
+For built-in binary arithmetic, bitwise, comparison, and equality operations
+whose operands share a numeric type, a concrete operand supplies type context
+for an unsuffixed numeric literal on either side. An explicit suffix is never
+overridden by the peer operand. Shift counts are checked independently and do
+not determine the type of the value being shifted.
 
 Boolean literals:
 

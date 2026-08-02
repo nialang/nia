@@ -8,13 +8,13 @@ where T: Sized + fmt::Format
 {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         formatter.write_byte(b'[').?;
-        let mut index = 0usize;
-        while index < self.len() {
-            if index != 0usize {
+        let mut first = true;
+        for item in self {
+            if not first {
                 formatter.write_text(&", ").?;
             }
-            self.as_slice()[index].format(formatter).?;
-            index += 1usize;
+            item.format(formatter).?;
+            first = false;
         }
         formatter.write_byte(b']')
     }

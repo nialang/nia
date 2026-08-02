@@ -30,12 +30,12 @@ extend String {
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!String {
-        let mut text = collections::ArrayList[char]::init_capacity(allocator, capacity).?;
+        let mut text = collections::ArrayList[char]::initCapacity(allocator, capacity).?;
         !String { text: text }
     }
 
     pub fn fromOwnedSlice(text: &mut [char]) String {
-        { text: collections::ArrayList[char]::from_owned_slice(text) }
+        { text: collections::ArrayList[char]::fromOwnedSlice(text) }
     }
 
     pub fn fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
@@ -58,7 +58,7 @@ extend String {
                 !value => value,
                 error! => return TextError::InvalidUtf8(error)!,
             };
-            out.text.append_assume_capacity(decoded.char());
+            out.text.appendAssumeCapacity(decoded.char());
             index += decoded.len();
         }
         complete = true;
@@ -72,7 +72,7 @@ extend String {
             ?value => value,
             null => return TextError::Allocation(mem::Error::OutOfMemory)!,
         };
-        self.text.ensure_total_capacity(allocator, newLen).asTextError().?;
+        self.text.ensureTotalCapacity(allocator, newLen).asTextError().?;
 
         let mut complete = false;
         defer if not complete {
@@ -84,7 +84,7 @@ extend String {
                 !value => value,
                 error! => return TextError::InvalidUtf8(error)!,
             };
-            self.text.append_assume_capacity(decoded.char());
+            self.text.appendAssumeCapacity(decoded.char());
             index += decoded.len();
         }
         complete = true;
@@ -125,11 +125,11 @@ extend String {
     }
 
     pub fn text(&self) &[char] {
-        self.text.as_slice()
+        self.text.asSlice()
     }
 
     pub fn textMut(&mut self) &mut [char] {
-        self.text.as_mut_slice()
+        self.text.asMutSlice()
     }
 
     pub fn len(&self) usize {
@@ -141,7 +141,7 @@ extend String {
     }
 
     pub fn isEmpty(&self) bool {
-        self.text.is_empty()
+        self.text.isEmpty()
     }
 
     pub fn clear(&mut self) void {
@@ -169,7 +169,7 @@ extend String {
     }
 
     pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
-        self.text.ensure_total_capacity(allocator, capacity)
+        self.text.ensureTotalCapacity(allocator, capacity)
     }
 
     pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!void {
@@ -177,11 +177,11 @@ extend String {
     }
 
     pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!void {
-        self.text.append_slice(allocator, text)
+        self.text.appendSlice(allocator, text)
     }
 
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
-        self.text.into_owned_slice(allocator)
+        self.text.intoOwnedSlice(allocator)
     }
 }
 
@@ -281,7 +281,7 @@ extend TextFormatWriter {
     }
 
     fn appendTo(&mut self, out: &mut String) TextError!void {
-        out.appendUtf8(self.allocator, self.bytes.as_slice())
+        out.appendUtf8(self.allocator, self.bytes.asSlice())
     }
 
     fn textError(&self, error: fmt::Error) TextError {
@@ -302,7 +302,7 @@ extend TextFormatWriter : io::Writer {
     }
 
     fn write(&mut self, bytes: &[u8]) mem::Error!usize {
-        switch self.bytes.append_slice(self.allocator, bytes) {
+        switch self.bytes.appendSlice(self.allocator, bytes) {
             !ok => {
                 _ = ok;
                 !bytes.len()
