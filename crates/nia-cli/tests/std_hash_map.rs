@@ -640,13 +640,24 @@ fn run(init: process::Init) mem::Error!void {
             } },
         null => { return mem::Error::Invalid!; },
     }
-    let mut inserted_entry = map.get_or_put_value(&mut gpa, 6, 60).?;
-    if inserted_entry.found_existing() or inserted_entry.key().* != 6 {
+    let mut inserted_entry = map.getOrInsert(&mut gpa, 6, 60).?;
+    if inserted_entry.intoRejected() is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
+    }
+    if inserted_entry.key().* != 6 {
         return mem::Error::Invalid!;
     }
     inserted_entry.value().* = 61;
-    let mut existing_entry = map.get_or_put_value(&mut gpa, 6, 600).?;
-    if not existing_entry.found_existing() or existing_entry.value().* != 61 {
+    let mut existing_entry = map.getOrInsert(&mut gpa, 6, 600).?;
+    if existing_entry.intoRejected() is ?rejected {
+        if rejected.key().* != 6 or rejected.value().* != 600 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
+    }
+    if existing_entry.value().* != 61 {
         return mem::Error::Invalid!;
     }
     existing_entry.value().* = 62;
@@ -656,13 +667,20 @@ fn run(init: process::Init) mem::Error!void {
             } },
         null => { return mem::Error::Invalid!; },
     }
-    let mut raw_entry = map.get_or_put(&mut gpa, 8).?;
-    if raw_entry.found_existing() {
+    let mut raw_entry = map.getOrInsert(&mut gpa, 8, 80).?;
+    if raw_entry.intoRejected() is ?unexpected {
+        _ = unexpected;
         return mem::Error::Invalid!;
     }
-    raw_entry.value().* = 80;
-    raw_entry = map.get_or_put(&mut gpa, 8).?;
-    if not raw_entry.found_existing() or raw_entry.value().* != 80 {
+    raw_entry = map.getOrInsert(&mut gpa, 8, 800).?;
+    if raw_entry.intoRejected() is ?rejected {
+        if rejected.key().* != 8 or rejected.value().* != 800 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
+    }
+    if raw_entry.value().* != 80 {
         return mem::Error::Invalid!;
     }
     raw_entry.value().* = 81;
@@ -981,7 +999,7 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
     fail_allocator.fail_next_alloc();
-    switch rollback_get.get_or_put(&mut fail_allocator, 77) {
+    switch rollback_get.getOrInsert(&mut fail_allocator, 77, 770) {
         !entry => { _ = entry;
                 return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -992,11 +1010,11 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     fail_allocator.clear_failures();
-    let mut rollback_entry = rollback_get.get_or_put(&mut fail_allocator, 77).?;
-    if rollback_entry.found_existing() {
+    let mut rollback_entry = rollback_get.getOrInsert(&mut fail_allocator, 77, 770).?;
+    if rollback_entry.intoRejected() is ?unexpected {
+        _ = unexpected;
         return mem::Error::Invalid!;
     }
-    rollback_entry.value().* = 770;
     switch rollback_get.get(&77) {
         ?value => { if value.* != 770 {
                 return mem::Error::Invalid!;
@@ -1410,13 +1428,21 @@ fn run(init: process::Init) mem::Error!void {
                     } },
             }
         } else if op == 2 {
-            let mut entry = model_map.get_or_put(&mut gpa, slot).?;
+            let mut entry = model_map.getOrInsert(&mut gpa, slot, step + 2000).?;
             if present[slot] {
-                if not entry.found_existing() or entry.value().* != expected[slot] {
+                if entry.intoRejected() is ?rejected {
+                    if rejected.key().* != slot or rejected.value().* != step + 2000 {
+                        return mem::Error::Invalid!;
+                    }
+                } else {
+                    return mem::Error::Invalid!;
+                }
+                if entry.value().* != expected[slot] {
                     return mem::Error::Invalid!;
                 }
             } else {
-                if entry.found_existing() {
+                if entry.intoRejected() is ?unexpected {
+                    _ = unexpected;
                     return mem::Error::Invalid!;
                 }
                 expected_len += 1usize;
@@ -1729,17 +1755,24 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    let mut existing = map.get_or_put_value_assume_capacity(1, 111);
-    if not existing.found_existing() or existing.value().* != 11 {
+    let mut existing = map.getOrInsertAssumeCapacity(1, 111);
+    if existing.intoRejected() is ?rejected {
+        if rejected.key().* != 1 or rejected.value().* != 111 {
+            return mem::Error::Invalid!;
+        }
+    } else {
+        return mem::Error::Invalid!;
+    }
+    if existing.value().* != 11 {
         return mem::Error::Invalid!;
     }
     existing.value().* = 12;
 
-    let mut inserted = map.get_or_put_assume_capacity(3);
-    if inserted.found_existing() {
+    let mut inserted = map.getOrInsertAssumeCapacity(3, 30);
+    if inserted.intoRejected() is ?unexpected {
+        _ = unexpected;
         return mem::Error::Invalid!;
     }
-    inserted.value().* = 30;
 
     if map.len() != 3usize {
         return mem::Error::Invalid!;

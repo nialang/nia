@@ -222,11 +222,15 @@ For a fallible insertion, ownership remains with the caller until the method
 returns success; callers transferring allocating named values use a conditional
 `defer` and mark transfer only after success, as elsewhere in reviewed std.
 Map teardown still does not recursively deinitialize owned keys or values. The
-older `get_or_put` entry family also remains outside the accepted ownership
-surface because an existing entry can reject an incoming key or value without
-returning it. Maintained String conformance explicitly takes back rejected keys,
-deinitializes them, then removes and deinitializes the stored key. Deep element
-cleanup, the entry family, and the common allocator protocol remain open.
+reviewed `getOrInsert` entry operation takes an explicit initial value and
+returns the stored key/value references plus `intoRejected()` for the complete
+incoming entry when an equal key already exists. Its assume-capacity form has
+the same ownership result. The former value-taking operation and the
+uninitialized no-value `get_or_put` operations are physically absent. Maintained
+String conformance explicitly takes back rejected keys from replacement,
+if-absent, and entry insertion, deinitializes them, then removes and
+deinitializes the stored key. Deep element cleanup, a future lazy construction
+entry API, and the common allocator protocol remain open.
 
 The one owned scalar-text type is named `String`, not `StringBuf`: it stores
 Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed

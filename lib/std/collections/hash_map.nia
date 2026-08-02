@@ -16,7 +16,7 @@ pub using entries::{
     HashMapEntry,
     HashMapEntryMut,
     HashMapEntryRef,
-    HashMapGetOrPutResult,
+    HashMapGetOrInsertResult,
     HashMapReplacement,
 };
 pub using iterators::{
