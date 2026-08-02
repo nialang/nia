@@ -153,8 +153,20 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   `Item = EnvVar` and also provides `remaining()`. `Init.rawArgv()` and
   `Init.rawEnvp()` forward the original host-provided pointer arrays when a
   reviewed low-level process boundary requires them.
+- `Command::init(path, env)` borrows a scalar `PathView` and environment view.
+  `withArguments` borrows scalar argument slices; `withStdin`, `withStdout`,
+  `withStderr`, and `withCwd` return configured command values. `spawn` and
+  `run` encode the path and arguments into temporary NUL-terminated UTF-8
+  storage, insert the executable path as argv[0], and reject embedded NUL
+  scalars before invoking the OS. `spawnWithAllocator` and `runWithAllocator`
+  provide the same lowering with caller-controlled temporary allocation.
+  `spawnRaw` is the explicit low-level pointer-array boundary.
+- `Child` transfers pipe handles with `takeStdin`, `takeStdout`, and
+  `takeStderr`; it provides `wait`, `tryWait`, `kill`, and `killWith`. `Term`
+  classifies results through `kind`, `code`, `succeeded`, `exitCode`, and
+  `signalCode`. Raw OS wait-status conversion is not a public process API.
 - `std::process` also extends `std::fs.Error` and `std::mem.Error` with
-  `as_exit_code` and `exit` for explicitly returning standard library errors as
+  `asExitCode` and `exit` for explicitly returning standard library errors as
   process exit codes from executable entries. It also extends `std::fs.Error!T`
   and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
   so callers can write `io_call().exit().?`.

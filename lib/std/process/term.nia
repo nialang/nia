@@ -4,23 +4,23 @@ using pkg::process::types;
 using types::{Term, TermKind};
 
 extend Term {
-    pub fn exited(code: i32) Term {
+    fn exited(code: i32) Term {
         { kind: TermKind::Exited, code: code }
     }
 
-    pub fn signal(signal: i32) Term {
+    fn signal(signal: i32) Term {
         { kind: TermKind::Signal, code: signal }
     }
 
-    pub fn stopped(signal: i32) Term {
+    fn stopped(signal: i32) Term {
         { kind: TermKind::Stopped, code: signal }
     }
 
-    pub fn unknown(raw: i32) Term {
+    fn unknown(raw: i32) Term {
         { kind: TermKind::Unknown, code: raw }
     }
 
-    pub fn from_wait_status(status: os::WaitStatus) Term {
+    pub(pkg) fn fromWaitStatus(status: os::WaitStatus) Term {
         if status.exit_code() is ?code {
             Term::exited(code)
         } else if status.signal() is ?signal {
@@ -40,11 +40,11 @@ extend Term {
         self.code
     }
 
-    pub fn exited_success(&self) bool {
+    pub fn succeeded(&self) bool {
         self.kind == TermKind::Exited and self.code == 0
     }
 
-    pub fn exit_code(&self) ?i32 {
+    pub fn exitCode(&self) ?i32 {
         if self.kind == TermKind::Exited {
             ?self.code
         } else {
@@ -52,7 +52,7 @@ extend Term {
         }
     }
 
-    pub fn signal_code(&self) ?i32 {
+    pub fn signalCode(&self) ?i32 {
         if self.kind == TermKind::Signal {
             ?self.code
         } else {

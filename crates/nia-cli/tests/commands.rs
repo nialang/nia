@@ -99,6 +99,7 @@ fn repository_examples_parse_and_representative_examples_check() {
         "07_arena_allocator.nia",
         "08_general_purpose_allocator.nia",
         "09_hash_map.nia",
+        "10_process_command.nia",
         "modules/main.nia",
     ];
 
@@ -124,6 +125,7 @@ fn repository_examples_parse_and_representative_examples_check() {
         "03_stdout.nia",
         "06_optional_error.nia",
         "09_hash_map.nia",
+        "10_process_command.nia",
         "modules/main.nia",
     ] {
         let path = examples_dir.join(example);

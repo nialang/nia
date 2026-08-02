@@ -15,7 +15,7 @@ using pkg::process::exit;
 using pkg::process::init;
 using pkg::process::term;
 
-pub using command::{run, spawn, spawn_raw, spawn_with_options};
+pub using command::spawnRaw;
 pub using exit::exit;
 pub using types::{
     Arg,

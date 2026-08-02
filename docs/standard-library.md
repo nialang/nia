@@ -344,7 +344,7 @@ LLVM before deleting its builtin declaration.
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
-| process argument/environment | `Arg` / `EnvVar` byte views and command-owned C buffers | process facade and build typed arguments | `process::Error`, formatting parse errors | borrowed view names accepted; raw host service retained; BuildPlan uses typed paths/values |
+| process argument/environment | `Arg` / `EnvVar` byte views; borrowed scalar `Command` inputs with transient C buffers | `Command` typed lowering; raw host views and explicit `spawnRaw` | `process::Error`, formatting parse errors | typed command path/arguments and borrowed view names accepted; spawn/wait error payloads remain open |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
 the sum of each scalar's encoded `Utf8::len()` and is not interchangeable with
