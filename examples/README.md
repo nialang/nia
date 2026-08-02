@@ -104,8 +104,8 @@ should receive that same handle.
   slice iteration, and formatted list output.
 - `05_traits_generics.nia`: traits, generic bounds, operator traits, and a
   formatted computed total.
-- `06_optional_error.nia`: optional values, error unions, propagation, and
-  printed success/error state.
+- `06_optional_error.nia`: checked slice access, `if ... is` optional matching,
+  error unions, propagation, and printed success/error state.
 - `07_arena_allocator.nia`: `std::mem.ArenaAllocator` over `PageAllocator`,
   `ArrayList` allocation, retained-capacity reset, and scratch slices.
 - `08_general_purpose_allocator.nia`: `std::mem.GeneralPurposeAllocator` over

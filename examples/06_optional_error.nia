@@ -1,12 +1,13 @@
 using std::debug;
 using std::fmt;
 using std::process;
+using std::slice;
 using process::{Init, ExitCode, exit};
 
 fn at(values: &[i32], index: usize) ?i32 {
-    if index < values.len() {
-        // ?value constructs the present side of an optional.
-        ?values[index]
+    if values.get(index) is ?value {
+        // Checked slice access returns a reference; ? constructs a copied value.
+        ?value.*
     } else {
         null
     }

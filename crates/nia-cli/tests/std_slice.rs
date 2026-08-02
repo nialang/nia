@@ -16,6 +16,28 @@ fn emit_exe_std_slice_direct_borrowed_iteration() {
 using std::process;
 using std::slice;
 
+struct Token {
+    value: i32,
+}
+
+extend Token : Eq[Token] {
+    fn eq(&self, other: &Token) bool {
+        self.value == other.value
+    }
+
+    fn ne(&self, other: &Token) bool {
+        self.value != other.value
+    }
+}
+
+fn foundAt(result: ?usize, expected: usize) bool {
+    if result is ?index {
+        index == expected
+    } else {
+        false
+    }
+}
+
 fn sum(values: &[i32]) i32 {
     let mut total = 0;
     for &value in values {
@@ -150,6 +172,54 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if checked[0] != 10 or checked[1] != 21 or checked[2] != 4 or checked[3] != 40 {
         return process::exit(25)!;
+    }
+
+    let sequence: [5]i32 = [1, 2, 1, 2, 3];
+    let sequenceView = &sequence[..];
+    if not sequenceView.equals(&[1, 2, 1, 2, 3])
+        or sequenceView.equals(&[1, 2, 1, 2])
+        or not sequenceView.startsWith(&[1, 2])
+        or sequenceView.startsWith(&[2, 1])
+        or not sequenceView.endsWith(&[2, 3])
+        or sequenceView.endsWith(&[1, 2])
+    {
+        return process::exit(26)!;
+    }
+    let emptyStorage: [0]i32 = [];
+    let emptyValues = &emptyStorage[..];
+    if not foundAt(sequenceView.find(&[1, 2, 3]), 2)
+        or not foundAt(sequenceView.find(emptyValues), 0)
+        or not sequenceView.contains(&[2, 1])
+        or not sequenceView.contains(emptyValues)
+        or sequenceView.contains(&[3, 4])
+    {
+        return process::exit(27)!;
+    }
+    if sequenceView.find(&[1, 2, 1, 2, 3, 4]) is ?unexpected {
+        _ = unexpected;
+        return process::exit(28)!;
+    }
+
+    let noValues: &[i32] = emptyValues;
+    if not noValues.equals(emptyValues)
+        or not noValues.startsWith(emptyValues)
+        or not noValues.endsWith(emptyValues)
+        or noValues.contains(&[1])
+    {
+        return process::exit(29)!;
+    }
+
+    let tokens: [4]Token = [
+        Token { value: 4 },
+        Token { value: 5 },
+        Token { value: 4 },
+        Token { value: 6 },
+    ];
+    let tokenNeedle: [2]Token = [Token { value: 5 }, Token { value: 4 }];
+    if not (&tokens[..]).contains(&tokenNeedle[..])
+        or not foundAt((&tokens[..]).find(&tokenNeedle[..]), 1)
+    {
+        return process::exit(30)!;
     }
 
     !{}

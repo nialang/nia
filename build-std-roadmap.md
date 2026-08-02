@@ -2462,6 +2462,30 @@ normalize their expected wrappers through the same boundary. Focused body
 coverage proves `?0` under `?usize`, `!1` under `i32!u8`, and `2!` under
 `u8!i32`; no redundant suffix was added to std.
 
+Standard-library reconstruction progress (2026-08-03, slice sequence relation
+batch): ordered slice comparison and contiguous search now live once on
+`[T] where T: Sized + Eq[T]`. `equals`, `startsWith`, `endsWith`, `find`, and
+`contains` cover arbitrary comparable element types; `find` returns the first
+element index, empty needles match at zero, and prefix/suffix/search never
+allocate. The `[char]` copy of these algorithms is physically removed, owned
+`String` continues to delegate through its borrowed slice, and the duplicate
+public `mem::equal` helper is absent rather than retained as an alias. Existing
+memory and collection conformance now uses the user-facing `slice.equals(...)`
+spelling.
+
+The generic conformance uses a user-defined `Eq` implementation and direct
+`for index in 0..len`/`0..=lastStart` iteration, while single optional branches
+use `if result is ?index`. Moving real owned-slice workflows onto the method
+surface exposed that `&mut [T]` could not call a read-only pointee extension
+even though mutable-to-read-only slice coercion already worked at typed
+boundaries. Method candidate matching now considers that coercion before
+rejecting the provider; focused body coverage and the ArrayList ownership path
+both keep the direct `owned.equals(...)` form. The optional/error tutorial also
+uses `slice.get` instead of reimplementing bounds checks. Removing the final
+test-only `std::mem` import also exposed `fs::path` relying on `mem` to activate
+checked arithmetic transitively; the path provider now imports `pkg::math`
+directly.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

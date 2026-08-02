@@ -108,27 +108,28 @@ fn emit_exe_std_mem_copy_forwards_and_backwards() {
         r#"
 using std::mem;
 using std::process;
+using std::slice;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut left: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_forwards[i32](&mut left[0..3], &left[1..4]);
     let expected_left: [5]i32 = [2, 3, 4, 4, 5];
-    if not mem::equal[i32](&left[..], &expected_left[..]) {
+    if not (&left[..]).equals(&expected_left[..]) {
         return process::exit(1)!;
     }
 
     let mut right: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_backwards[i32](&mut right[1..4], &right[0..3]);
     let expected_right: [5]i32 = [1, 1, 2, 3, 5];
-    if not mem::equal[i32](&right[..], &expected_right[..]) {
+    if not (&right[..]).equals(&expected_right[..]) {
         return process::exit(2)!;
     }
 
     let mut exact_to: [3]u8 = [0, 0, 0];
     let exact_from: [3]u8 = [7, 8, 9];
     mem::copy_forwards[u8](&mut exact_to[..], &exact_from[..]);
-    if not mem::equal[u8](&exact_to[..], &exact_from[..]) {
+    if not (&exact_to[..]).equals(&exact_from[..]) {
         return process::exit(3)!;
     }
 
@@ -136,13 +137,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let long_from: [4]u8 = [5, 6, 7, 8];
     mem::copy_forwards[u8](&mut short_to[..], &long_from[..]);
     let expected_short_to: [2]u8 = [5, 6];
-    if not mem::equal[u8](&short_to[..], &expected_short_to[..]) {
+    if not (&short_to[..]).equals(&expected_short_to[..]) {
         return process::exit(8)!;
     }
 
     let mut short_backward: [2]u8 = [0, 0];
     mem::copy_backwards[u8](&mut short_backward[..], &long_from[..]);
-    if not mem::equal[u8](&short_backward[..], &expected_short_to[..]) {
+    if not (&short_backward[..]).equals(&expected_short_to[..]) {
         return process::exit(9)!;
     }
 

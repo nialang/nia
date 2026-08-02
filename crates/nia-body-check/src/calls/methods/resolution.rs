@@ -384,6 +384,18 @@ impl<'a> BodyChecker<'a> {
             self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
+        if self.method_receiver_kind(method_id) == Some(ReceiverKind::RefReadOnly)
+            && let Some(readonly_receiver_ty) = self.mutable_slice_as_readonly(receiver_ty)
+            && self.try_match_type_pattern_with_consts(
+                candidate_target_ty,
+                readonly_receiver_ty,
+                substitutions,
+                const_substitutions,
+            )
+        {
+            self.bind_extension_self_from_target(target_ty, substitutions);
+            return true;
+        }
         if self.trait_object_extension_target_matches_receiver(
             target_ty,
             receiver_ty,
@@ -402,6 +414,21 @@ impl<'a> BodyChecker<'a> {
             );
         }
         false
+    }
+
+    fn mutable_slice_as_readonly(&mut self, receiver_ty: InternedTyId) -> Option<InternedTyId> {
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        let Some(TyKind::Slice {
+            is_readonly: false,
+            elem,
+        }) = self.interner.get(receiver_ty).cloned()
+        else {
+            return None;
+        };
+        Some(self.interner.intern(TyKind::Slice {
+            is_readonly: true,
+            elem,
+        }))
     }
 
     fn bind_extension_self_from_target(
