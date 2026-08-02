@@ -1,9 +1,8 @@
-using pkg::collections;
 using pkg::error;
 using pkg::fs::types;
 using pkg::mem;
+using pkg::slice;
 using pkg::string;
-using pkg::unicode;
 
 using types::{EncodedPath, Error, PathBuf, PathError, PathView};
 
@@ -12,75 +11,35 @@ extend PathView {
         { text: text }
     }
 
-    pub fn from_utf8_into(
-        allocator: &mut mem::Allocator,
-        bytes: &[u8],
-        out: &mut collections::ArrayList[char],
-    ) Error!PathView {
-        out.clear();
-        let mut complete = false;
-        defer if not complete {
-            out.clear();
-        };
-        let mut index = 0usize;
-        while index < bytes.len() {
-            let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
-                !value => {
-                    value
-                },
-                decodeError! => {
-                    return utf8DecodeErrorAsFsError(decodeError)!;
-                },
-            };
-            out.push(allocator, decoded.char()).as_fs_error().?;
-            index += decoded.len();
-        }
-        complete = true;
-        !PathView::init(out.asSlice())
-    }
-
     pub fn text(&self) &[char] {
         self.text
     }
 
-    pub fn to_path_buf(&self, allocator: &mut mem::Allocator) Error!PathBuf {
-        let mut text = string::String::fromSlice(allocator, self.text()).as_fs_error().?;
-        !PathBuf::fromString(text)
-    }
-
-    pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
-        self.encode_bytes(storage).as_fs_error()
-    }
-
-    pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
-        let mut out = 0usize;
-        let mut index = 0usize;
-        let text = self.text();
-        while index < text.len() {
-            let ch = text[index];
-            if ch as u32 == 0u32 {
-                return PathError::Invalid!;
+    pub fn encode(&self, storage: &mut [u8]) PathError!EncodedPath {
+        let mut out: usize = 0;
+        for &ch in self.text().iter() {
+            if ch.codepoint() == 0 {
+                return PathError::ContainsNul!;
             }
             let encoded = ch.encode_utf8();
-            if out + encoded.len() >= storage.len() {
+            let next = switch out.checked_add(encoded.len()) {
+                ?value => value,
+                null => return PathError::TooLong!,
+            };
+            if next >= storage.len() {
                 return PathError::TooLong!;
             }
-            let bytes = encoded.bytes();
-            let mut byte_index = 0usize;
-            while byte_index < bytes.len() {
-                storage[out] = bytes[byte_index];
-                out += 1usize;
-                byte_index += 1usize;
+            for &byte in encoded.bytes().iter() {
+                storage[out] = byte;
+                out += 1;
             }
-            index += 1usize;
         }
         if out >= storage.len() {
             return PathError::TooLong!;
         }
-        storage[out] = 0u8;
+        storage[out] = 0;
         !EncodedPath::init(storage.ptr(), out)
     }
-
 }
 
 extend PathBuf {
@@ -88,12 +47,12 @@ extend PathBuf {
         { text: string::String::init() }
     }
 
-    pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) Error!PathBuf {
-        let mut text = string::String::initCapacity(allocator, capacity).as_fs_error().?;
+    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!PathBuf {
+        let text = string::String::initCapacity(allocator, capacity).?;
         !PathBuf { text: text }
     }
 
-    pub fn from_owned_slice(text: &mut [char]) PathBuf {
+    pub fn fromOwnedSlice(text: &mut [char]) PathBuf {
         { text: string::String::fromOwnedSlice(text) }
     }
 
@@ -101,12 +60,18 @@ extend PathBuf {
         { text: text }
     }
 
-    pub fn from_path(allocator: &mut mem::Allocator, path: PathView) Error!PathBuf {
-        path.to_path_buf(allocator)
+    pub fn fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!PathBuf {
+        let text = string::String::fromSlice(allocator, path.text()).?;
+        !PathBuf::fromString(text)
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
-        self.text.deinit(allocator).as_fs_error()
+    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) string::TextError!PathBuf {
+        let text = string::String::fromUtf8(allocator, bytes).?;
+        !PathBuf::fromString(text)
+    }
+
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.text.deinit(allocator)
     }
 
     pub fn view(&self) PathView {
@@ -121,7 +86,7 @@ extend PathBuf {
         self.text.len()
     }
 
-    pub fn is_empty(&self) bool {
+    pub fn isEmpty(&self) bool {
         self.text.isEmpty()
     }
 
@@ -129,29 +94,20 @@ extend PathBuf {
         self.text.clear()
     }
 
-    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) Error!void {
-        self.text.append(allocator, text).as_fs_error()
+    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!void {
+        self.text.append(allocator, text)
     }
 
-    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) Error!void {
-        self.text.push(allocator, ch).as_fs_error()
+    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!void {
+        self.text.push(allocator, ch)
     }
 
-    pub fn join(&mut self, allocator: &mut mem::Allocator, component: PathView) Error!void {
-        appendComponentToString(allocator, component.text(), &mut self.text).?;
-        !{}
+    pub fn joinComponent(&mut self, allocator: &mut mem::Allocator, component: &[char]) mem::Error!void {
+        appendComponentToString(allocator, component, &mut self.text)
     }
 
-    pub fn join_component(&mut self, allocator: &mut mem::Allocator, component: &[char]) Error!void {
-        self.join(allocator, PathView::init(component))
-    }
-
-    pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
+    pub fn encode(&self, storage: &mut [u8]) PathError!EncodedPath {
         self.view().encode(storage)
-    }
-
-    pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
-        self.view().encode_bytes(storage)
     }
 }
 
@@ -159,43 +115,44 @@ fn appendComponentToString(
     allocator: &mut mem::Allocator,
     component: &[char],
     out: &mut string::String,
-) Error!void {
-    if component.len() == 0usize {
+) mem::Error!void {
+    if component.len() == 0 {
         return !{};
     }
-    if out.len() == 0usize {
-        out.append(allocator, component).as_fs_error()
+    if out.isEmpty() {
+        out.append(allocator, component)
     } else {
-        let out_has_sep = is_separator(out.text()[out.len() - 1usize]);
-        let component_has_sep = is_separator(component[0]);
-        if not out_has_sep and not component_has_sep {
-            out.push(allocator, '/').as_fs_error().?;
-            out.append(allocator, component).as_fs_error()
-        } else if out_has_sep and component_has_sep {
-            out.append(allocator, &component[1usize..]).as_fs_error()
+        let outHasSeparator = isSeparator(out.text()[out.len() - 1]);
+        let componentHasSeparator = isSeparator(component[0]);
+        let needsSeparator = not outHasSeparator and not componentHasSeparator;
+        let appended: &[char] = if outHasSeparator and componentHasSeparator {
+            &component[1..]
         } else {
-            out.append(allocator, component).as_fs_error()
+            component
+        };
+        let separatorLen: usize = if needsSeparator { 1 } else { 0 };
+        let appendLen = switch appended.len().checked_add(separatorLen) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        let needed = switch out.len().checked_add(appendLen) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        out.ensureTotalCapacity(allocator, needed).?;
+        if needsSeparator {
+            out.push(allocator, '/').?;
         }
+        out.append(allocator, appended)
     }
 }
 
-fn is_separator(ch: char) bool {
+fn isSeparator(ch: char) bool {
     ch == '/'
 }
 
-fn utf8DecodeErrorAsFsError(decodeError: unicode::Utf8DecodeError) Error {
-    switch decodeError {
-        unicode::Utf8DecodeError::Empty => Error::Invalid,
-        unicode::Utf8DecodeError::Truncated => Error::Invalid,
-        unicode::Utf8DecodeError::InvalidLeadingByte => Error::Invalid,
-        unicode::Utf8DecodeError::InvalidContinuation => Error::Invalid,
-        unicode::Utf8DecodeError::Overlong => Error::Invalid,
-        unicode::Utf8DecodeError::InvalidScalar => Error::Invalid,
-    }
-}
-
 extend EncodedPath {
-    pub fn init(ptr: &u8, len: usize) EncodedPath {
+    fn init(ptr: &u8, len: usize) EncodedPath {
         { ptr: ptr, len: len }
     }
 
@@ -211,53 +168,23 @@ extend EncodedPath {
         &self.ptr[0..self.len]
     }
 
-    pub fn nul_terminated_bytes(&self) &[u8] {
-        &self.ptr[0..(self.len + 1usize)]
+    pub fn nulTerminatedBytes(&self) &[u8] {
+        &self.ptr[0..(self.len + 1)]
     }
 }
 
 extend PathError : error::IntoError[Error] {
     fn into_error(self) Error {
         switch self {
-            PathError::Invalid => Error::Invalid,
+            PathError::ContainsNul => Error::Invalid,
             PathError::TooLong => Error::TooLong,
             _ => Error::Invalid,
         }
     }
 }
 
-extend PathError {
-    pub(pkg) fn as_fs_error(self) Error {
-        self.into_error()
-    }
-}
-
 extend[T] PathError!T {
-    pub(pkg) fn as_fs_error(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend mem::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
-        switch self {
-            mem::Error::OutOfMemory => Error::OutOfMemory,
-            mem::Error::Invalid => Error::Invalid,
-            mem::Error::InvalidAlignment => Error::Invalid,
-            mem::Error::System => Error::System,
-            _ => Error::System,
-        }
-    }
-}
-
-extend mem::Error {
-    pub(pkg) fn as_fs_error(self) Error {
-        self.into_error()
-    }
-}
-
-extend[T] mem::Error!T {
-    pub(pkg) fn as_fs_error(self) Error!T {
+    pub(pkg) fn asFsError(self) Error!T {
         self.cast_error()
     }
 }

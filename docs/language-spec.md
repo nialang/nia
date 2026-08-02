@@ -3089,8 +3089,18 @@ borrowed scalar view.
 `Hasher`. Text hashing writes the scalar count followed by each scalar value;
 `String` delegates to that borrowed representation and implements content
 `Eq[String]`, so equal owned text has equal hash output.
-`PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
-append path components with explicit allocation.
+`PathBuf::fromView(allocator, path)` copies a borrowed path and reports
+`mem::Error`; `PathBuf::fromUtf8(allocator, bytes)` preserves `TextError` rather
+than collapsing decoding and allocation failures into filesystem errors.
+`joinComponent(allocator, text)` reserves the complete mutation before changing
+visible text, so allocation failure preserves the original path. Pure PathBuf
+construction, mutation, and release report `mem::Error`.
+`PathView::encode(storage)` and `PathBuf::encode(storage)` are the sole checked
+OS-byte conversion operations. They return `PathError::ContainsNul` for an
+embedded NUL and `PathError::TooLong` when the caller's storage cannot contain
+the encoded bytes plus their terminator. `EncodedPath` can only be constructed
+by these checked operations; it exposes bytes with and without the terminating
+NUL for immediate OS calls.
 
 The CLI surface is:
 

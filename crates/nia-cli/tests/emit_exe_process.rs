@@ -1984,9 +1984,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(50)!;
     }
 
-    let mut path = std::PathBuf::from_path(page, std::PathView::init(&"root")).exit().?;
+    let mut path = std::PathBuf::fromView(page, std::PathView::init(&"root")).exit().?;
     defer path.deinit(page).exit().?;
-    path.join_component(page, &"child").exit().?;
+    path.joinComponent(page, &"child").exit().?;
     if path.view().text().len() != 10usize {
         return process::exit(7)!;
     }

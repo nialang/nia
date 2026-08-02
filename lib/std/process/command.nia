@@ -128,7 +128,7 @@ pub(pkg) fn run_path_args(
     envp: &&u8,
 ) Error!Term {
     let mut path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-    let encoded_path = path.encode(&mut path_storage[..]).as_process_setup_error().?;
+    let encoded_path = path.encode(&mut path_storage[..]).asFsError().as_process_setup_error().?;
     let mut argv = collections::ArrayList[&u8]::init();
     defer argv.deinit(allocator).as_process_setup_error().?;
     argv.push(allocator, encoded_path.ptr()).as_process_setup_error().?;

@@ -43,37 +43,37 @@ extend Dir {
 
     pub fn open_file(&self, path: PathView, options: OpenOptions) Error!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.open_encoded_file(encoded, options)
     }
 
     pub fn open_dir(&self, path: PathView, options: OpenDirOptions) Error!Dir {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.open_encoded_dir(encoded, options)
     }
 
     pub fn create_file(&self, path: PathView, options: CreateOptions) Error!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.create_encoded_file(encoded, options)
     }
 
     pub fn create_dir(&self, path: PathView, options: CreateDirOptions) Error!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.create_encoded_dir(encoded, options)
     }
 
     pub fn delete_file(&self, path: PathView) Error!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.delete_encoded_file(encoded)
     }
 
     pub fn delete_dir(&self, path: PathView) Error!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.delete_encoded_dir(encoded)
     }
 
@@ -84,14 +84,14 @@ extend Dir {
     pub fn rename_to(&self, old_path: PathView, new_dir: &Dir, new_path: PathView) Error!void {
         let mut old_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let mut new_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let old_encoded = old_path.encode(&mut old_storage[..]).?;
-        let new_encoded = new_path.encode(&mut new_storage[..]).?;
+        let old_encoded = old_path.encode(&mut old_storage[..]).asFsError().?;
+        let new_encoded = new_path.encode(&mut new_storage[..]).asFsError().?;
         self.rename_encoded_to(old_encoded, new_dir, new_encoded)
     }
 
     pub fn metadata(&self, path: PathView, options: MetadataOptions) Error!Metadata {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         self.encoded_metadata(encoded, options)
     }
 
@@ -202,7 +202,7 @@ extend File {
 
     pub fn open(path: PathView, options: OpenOptions) Error!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         let handle = os::open_at(
             os::cwd(),
             encoded.ptr(),
@@ -217,7 +217,7 @@ extend File {
 
     pub fn create(path: PathView, options: CreateOptions) Error!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).?;
+        let encoded = path.encode(&mut storage[..]).asFsError().?;
         let handle = os::open_at(
             os::cwd(),
             encoded.ptr(),

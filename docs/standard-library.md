@@ -59,7 +59,7 @@ providers.
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
 | `slice` and iterators | graph scans, argv/import construction | mostly foundational, but trapping convenience methods need checked/unchecked classification | retain minimal core after conformance |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
-| `fs` path/file/options | package/build/cache paths and generated files | coarse `Invalid/TooLong/Io`; fixed encoded path capacity; relative/root policy implicit | redesign typed path ownership, roots, and contextual errors |
+| `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
 | `io` | stdout/stderr/files | public runtime type exposes `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade, hide OS provider and test partial writes |
 | `process` args/env/command | runner context and compiler subprocess | raw argv/envp and coarse spawn/wait errors leak bootstrap mechanics | retire from BuildPlan boundary; expose typed process action/service |
 | `os` Linux facade | path capacity, descriptors, process and I/O providers | broad public low-level facade is a layer violation for build scripts | keep package-private platform provider; review intentional unsafe API separately |
@@ -265,10 +265,16 @@ construction and ownership methods use `initCapacity`, `fromOwnedSlice`,
 `fromSlice`, `textMut`, `isEmpty`, `ensureTotalCapacity`, and `intoOwnedSlice`.
 `text()` is the only read-only borrowed view. No compatibility type alias or
 duplicate `as_slice()` accessor is retained.
-Filesystem path decoding currently maps each of those values explicitly to
-`fs::Error::Invalid` and clears partial output on failure. That is an
-intentional compatibility boundary for the still-coarse filesystem facade, not
-the final path diagnostic model.
+
+`PathView` remains a nominal borrowed scalar path and `PathBuf` owns a `String`.
+`PathBuf::fromView` reports allocation failure as `mem::Error`, while
+`PathBuf::fromUtf8` preserves `TextError`; callers no longer provide an
+ArrayList scratch buffer or receive a collapsed `fs::Error::Invalid`.
+`joinComponent` is the sole component-join spelling and reserves its full
+mutation before changing visible text. `encode` is the sole checked OS-byte
+conversion and returns `PathError::ContainsNul` or `PathError::TooLong`.
+`EncodedPath` has no public unchecked constructor. Former snake-case and
+duplicate copy, join, and encode entry points have no aliases.
 
 Initial convenience-trait dispositions are deliberately asymmetric. `Char` is
 a Unicode conversion API rather than polymorphic language dispatch.
@@ -287,7 +293,7 @@ LLVM before deleting its builtin declaration.
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
-| filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | text encoding and UTF-8 host-argument decoding | `PathError`, then `fs::Error` | Unicode mapping is explicit; OS-native representation and richer errors remain open |
+| filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
 | process argument/environment | `Arg` / `EnvVar` byte views and command-owned C buffers | process facade and build typed arguments | `process::Error`, formatting parse errors | raw host service retained; BuildPlan uses typed paths/values |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
