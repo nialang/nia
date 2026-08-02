@@ -384,9 +384,9 @@ surface has capability but no single ergonomic contract:
 
 - a string literal is an addressed fixed `[N]char` value and naturally coerces
   to `&[char]`;
-- `StringView` is currently a one-field wrapper around `&[char]` with duplicate
-  `text()` and `as_slice()` accessors, so it must either enforce a real nominal
-  invariant or retire in favor of the slice;
+- the former `StringView` was a one-field wrapper around `&[char]` with duplicate
+  `text()` and `as_slice()` accessors and no nominal invariant; the active text
+  reconstruction retires it in favor of the slice;
 - `StringBuf` is an owned `ArrayList[char]`, but allocation ownership is repeated
   at construction, every growth operation, extraction, and deinitialization;
 - adjacent and multiline literals cover compile-time construction, while
@@ -2107,6 +2107,23 @@ Nia slice iteration and pointer destructuring; the conformance program uses
 `if value is !pattern` for a single success path and `switch` for exhaustive
 error classification, so this batch records user-facing Nia idioms rather than
 only exercising the underlying representation.
+
+Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
+batch): the redundant `StringView` type, root export, constructors, accessors,
+formatting implementation, and append compatibility path are physically
+removed with no alias. `&[char]` is now the canonical borrowed scalar-text
+representation across string formatting, build names and options, target
+fields, command environment values, and run arguments. `PathView` remains
+nominal because it carries path semantics rather than merely forwarding slice
+operations; `StringBuf` and `PathBuf` continue to own copied storage when values
+must outlive a call. The generated build runner, plan encoder, and production
+configured-build fixture use the native slice APIs, including direct arrays of
+borrowed literal arguments, without changing the serialized plan protocol.
+Implementation and conformance code retain ordinary Nia `for` iteration,
+`if value is pattern` for a single optional branch, and `switch` where the full
+sum must be classified. This accepts the borrowed role only: the public
+owned-text name, allocator protocol, mutation/format composition, and broader
+text workflow remain active API exploration rather than frozen design.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

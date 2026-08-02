@@ -9,10 +9,6 @@ using types::{EncodedPath, Error, PathBuf, PathError, PathView};
 
 extend PathView {
     pub fn init(text: &[char]) PathView {
-        { text: string::StringView::init(text) }
-    }
-
-    pub fn from_string(text: string::StringView) PathView {
         { text: text }
     }
 
@@ -44,10 +40,6 @@ extend PathView {
     }
 
     pub fn text(&self) &[char] {
-        self.text.text()
-    }
-
-    pub fn string(&self) string::StringView {
         self.text
     }
 
@@ -118,15 +110,11 @@ extend PathBuf {
     }
 
     pub fn view(&self) PathView {
-        PathView::from_string(self.text.view())
+        PathView::init(self.text.text())
     }
 
     pub fn text(&self) &[char] {
         self.text.text()
-    }
-
-    pub fn string(&self) string::StringView {
-        self.text.view()
     }
 
     pub fn string_buf(&self) &string::StringBuf {

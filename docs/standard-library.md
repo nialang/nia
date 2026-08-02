@@ -56,7 +56,7 @@ providers.
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
 | `mem` allocators/copy/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | unchecked operations and duplicated raw/list surfaces are not classified; allocator repeats at every call | audit checked vs explicitly unchecked APIs; narrow public surface |
-| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed `StringView` and retained plan text have no frozen-plan lifetime contract | introduce explicit owned/borrowed roles before plan freeze |
+| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | retain native slice borrowing; finish owned-text naming and allocator design |
 | `slice` and iterators | graph scans, argv/import construction | mostly foundational, but trapping convenience methods need checked/unchecked classification | retain minimal core after conformance |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | coarse `Invalid/TooLong/Io`; fixed encoded path capacity; relative/root policy implicit | redesign typed path ownership, roots, and contextual errors |
@@ -136,7 +136,7 @@ The std review also treats language ergonomics as a system rather than a list of
 working primitives. Text must be sampled end to end from string literals and
 UTF-8 conversion through borrowed/owned values, formatting, mutation,
 comparison, paths, OS boundaries, allocation failure, and defer cleanup. The
-current existence of `[char]`, `StringView`, `StringBuf`, Unicode helpers, and
+current existence of `[char]`, `StringBuf`, Unicode helpers, and
 formatting traits does not by itself establish a coherent string API.
 
 Compiler-known traits receive the same scrutiny. Operators and structural place
@@ -149,8 +149,8 @@ not a reason to preserve it.
 
 The current audit sets this design direction:
 
-- borrowed scalar text is provisionally `&[char]`; `StringView` survives only if
-  it gains a checked nominal invariant that a slice does not express;
+- borrowed scalar text is `&[char]`; the redundant one-field `StringView` is
+  retired because it enforced no invariant beyond the slice;
 - there will be one public owned/mutable scalar-text type, not parallel view,
   buffer, and string wrappers with equivalent semantics;
 - arbitrary bytes, validated UTF-8, scalar text, C strings, and OS paths remain
@@ -184,7 +184,7 @@ LLVM before deleting its builtin declaration.
 
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
-| borrowed scalar text | `&[char]`, plus redundant `StringView` | literals, slices, format input | none for borrowing | `&[char]` is provisional; wrapper retirement remains open |
+| borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
 | owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/format with explicit allocator | `mem::Error` | one-type naming and common mutation protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First` | `Utf8DecodeError` | scalar decoder accepted; validated whole-buffer type remains open |
@@ -201,7 +201,7 @@ path exists; OS path rejection occurs after representation conversion.
 ## 5. Ownership And Error Baseline
 
 Build-plan text and paths must be owned by the builder/plan arena or copied into
-the serialized plan. A `StringView`, `PathView`, module import, or target name
+the serialized plan. A borrowed text slice, `PathView`, module import, or target name
 cannot survive plan freeze merely because its current build-script stack frame
 happens to remain alive during recursive execution.
 
@@ -238,8 +238,8 @@ Borrowed views receive no inferred lifetime from Nia. A function-local string
 literal is an array value in that frame; returning `&[char]` obtained from it
 creates a dangling view after return even when the source text looks constant.
 Formatting helpers either write literal text while their frame is active or
-refer to explicitly stable storage. The same rule applies to `StringView`,
-`PathView`, target text, and every future frozen-plan field.
+refer to explicitly stable storage. The same rule applies to scalar-text
+slices, `PathView`, target text, and every future frozen-plan field.
 
 Allocator failure, invalid UTF-8, invalid path encoding, unavailable files,
 partial I/O, spawn setup, process exit, cleanup, and formatting output are

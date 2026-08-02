@@ -235,17 +235,17 @@ extend Build {
     }
 
     pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
-        self.addStepRecord(string::StringView::init(name), StepKind::Aggregate, { aggregate: AggregateStep::init() })
+        self.addStepRecord(name, StepKind::Aggregate, { aggregate: AggregateStep::init() })
     }
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
         let handle = StepHandle::init(self.ownerId, self.steps.len());
-        let mut payload = UncacheableStep::init(self.allocator, string::StringView::init(description), handle.index()).?;
+        let mut payload = UncacheableStep::init(self.allocator, description, handle.index()).?;
         let mut transferred = false;
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(string::StringView::init(name), StepKind::Uncacheable, { uncacheable: payload }).?;
+        let result = self.addStepRecord(name, StepKind::Uncacheable, { uncacheable: payload }).?;
         transferred = true;
         !result
     }
@@ -263,19 +263,19 @@ extend Build {
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(string::StringView::init(name), StepKind::GeneratedFile, { generatedFile: payload }).?;
+        let result = self.addStepRecord(name, StepKind::GeneratedFile, { generatedFile: payload }).?;
         transferred = true;
         !result
     }
 
     pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
-        self.addStepRecord(string::StringView::init(name), StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
+        self.addStepRecord(name, StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
     }
 
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
-        self.addStepRecord(string::StringView::init(name), StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
+        self.addStepRecord(name, StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
     }
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
@@ -294,7 +294,7 @@ extend Build {
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(string::StringView::init(name), StepKind::RunExecutable, { runExecutable: payload }).?;
+        let result = self.addStepRecord(name, StepKind::RunExecutable, { runExecutable: payload }).?;
         transferred = true;
         let mut committed = false;
         defer if not committed {
@@ -338,7 +338,7 @@ extend Build {
             payload.deinit(self.allocator, handle.index()).?;
         };
         let result = self.addStepRecord(
-            string::StringView::init(name),
+            name,
             StepKind::ExternalCommand,
             { externalCommand: payload },
         ).?;
@@ -405,7 +405,7 @@ extend Build {
         validateModuleImports(options.imports).?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
         if options.sourceRoot == ModuleSourceRoot::Build
-            and not isValidBuildPath(options.rootSource.string())
+            and not isValidBuildPath(options.rootSource.text())
         {
             return Error::Invalid {
                 operation: Operation::Validate,
@@ -592,9 +592,9 @@ extend Build {
         stderr.flush().asBuildError(Operation::Report, Subject::Diagnostic)
     }
 
-    fn findStep(&self, name: string::StringView) ?Step {
+    fn findStep(&self, name: &[char]) ?Step {
         for &step in self.steps.iter() {
-            if mem::equal[char](step.name.text(), name.text()) {
+            if mem::equal[char](step.name.text(), name) {
                 return ?step;
             }
         }
@@ -612,18 +612,18 @@ extend Build {
         null
     }
 
-    fn findExecutable(&self, name: string::StringView) ?ExecutableTarget {
+    fn findExecutable(&self, name: &[char]) ?ExecutableTarget {
         for &target in self.executables.iter() {
-            if mem::equal[char](target.name.text(), name.text()) {
+            if mem::equal[char](target.name.text(), name) {
                 return ?target;
             }
         }
         null
     }
 
-    fn findModule(&self, name: string::StringView) ?Module {
+    fn findModule(&self, name: &[char]) ?Module {
         for &moduleRecord in self.modules.iter() {
-            if mem::equal[char](moduleRecord.name.text(), name.text()) {
+            if mem::equal[char](moduleRecord.name.text(), name) {
                 return ?moduleRecord;
             }
         }
@@ -692,7 +692,7 @@ extend Build {
         stderr.flush().asBuildError(Operation::Report, Subject::RequestedStep)
     }
 
-    fn addStepRecord(&mut self, name: string::StringView, kind: StepKind, payload: StepPayload) Error!StepHandle {
+    fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
         if not isValidStableName(name) {
             return Error::Invalid {
                 operation: Operation::Validate,
@@ -777,8 +777,8 @@ extend AggregateStep {
 }
 
 extend UncacheableStep {
-    fn init(allocator: &mut mem::Allocator, description: string::StringView, index: usize) Error!UncacheableStep {
-        let owned = string::StringBuf::from_slice(allocator, description.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+    fn init(allocator: &mut mem::Allocator, description: &[char], index: usize) Error!UncacheableStep {
+        let owned = string::StringBuf::from_slice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
         !{ description: owned }
     }
 
@@ -830,7 +830,7 @@ extend RunOptions {
         }
     }
 
-    pub fn withArguments(self, arguments: &[string::StringView]) RunOptions {
+    pub fn withArguments(self, arguments: &[&[char]]) RunOptions {
         {
             target: self.target,
             arguments: ?arguments,
@@ -861,7 +861,7 @@ extend RunExecutableStep {
                 for &argument in arguments.iter() {
                     let mut owned = string::StringBuf::from_slice(
                         allocator,
-                        argument.text(),
+                        argument,
                     ).asBuildError(Operation::Retain, Subject::Step(index)).?;
                     let mut argumentTransferred = false;
                     defer if not argumentTransferred {
@@ -901,28 +901,28 @@ extend CommandArgument {
     pub fn literal(value: &[char]) CommandArgument {
         {
             kind: CommandArgumentKind::Literal,
-            payload: { value: string::StringView::init(value) },
+            payload: { value: value },
         }
     }
 
     pub fn packageInput(path: fs::PathView) CommandArgument {
         {
             kind: CommandArgumentKind::PackageInput,
-            payload: { value: path.string() },
+            payload: { value: path.text() },
         }
     }
 
     pub fn buildInput(path: BuildPathView) CommandArgument {
         {
             kind: CommandArgumentKind::BuildInput,
-            payload: { value: string::StringView::init(path.text()) },
+            payload: { value: path.text() },
         }
     }
 
     pub fn buildOutput(path: BuildPathView) CommandArgument {
         {
             kind: CommandArgumentKind::BuildOutput,
-            payload: { value: string::StringView::init(path.text()) },
+            payload: { value: path.text() },
         }
     }
 
@@ -937,7 +937,7 @@ extend CommandArgument {
 extend ExternalCommandOptions {
     pub fn search(program: &[char]) ExternalCommandOptions {
         {
-            program: string::StringView::init(program),
+            program: program,
             arguments: null,
             workingDirectory: fs::PathView::init(&""),
             resourceClass: ActionResourceClass::Conservative,
@@ -1023,8 +1023,8 @@ extend ExternalCommandOptions {
 extend CommandEnvironmentInput {
     pub fn init(name: &[char], value: &[char]) CommandEnvironmentInput {
         {
-            name: string::StringView::init(name),
-            value: string::StringView::init(value),
+            name: name,
+            value: value,
         }
     }
 }
@@ -1043,7 +1043,7 @@ extend OwnedCommandArgument {
         }
         let value = string::StringBuf::from_slice(
             allocator,
-            argument.payload.value.text(),
+            argument.payload.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         !{ kind: argument.kind, payload: { value: value } }
     }
@@ -1064,7 +1064,7 @@ extend OwnedCommandEnvironmentInput {
     ) Error!OwnedCommandEnvironmentInput {
         let mut name = string::StringBuf::from_slice(
             allocator,
-            input.name.text(),
+            input.name,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         let mut nameTransferred = false;
         defer if not nameTransferred {
@@ -1072,7 +1072,7 @@ extend OwnedCommandEnvironmentInput {
         };
         let value = string::StringBuf::from_slice(
             allocator,
-            input.value.text(),
+            input.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         nameTransferred = true;
         !{ name: name, value: value }
@@ -1113,7 +1113,7 @@ extend ExternalCommandStep {
         };
         command.program = string::StringBuf::from_slice(
             allocator,
-            options.program.text(),
+            options.program,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         command.workingDirectory = fs::PathBuf::from_path(
             allocator,
@@ -1200,12 +1200,12 @@ extend ExternalCommandStep {
 extend Step {
     fn init(
         allocator: &mut mem::Allocator,
-        name: string::StringView,
+        name: &[char],
         kind: StepKind,
         payload: StepPayload,
         index: usize,
     ) Error!Step {
-        let ownedName = string::StringBuf::from_slice(allocator, name.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        let ownedName = string::StringBuf::from_slice(allocator, name).asBuildError(Operation::Retain, Subject::Step(index)).?;
         !{
             index: index,
             name: ownedName,
@@ -1233,11 +1233,11 @@ extend Step {
     }
 }
 
-fn validateRunArguments(arguments: ?&[string::StringView], index: usize) Error!void {
+fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!void {
     switch arguments {
         ?values => {
             for &value in values.iter() {
-                if runArgumentContainsNul(value.text()) {
+                if runArgumentContainsNul(value) {
                     return Error::Invalid {
                         operation: Operation::Validate,
                         subject: Subject::Step(index),
@@ -1251,9 +1251,9 @@ fn validateRunArguments(arguments: ?&[string::StringView], index: usize) Error!v
 }
 
 fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!void {
-    if options.program.text().len() == 0
-        or runArgumentContainsNul(options.program.text())
-        or not isValidPackagePath(options.workingDirectory.string(), true)
+    if options.program.len() == 0
+        or runArgumentContainsNul(options.program)
+        or not isValidPackagePath(options.workingDirectory.text(), true)
     {
         return invalidStep(index);
     }
@@ -1282,14 +1282,14 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
             let mut environmentIndex: usize = 0;
             while environmentIndex < environment.len() {
                 let input = environment[environmentIndex];
-                if environmentNameInvalid(input.name.text())
-                    or runArgumentContainsNul(input.value.text())
+                if environmentNameInvalid(input.name)
+                    or runArgumentContainsNul(input.value)
                 {
                     return invalidStep(index);
                 }
                 let mut priorIndex: usize = 0;
                 while priorIndex < environmentIndex {
-                    if mem::equal[char](environment[priorIndex].name.text(), input.name.text()) {
+                    if mem::equal[char](environment[priorIndex].name, input.name) {
                         return invalidStep(index);
                     }
                     priorIndex += 1;
@@ -1307,7 +1307,7 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
                     continue;
                 }
                 let value = argument.payload.value;
-                if runArgumentContainsNul(value.text()) {
+                if runArgumentContainsNul(value) {
                     return invalidStep(index);
                 }
                 if argument.kind == CommandArgumentKind::PackageInput
@@ -1348,8 +1348,8 @@ fn invalidStep(index: usize) Error!void {
     }!
 }
 
-fn isValidPackagePath(path: string::StringView, allowEmpty: bool) bool {
-    if path.text().len() == 0 {
+fn isValidPackagePath(path: &[char], allowEmpty: bool) bool {
+    if path.len() == 0 {
         return allowEmpty;
     }
     isValidBuildPath(path)
@@ -1379,7 +1379,7 @@ fn environmentNameInvalid(text: &[char]) bool {
 extend ModuleOptions {
     pub fn init(name: &[char], rootSource: fs::PathView) ModuleOptions {
         {
-            name: string::StringView::init(name),
+            name: name,
             sourceRoot: ModuleSourceRoot::Package,
             rootSource: rootSource,
             optimization: OptimizationMode::O2,
@@ -1389,7 +1389,7 @@ extend ModuleOptions {
 
     pub fn fromBuild(name: &[char], rootSource: BuildPathView) ModuleOptions {
         {
-            name: string::StringView::init(name),
+            name: name,
             sourceRoot: ModuleSourceRoot::Build,
             rootSource: fs::PathView::init(rootSource.text()),
             optimization: OptimizationMode::O2,
@@ -1420,11 +1420,11 @@ extend ModuleOptions {
 
 extend BuildPathView {
     pub fn init(path: &[char]) BuildPathView {
-        { path: string::StringView::init(path) }
+        { path: path }
     }
 
     pub fn text(&self) &[char] {
-        self.path.text()
+        self.path
     }
 
     fn isValid(&self) bool {
@@ -1446,7 +1446,7 @@ extend Module {
         defer if not transferred {
             moduleRecord.deinit(allocator).?;
         };
-        moduleRecord.name = string::StringBuf::from_slice(allocator, options.name.text()).asBuildError(Operation::Retain, Subject::Module(index)).?;
+        moduleRecord.name = string::StringBuf::from_slice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.rootSource = fs::PathBuf::from_path(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.imports = cloneModuleImports(allocator, options.imports).?;
         transferred = true;
@@ -1470,7 +1470,7 @@ extend Module {
 extend ModuleImport {
     pub fn init(name: &[char], path: fs::PathView) ModuleImport {
         {
-            name: string::StringView::init(name),
+            name: name,
             path: path,
         }
     }
@@ -1487,7 +1487,7 @@ extend OwnedModuleImport {
         defer if not transferred {
             owned.deinit(allocator).?;
         };
-        owned.name = string::StringBuf::from_slice(allocator, import.name.text()).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
+        owned.name = string::StringBuf::from_slice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         owned.path = fs::PathBuf::from_path(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         transferred = true;
         !owned
@@ -1505,7 +1505,7 @@ extend ExecutableTarget {
     pub fn init(
         allocator: &mut mem::Allocator,
         options: ExecutableOptions,
-        outputName: string::StringView,
+        outputName: &[char],
         index: usize,
     ) Error!ExecutableTarget {
         let mut target: ExecutableTarget = {
@@ -1520,8 +1520,8 @@ extend ExecutableTarget {
         defer if not transferred {
             target.deinit(allocator).?;
         };
-        target.name = string::StringBuf::from_slice(allocator, options.name.text()).asBuildError(Operation::Retain, Subject::Executable(index)).?;
-        target.outputName = string::StringBuf::from_slice(allocator, outputName.text()).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+        target.name = string::StringBuf::from_slice(allocator, options.name).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+        target.outputName = string::StringBuf::from_slice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(index)).?;
         transferred = true;
         !target
     }
@@ -1536,12 +1536,12 @@ extend ExecutableTarget {
 
 extend TargetView {
     pub fn init(
-        arch: string::StringView,
-        vendor: string::StringView,
-        os: string::StringView,
-        env: string::StringView,
-        abi: string::StringView,
-        endian: string::StringView,
+        arch: &[char],
+        vendor: &[char],
+        os: &[char],
+        env: &[char],
+        abi: &[char],
+        endian: &[char],
         pointerWidth: u32,
     ) TargetView {
         {
@@ -1555,27 +1555,27 @@ extend TargetView {
         }
     }
 
-    pub fn arch(&self) string::StringView {
+    pub fn arch(&self) &[char] {
         self.arch
     }
 
-    pub fn vendor(&self) string::StringView {
+    pub fn vendor(&self) &[char] {
         self.vendor
     }
 
-    pub fn os(&self) string::StringView {
+    pub fn os(&self) &[char] {
         self.os
     }
 
-    pub fn env(&self) string::StringView {
+    pub fn env(&self) &[char] {
         self.env
     }
 
-    pub fn abi(&self) string::StringView {
+    pub fn abi(&self) &[char] {
         self.abi
     }
 
-    pub fn endian(&self) string::StringView {
+    pub fn endian(&self) &[char] {
         self.endian
     }
 
@@ -1584,12 +1584,12 @@ extend TargetView {
     }
 
     pub fn equals(&self, other: TargetView) bool {
-        mem::equal[char](self.arch.text(), other.arch.text())
-            and mem::equal[char](self.vendor.text(), other.vendor.text())
-            and mem::equal[char](self.os.text(), other.os.text())
-            and mem::equal[char](self.env.text(), other.env.text())
-            and mem::equal[char](self.abi.text(), other.abi.text())
-            and mem::equal[char](self.endian.text(), other.endian.text())
+        mem::equal[char](self.arch, other.arch)
+            and mem::equal[char](self.vendor, other.vendor)
+            and mem::equal[char](self.os, other.os)
+            and mem::equal[char](self.env, other.env)
+            and mem::equal[char](self.abi, other.abi)
+            and mem::equal[char](self.endian, other.endian)
             and self.pointerWidth == other.pointerWidth
     }
 }
@@ -1613,24 +1613,24 @@ extend TargetStorage {
         defer if not transferred {
             owned.deinit(allocator, subject).?;
         };
-        owned.arch = string::StringBuf::from_slice(allocator, target.arch.text()).asBuildError(Operation::Retain, subject).?;
-        owned.vendor = string::StringBuf::from_slice(allocator, target.vendor.text()).asBuildError(Operation::Retain, subject).?;
-        owned.os = string::StringBuf::from_slice(allocator, target.os.text()).asBuildError(Operation::Retain, subject).?;
-        owned.env = string::StringBuf::from_slice(allocator, target.env.text()).asBuildError(Operation::Retain, subject).?;
-        owned.abi = string::StringBuf::from_slice(allocator, target.abi.text()).asBuildError(Operation::Retain, subject).?;
-        owned.endian = string::StringBuf::from_slice(allocator, target.endian.text()).asBuildError(Operation::Retain, subject).?;
+        owned.arch = string::StringBuf::from_slice(allocator, target.arch).asBuildError(Operation::Retain, subject).?;
+        owned.vendor = string::StringBuf::from_slice(allocator, target.vendor).asBuildError(Operation::Retain, subject).?;
+        owned.os = string::StringBuf::from_slice(allocator, target.os).asBuildError(Operation::Retain, subject).?;
+        owned.env = string::StringBuf::from_slice(allocator, target.env).asBuildError(Operation::Retain, subject).?;
+        owned.abi = string::StringBuf::from_slice(allocator, target.abi).asBuildError(Operation::Retain, subject).?;
+        owned.endian = string::StringBuf::from_slice(allocator, target.endian).asBuildError(Operation::Retain, subject).?;
         transferred = true;
         !owned
     }
 
     fn view(&self) TargetView {
         TargetView::init(
-            self.arch.view(),
-            self.vendor.view(),
-            self.os.view(),
-            self.env.view(),
-            self.abi.view(),
-            self.endian.view(),
+            self.arch.text(),
+            self.vendor.text(),
+            self.os.text(),
+            self.env.text(),
+            self.abi.text(),
+            self.endian.text(),
             self.pointerWidth,
         )
     }
@@ -1650,7 +1650,7 @@ extend TargetStorage {
 extend ExecutableOptions {
     pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
         {
-            name: string::StringView::init(name),
+            name: name,
             rootModule: rootModule,
             outputName: null,
             runtime: Runtime::Freestanding,
@@ -1661,7 +1661,7 @@ extend ExecutableOptions {
         {
             name: self.name,
             rootModule: self.rootModule,
-            outputName: ?string::StringView::init(outputName),
+            outputName: ?outputName,
             runtime: self.runtime,
         }
     }
@@ -1676,7 +1676,7 @@ extend ExecutableOptions {
     }
 }
 
-fn executableOutputName(options: ExecutableOptions) string::StringView {
+fn executableOutputName(options: ExecutableOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -1716,12 +1716,11 @@ extend Runtime {
     }
 }
 
-fn isValidStableName(name: string::StringView) bool {
+fn isValidStableName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
-    let text = name.text();
-    for &ch in text.iter() {
+    for &ch in name.iter() {
         let code = ch as u32;
         let valid = (code >= 48 and code <= 57)
             or (code >= 65 and code <= 90)
@@ -1736,11 +1735,11 @@ fn isValidStableName(name: string::StringView) bool {
     true
 }
 
-fn isValidOutputName(name: string::StringView) bool {
+fn isValidOutputName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
-    for &ch in name.text().iter() {
+    for &ch in name.iter() {
         let code = ch as u32;
         if code == 0 or code == 47 or code == 92 {
             return false;
@@ -1749,8 +1748,7 @@ fn isValidOutputName(name: string::StringView) bool {
     true
 }
 
-fn isValidBuildPath(path: string::StringView) bool {
-    let text = path.text();
+fn isValidBuildPath(text: &[char]) bool {
     if text.len() == 0 or text[0] == '/' or text[text.len() - 1] == '/' {
         return false;
     }
@@ -1789,7 +1787,7 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
                 }
                 let mut oldIndex: usize = 0;
                 while oldIndex < index {
-                    if mem::equal[char](items[oldIndex].name.text(), import.name.text()) {
+                    if mem::equal[char](items[oldIndex].name, import.name) {
                         return Error::Invalid {
                             operation: Operation::Validate,
                             subject: Subject::ModuleImport(index),
@@ -1851,15 +1849,14 @@ fn deinitModuleImports(
     cleanupResult(firstError)
 }
 
-fn isValidModuleImportName(name: string::StringView) bool {
+fn isValidModuleImportName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
-    let text = name.text();
-    if mem::equal[char](text, &"entry") or mem::equal[char](text, &"pkg") {
+    if mem::equal[char](name, &"entry") or mem::equal[char](name, &"pkg") {
         return false;
     }
-    for &ch in text.iter() {
+    for &ch in name.iter() {
         let code = ch as u32;
         let valid = (code >= 48 and code <= 57)
             or (code >= 65 and code <= 90)

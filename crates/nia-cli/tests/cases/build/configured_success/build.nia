@@ -2,7 +2,6 @@ using std::build;
 using std::fs;
 using std::fmt;
 using std::io;
-using std::string;
 
 fn configure(b: &mut build::Build) build::Error!void {
     let helperName = "helper";
@@ -26,7 +25,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
-    let runArguments = [string::StringView::init(&"roadmap")];
+    let runArguments: [1]&[char] = [&"roadmap"];
     let runStep = b.addRunExecutableStep(
         &runStepName,
         build::RunOptions::init(app).withArguments(&runArguments[..]),

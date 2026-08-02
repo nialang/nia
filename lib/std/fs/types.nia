@@ -54,7 +54,7 @@ pub enum FileKind: i32 {
 }
 
 pub struct PathView {
-    text: string::StringView,
+    text: &[char],
 }
 
 pub struct PathBuf {

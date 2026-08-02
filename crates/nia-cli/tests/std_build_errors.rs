@@ -18,12 +18,10 @@ using std::build;
 using std::fs;
 using std::mem;
 using std::process;
-using std::string;
 
 fn target() build::TargetView {
     let empty = "";
-    let text = string::StringView::init(&empty);
-    build::TargetView::init(text, text, text, text, text, text, 64u32)
+    build::TargetView::init(&empty, &empty, &empty, &empty, &empty, &empty, 64u32)
 }
 
 fn initBuild(

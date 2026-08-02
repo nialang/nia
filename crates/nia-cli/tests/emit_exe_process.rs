@@ -1697,7 +1697,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut text = std::StringBuf::from_slice(page, &"nia").exit().?;
     defer text.deinit(page).exit().?;
     text.append(page, &" std").exit().?;
-    if text.view().len() != 7usize {
+    if text.text().len() != 7usize {
         return process::exit(6)!;
     }
     let mut path = std::PathBuf::from_path(page, std::PathView::init(&"root")).exit().?;
