@@ -1634,8 +1634,39 @@ fn emit_exe_exposes_std_root_text_and_cstring() {
         &main,
         r#"
 using std;
+using std::fmt;
 using std::mem;
 using std::process;
+
+struct FailFreeAllocator {
+    backing: mem::PageAllocator,
+    failNextFree: bool,
+}
+
+extend FailFreeAllocator {
+    fn init() FailFreeAllocator {
+        { backing: mem::PageAllocator::init(), failNextFree: false }
+    }
+
+    fn failNext(&mut self) void {
+        self.failNextFree = true;
+    }
+}
+
+extend FailFreeAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.backing.alloc(layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!void {
+        self.backing.free(block).?;
+        if self.failNextFree and not block.is_empty() {
+            self.failNextFree = false;
+            return mem::Error::Invalid!;
+        }
+        !{}
+    }
+}
 
 fn hasUtf8Error(
     result: std::TextError!std::StringBuf,
@@ -1648,6 +1679,10 @@ fn hasUtf8Error(
         },
         std::TextError::InvalidUtf8(actual)! => actual == expected,
         std::TextError::Allocation(error)! => {
+            _ = error;
+            false
+        },
+        std::TextError::Format(error)! => {
             _ = error;
             false
         },
@@ -1856,6 +1891,97 @@ pub fn main(init: process::Init) process::ExitCode!void {
         or boundedText.text()[1] != 'k'
     {
         return process::exit(36)!;
+    }
+
+    let answer = 42;
+    let formattedScalar = text.text()[8];
+    let formatArgs: [2]&fmt::Format = [&answer, &formattedScalar];
+    switch text.appendFormat(page, &" value={} {}", &formatArgs) {
+        !ok => { _ = ok; },
+        error! => {
+            _ = error;
+            return process::exit(37)!;
+        },
+    }
+    if text.text().len() != 20usize
+        or text.text()[8].codepoint() != 0x03bbu32
+        or text.text()[16] != '4'
+        or text.text()[17] != '2'
+        or text.text()[19].codepoint() != 0x03bbu32
+    {
+        return process::exit(38)!;
+    }
+
+    switch text.appendFormat(page, &"partial {", &[]) {
+        !ok => {
+            _ = ok;
+            return process::exit(39)!;
+        },
+        std::TextError::Format(fmt::Error::InvalidTemplate)! => {},
+        error! => {
+            _ = error;
+            return process::exit(40)!;
+        },
+    }
+    if text.text().len() != 20usize or text.text()[19].codepoint() != 0x03bbu32 {
+        return process::exit(41)!;
+    }
+
+    let invalidFormattedBytes: [1]u8 = [0xffu8];
+    let invalidFormatArgs: [1]&fmt::Format = [&invalidFormattedBytes[..]];
+    switch text.appendFormat(page, &"{}", &invalidFormatArgs) {
+        !ok => {
+            _ = ok;
+            return process::exit(42)!;
+        },
+        std::TextError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
+        error! => {
+            _ = error;
+            return process::exit(43)!;
+        },
+    }
+    if text.text().len() != 20usize or text.text()[19].codepoint() != 0x03bbu32 {
+        return process::exit(44)!;
+    }
+
+    let boundedFormatArgs: [1]&fmt::Format = [&answer];
+    switch boundedText.appendFormat(&mut appendAllocator, &"{}", &boundedFormatArgs) {
+        !ok => {
+            _ = ok;
+            return process::exit(45)!;
+        },
+        std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(46)!;
+        },
+    }
+    if boundedText.text().len() != 2usize
+        or boundedText.text()[0] != 'o'
+        or boundedText.text()[1] != 'k'
+    {
+        return process::exit(47)!;
+    }
+
+    let mut cleanupAllocator = FailFreeAllocator::init();
+    let mut cleanupText = std::StringBuf::init_capacity(&mut cleanupAllocator, 32usize).exit().?;
+    defer cleanupText.deinit(&mut cleanupAllocator).exit().?;
+    cleanupText.append(&mut cleanupAllocator, &"base").exit().?;
+    cleanupAllocator.failNext();
+    let cleanupFormatArgs: [1]&fmt::Format = [&answer];
+    switch cleanupText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
+        !ok => {
+            _ = ok;
+            return process::exit(48)!;
+        },
+        std::TextError::Allocation(mem::Error::Invalid)! => {},
+        error! => {
+            _ = error;
+            return process::exit(49)!;
+        },
+    }
+    if not mem::equal[char](cleanupText.text(), &"base") {
+        return process::exit(50)!;
     }
 
     let mut path = std::PathBuf::from_path(page, std::PathView::init(&"root")).exit().?;
