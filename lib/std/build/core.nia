@@ -594,7 +594,7 @@ extend Build {
 
     fn findStep(&self, name: &[char]) ?Step {
         for &step in self.steps.iter() {
-            if mem::equal[char](step.name.text(), name) {
+            if step.name.equals(name) {
                 return ?step;
             }
         }
@@ -614,7 +614,7 @@ extend Build {
 
     fn findExecutable(&self, name: &[char]) ?ExecutableTarget {
         for &target in self.executables.iter() {
-            if mem::equal[char](target.name.text(), name) {
+            if target.name.equals(name) {
                 return ?target;
             }
         }
@@ -623,7 +623,7 @@ extend Build {
 
     fn findModule(&self, name: &[char]) ?Module {
         for &moduleRecord in self.modules.iter() {
-            if mem::equal[char](moduleRecord.name.text(), name) {
+            if moduleRecord.name.equals(name) {
                 return ?moduleRecord;
             }
         }
@@ -1289,7 +1289,7 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
                 }
                 let mut priorIndex: usize = 0;
                 while priorIndex < environmentIndex {
-                    if mem::equal[char](environment[priorIndex].name, input.name) {
+                    if environment[priorIndex].name.equals(input.name) {
                         return invalidStep(index);
                     }
                     priorIndex += 1;
@@ -1584,12 +1584,12 @@ extend TargetView {
     }
 
     pub fn equals(&self, other: TargetView) bool {
-        mem::equal[char](self.arch, other.arch)
-            and mem::equal[char](self.vendor, other.vendor)
-            and mem::equal[char](self.os, other.os)
-            and mem::equal[char](self.env, other.env)
-            and mem::equal[char](self.abi, other.abi)
-            and mem::equal[char](self.endian, other.endian)
+        self.arch.equals(other.arch)
+            and self.vendor.equals(other.vendor)
+            and self.os.equals(other.os)
+            and self.env.equals(other.env)
+            and self.abi.equals(other.abi)
+            and self.endian.equals(other.endian)
             and self.pointerWidth == other.pointerWidth
     }
 }
@@ -1787,7 +1787,7 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
                 }
                 let mut oldIndex: usize = 0;
                 while oldIndex < index {
-                    if mem::equal[char](items[oldIndex].name, import.name) {
+                    if items[oldIndex].name.equals(import.name) {
                         return Error::Invalid {
                             operation: Operation::Validate,
                             subject: Subject::ModuleImport(index),
@@ -1853,7 +1853,7 @@ fn isValidModuleImportName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
-    if mem::equal[char](name, &"entry") or mem::equal[char](name, &"pkg") {
+    if name.equals(&"entry") or name.equals(&"pkg") {
         return false;
     }
     for &ch in name.iter() {

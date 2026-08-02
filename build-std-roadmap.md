@@ -2156,6 +2156,22 @@ trait-object coercion without per-element casts. This closes transactional
 format append only: owned-text naming, comparison/search/hash composition, and
 the repeated allocator protocol remain open.
 
+Standard-library reconstruction progress (2026-08-02, scalar-text relation
+batch): borrowed `[char]` and owned `StringBuf` now share the allocation-free
+`equals`, `startsWith`, `endsWith`, `find`, and `contains` vocabulary. The
+borrowed slice owns the implementation and `StringBuf` delegates through its
+scalar view, so literals, borrowed parameters, and owned plan storage do not
+need wrapper adapters or separate algorithms. `find` returns the first scalar
+index as `?usize`; empty text and empty needles have explicit prefix, suffix,
+search, and containment behavior. Maintained build name, target, environment,
+and plan comparisons now consume this public text API instead of reaching into
+the generic memory helper. Runtime conformance covers non-ASCII scalars, empty
+needles, absent results, overlapping matches, owned mutation, `if value is
+?index`, and ordinary `for` iteration. Content equality remains an explicit
+operation rather than overloading reference equality. This closes equality and
+substring search only: ordering, hash/provider composition, owned-text naming,
+and the repeated allocator protocol remain open.
+
 Standard-library reconstruction progress (2026-08-02, borrowed scalar-text
 batch): the redundant `StringView` type, root export, constructors, accessors,
 formatting implementation, and append compatibility path are physically

@@ -152,6 +152,26 @@ extend StringBuf {
         self.text.clear_retaining_capacity()
     }
 
+    pub fn equals(&self, other: &[char]) bool {
+        self.text().equals(other)
+    }
+
+    pub fn startsWith(&self, prefix: &[char]) bool {
+        self.text().startsWith(prefix)
+    }
+
+    pub fn endsWith(&self, suffix: &[char]) bool {
+        self.text().endsWith(suffix)
+    }
+
+    pub fn find(&self, needle: &[char]) ?usize {
+        self.text().find(needle)
+    }
+
+    pub fn contains(&self, needle: &[char]) bool {
+        self.text().contains(needle)
+    }
+
     pub fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
         self.text.ensure_total_capacity(allocator, capacity)
     }
@@ -166,6 +186,65 @@ extend StringBuf {
 
     pub fn into_owned_slice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
         self.text.into_owned_slice(allocator)
+    }
+}
+
+extend [char] {
+    pub fn equals(&self, other: &[char]) bool {
+        if self.len() != other.len() {
+            return false;
+        }
+
+        let mut index = 0usize;
+        while index < self.len() {
+            if self[index] != other[index] {
+                return false;
+            }
+            index += 1usize;
+        }
+        true
+    }
+
+    pub fn startsWith(&self, prefix: &[char]) bool {
+        if prefix.len() > self.len() {
+            return false;
+        }
+        (&self[0usize..prefix.len()]).equals(prefix)
+    }
+
+    pub fn endsWith(&self, suffix: &[char]) bool {
+        if suffix.len() > self.len() {
+            return false;
+        }
+        (&self[(self.len() - suffix.len())..]).equals(suffix)
+    }
+
+    pub fn find(&self, needle: &[char]) ?usize {
+        if needle.len() == 0usize {
+            return ?0usize;
+        }
+        if needle.len() > self.len() {
+            return null;
+        }
+
+        let lastStart = self.len() - needle.len();
+        let mut index = 0usize;
+        while index <= lastStart {
+            if (&self[index..(index + needle.len())]).equals(needle) {
+                return ?index;
+            }
+            index += 1usize;
+        }
+        null
+    }
+
+    pub fn contains(&self, needle: &[char]) bool {
+        if self.find(needle) is ?index {
+            _ = index;
+            true
+        } else {
+            false
+        }
     }
 }
 

@@ -1980,7 +1980,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(49)!;
         },
     }
-    if not mem::equal[char](cleanupText.text(), &"base") {
+    if not cleanupText.equals(&"base") {
         return process::exit(50)!;
     }
 

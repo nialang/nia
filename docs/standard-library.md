@@ -184,6 +184,13 @@ precedence and an infallible conditional `defer` restores the old scalar
 length. The current ordinary spelling imports `std::fmt` and gives the
 heterogeneous argument array one type annotation, for example
 `let args: [2]&fmt::Format = [&value, &ch]`, before passing `&args`.
+Borrowed `[char]` and `StringBuf` expose the same content operations:
+`equals`, `startsWith`, `endsWith`, `find`, and `contains`. They compare Unicode
+scalars directly and do not allocate. `find` returns the first scalar index as
+`?usize`; an empty needle is found at index zero, so it is also contained and
+is both a prefix and suffix. Owned text delegates to its borrowed view rather
+than maintaining a second search implementation. Content equality is named
+explicitly instead of treating reference equality as text equality.
 Filesystem path decoding currently maps each of those values explicitly to
 `fs::Error::Invalid` and clears partial output on failure. That is an
 intentional compatibility boundary for the still-coarse filesystem facade, not
@@ -202,7 +209,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | transactional UTF-8 and format append accepted; naming and common allocator protocol remain open |
+| owned mutable scalar text | `StringBuf` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError` | transactional mutation plus borrowed/owned equality and search accepted; naming and common allocator protocol remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `StringBuf::fromUtf8`, `StringBuf::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |

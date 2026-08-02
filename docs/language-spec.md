@@ -3043,6 +3043,11 @@ the original scalar text when validation or allocation fails.
 byte buffer and then performs typed UTF-8 append. It returns
 `TextError::Format` for formatting failures and preserves the original text for
 formatting, UTF-8, allocation, or temporary-buffer cleanup failure.
+Borrowed `[char]` and `StringBuf` provide `equals`, `startsWith`, `endsWith`,
+`find`, and `contains` as scalar-text content operations. `find` returns the
+first matching scalar index as `?usize`. An empty needle matches at index zero;
+all five operations are allocation-free, and owned text delegates to its
+borrowed scalar view.
 `PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
 append path components with explicit allocation.
 
