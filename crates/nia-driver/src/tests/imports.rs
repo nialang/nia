@@ -1437,7 +1437,7 @@ fn main() mem::Error!usize {
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
     let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
     defer map.deinit(&mut allocator).?;
-    _ = map.put(&mut allocator, 1, 2).?;
+    _ = map.insert(&mut allocator, 1, 2).?;
     !map.len()
 }
 "#,
@@ -1574,7 +1574,7 @@ fn main() mem::Error!usize {
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
     let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
     defer map.deinit(&mut allocator).?;
-    _ = map.put(&mut allocator, 1, 2).?;
+    _ = map.insert(&mut allocator, 1, 2).?;
     !map.len()
 }
 "#,

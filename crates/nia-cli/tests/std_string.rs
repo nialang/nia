@@ -140,8 +140,34 @@ pub fn main(init: process::Init) process::ExitCode!void {
         1usize,
     ).exit().?;
     defer map.deinit(page).exit().?;
-    if map.put_assume_capacity(stored, 41) is ?old {
-        _ = old;
+    let initialInsert = map.insertAssumeCapacity(stored, 41);
+    if initialInsert is ?unexpected {
+        _ = unexpected;
+        return process::exit(12)!;
+    }
+    let equalIncoming = std::String::fromSlice(page, text).exit().?;
+    let replacementInsert = map.insertAssumeCapacity(equalIncoming, 41);
+    if replacementInsert is ?replacement {
+        if replacement.replacedValue().* != 41 {
+            return process::exit(12)!;
+        }
+        let mut rejectedKey = replacement.intoRejectedKey();
+        if not rejectedKey.equals(text) {
+            return process::exit(12)!;
+        }
+        rejectedKey.deinit(page).exit().?;
+    } else {
+        return process::exit(12)!;
+    }
+    let absentIncoming = std::String::fromSlice(page, text).exit().?;
+    let absentInsert = map.insertIfAbsentAssumeCapacity(absentIncoming, 99);
+    if absentInsert is ?rejected {
+        if rejected.value().* != 99 {
+            return process::exit(12)!;
+        }
+        let mut rejectedKey = rejected.intoKey();
+        rejectedKey.deinit(page).exit().?;
+    } else {
         return process::exit(12)!;
     }
     if not map.containsKeyBy(text) {
@@ -168,7 +194,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if map.getEntryMutBy(text) is ?value {
         let mut entry = value;
-        entry.value_mut().* = 43;
+        entry.valueMut().* = 43;
     } else {
         return process::exit(15)!;
     }
@@ -189,7 +215,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         if entry.value().* != 43 {
             return process::exit(16)!;
         }
-        removedKey = entry.into_key();
+        removedKey = entry.intoKey();
     } else {
         return process::exit(16)!;
     }

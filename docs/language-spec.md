@@ -116,7 +116,14 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
 the stored key. The default context implements `String` lookup by borrowed
 `&[char]`; `containsKeyBy`, `getBy`, `getMutBy`, `getEntryBy`, `getEntryMutBy`,
 `getKeyBy`, and `removeEntryBy` use that provider without allocating a temporary
-owned string.
+owned string. `insert` returns `mem::Error!?HashMapReplacement`, while
+`insertAssumeCapacity` returns the optional directly. When an equal key already
+exists, its payload contains the rejected incoming key together with the
+replaced stored value. `insertIfAbsent` similarly returns
+`mem::Error!?HashMapEntry`, and its assume-capacity form returns the optional
+rejected entry directly; that entry contains both incoming values when no
+insertion occurs. The former `put`, `fetch_put`, and `put_if_absent` entry
+points are absent because they discarded allocating incoming keys or values.
 
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.

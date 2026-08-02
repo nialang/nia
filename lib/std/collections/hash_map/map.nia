@@ -7,7 +7,13 @@ using pkg::collections::hash_map::raw;
 using pkg::collections::hash_map::types;
 
 using context::DefaultHashMapContext;
-using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult};
+using entries::{
+    HashMapEntry,
+    HashMapEntryMut,
+    HashMapEntryRef,
+    HashMapGetOrPutResult,
+    HashMapReplacement,
+};
 using types::{HashMapContext, HashMapLookupContext};
 
 pub struct HashMapWithContext[K, V, C]
@@ -319,13 +325,21 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !cloned
     }
 
-    pub fn put(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
+    pub fn insert(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        key: K,
+        value: V,
+    ) mem::Error!?HashMapReplacement[K, V] {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
             ?index => {
                 let old = self.values[index];
                 self.values[index] = value;
-                return !?old;
+                return !?{
+                    rejectedKey: key,
+                    replacedValue: old,
+                };
             },
             null => {
             },
@@ -335,32 +349,36 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !null
     }
 
-    pub fn fetch_put(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
-        self.put(allocator, key, value)
-    }
-
-    pub fn put_if_absent(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!bool {
+    pub fn insertIfAbsent(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        key: K,
+        value: V,
+    ) mem::Error!?HashMapEntry[K, V] {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
             ?index => {
                 _ = index;
-                return !false;
+                return !?{ key: key, value: value };
             },
             null => {
             },
         }
 
         self.insert_new(allocator, key, value).?;
-        !true
+        !null
     }
 
-    pub fn put_assume_capacity(&mut self, key: K, value: V) ?V {
+    pub fn insertAssumeCapacity(&mut self, key: K, value: V) ?HashMapReplacement[K, V] {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
             ?index => {
                 let old = self.values[index];
                 self.values[index] = value;
-                return ?old;
+                return ?{
+                    rejectedKey: key,
+                    replacedValue: old,
+                };
             },
             null => {
             },
@@ -370,19 +388,23 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    pub fn put_if_absent_assume_capacity(&mut self, key: K, value: V) bool {
+    pub fn insertIfAbsentAssumeCapacity(
+        &mut self,
+        key: K,
+        value: V,
+    ) ?HashMapEntry[K, V] {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
             ?index => {
                 _ = index;
-                return false;
+                return ?{ key: key, value: value };
             },
             null => {
             },
         }
 
         self.insert_new_assume_capacity(key, value);
-        true
+        null
     }
 
     pub fn get_or_put_value(

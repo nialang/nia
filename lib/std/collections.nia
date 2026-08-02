@@ -25,4 +25,5 @@ pub using hash_map::{
     HashMapValues,
     HashMapValuesMut,
     HashMapWithContext,
+    HashMapReplacement,
 };

@@ -12,7 +12,13 @@ using pkg::collections::hash_map::iterators;
 using pkg::collections::hash_map::map;
 
 pub using context::DefaultHashMapContext;
-pub using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult};
+pub using entries::{
+    HashMapEntry,
+    HashMapEntryMut,
+    HashMapEntryRef,
+    HashMapGetOrPutResult,
+    HashMapReplacement,
+};
 pub using iterators::{
     HashMapIter,
     HashMapIterMut,
