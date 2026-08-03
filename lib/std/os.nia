@@ -32,34 +32,11 @@ pub enum Error: i32 {
     _,
 }
 
-pub enum SpawnError: i32 {
-    PermissionDenied = 1,
-    NotFound = 2,
-    Interrupted = 4,
-    Io = 5,
-    BadFd = 9,
-    Again = 11,
-    OutOfMemory = 12,
-    Access = 13,
-    Fault = 14,
-    Busy = 16,
-    AlreadyExists = 17,
-    CrossDevice = 18,
-    NotDir = 20,
-    IsDir = 21,
-    Invalid = 22,
-    NoSpace = 28,
-    ReadOnly = 30,
-    BrokenPipe = 32,
-    OutOfRange = 34,
-    TooLong = 36,
-    NotEmpty = 39,
-    Setup = 101,
-    Stdio = 102,
-    Cwd = 103,
-    Exec = 104,
-    System = 255,
-    _,
+pub(pkg) enum SpawnError {
+    Setup(Error),
+    Stdio(Error),
+    Cwd(Error),
+    Exec(Error),
 }
 
 pub(pkg) enum OpenMode: i32 {
@@ -128,7 +105,7 @@ pub(pkg) struct FileHandle {
     platform: platform::FileDescriptor,
 }
 
-pub struct ProcessId {
+pub(pkg) struct ProcessId {
     platform: platform::ProcessId,
 }
 
@@ -311,32 +288,10 @@ extend platform::Errno {
 extend platform::SpawnError : error::IntoError[SpawnError] {
     fn into_error(self) SpawnError {
         switch self {
-            platform::SpawnError::PermissionDenied => SpawnError::PermissionDenied,
-            platform::SpawnError::NoEntry => SpawnError::NotFound,
-            platform::SpawnError::Interrupted => SpawnError::Interrupted,
-            platform::SpawnError::Io => SpawnError::Io,
-            platform::SpawnError::BadFd => SpawnError::BadFd,
-            platform::SpawnError::Again => SpawnError::Again,
-            platform::SpawnError::NoMemory => SpawnError::OutOfMemory,
-            platform::SpawnError::Access => SpawnError::Access,
-            platform::SpawnError::Fault => SpawnError::Fault,
-            platform::SpawnError::Busy => SpawnError::Busy,
-            platform::SpawnError::Exists => SpawnError::AlreadyExists,
-            platform::SpawnError::CrossDevice => SpawnError::CrossDevice,
-            platform::SpawnError::NotDir => SpawnError::NotDir,
-            platform::SpawnError::IsDir => SpawnError::IsDir,
-            platform::SpawnError::Invalid => SpawnError::Invalid,
-            platform::SpawnError::NoSpace => SpawnError::NoSpace,
-            platform::SpawnError::ReadOnly => SpawnError::ReadOnly,
-            platform::SpawnError::BrokenPipe => SpawnError::BrokenPipe,
-            platform::SpawnError::OutOfRange => SpawnError::OutOfRange,
-            platform::SpawnError::TooLong => SpawnError::TooLong,
-            platform::SpawnError::NotEmpty => SpawnError::NotEmpty,
-            platform::SpawnError::Setup => SpawnError::Setup,
-            platform::SpawnError::Stdio => SpawnError::Stdio,
-            platform::SpawnError::Cwd => SpawnError::Cwd,
-            platform::SpawnError::Exec => SpawnError::Exec,
-            _ => SpawnError::System,
+            platform::SpawnError::Setup(cause) => SpawnError::Setup(cause.asOsError()),
+            platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.asOsError()),
+            platform::SpawnError::Cwd(cause) => SpawnError::Cwd(cause.asOsError()),
+            platform::SpawnError::Exec(cause) => SpawnError::Exec(cause.asOsError()),
         }
     }
 }
@@ -642,8 +597,12 @@ extend ProcessId {
         self.platform
     }
 
-    pub fn raw(&self) i32 {
+    pub(pkg) fn raw(&self) i32 {
         self.platform().raw()
+    }
+
+    pub(pkg) fn fromRaw(raw: i32) ProcessId {
+        ProcessId::fromPlatform(platform::ProcessId::init(raw))
     }
 }
 

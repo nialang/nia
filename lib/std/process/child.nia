@@ -2,12 +2,12 @@ using pkg::io;
 using pkg::os;
 using pkg::process::types;
 
-using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, RunningChild, Signal, StdStream, Term};
+using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, SystemError, Term};
 
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
         {
-            state: ChildState::running(pid),
+            state: ChildState::running(ProcessId::fromRaw(pid.raw())),
             stdin: null,
             stdout: null,
             stderr: null,
@@ -16,7 +16,7 @@ extend Child {
 
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         {
-            state: ChildState::running(result.pid()),
+            state: ChildState::running(ProcessId::fromRaw(result.pid().raw())),
             stdin: switch result.stdin() {
                 ?handle => ?ChildStdin::init(handle),
                 null => null,
@@ -32,7 +32,7 @@ extend Child {
         }
     }
 
-    pub fn pid(&self) os::ProcessId {
+    pub fn pid(&self) ProcessId {
         self.state.pid()
     }
 
@@ -106,7 +106,7 @@ extend Child {
         }
         let pid = self.state.pid();
         self.closeStdin().?;
-        let status = os::wait(pid).asProcessWaitError().?;
+        let status = os::wait(self.state.osPid()).asProcessWaitError().?;
         self.state = ChildState::exited(pid, status);
         self.closeStdout().?;
         self.closeStderr().?;
@@ -121,7 +121,7 @@ extend Child {
             null => {},
         }
         let pid = self.state.pid();
-        let status = os::tryWait(pid).asProcessTryWaitError().?;
+        let status = os::tryWait(self.state.osPid()).asProcessTryWaitError().?;
         switch status {
             ?value => {
                 self.state = ChildState::exited(pid, value);
@@ -162,31 +162,35 @@ extend Child {
             },
             null => {},
         }
-        os::killWith(self.state.pid(), signal as i32).asProcessKillError().?;
+        os::killWith(self.state.osPid(), signal as i32).asProcessKillError().?;
         self.wait()
     }
 }
 
 extend ChildState {
-    fn running(pid: os::ProcessId) ChildState {
+    fn running(pid: ProcessId) ChildState {
         {
             kind: ChildStateKind::Running,
             payload: { running: RunningChild::init(pid) },
         }
     }
 
-    fn exited(pid: os::ProcessId, status: os::WaitStatus) ChildState {
+    fn exited(pid: ProcessId, status: os::WaitStatus) ChildState {
         {
             kind: ChildStateKind::Exited,
             payload: { exited: ExitedChild::init(pid, status) },
         }
     }
 
-    fn pid(&self) os::ProcessId {
+    fn pid(&self) ProcessId {
         switch self.kind {
             ChildStateKind::Running => self.payload.running.pid(),
             ChildStateKind::Exited => self.payload.exited.pid(),
         }
+    }
+
+    fn osPid(&self) os::ProcessId {
+        os::ProcessId::fromRaw(self.pid().raw())
     }
 
     fn status(&self) ?os::WaitStatus {
@@ -198,26 +202,36 @@ extend ChildState {
 }
 
 extend RunningChild {
-    fn init(pid: os::ProcessId) RunningChild {
+    fn init(pid: ProcessId) RunningChild {
         { pid: pid }
     }
 
-    fn pid(&self) os::ProcessId {
+    fn pid(&self) ProcessId {
         self.pid
     }
 }
 
 extend ExitedChild {
-    fn init(pid: os::ProcessId, status: os::WaitStatus) ExitedChild {
+    fn init(pid: ProcessId, status: os::WaitStatus) ExitedChild {
         { pid: pid, status: status }
     }
 
-    fn pid(&self) os::ProcessId {
+    fn pid(&self) ProcessId {
         self.pid
     }
 
     fn status(&self) os::WaitStatus {
         self.status
+    }
+}
+
+extend ProcessId {
+    fn fromRaw(raw: i32) ProcessId {
+        { raw: raw }
+    }
+
+    pub fn raw(&self) i32 {
+        self.raw
     }
 }
 
@@ -234,7 +248,7 @@ extend[T] os::Error!T {
     fn asProcessWaitError(self) Error!T {
         switch self {
             !value => !value,
-            cause! => Error::Wait(cause)!,
+            cause! => Error::Wait(SystemError::fromOs(cause))!,
         }
     }
 }
@@ -243,7 +257,7 @@ extend[T] os::Error!T {
     fn asProcessTryWaitError(self) Error!T {
         switch self {
             !value => !value,
-            cause! => Error::TryWait(cause)!,
+            cause! => Error::TryWait(SystemError::fromOs(cause))!,
         }
     }
 }
@@ -252,7 +266,7 @@ extend[T] os::Error!T {
     fn asProcessKillError(self) Error!T {
         switch self {
             !value => !value,
-            cause! => Error::Kill(cause)!,
+            cause! => Error::Kill(SystemError::fromOs(cause))!,
         }
     }
 }

@@ -134,6 +134,58 @@ fn rawHandle(handle: os::FileHandle) void {
 }
 
 #[test]
+fn std_os_process_identity_is_package_private() {
+    let root = temp_dir("std_os_process_identity_is_package_private");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::os;
+
+fn rawProcessId(pid: os::ProcessId) void {
+    _ = pid;
+}
+"#,
+    )
+    .expect("write private std os process identity source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check private std os process identity boundary");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private"), "{stderr}");
+    assert!(stderr.contains("os::ProcessId"), "{stderr}");
+}
+
+#[test]
+fn std_os_spawn_errors_are_package_private() {
+    let root = temp_dir("std_os_spawn_errors_are_package_private");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::os;
+
+fn rawSpawnError(cause: os::SpawnError) void {
+    _ = cause;
+}
+"#,
+    )
+    .expect("write private std os spawn error source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check private std os spawn error boundary");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private"), "{stderr}");
+    assert!(stderr.contains("os::SpawnError"), "{stderr}");
+}
+
+#[test]
 fn repository_examples_parse_and_representative_examples_check() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let examples_dir = manifest_dir

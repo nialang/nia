@@ -2656,6 +2656,26 @@ open `io::SystemError` cause; process cleanup retains stream identity around
 that error. Process identity and spawn/wait/kill causes still name OS types and
 remain the next process-provider boundary.
 
+Standard-library reconstruction progress (2026-08-03, process-owned identity
+and spawn-cause batch): `Child::pid` now returns `process::ProcessId`; the OS
+identity wrapper is package-private and ordinary packages cannot name it.
+Process state converts through the private provider only at wait, try-wait,
+and signal boundaries. The process-owned identity retains the deliberately
+narrow `raw()` observation without exposing provider representation.
+
+`process::Error` no longer names OS types. Spawn setup, wait, try-wait, and
+kill retain `process::SystemError`; native spawn uses the closed process-owned
+`SpawnError::{Setup, Stdio, Cwd, Exec}(process::SystemError)` surface. The Linux
+error-pipe record already carried both stage and errno, but the former integer
+spawn enum discarded errno when decoding a child failure. Native and OS
+provider errors now retain both fields through the conversion chain. Exact
+exec and cwd failures can therefore use Nia's payload patterns while build
+diagnostics report paths such as `process/spawn/executable/not found`.
+Process exit conversion follows the retained system cause rather than an
+invented stage number. No compatibility variants or OS aliases were added.
+The remaining public OS error escape is hash-map random seeding and is a
+separate collection initialization boundary.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

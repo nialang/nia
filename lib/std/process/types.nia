@@ -41,12 +41,49 @@ pub enum Error {
     Path(fs::PathError),
     ArgumentContainsNul(usize),
     Environment { index: usize, cause: EnvEntryError },
-    SpawnSetup(os::Error),
-    Spawn(os::SpawnError),
-    Wait(os::Error),
-    TryWait(os::Error),
-    Kill(os::Error),
+    SpawnSetup(SystemError),
+    Spawn(SpawnError),
+    Wait(SystemError),
+    TryWait(SystemError),
+    Kill(SystemError),
     Close { stream: StdStream, cause: io::Error },
+}
+
+pub enum SpawnError {
+    Setup(SystemError),
+    Stdio(SystemError),
+    Cwd(SystemError),
+    Exec(SystemError),
+}
+
+pub enum SystemError: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    NotEmpty = 39,
+    System = 255,
+    _,
+}
+
+pub struct ProcessId {
+    raw: i32,
 }
 
 pub enum Signal: i32 {
@@ -115,11 +152,11 @@ pub enum ChildStateKind: i32 {
 }
 
 pub struct RunningChild {
-    pid: os::ProcessId,
+    pid: ProcessId,
 }
 
 pub struct ExitedChild {
-    pid: os::ProcessId,
+    pid: ProcessId,
     status: os::WaitStatus,
 }
 
@@ -156,4 +193,33 @@ pub struct Init {
     argc: usize,
     argv: &&u8,
     envp: &&u8,
+}
+
+extend SystemError {
+    pub(pkg) fn fromOs(cause: os::Error) SystemError {
+        switch cause {
+            os::Error::PermissionDenied => SystemError::PermissionDenied,
+            os::Error::NotFound => SystemError::NotFound,
+            os::Error::Interrupted => SystemError::Interrupted,
+            os::Error::Io => SystemError::Io,
+            os::Error::BadFd => SystemError::BadFd,
+            os::Error::Again => SystemError::Again,
+            os::Error::OutOfMemory => SystemError::OutOfMemory,
+            os::Error::Access => SystemError::Access,
+            os::Error::Fault => SystemError::Fault,
+            os::Error::Busy => SystemError::Busy,
+            os::Error::AlreadyExists => SystemError::AlreadyExists,
+            os::Error::CrossDevice => SystemError::CrossDevice,
+            os::Error::NotDir => SystemError::NotDir,
+            os::Error::IsDir => SystemError::IsDir,
+            os::Error::Invalid => SystemError::Invalid,
+            os::Error::NoSpace => SystemError::NoSpace,
+            os::Error::ReadOnly => SystemError::ReadOnly,
+            os::Error::BrokenPipe => SystemError::BrokenPipe,
+            os::Error::OutOfRange => SystemError::OutOfRange,
+            os::Error::TooLong => SystemError::TooLong,
+            os::Error::NotEmpty => SystemError::NotEmpty,
+            _ => SystemError::System,
+        }
+    }
 }

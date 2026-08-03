@@ -124,8 +124,8 @@ fn buildError(cause: process::Error) build::Error {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let spawn = buildError(process::Error::Spawn(os::SpawnError::Exec));
-    if (spawn.asExitCode() as i32) != 104 {
+    let spawn = buildError(process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)));
+    if (spawn.asExitCode() as i32) != 2 {
         return process::exit(1)!;
     }
     let close = buildError(process::Error::Close {
@@ -172,7 +172,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
         concat!(
-            "execute command compiler: process/spawn/executable\n",
+            "execute command compiler: process/spawn/executable/not found\n",
             "execute command compiler: process/close/stdout/bad file descriptor\n",
             "execute command compiler: process/environment[1]/duplicates environment[0]\n",
         )

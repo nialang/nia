@@ -26,6 +26,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(1)!;
         },
     };
+    let pid: process::ProcessId = child.pid();
+    if pid.raw() <= 0 {
+        return process::exit(3)!;
+    }
     let term = switch child.wait() {
         !value => {
             value
@@ -578,7 +582,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => {
             value
         },
-        process::Error::Spawn(std::os::SpawnError::Exec)! => return !{},
+        process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound))! => return !{},
         error! => {
             _ = error;
             return process::exit(2)!;
@@ -633,7 +637,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 value
             },
             error! => {
-                if error is process::Error::Spawn(std::os::SpawnError::Exec) {
+                if error is process::Error::Spawn(process::SpawnError::Exec(_)) {
                     index += 1;
                     continue;
                 } else {
@@ -1430,7 +1434,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = value;
             return process::exit(10)!;
         },
-        process::Error::Kill(std::os::Error::Invalid)! => {},
+        process::Error::Kill(process::SystemError::Invalid)! => {},
         error! => {
             _ = error;
             return process::exit(11)!;
@@ -1580,7 +1584,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => {
             value
         },
-        process::Error::Spawn(std::os::SpawnError::Cwd)! => return !{},
+        process::Error::Spawn(process::SpawnError::Cwd(process::SystemError::NotFound))! => return !{},
         error! => {
             _ = error;
             return process::exit(3)!;
@@ -2500,10 +2504,10 @@ pub fn main(init: process::Init) ExitCode!void {
     }.asExitCode() as i32) != 22 {
         return exit(10)!;
     }
-    if (process::Error::Spawn(os::SpawnError::Exec).asExitCode() as i32) != 104 {
+    if (process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)).asExitCode() as i32) != 2 {
         return exit(8)!;
     }
-    if (process::Error::Kill(os::Error::Invalid).asExitCode() as i32) != 22 {
+    if (process::Error::Kill(process::SystemError::Invalid).asExitCode() as i32) != 22 {
         return exit(9)!;
     }
     let picked = pick_result().exit().?;

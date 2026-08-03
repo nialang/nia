@@ -172,10 +172,13 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   exact environment entry; `EnvEntryError` distinguishes an empty name, `=` or
   NUL in a name, NUL in a value, and a duplicate name carrying the first entry
   index. Validation finishes before transient allocation or spawn.
-  `SpawnSetup(os::Error)` and `Spawn(os::SpawnError)` preserve command
-  configuration and native spawn failures. `Wait`, `TryWait`, and `Kill` retain
-  their `os::Error`, while `Close { stream, cause }` retains both a `StdStream`
-  identity and an `io::Error`. The executable inserted as argv[0] is not
+  `SpawnSetup(process::SystemError)` and `Spawn(process::SpawnError)` preserve
+  command configuration and native spawn failures. `SpawnError` separates
+  `Setup`, `Stdio`, `Cwd`, and `Exec`, and every stage retains its
+  `process::SystemError`.
+  `Wait`, `TryWait`, and `Kill` retain their `process::SystemError`, while
+  `Close { stream, cause }` retains both a `StdStream` identity and an
+  `io::Error`. The executable inserted as argv[0] is not
   counted as an argument index. There are no flat compatibility variants for
   these errors.
 - `Child` transfers role-specific `ChildStdin`, `ChildStdout`, and `ChildStderr`
@@ -213,10 +216,11 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   Page mapping, path/file operations, raw file handles, random data, spawn/wait,
   signals, and
   process termination are package-private implementation capabilities rather
-  than an alternate public API. `Error` and `SpawnError` remain public because
-  current process signatures retain their exact causes. `ProcessId` remains a
-  temporary public escape for process identity and exposes only `raw`; raw
-  `FileHandle` is package-private and is not a user adaptation path.
+  than an alternate public API. Process signatures own their `SystemError`,
+  `SpawnError`, and `ProcessId` values; `os::SpawnError` and `os::ProcessId`
+  are package-private.
+  `process::ProcessId` exposes only `raw`; raw `FileHandle` is package-private
+  and is not a user adaptation path.
 - `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
   Their reviewed convenience methods are `readExact`, `writeAll`, `writeByte`,
   `endOfStream`, `shortWrite`, and `discardBuffered`; the former snake-case

@@ -3,10 +3,9 @@ using pkg::fmt;
 using pkg::fs;
 using pkg::io;
 using pkg::mem;
-using pkg::os;
 using pkg::process::types;
 
-using types::{Error, ExitCode};
+using types::{Error, ExitCode, SpawnError, SystemError};
 
 extend fs::Error : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
@@ -24,27 +23,27 @@ pub fn exit(code: i32) ExitCode {
     code as ExitCode
 }
 
-extend os::Error : error::IntoError[ExitCode] {
+extend io::SystemError : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
-extend os::Error {
+extend io::SystemError {
     pub fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
-extend[T] os::Error!T {
-    pub fn exit(self) ExitCode!T {
-        self.cast_error()
+extend SystemError : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        self as i32 as ExitCode
     }
 }
 
-extend io::SystemError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
-        self as i32 as ExitCode
+extend SystemError {
+    pub fn asExitCode(self) ExitCode {
+        self.into_error()
     }
 }
 
@@ -90,7 +89,7 @@ extend Error : error::IntoError[ExitCode] {
                 exit(22)
             },
             Error::SpawnSetup(cause) => cause.asExitCode(),
-            Error::Spawn(cause) => exit(cause as i32),
+            Error::Spawn(cause) => cause.asExitCode(),
             Error::Wait(cause) => cause.asExitCode(),
             Error::TryWait(cause) => cause.asExitCode(),
             Error::Kill(cause) => cause.asExitCode(),
@@ -99,6 +98,23 @@ extend Error : error::IntoError[ExitCode] {
                 cause.asExitCode()
             },
         }
+    }
+}
+
+extend SpawnError : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        switch self {
+            SpawnError::Setup(cause) => cause.asExitCode(),
+            SpawnError::Stdio(cause) => cause.asExitCode(),
+            SpawnError::Cwd(cause) => cause.asExitCode(),
+            SpawnError::Exec(cause) => cause.asExitCode(),
+        }
+    }
+}
+
+extend SpawnError {
+    pub fn asExitCode(self) ExitCode {
+        self.into_error()
     }
 }
 
