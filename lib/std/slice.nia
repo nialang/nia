@@ -18,6 +18,14 @@ where T: Sized
     index: usize,
 }
 
+pub struct SliceSplit[T]
+where T: Sized + Eq[T]
+{
+    remaining: &[T],
+    separator: &[T],
+    done: bool,
+}
+
 extend[T] SliceIter[T]
 where T: Sized
 {
@@ -47,6 +55,14 @@ where T: Sized
 
     pub fn isEmpty(&self) bool {
         self.len() == 0
+    }
+}
+
+extend[T] SliceSplit[T]
+where T: Sized + Eq[T]
+{
+    fn init(items: &[T], separator: &[T]) SliceSplit[T] {
+        { remaining: items, separator: separator, done: false }
     }
 }
 
@@ -104,6 +120,31 @@ where T: Sized
         } else {
             self.len -= 1;
             ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &mut T)
+        }
+    }
+}
+
+extend[T] SliceSplit[T] : Iterator
+where T: Sized + Eq[T]
+{
+    type Item = &[T];
+
+    pub fn next(&mut self) ?&[T] {
+        if self.done {
+            return null;
+        }
+        if self.separator.isEmpty() {
+            self.done = true;
+            return ?self.remaining;
+        }
+
+        if self.remaining.find(self.separator) is ?index {
+            let items = self.remaining;
+            self.remaining = &items[(index + self.separator.len())..];
+            ?&items[0..index]
+        } else {
+            self.done = true;
+            ?self.remaining
         }
     }
 }
@@ -243,6 +284,10 @@ where T: Sized + Eq[T]
         } else {
             false
         }
+    }
+
+    pub fn split(&self, separator: &[T]) SliceSplit[T] {
+        SliceSplit[T]::init(self, separator)
     }
 }
 

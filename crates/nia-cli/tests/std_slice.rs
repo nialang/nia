@@ -285,6 +285,67 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(30)!;
     }
 
+    let separated: [8]i32 = [0, 1, 0, 0, 2, 0, 3, 0];
+    let separator: [1]i32 = [0];
+    let mut partIndex = 0;
+    for part in (&separated[..]).split(&separator) {
+        let matches = if partIndex == 0 or partIndex == 2 or partIndex == 5 {
+            part.isEmpty()
+        } else if partIndex == 1 {
+            part.equals(&[1])
+        } else if partIndex == 3 {
+            part.equals(&[2])
+        } else if partIndex == 4 {
+            part.equals(&[3])
+        } else {
+            false
+        };
+        if not matches {
+            return process::exit(38)!;
+        }
+        partIndex += 1;
+    }
+    if partIndex != 6 {
+        return process::exit(39)!;
+    }
+
+    let mut unsplit = (&separated[..]).split(emptyValues);
+    if unsplit.next() is ?whole {
+        if not whole.equals(&separated) {
+            return process::exit(42)!;
+        }
+    } else {
+        return process::exit(42)!;
+    }
+    if unsplit.next() is ?unexpected {
+        _ = unexpected;
+        return process::exit(42)!;
+    }
+    if (&separated[..]).split(&[99]).count() != 1 or emptyValues.split(&separator).count() != 1 {
+        return process::exit(42)!;
+    }
+
+    let overlappingItems: [5]i32 = [1, 1, 1, 1, 1];
+    let overlappingSeparator: [2]i32 = [1, 1];
+    let mut overlappingIndex = 0;
+    for part in (&overlappingItems[..]).split(&overlappingSeparator) {
+        if overlappingIndex == 0 or overlappingIndex == 1 {
+            if not part.isEmpty() {
+                return process::exit(44)!;
+            }
+        } else if overlappingIndex == 2 {
+            if not part.equals(&[1]) {
+                return process::exit(43)!;
+            }
+        } else {
+            return process::exit(45)!;
+        }
+        overlappingIndex += 1;
+    }
+    if overlappingIndex != 3 {
+        return process::exit(46)!;
+    }
+
     !{}
 }
 "#,
