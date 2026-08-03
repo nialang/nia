@@ -54,9 +54,9 @@ providers.
 | Slice | Current use by build | Maturity finding | Disposition |
 | --- | --- | --- | --- |
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
-| `mem` allocators/layout | runner allocation and owned collections | manual allocator plumbing is pervasive; rollback/deinit and allocation failure need explicit contracts | retain capability, redesign ownership where plan values escape; ordinary slice copy/compare no longer lives here |
-| `collections::ArrayList` | steps, edges, modules, targets, path decoding | reviewed owned extraction and initialized-value mutation surface; allocator repeats at every allocating call | retain narrow initialized-value surface; finish common allocator protocol |
-| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; retained plan text must cross an explicit copy boundary | borrowed `&[char]` and owned `String` accepted; finish allocator design |
+| `mem` allocators/layout | runner allocation and owned collections | explicit provenance and release contracts accepted; rollback/deinit failures remain visible | retain capability; ordinary slice copy/compare no longer lives here |
+| `collections::ArrayList` | steps, edges, modules, targets, path decoding | unmanaged collection protocol, owned extraction, batch reservation, and initialized-value mutation accepted | retain narrow initialized-value surface; continue deep element-cleanup design |
+| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed `&[char]` and owned `String` accepted; continue validated UTF-8 and formatting exploration |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
@@ -159,9 +159,18 @@ The current audit sets this design direction:
   concatenation must have one obvious append/format path shared by borrowed and
   owned text;
 - scalar length and encoded byte length are named and tested separately;
-- allocator ownership remains visible, but construction, growth, transfer, and
-  `defer` cleanup must form one reviewable protocol rather than requiring users
-  to reconstruct ownership at each call.
+- allocator ownership remains visible. Standalone collections and collection-
+  shaped text do not retain an allocator, while an operation-scoped helper or
+  an aggregate such as `Build` may retain one when it owns the corresponding
+  operation or complete object graph;
+- an unmanaged value uses the allocator that produced its current non-empty
+  backing allocation for every remap, extraction, and release. A clone or owned
+  copy may name a different target allocator because it creates an independent
+  allocation with that new provenance;
+- ordinary potentially allocating operations take the allocator immediately
+  after the receiver. Read-only and capacity-preserving operations do not.
+  `reserve` followed by explicit assume-capacity operations is the batch path
+  when repeating the allocator would obscure the actual mutation.
 
 `unicode::decodeUtf8First` now returns
 `Utf8DecodeError!Utf8Decode`. `Empty`, `Truncated`, `InvalidLeadingByte`,
@@ -232,7 +241,8 @@ uninitialized no-value `get_or_put` operations are physically absent. Maintained
 String conformance explicitly takes back rejected keys from replacement,
 if-absent, and entry insertion, deinitializes them, then removes and
 deinitializes the stored key. Deep element cleanup, a future lazy construction
-entry API, and the common allocator protocol remain open.
+entry API, and allocator-aware element cleanup remain open. The container's
+own backing allocation follows the accepted unmanaged allocator protocol.
 
 `HashMap::drain()` is the explicit bulk ownership-transfer path. Its iterator
 scans the bucket array once and returns owned `HashMapEntry` values, so callers
@@ -320,9 +330,15 @@ Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed
 construction and ownership methods use `initCapacity`, `fromOwnedSlice`,
 `fromSlice`, `textMut`, `isEmpty`, `ensureTotalCapacity`, and `intoOwnedSlice`.
 `text()` is the only read-only borrowed view. No compatibility type alias or
-duplicate `as_slice()` accessor is retained.
+duplicate `as_slice()` accessor is retained. `reserve` establishes space for a
+known additional scalar count; `pushAssumeCapacity` and
+`appendAssumeCapacity` then perform a checked-by-caller batch without repeating
+an allocator argument or changing capacity.
 
 `PathView` remains a nominal borrowed scalar path and `PathBuf` owns a `String`.
+`PathBuf::fromString` is its ownership-transfer constructor. It does not expose
+a second raw-slice adoption path; callers that intentionally adopt an
+allocator-owned scalar slice do so at the underlying `String` boundary first.
 `PathBuf::fromView` reports allocation failure as `mem::Error`, while
 `PathBuf::fromUtf8` preserves `TextError`; callers no longer provide an
 ArrayList scratch buffer or receive a collapsed `fs::Error::Invalid`.
@@ -345,7 +361,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/hash and borrowed map lookup accepted; collection cleanup and common allocator protocol remain open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator; reserved batches without repetition | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/hash, borrowed map lookup, and unmanaged allocator protocol accepted; richer text workflows remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
@@ -408,9 +424,28 @@ Memory implementations follow the same inference rule as user code. Places,
 parameters, and range endpoints provide contextual numeric types without
 literal suffixes; accumulator declarations state `usize` once where no
 declaration-point context exists, and slot scans use direct `for` ranges. This
-accepts the low-level memory vocabulary and arena reset semantics. It does not
-close the common allocator protocol: repeated allocator arguments across owned
-collections and text remain active API exploration.
+accepts the low-level memory vocabulary and arena reset semantics.
+
+The common allocator protocol is based on ownership suitability, not a global
+managed/unmanaged switch. `ArrayList`, `HashMap`, and `String` are unmanaged:
+they remain cheap to move and embed, do not create a long-lived mutable
+allocator alias, and require the same allocator identity for the lifetime of
+their current non-empty backing allocation. `fromOwnedSlice` adopts the
+caller's existing provenance; `intoOwnedSlice` preserves it while emptying the
+source; `toOwnedSlice` and `clone` create independent storage owned by the
+allocator passed to that copy operation. Array-list conformance proves that a
+failed release through the wrong checking allocator leaves that list available
+for cleanup through the correct allocator, but allocators are not required to
+diagnose identity mismatches. Passing the correct allocator is part of the
+contract.
+
+This does not prohibit a type from retaining an allocator. `Build` retains one
+because it owns the complete plan object graph, and short-lived formatting or
+process-lowering helpers may retain one for the operation they own. Parallel
+managed and unmanaged wrappers are not introduced merely for symmetry; a
+managed representation needs a concrete ownership role and workload that make
+its stored allocator correct. Batch ergonomics come from `reserve` plus
+allocator-free assume-capacity operations rather than hidden allocator state.
 
 Borrowed views receive no inferred lifetime from Nia. A function-local string
 literal is an array value in that frame; returning `&[char]` obtained from it

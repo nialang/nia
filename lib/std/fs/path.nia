@@ -53,10 +53,6 @@ extend PathBuf {
         !PathBuf { text: text }
     }
 
-    pub fn fromOwnedSlice(text: &mut [char]) PathBuf {
-        { text: string::String::fromOwnedSlice(text) }
-    }
-
     pub fn fromString(text: string::String) PathBuf {
         { text: text }
     }

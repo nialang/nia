@@ -178,12 +178,24 @@ extend String {
         self.text.ensureTotalCapacity(allocator, capacity)
     }
 
+    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+        self.text.reserve(allocator, additional)
+    }
+
     pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!void {
         self.text.push(allocator, ch)
     }
 
+    pub fn pushAssumeCapacity(&mut self, ch: char) void {
+        self.text.appendAssumeCapacity(ch)
+    }
+
     pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!void {
         self.text.appendSlice(allocator, text)
+    }
+
+    pub fn appendAssumeCapacity(&mut self, text: &[char]) void {
+        self.text.appendSliceAssumeCapacity(text)
     }
 
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
