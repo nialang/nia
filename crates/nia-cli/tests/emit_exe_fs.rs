@@ -408,9 +408,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     }
-    switch file.borrow_handle() {
-        !handle => {
-            _ = handle;
+    switch file.len() {
+        !len => {
+            _ = len;
             return process::exit(3)!;
         },
         error! => {
@@ -496,9 +496,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     }
-    switch cwd.borrow_handle() {
-        !handle => {
-            _ = handle;
+    let mut entryBuffer: [1]u8 = [0];
+    switch cwd.entries(&mut entryBuffer[..]) {
+        !entries => {
+            _ = entries;
             return process::exit(3)!;
         },
         error! => {
@@ -689,7 +690,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(16)!;
         },
     }
-    switch file.sync_data() {
+    switch file.syncData() {
         !ok => {
             _ = ok;
         },
@@ -904,7 +905,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
     defer file.close().exit().?;
-    file.set_permissions(0o755).exit().?;
+    file.setPermissions(0o755).exit().?;
     !{}
 }
 "#,

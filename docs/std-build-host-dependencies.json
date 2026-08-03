@@ -11,6 +11,7 @@
     "std/build.nia",
     "std/build/core.nia",
     "std/build/error.nia",
+    "std/build/plan.nia",
     "std/build/types.nia",
     "std/builtin.nia",
     "std/builtin/atomic.nia",
@@ -25,6 +26,7 @@
     "std/builtin/primitive.nia",
     "std/builtin/simd.nia",
     "std/builtin/target.nia",
+    "std/cmp.nia",
     "std/collections.nia",
     "std/collections/array_list.nia",
     "std/collections/array_list/format.nia",
@@ -68,7 +70,6 @@
     "std/mem.nia",
     "std/mem/allocator.nia",
     "std/mem/arena_allocator.nia",
-    "std/mem/copy.nia",
     "std/mem/fixed_buffer_allocator.nia",
     "std/mem/general_purpose_allocator.nia",
     "std/mem/page_allocator.nia",
@@ -99,6 +100,7 @@
     "std/start/freestanding/linux.nia",
     "std/start/freestanding/linux/x86_64.nia",
     "std/string.nia",
+    "std/string/hash.nia",
     "std/unicode.nia"
   ]
 }

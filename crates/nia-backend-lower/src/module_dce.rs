@@ -150,7 +150,7 @@ impl<'a> ModuleLowerer<'a> {
         if def.name == known::MAIN {
             return false;
         }
-        matches!(def.kind, DefKind::Function) && def.visibility != Visibility::Public
+        matches!(def.kind, DefKind::Function) && def.visibility == Visibility::Private
     }
 
     fn is_removable_private_function_instance(&self, instance: &BackendFunctionInstance) -> bool {
@@ -160,7 +160,7 @@ impl<'a> ModuleLowerer<'a> {
         let Some(def) = self.input.defs.defs.get(instance.def_id.def_id) else {
             return false;
         };
-        matches!(def.kind, DefKind::Function) && def.visibility != Visibility::Public
+        matches!(def.kind, DefKind::Function) && def.visibility == Visibility::Private
     }
 }
 

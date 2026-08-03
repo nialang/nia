@@ -68,6 +68,45 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_preserves_package_visible_functions_for_cross_module_calls() {
+    let source = r#"
+pub(pkg) fn provider() i32 {
+    1
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    let provider = module
+        .functions
+        .iter()
+        .find(|function| function.name == sym("provider"))
+        .expect("provider function");
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    function,
+                    pass: "remove-unused-functions",
+                    ..
+                } if *function == provider.def_id
+            ))
+    );
+}
+
+#[test]
 fn o2_does_not_preserve_function_refs_inside_empty_repeat_static_initializers() {
     let source = r#"
 static values: [0]i32 = [1; 0];

@@ -351,7 +351,7 @@ extend GeneralPurposeAllocator {
     }
 
     fn allocate_small_page(&mut self, slot_size: usize) Error!&mut SmallPage {
-        let page_size = os::page_size();
+        let page_size = os::pageSize();
         let block_layout = Layout::init(page_size, page_size).?;
         let block = self.child.alloc(block_layout).?;
         let mut page = block.ptr() as &mut SmallPage;
@@ -705,7 +705,7 @@ fn small_slot_size(layout: Layout) ?usize {
     while slot_size < needed {
         slot_size = slot_size * 2usize;
     }
-    if slot_size >= os::page_size() {
+    if slot_size >= os::pageSize() {
         null
     } else {
         ?slot_size

@@ -203,11 +203,18 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   that can operate directly on `&u8`. A `fromPtrUnchecked` caller must ensure
   the pointer remains valid and reaches an accessible NUL byte for every view
   operation.
-- `std::os` defines a target-dispatched OS facade. It currently exposes
-  `Error`, `File`, page mapping helpers, and process termination.
+- `std::os` defines the target-dispatched provider used by typed std services.
+  Page mapping, path/file operations, random data, spawn/wait, signals, and
+  process termination are package-private implementation capabilities rather
+  than an alternate public API. `Error` and `SpawnError` remain public because
+  current process and I/O signatures retain their exact causes. The opaque
+  `FileHandle` and `ProcessId` escape types remain temporarily available for
+  child pipes and process identity; their public operations are limited to
+  `readSome`, `writeSome`, `close`, and `raw`.
 - `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
-  `os::File` implements those traits, so complete reads and writes are provided
-  by `std::io` rather than by platform file-descriptor helpers.
+  `FileReader` and `FileWriter` adapt the temporary `os::FileHandle` escape
+  type, so complete reads and writes are provided by `std::io` rather than by
+  platform file-descriptor helpers.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper traps if the stderr write or flush fails; use `std::io` and
   explicit error propagation for application stdout or recoverable I/O.
@@ -3043,6 +3050,10 @@ Modules and declarations are private by default. Public APIs are marked with
 `pub(pkg)`. `pub(super)` exposes the item to the parent module and its
 children. `pub(pkg)` exposes it within the package selected by one `-M`
 entry or by the reserved `root`/`std` packages.
+Restricted visibility is still cross-module visibility. Multi-object emission
+must retain a `pub(super)` or `pub(pkg)` definition for callers in its visible
+scope; only a truly private definition is eligible for module-local dead-code
+elimination without whole-program reference evidence.
 
 `pub` may be applied to `module`, `fn`, `struct`, `enum`, `type`, `let`, `let mut`,
 `extern` declarations, and `using`. Nia has no separate `mod` or `use` syntax.

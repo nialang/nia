@@ -4,7 +4,7 @@ pub(pkg) module linux;
 using pkg::os::linux as platform;
 using pkg::error;
 
-pub const max_path_bytes: usize = platform::max_path_bytes;
+pub(pkg) const maxPathBytes: usize = platform::max_path_bytes;
 
 pub enum Error: i32 {
     PermissionDenied = 1,
@@ -62,27 +62,27 @@ pub enum SpawnError: i32 {
     _,
 }
 
-pub enum OpenMode: i32 {
+pub(pkg) enum OpenMode: i32 {
     ReadOnly = 0,
     WriteOnly = 1,
     ReadWrite = 2,
     _,
 }
 
-pub enum SeekWhence: usize {
+pub(pkg) enum SeekWhence: usize {
     Start = 0,
     Current = 1,
     End = 2,
     _,
 }
 
-pub enum StdIo: i32 {
+pub(pkg) enum StdIo: i32 {
     Inherit = 1,
     Ignore = 2,
     Pipe = 3,
 }
 
-pub enum FileKind: i32 {
+pub(pkg) enum FileKind: i32 {
     BlockDevice = 1,
     CharacterDevice = 2,
     Directory = 3,
@@ -94,12 +94,12 @@ pub enum FileKind: i32 {
     _,
 }
 
-pub struct Timestamp {
+pub(pkg) struct Timestamp {
     seconds: i64,
     nanos: u32,
 }
 
-pub struct FileMetadata {
+pub(pkg) struct FileMetadata {
     kind: FileKind,
     file_id: ?u64,
     link_count: ?u32,
@@ -111,12 +111,12 @@ pub struct FileMetadata {
     status_changed: ?Timestamp,
 }
 
-pub struct DirectoryEntry {
+pub(pkg) struct DirectoryEntry {
     kind: FileKind,
     name: &[u8],
 }
 
-pub struct DirectoryReader {
+pub(pkg) struct DirectoryReader {
     handle: FileHandle,
     buffer: &mut [u8],
     start: usize,
@@ -132,35 +132,35 @@ pub struct ProcessId {
     platform: platform::ProcessId,
 }
 
-pub struct WaitStatus {
+pub(pkg) struct WaitStatus {
     platform: platform::WaitStatus,
 }
 
-pub struct SpawnResult {
+pub(pkg) struct SpawnResult {
     platform: platform::SpawnResult,
 }
 
-pub struct SpawnOptions {
+pub(pkg) struct SpawnOptions {
     platform: platform::SpawnOptions,
 }
 
-pub fn page_size() usize {
+pub(pkg) fn pageSize() usize {
     platform::page_size()
 }
 
-pub fn page_aligned_len(len: usize) Error!usize {
-    platform::page_aligned_len(len).as_os_error()
+pub(pkg) fn pageAlignedLen(len: usize) Error!usize {
+    platform::page_aligned_len(len).asOsError()
 }
 
-pub fn cwd() FileHandle {
-    FileHandle::from_platform(platform::cwd())
+pub(pkg) fn cwd() FileHandle {
+    FileHandle::fromPlatform(platform::cwd())
 }
 
-pub fn getcwd(buffer: &mut [u8]) Error!&[u8] {
-    platform::getcwd(buffer).as_os_error()
+pub(pkg) fn getcwd(buffer: &mut [u8]) Error!&[u8] {
+    platform::getcwd(buffer).asOsError()
 }
 
-pub fn open_at(
+pub(pkg) fn openAt(
     dir: FileHandle,
     path: &u8,
     mode: OpenMode,
@@ -169,7 +169,7 @@ pub fn open_at(
     exclusive: bool,
     permissions: u32,
 ) Error!FileHandle {
-    let platform_mode = mode.as_platform_open_mode().?;
+    let platform_mode = mode.asPlatformOpenMode().?;
     let handle = platform::open_at(
         dir.platform(),
         path,
@@ -178,32 +178,32 @@ pub fn open_at(
         truncate,
         exclusive,
         permissions,
-    ).as_os_error().?;
-    !FileHandle::from_platform(handle)
+    ).asOsError().?;
+    !FileHandle::fromPlatform(handle)
 }
 
-pub fn open_dir_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!FileHandle {
+pub(pkg) fn openDirAt(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileHandle {
     let handle = platform::open_dir_at(
         dir.platform(),
         path,
-        follow_symlinks,
-    ).as_os_error().?;
-    !FileHandle::from_platform(handle)
+        followSymlinks,
+    ).asOsError().?;
+    !FileHandle::fromPlatform(handle)
 }
 
-pub fn create_dir_at(dir: FileHandle, path: &u8, permissions: u32) Error!void {
-    platform::create_dir_at(dir.platform(), path, permissions).as_os_error()
+pub(pkg) fn createDirAt(dir: FileHandle, path: &u8, permissions: u32) Error!void {
+    platform::create_dir_at(dir.platform(), path, permissions).asOsError()
 }
 
-pub fn delete_file_at(dir: FileHandle, path: &u8) Error!void {
-    platform::delete_file_at(dir.platform(), path).as_os_error()
+pub(pkg) fn deleteFileAt(dir: FileHandle, path: &u8) Error!void {
+    platform::delete_file_at(dir.platform(), path).asOsError()
 }
 
-pub fn delete_dir_at(dir: FileHandle, path: &u8) Error!void {
-    platform::delete_dir_at(dir.platform(), path).as_os_error()
+pub(pkg) fn deleteDirAt(dir: FileHandle, path: &u8) Error!void {
+    platform::delete_dir_at(dir.platform(), path).asOsError()
 }
 
-pub fn rename_at(
+pub(pkg) fn renameAt(
     old_dir: FileHandle,
     old_path: &u8,
     new_dir: FileHandle,
@@ -214,50 +214,50 @@ pub fn rename_at(
         old_path,
         new_dir.platform(),
         new_path,
-    ).as_os_error()
+    ).asOsError()
 }
 
-pub fn metadata_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+pub(pkg) fn metadataAt(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {
     let metadata = platform::metadata_at(
         dir.platform(),
         path,
-        follow_symlinks,
-    ).as_os_error().?;
-    !metadata.as_os_metadata()
+        followSymlinks,
+    ).asOsError().?;
+    !metadata.asOsMetadata()
 }
 
-pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
-    platform::map_pages(len, align).as_os_error()
+pub(pkg) fn mapPages(len: usize, align: usize) Error!&mut u8 {
+    platform::map_pages(len, align).asOsError()
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
-    platform::unmap_pages(ptr, len).as_os_error()
+pub(pkg) fn unmapPages(ptr: &mut u8, len: usize) Error!void {
+    platform::unmap_pages(ptr, len).asOsError()
 }
 
-pub fn random(bytes: &mut [u8]) Error!void {
-    platform::random(bytes).as_os_error()
+pub(pkg) fn random(bytes: &mut [u8]) Error!void {
+    platform::random(bytes).asOsError()
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
-    let pid = platform::spawn_raw(path, argv, envp).as_spawn_error().?;
-    !ProcessId::from_platform(pid)
+pub(pkg) fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
+    let pid = platform::spawn_raw(path, argv, envp).asSpawnError().?;
+    !ProcessId::fromPlatform(pid)
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
-    let result = platform::spawn(path, argv, envp, options.platform()).as_spawn_error().?;
-    !SpawnResult::from_platform(result)
+pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
+    let result = platform::spawn(path, argv, envp, options.platform()).asSpawnError().?;
+    !SpawnResult::fromPlatform(result)
 }
 
-pub fn wait(pid: ProcessId) Error!WaitStatus {
-    let status = platform::wait(pid.platform()).as_os_error().?;
-    !WaitStatus::from_platform(status)
+pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
+    let status = platform::wait(pid.platform()).asOsError().?;
+    !WaitStatus::fromPlatform(status)
 }
 
-pub fn try_wait(pid: ProcessId) Error! ?WaitStatus {
-    let status = platform::try_wait(pid.platform()).as_os_error().?;
+pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
+    let status = platform::try_wait(pid.platform()).asOsError().?;
     switch status {
         ?value => {
-            !(?WaitStatus::from_platform(value))
+            !(?WaitStatus::fromPlatform(value))
         },
         null => {
             !null
@@ -265,15 +265,11 @@ pub fn try_wait(pid: ProcessId) Error! ?WaitStatus {
     }
 }
 
-pub fn kill(pid: ProcessId) Error!void {
-    kill_with(pid, platform::sigterm())
+pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!void {
+    platform::kill_with(pid.platform(), signal).asOsError()
 }
 
-pub fn kill_with(pid: ProcessId, signal: i32) Error!void {
-    platform::kill_with(pid.platform(), signal).as_os_error()
-}
-
-pub fn exit(code: i32) void {
+pub(pkg) fn exit(code: i32) void {
     platform::exit(code);
 }
 
@@ -307,7 +303,7 @@ extend platform::Errno : error::IntoError[Error] {
 }
 
 extend platform::Errno {
-    fn as_os_error(self) Error {
+    fn asOsError(self) Error {
         self.into_error()
     }
 }
@@ -346,25 +342,25 @@ extend platform::SpawnError : error::IntoError[SpawnError] {
 }
 
 extend platform::SpawnError {
-    fn as_spawn_error(self) SpawnError {
+    fn asSpawnError(self) SpawnError {
         self.into_error()
     }
 }
 
 extend[T] platform::SpawnError!T {
-    fn as_spawn_error(self) SpawnError!T {
+    fn asSpawnError(self) SpawnError!T {
         self.cast_error()
     }
 }
 
 extend[T] platform::Errno!T {
-    fn as_os_error(self) Error!T {
+    fn asOsError(self) Error!T {
         self.cast_error()
     }
 }
 
 extend OpenMode {
-    fn as_platform_open_mode(self) Error!platform::OpenMode {
+    fn asPlatformOpenMode(self) Error!platform::OpenMode {
         switch self {
             OpenMode::ReadOnly => !platform::OpenMode::ReadOnly,
             OpenMode::WriteOnly => !platform::OpenMode::WriteOnly,
@@ -375,7 +371,7 @@ extend OpenMode {
 }
 
 extend SeekWhence {
-    fn as_platform_seek_whence(self) Error!platform::SeekWhence {
+    fn asPlatformSeekWhence(self) Error!platform::SeekWhence {
         switch self {
             SeekWhence::Start => !platform::SeekWhence::Start,
             SeekWhence::Current => !platform::SeekWhence::Current,
@@ -386,7 +382,7 @@ extend SeekWhence {
 }
 
 extend platform::FileKind {
-    fn as_os_file_kind(self) FileKind {
+    fn asOsFileKind(self) FileKind {
         switch self {
             platform::FileKind::BlockDevice => FileKind::BlockDevice,
             platform::FileKind::CharacterDevice => FileKind::CharacterDevice,
@@ -401,80 +397,80 @@ extend platform::FileKind {
 }
 
 extend platform::Timestamp {
-    fn as_os_timestamp(&self) Timestamp {
+    fn asOsTimestamp(&self) Timestamp {
         Timestamp::init(self.seconds(), self.nanos())
     }
 }
 
 extend platform::FileMetadata {
-    fn as_os_metadata(&self) FileMetadata {
+    fn asOsMetadata(&self) FileMetadata {
         let mut accessed: ?Timestamp = null;
         switch self.atime() {
             ?value => {
-                accessed = ?value.as_os_timestamp();
+                accessed = ?value.asOsTimestamp();
             },
             null => {},
         }
         FileMetadata::init(
-            self.kind().as_os_file_kind(),
+            self.kind().asOsFileKind(),
             ?self.inode(),
             ?self.nlink(),
             self.size(),
             self.mode() & 0o7777u32,
             self.block_size(),
             accessed,
-            self.mtime().as_os_timestamp(),
-            ?self.ctime().as_os_timestamp(),
+            self.mtime().asOsTimestamp(),
+            ?self.ctime().asOsTimestamp(),
         )
     }
 }
 
 extend platform::DirectoryEntry {
-    fn as_os_directory_entry(&self) DirectoryEntry {
-        DirectoryEntry::init(self.kind().as_os_file_kind(), self.name())
+    fn asOsDirectoryEntry(&self) DirectoryEntry {
+        DirectoryEntry::init(self.kind().asOsFileKind(), self.name())
     }
 }
 
 extend Timestamp {
-    pub fn init(seconds: i64, nanos: u32) Timestamp {
+    pub(pkg) fn init(seconds: i64, nanos: u32) Timestamp {
         { seconds: seconds, nanos: nanos }
     }
 
-    pub fn seconds(&self) i64 {
+    pub(pkg) fn seconds(&self) i64 {
         self.seconds
     }
 
-    pub fn nanos(&self) u32 {
+    pub(pkg) fn nanos(&self) u32 {
         self.nanos
     }
 }
 
 extend DirectoryEntry {
-    pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
+    pub(pkg) fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
         { kind: kind, name: name }
     }
 
-    pub fn kind(&self) FileKind {
+    pub(pkg) fn kind(&self) FileKind {
         self.kind
     }
 
-    pub fn name(&self) &[u8] {
+    pub(pkg) fn name(&self) &[u8] {
         self.name
     }
 }
 
 extend DirectoryReader {
-    pub fn init(handle: FileHandle, buffer: &mut [u8]) DirectoryReader {
+    pub(pkg) fn init(handle: FileHandle, buffer: &mut [u8]) DirectoryReader {
         { handle: handle, buffer: buffer, start: 0, end: 0, done: false }
     }
 
-    pub fn next(&mut self) ?(Error!DirectoryEntry) {
+    pub(pkg) fn next(&mut self) ?(Error!DirectoryEntry) {
         if self.done {
             return null;
         }
         if self.start >= self.end {
             self.start = 0;
-            switch self.handle.read_dir_entries(self.buffer) {
+            switch self.handle.readDirEntries(self.buffer) {
                 !value => {
                     self.end = value;
                 },
@@ -490,7 +486,7 @@ extend DirectoryReader {
 
         let entry = switch platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
             ?value => {
-                value.as_os_directory_entry()
+                value.asOsDirectoryEntry()
             },
             null => {
                 return ?(Error::Invalid!);
@@ -509,7 +505,7 @@ extend DirectoryReader {
 }
 
 extend FileMetadata {
-    pub fn init(
+    pub(pkg) fn init(
         kind: FileKind,
         file_id: ?u64,
         link_count: ?u32,
@@ -533,45 +529,45 @@ extend FileMetadata {
         }
     }
 
-    pub fn kind(&self) FileKind {
+    pub(pkg) fn kind(&self) FileKind {
         self.kind
     }
 
-    pub fn file_id(&self) ?u64 {
+    pub(pkg) fn fileId(&self) ?u64 {
         self.file_id
     }
 
-    pub fn link_count(&self) ?u32 {
+    pub(pkg) fn linkCount(&self) ?u32 {
         self.link_count
     }
 
-    pub fn size(&self) u64 {
+    pub(pkg) fn size(&self) u64 {
         self.size
     }
 
-    pub fn permissions(&self) u32 {
+    pub(pkg) fn permissions(&self) u32 {
         self.permissions
     }
 
-    pub fn preferred_block_size(&self) u32 {
+    pub(pkg) fn preferredBlockSize(&self) u32 {
         self.preferred_block_size
     }
 
-    pub fn accessed(&self) ?Timestamp {
+    pub(pkg) fn accessed(&self) ?Timestamp {
         self.accessed
     }
 
-    pub fn modified(&self) Timestamp {
+    pub(pkg) fn modified(&self) Timestamp {
         self.modified
     }
 
-    pub fn status_changed(&self) ?Timestamp {
+    pub(pkg) fn statusChanged(&self) ?Timestamp {
         self.status_changed
     }
 }
 
 extend FileHandle {
-    fn from_platform(platform: platform::FileDescriptor) FileHandle {
+    fn fromPlatform(platform: platform::FileDescriptor) FileHandle {
         { platform: platform }
     }
 
@@ -579,66 +575,66 @@ extend FileHandle {
         self.platform
     }
 
-    pub fn stdin() FileHandle {
-        FileHandle::from_platform(platform::FileDescriptor::stdin())
+    pub(pkg) fn stdin() FileHandle {
+        FileHandle::fromPlatform(platform::FileDescriptor::stdin())
     }
 
-    pub fn stdout() FileHandle {
-        FileHandle::from_platform(platform::FileDescriptor::stdout())
+    pub(pkg) fn stdout() FileHandle {
+        FileHandle::fromPlatform(platform::FileDescriptor::stdout())
     }
 
-    pub fn stderr() FileHandle {
-        FileHandle::from_platform(platform::FileDescriptor::stderr())
+    pub(pkg) fn stderr() FileHandle {
+        FileHandle::fromPlatform(platform::FileDescriptor::stderr())
     }
 
-    pub fn write_some(&self, bytes: &[u8]) Error!usize {
-        self.platform().write_some(bytes).as_os_error()
+    pub fn writeSome(&self, bytes: &[u8]) Error!usize {
+        self.platform().write_some(bytes).asOsError()
     }
 
-    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
-        self.platform().read_some(bytes).as_os_error()
+    pub fn readSome(&self, bytes: &mut [u8]) Error!usize {
+        self.platform().read_some(bytes).asOsError()
     }
 
     pub fn close(&self) Error!void {
-        self.platform().close().as_os_error()
+        self.platform().close().asOsError()
     }
 
-    pub fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
-        let platform_whence = whence.as_platform_seek_whence().?;
+    pub(pkg) fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
+        let platform_whence = whence.asPlatformSeekWhence().?;
         self.platform().seek(
             offset,
             platform_whence,
-        ).as_os_error()
+        ).asOsError()
     }
 
-    pub fn truncate(&self, len: u64) Error!void {
-        self.platform().truncate(len).as_os_error()
+    pub(pkg) fn truncate(&self, len: u64) Error!void {
+        self.platform().truncate(len).asOsError()
     }
 
-    pub fn set_permissions(&self, permissions: u32) Error!void {
-        self.platform().set_permissions(permissions).as_os_error()
+    pub(pkg) fn setPermissions(&self, permissions: u32) Error!void {
+        self.platform().set_permissions(permissions).asOsError()
     }
 
-    pub fn sync(&self) Error!void {
-        self.platform().sync().as_os_error()
+    pub(pkg) fn sync(&self) Error!void {
+        self.platform().sync().asOsError()
     }
 
-    pub fn sync_data(&self) Error!void {
-        self.platform().sync_data().as_os_error()
+    pub(pkg) fn syncData(&self) Error!void {
+        self.platform().sync_data().asOsError()
     }
 
-    pub fn metadata(&self) Error!FileMetadata {
-        let metadata = self.platform().metadata().as_os_error().?;
-        !metadata.as_os_metadata()
+    pub(pkg) fn metadata(&self) Error!FileMetadata {
+        let metadata = self.platform().metadata().asOsError().?;
+        !metadata.asOsMetadata()
     }
 
-    fn read_dir_entries(&self, buffer: &mut [u8]) Error!usize {
-        self.platform().read_dir_entries(buffer).as_os_error()
+    fn readDirEntries(&self, buffer: &mut [u8]) Error!usize {
+        self.platform().read_dir_entries(buffer).asOsError()
     }
 }
 
 extend ProcessId {
-    fn from_platform(platform: platform::ProcessId) ProcessId {
+    fn fromPlatform(platform: platform::ProcessId) ProcessId {
         { platform: platform }
     }
 
@@ -652,7 +648,7 @@ extend ProcessId {
 }
 
 extend WaitStatus {
-    fn from_platform(platform: platform::WaitStatus) WaitStatus {
+    fn fromPlatform(platform: platform::WaitStatus) WaitStatus {
         { platform: platform }
     }
 
@@ -660,37 +656,37 @@ extend WaitStatus {
         self.platform
     }
 
-    pub fn raw(&self) i32 {
+    pub(pkg) fn raw(&self) i32 {
         self.platform().raw()
     }
 
-    pub fn exited(&self) bool {
+    pub(pkg) fn exited(&self) bool {
         self.platform().exited()
     }
 
-    pub fn signaled(&self) bool {
+    pub(pkg) fn signaled(&self) bool {
         self.platform().signaled()
     }
 
-    pub fn stopped(&self) bool {
+    pub(pkg) fn stopped(&self) bool {
         self.platform().stopped()
     }
 
-    pub fn exit_code(&self) ?i32 {
+    pub(pkg) fn exitCode(&self) ?i32 {
         self.platform().exit_code()
     }
 
-    pub fn signal(&self) ?i32 {
+    pub(pkg) fn signal(&self) ?i32 {
         self.platform().signal()
     }
 
-    pub fn stop_signal(&self) ?i32 {
+    pub(pkg) fn stopSignal(&self) ?i32 {
         self.platform().stop_signal()
     }
 }
 
 extend SpawnResult {
-    fn from_platform(platform: platform::SpawnResult) SpawnResult {
+    fn fromPlatform(platform: platform::SpawnResult) SpawnResult {
         { platform: platform }
     }
 
@@ -698,14 +694,14 @@ extend SpawnResult {
         self.platform
     }
 
-    pub fn pid(&self) ProcessId {
-        ProcessId::from_platform(self.platform().pid())
+    pub(pkg) fn pid(&self) ProcessId {
+        ProcessId::fromPlatform(self.platform().pid())
     }
 
-    pub fn stdin(&self) ?FileHandle {
+    pub(pkg) fn stdin(&self) ?FileHandle {
         switch self.platform().stdin() {
             ?handle => {
-                ?FileHandle::from_platform(handle)
+                ?FileHandle::fromPlatform(handle)
             },
             null => {
                 null
@@ -713,10 +709,10 @@ extend SpawnResult {
         }
     }
 
-    pub fn stdout(&self) ?FileHandle {
+    pub(pkg) fn stdout(&self) ?FileHandle {
         switch self.platform().stdout() {
             ?handle => {
-                ?FileHandle::from_platform(handle)
+                ?FileHandle::fromPlatform(handle)
             },
             null => {
                 null
@@ -724,10 +720,10 @@ extend SpawnResult {
         }
     }
 
-    pub fn stderr(&self) ?FileHandle {
+    pub(pkg) fn stderr(&self) ?FileHandle {
         switch self.platform().stderr() {
             ?handle => {
-                ?FileHandle::from_platform(handle)
+                ?FileHandle::fromPlatform(handle)
             },
             null => {
                 null
@@ -737,7 +733,7 @@ extend SpawnResult {
 }
 
 extend StdIo {
-    fn as_platform_stdio(self) Error!platform::StdIo {
+    fn asPlatformStdio(self) Error!platform::StdIo {
         switch self {
             StdIo::Inherit => !platform::StdIo::Inherit,
             StdIo::Ignore => !platform::StdIo::Ignore,
@@ -748,7 +744,7 @@ extend StdIo {
 }
 
 extend SpawnOptions {
-    pub fn init() SpawnOptions {
+    pub(pkg) fn init() SpawnOptions {
         { platform: platform::SpawnOptions::init() }
     }
 
@@ -756,22 +752,22 @@ extend SpawnOptions {
         self.platform
     }
 
-    pub fn set_stdin(&mut self, behavior: StdIo) Error!void {
-        self.platform.set_stdin(behavior.as_platform_stdio().?);
+    pub(pkg) fn setStdin(&mut self, behavior: StdIo) Error!void {
+        self.platform.set_stdin(behavior.asPlatformStdio().?);
         !{}
     }
 
-    pub fn set_stdout(&mut self, behavior: StdIo) Error!void {
-        self.platform.set_stdout(behavior.as_platform_stdio().?);
+    pub(pkg) fn setStdout(&mut self, behavior: StdIo) Error!void {
+        self.platform.set_stdout(behavior.asPlatformStdio().?);
         !{}
     }
 
-    pub fn set_stderr(&mut self, behavior: StdIo) Error!void {
-        self.platform.set_stderr(behavior.as_platform_stdio().?);
+    pub(pkg) fn setStderr(&mut self, behavior: StdIo) Error!void {
+        self.platform.set_stderr(behavior.asPlatformStdio().?);
         !{}
     }
 
-    pub fn set_cwd(&mut self, path: &u8) void {
+    pub(pkg) fn setCwd(&mut self, path: &u8) void {
         self.platform.set_cwd(path);
     }
 }

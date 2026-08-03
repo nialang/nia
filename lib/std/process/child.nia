@@ -108,7 +108,7 @@ extend Child {
             null => {},
         }
         let pid = self.state.pid();
-        let status = os::try_wait(pid).asProcessTryWaitError().?;
+        let status = os::tryWait(pid).asProcessTryWaitError().?;
         switch status {
             ?value => {
                 self.state = ChildState::exited(pid, value);
@@ -149,7 +149,7 @@ extend Child {
             },
             null => {},
         }
-        os::kill_with(self.state.pid(), signal as i32).asProcessKillError().?;
+        os::killWith(self.state.pid(), signal as i32).asProcessKillError().?;
         self.wait()
     }
 }
