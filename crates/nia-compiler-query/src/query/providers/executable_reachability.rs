@@ -1103,16 +1103,30 @@ fn executable_root_defs(
     match *db.get(CompilerRuntimeQuery)? {
         RuntimeModel::Bare => {
             let defs = full_module_defs_semantic(db, entry)?;
+            let signatures = db.get(SignatureItemSignaturesQuery(
+                entry,
+                nia_item_tree::SignatureItemSet::Functions,
+            ))?;
             let mut functions = Vec::new();
             let mut globals = Vec::new();
             for (def_id, def) in defs.defs.iter().filter(|(_, def)| def.parent.is_none()) {
-                let def_id = GlobalDefId {
-                    module_id: entry,
-                    def_id,
-                };
                 match def.kind {
-                    DefKind::Function => functions.push(def_id),
-                    DefKind::Global => globals.push(def_id),
+                    DefKind::Function
+                        if signatures
+                            .semantic
+                            .functions
+                            .get(&def_id)
+                            .is_some_and(|signature| !signature.is_const) =>
+                    {
+                        functions.push(GlobalDefId {
+                            module_id: entry,
+                            def_id,
+                        });
+                    }
+                    DefKind::Global => globals.push(GlobalDefId {
+                        module_id: entry,
+                        def_id,
+                    }),
                     _ => {}
                 }
             }
@@ -1134,8 +1148,19 @@ fn executable_root_defs(
             }
             if let Some(start_module) = start_module {
                 let defs = full_module_defs_semantic(db, start_module)?;
+                let signatures = db.get(SignatureItemSignaturesQuery(
+                    start_module,
+                    nia_item_tree::SignatureItemSet::Functions,
+                ))?;
                 functions.extend(defs.defs.iter().filter_map(|(def_id, def)| {
-                    (def.kind == DefKind::Function && def.parent.is_none()).then_some(GlobalDefId {
+                    (def.kind == DefKind::Function
+                        && def.parent.is_none()
+                        && signatures
+                            .semantic
+                            .functions
+                            .get(&def_id)
+                            .is_some_and(|signature| !signature.is_const))
+                    .then_some(GlobalDefId {
                         module_id: start_module,
                         def_id,
                     })

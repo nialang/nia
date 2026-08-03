@@ -258,7 +258,49 @@ impl<'a> BodyChecker<'a> {
                 type_args,
                 args,
             ),
+            BuiltinFunction::CharFromU32 => self.check_char_from_u32_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                name,
+                type_args,
+                args,
+            ),
         }
+    }
+
+    fn check_char_from_u32_builtin_call(
+        &mut self,
+        call_span: Span,
+        value_node: &Expr,
+        builtin_span: Span,
+        name: &str,
+        type_args: BuiltinCallTypeArgs<'_>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::CharFromU32,
+            None,
+        );
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
+        let u32_ty = self.primitive(PrimitiveTy::U32);
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call_span,
+                format!("builtin `{name}` requires exactly one value argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+        } else {
+            let actual = self.check_expr_with_expected(&args[0], Some(u32_ty));
+            self.expect_expr_type(&args[0], u32_ty, actual, "Unicode scalar value");
+        }
+        let char_ty = self.primitive(PrimitiveTy::Char);
+        self.interner.intern(TyKind::Optional { elem: char_ty })
     }
 
     fn require_builtin_type_arg(

@@ -42,7 +42,14 @@ impl ConstModuleLowerer<'_> {
                     self.lower_global_initializer(item.span, binding)
                 }
                 ItemTreeNodeKind::Function(function) if function.is_const => {
-                    self.lower_function(function)
+                    self.lower_function(function, DefKind::Function)
+                }
+                ItemTreeNodeKind::Trait(item_trait) => {
+                    for method in &item_trait.methods {
+                        if method.function.is_const && method.function.body.is_some() {
+                            self.lower_function(&method.function, DefKind::TraitMethod);
+                        }
+                    }
                 }
                 ItemTreeNodeKind::Extend(extend) => {
                     for associated_value in &extend.associated_values {
@@ -63,7 +70,7 @@ impl ConstModuleLowerer<'_> {
                     }
                     for method in &extend.methods {
                         if method.function.is_const {
-                            self.lower_function(&method.function);
+                            self.lower_function(&method.function, DefKind::Method);
                         }
                     }
                 }
@@ -165,13 +172,11 @@ impl ConstModuleLowerer<'_> {
         }
     }
 
-    fn lower_function(&mut self, function: &nia_ast::FunctionItem) {
+    fn lower_function(&mut self, function: &nia_ast::FunctionItem, kind: DefKind) {
         if function.body.is_none() {
             return;
         }
-        let Some(def_id) =
-            self.def_id_for_node(&function.node_key, function.span, DefKind::Function)
-        else {
+        let Some(def_id) = self.def_id_for_node(&function.node_key, function.span, kind) else {
             return;
         };
         let function_locals = self.function_locals(function);
@@ -269,6 +274,13 @@ impl ConstModuleLowerer<'_> {
                 .node_type_uses
                 .iter()
                 .map(|(key, ty)| (key.clone(), *ty)),
+        );
+        builder.extend_node_type_prefixes(
+            self.input
+                .semantic_uses
+                .node_type_prefixes
+                .iter()
+                .map(|(key, def_id)| (key.clone(), *def_id)),
         );
         builder.finish()
     }

@@ -473,6 +473,12 @@ pub(super) fn semantic_use_table(
             .iter()
             .map(|(key, global_id)| (key.clone(), *global_id)),
     );
+    builder.extend_node_type_prefixes(
+        values
+            .node_qualified_type_prefixes
+            .iter()
+            .map(|(key, def_id)| (key.clone(), *def_id)),
+    );
     for (key, resolution) in &values.node_names {
         match resolution {
             nia_value_resolve::ValueNameResolution::Def(def_id) => {

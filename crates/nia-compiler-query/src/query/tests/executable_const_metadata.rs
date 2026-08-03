@@ -40,6 +40,30 @@ values.len() as i32
         .iter()
         .find(|module| module.id == module_id)
         .expect("entry module should be executable-reachable");
+    let const_len = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Function && def.name == sym("len"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("const len function");
+    let main = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Function && def.name == sym("main"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("main function");
+    let value_ref_edges = db.expect_get(ExecutableValueRefEdgesQuery(main));
+    assert!(
+        !value_ref_edges.functions.contains(&const_len),
+        "array length and repeat-count calls must not enter raw runtime value-ref edges: {:?}",
+        value_ref_edges.functions
+    );
     let trace = db.query_trace();
 
     assert!(
@@ -54,6 +78,15 @@ values.len() as i32
             .values()
             .any(|length| *length == 4),
         "filtered executable const phases should retain reachable array lengths"
+    );
+    assert!(
+        !facts.runtime_functions.contains(&const_len),
+        "a const-only function must not enter executable reachability: {:?}",
+        facts.runtime_functions
+    );
+    assert!(
+        !module.body_ir.function_bodies.contains_key(&const_len),
+        "a function used only by const evaluation must not become a runtime body root"
     );
     assert!(!trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "executable_body_check"

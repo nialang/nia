@@ -1230,7 +1230,6 @@ impl FunctionLowerer<'_> {
             BuiltinMethod::Len => FunctionBuiltinMethod::Len,
             BuiltinMethod::Start => FunctionBuiltinMethod::Start,
             BuiltinMethod::End => FunctionBuiltinMethod::End,
-            BuiltinMethod::Char => FunctionBuiltinMethod::Char,
             BuiltinMethod::Iter => FunctionBuiltinMethod::Iter,
         }
     }

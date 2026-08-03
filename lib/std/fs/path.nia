@@ -22,8 +22,8 @@ extend PathView {
             if ch.codepoint() == 0 {
                 return PathError::ContainsNul!;
             }
-            let encoded = ch.encode_utf8();
-            let next = switch out.checked_add(encoded.len()) {
+            let encoded = ch.encodeUtf8();
+            let next = switch out.checked_add(encoded.byteLen()) {
                 ?value => value,
                 null => return PathError::TooLong!,
             };

@@ -80,7 +80,6 @@ fn std_builtin_source_declarations_match_rust_descriptors() {
         "u8",
         "u16",
         "u32",
-        "u32.Char",
         "u64",
         "u128",
         "usize",

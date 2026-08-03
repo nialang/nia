@@ -200,7 +200,6 @@ fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> SymbolId {
         BuiltinTraitMethod::Len => known::LEN,
         BuiltinTraitMethod::Start => known::START,
         BuiltinTraitMethod::End => known::END,
-        BuiltinTraitMethod::Char => known::CHAR,
         BuiltinTraitMethod::IterableIter => known::ITER_METHOD,
         BuiltinTraitMethod::IteratorNext => known::NEXT,
     }
@@ -276,7 +275,10 @@ pub fn executable_module_refs_from_semantic_facts(
         function_refs
             .generic_instantiations
             .extend(facts.generic_instantiations.iter().cloned());
-        for call in facts.node_resolved_calls.values() {
+        for (key, call) in &facts.node_resolved_calls {
+            if facts.node_array_repeat_counts.contains_key(&key) {
+                continue;
+            }
             collect_resolved_call_refs(module, call, function_refs);
         }
         for reference in facts.node_function_references.values() {
@@ -995,7 +997,6 @@ fn builtin_method_trait(
         nia_body_ir::BuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
         nia_body_ir::BuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         nia_body_ir::BuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
-        nia_body_ir::BuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
         nia_body_ir::BuiltinMethod::Iter => {
             Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
         }

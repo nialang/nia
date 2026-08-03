@@ -1032,19 +1032,13 @@ impl<'a> BodyChecker<'a> {
                 {
                     let (receiver, lowered_args) =
                         self.lower_builtin_call_receiver(callee, args, Some(self_ty));
-                    if method == nia_sema_ir::BuiltinMethod::Char && self.is_u32(self_ty) {
-                        TypedExprKind::CharFromU32 {
-                            value: Box::new(receiver),
-                        }
-                    } else {
-                        TypedExprKind::Call {
-                            callee: TypedCallee::BuiltinMethod {
-                                method,
-                                self_ty,
-                                receiver: Box::new(receiver),
-                            },
-                            args: lowered_args,
-                        }
+                    TypedExprKind::Call {
+                        callee: TypedCallee::BuiltinMethod {
+                            method,
+                            self_ty,
+                            receiver: Box::new(receiver),
+                        },
+                        args: lowered_args,
                     }
                 } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op, .. }) =
                     self.resolved_call(expr)
@@ -1208,6 +1202,9 @@ impl<'a> BodyChecker<'a> {
                 self.lower_builtin_value_expr(expr)
             }
             (nia_ids::BuiltinFunction::Offset, [_]) => self.lower_builtin_value_expr(expr),
+            (nia_ids::BuiltinFunction::CharFromU32, [value]) => TypedExprKind::CharFromU32 {
+                value: Box::new(self.lower_expr(value)),
+            },
             (nia_ids::BuiltinFunction::Asm, [arg]) => self.lower_inline_asm(arg),
             (nia_ids::BuiltinFunction::MemCopy, [dest, source]) => {
                 TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {

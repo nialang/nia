@@ -298,7 +298,6 @@ where
             BuiltinTrait::Len => self.can_have_len(self_ty),
             BuiltinTrait::Start => self.can_have_range_start(self_ty),
             BuiltinTrait::End => self.can_have_range_end(self_ty),
-            BuiltinTrait::Char => self.can_convert_to_char(self_ty),
             BuiltinTrait::Iterable => false,
             BuiltinTrait::Iterator => false,
             BuiltinTrait::Simd => self.can_be_simd(self_ty),
@@ -579,13 +578,6 @@ where
             }
             _ => false,
         }
-    }
-
-    fn can_convert_to_char(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.type_store.get(self.normalize(ty)),
-            Some(TyKind::GenericParam(_) | TyKind::Primitive(PrimitiveTy::U32))
-        )
     }
 
     fn normalize(&self, ty: InternedTyId) -> InternedTyId {
@@ -970,7 +962,6 @@ impl TraitSolver<'_> {
             BuiltinTrait::End => {
                 goal.trait_args.is_empty() && self.intrinsic_range_end_output_ty(self_ty).is_some()
             }
-            BuiltinTrait::Char => goal.trait_args.is_empty() && self.intrinsic_char(self_ty),
             BuiltinTrait::Iterable => {
                 goal.trait_args.is_empty()
                     && !matches!(
@@ -1143,13 +1134,6 @@ impl TraitSolver<'_> {
             }
             _ => None,
         }
-    }
-
-    fn intrinsic_char(&mut self, self_ty: InternedTyId) -> bool {
-        matches!(
-            self.kind(self_ty),
-            Some(TyKind::Primitive(PrimitiveTy::U32))
-        )
     }
 
     pub fn intrinsic_deref_target_ty(

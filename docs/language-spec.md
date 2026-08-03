@@ -1691,10 +1691,12 @@ const width: usize = p.x + p.y;
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.
 
-`const fn` declares a function whose body executes in constant evaluation. In
-the current language it may only be called from a const context; making
-runtime-representable `const fn` callable at runtime is a separate future
-language decision, not an implicit property of the keyword migration.
+`const fn` declares a function that is valid during constant evaluation. It is
+not a const-eval-only function kind: the same function may be called from
+runtime code, where it is lowered and executed as an ordinary runtime
+function. A constant expression may call `const fn`, but may not call an
+ordinary `fn`. This gives one implementation a dual-stage contract rather than
+separate compile-time and runtime definitions.
 
 Constant evaluation may use ordinary `let mut` locals for loops, accumulation,
 and aggregate construction. Each call receives fresh local state. That state
@@ -1703,14 +1705,28 @@ cross-query identity, and cannot escape into the returned const value:
 
 ```nia
 const fn width() usize {
-    let mut value = 0usize;
-    while value < 4usize {
-        value += 1usize;
+    let mut value: usize = 0;
+    while value < 4 {
+        value += 1;
     }
     value
 }
 
-const array_width: usize = width();
+const arrayWidth: usize = width();
+```
+
+Calls are staged by their use site:
+
+```nia
+const fn double(value: usize) usize {
+    value * 2
+}
+
+const arrayLen: usize = double(5); // evaluated at compile time
+
+fn runtimeDouble(value: usize) usize {
+    double(value) // emitted as a runtime call
+}
 ```
 
 ### 5.7 Static Storage

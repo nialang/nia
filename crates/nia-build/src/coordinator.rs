@@ -3897,7 +3897,7 @@ mod tests {
         let invocation = test_invocation();
         write_compiler_check_source(
             &invocation,
-            &format!("using std::collections;\n{}", freestanding_source("!{}")),
+            &format!("using std::build;\n{}", freestanding_source("!{}")),
         );
         let plan = compiler_emit_plan(
             &invocation,

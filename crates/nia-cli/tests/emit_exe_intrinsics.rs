@@ -117,15 +117,10 @@ fn emit_exe_char_checks_unicode_scalar_values() {
 using std::process;
 using std::unicode;
 
-fn generic_char[T](value: T) ?char
-where T: Char {
-    value.char()
-}
-
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    let ascii = switch 65u32.char() {
+    let ascii = switch unicode::fromScalarValue(65) {
         ?ch => {
             ch
         },
@@ -133,11 +128,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(1)!;
         },
     };
-    if ascii.codepoint() != 65u32 {
+    if ascii.codepoint() != 65 {
         return process::exit(2)!;
     }
 
-    let generic_ascii = switch generic_char(66u32) {
+    let direct = switch std::builtin::charFromU32(66) {
         ?ch => {
             ch
         },
@@ -145,11 +140,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(10)!;
         },
     };
-    if generic_ascii.codepoint() != 66u32 {
+    if direct.codepoint() != 66 {
         return process::exit(11)!;
     }
 
-    let max = switch [char]::from_u32(0x10ffffu32) {
+    let maxScalar: u32 = 0x10ffff;
+    let surrogate: u32 = 0xd800;
+    if not unicode::isValidScalarValue(maxScalar) or unicode::isValidScalarValue(surrogate) {
+        return process::exit(23)!;
+    }
+
+    let max = switch unicode::fromScalarValue(0x10ffff) {
         ?ch => {
             ch
         },
@@ -157,18 +158,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     };
-    if max.codepoint() != 0x10ffffu32 {
+    if max.codepoint() != 0x10ffff {
         return process::exit(4)!;
     }
 
-    switch 0xd800u32.char() {
+    switch unicode::fromScalarValue(0xd800) {
         ?ch => {
             _ = ch;
             return process::exit(5)!;
         },
         null => {},
     }
-    switch 0x110000u32.char() {
+    switch unicode::fromScalarValue(0x110000) {
         ?ch => {
             _ = ch;
             return process::exit(6)!;
@@ -176,8 +177,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         null => {},
     }
 
-    let euro_bytes: [3]u8 = [0xe2u8, 0x82u8, 0xacu8];
-    let euro = switch unicode::decodeUtf8First(&euro_bytes) {
+    let euroBytes: [3]u8 = [0xe2, 0x82, 0xac];
+    let euro = switch unicode::decodeUtf8First(&euroBytes) {
         !decoded => {
             decoded
         },
@@ -186,11 +187,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(7)!;
         },
     };
-    if euro.len() != 3usize or euro.char().codepoint() != 0x20acu32 {
+    if euro.byteLen() != 3 or euro.scalar().codepoint() != 0x20ac {
         return process::exit(8)!;
     }
 
-    let overlong: [2]u8 = [0xc0u8, 0x80u8];
+    let overlong: [2]u8 = [0xc0, 0x80];
     switch unicode::decodeUtf8First(&overlong) {
         !decoded => { _ = decoded; return process::exit(9)!; },
         error! => if error != unicode::Utf8DecodeError::Overlong {
@@ -205,7 +206,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    let truncated: [2]u8 = [0xe2, 0x82];
     switch unicode::decodeUtf8First(&truncated) {
         !decoded => { _ = decoded; return process::exit(15)!; },
         error! => if error != unicode::Utf8DecodeError::Truncated {
@@ -213,24 +214,24 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    let invalid_leading: [1]u8 = [0x80u8];
-    switch unicode::decodeUtf8First(&invalid_leading) {
+    let invalidLeading: [1]u8 = [0x80];
+    switch unicode::decodeUtf8First(&invalidLeading) {
         !decoded => { _ = decoded; return process::exit(17)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidLeadingByte {
             return process::exit(18)!;
         },
     }
 
-    let invalid_continuation: [3]u8 = [0xe2u8, 0x28u8, 0xa1u8];
-    switch unicode::decodeUtf8First(&invalid_continuation) {
+    let invalidContinuation: [3]u8 = [0xe2, 0x28, 0xa1];
+    switch unicode::decodeUtf8First(&invalidContinuation) {
         !decoded => { _ = decoded; return process::exit(19)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidContinuation {
             return process::exit(20)!;
         },
     }
 
-    let invalid_scalar: [3]u8 = [0xedu8, 0xa0u8, 0x80u8];
-    switch unicode::decodeUtf8First(&invalid_scalar) {
+    let invalidScalar: [3]u8 = [0xed, 0xa0, 0x80];
+    switch unicode::decodeUtf8First(&invalidScalar) {
         !decoded => { _ = decoded; return process::exit(21)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidScalar {
             return process::exit(22)!;
@@ -287,6 +288,76 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
 
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_const_functions_run_at_comptime_and_runtime() {
+    let root = temp_dir("emit_exe_const_functions_run_at_comptime_and_runtime");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+struct Width {
+    value: usize,
+}
+
+const fn double(value: usize) usize {
+    value * 2
+}
+
+const fn compileOnlyWidth() usize {
+    3
+}
+
+extend Width {
+    const fn fromValue(value: usize) Width {
+        { value: value }
+    }
+
+    const fn doubled(self) usize {
+        self.value * 2
+    }
+}
+
+const arrayLen: usize = double(2) + Width::fromValue(3).doubled() + compileOnlyWidth();
+
+fn runtimeChecks(value: usize) bool {
+    let values: [arrayLen]u8 = [0; arrayLen];
+    double(value) == 14
+        and Width::fromValue(value).doubled() == 14
+        and values.len() == 13
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    if not runtimeChecks(7) {
+        return process::exit(1)!;
+    }
     !{}
 }
 "#,

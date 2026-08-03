@@ -473,6 +473,12 @@ impl StaticChecker<'_> {
                 .iter()
                 .map(|(key, ty)| (key.clone(), *ty)),
         );
+        builder.extend_node_type_prefixes(
+            self.semantic_uses
+                .node_type_prefixes
+                .iter()
+                .map(|(key, def_id)| (key.clone(), *def_id)),
+        );
         builder.finish()
     }
 

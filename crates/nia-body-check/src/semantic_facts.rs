@@ -51,6 +51,9 @@ impl<'a> BodyChecker<'a> {
         key: &VersionedNodeKey,
         call: ResolvedCall,
     ) {
+        if self.in_const_context() {
+            return;
+        }
         self.enqueue_same_module_resolved_call(&call);
         self.node_resolved_calls.insert(key.clone(), call.clone());
         if let Some(facts) = self.current_function_facts() {

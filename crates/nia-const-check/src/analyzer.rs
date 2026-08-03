@@ -16,11 +16,11 @@ use crate::{
 use nia_const_eval::ConstError;
 use nia_const_ir::{
     ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral, ConstUnaryOp,
-    ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstBlock,
-    ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
-    ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern, ResolvedConstPatternKind,
-    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArmBody,
-    ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
+    ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssociatedTarget,
+    ResolvedConstBlock, ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind,
+    ResolvedConstFieldInit, ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern,
+    ResolvedConstPatternKind, ResolvedConstStmtKind, ResolvedConstSwitch,
+    ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -86,10 +86,26 @@ pub struct TypedConstQueryInput<'a> {
     pub frames: &'a [TypedConstFrame],
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConstGenericInstantiation {
     pub type_substitutions: SymbolMap<InternedTyId>,
     pub const_substitutions: SymbolMap<ConstGenericArg>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedConstCallee {
+    pub function_id: GlobalDefId,
+    pub receiver: Option<ResolvedConstExpr>,
+    pub target_instantiation: ConstGenericInstantiation,
+}
+
+pub(crate) struct ConstFunctionInstantiationInput<'a> {
+    pub signature_module_id: ModuleId,
+    pub signature: &'a FunctionSignature,
+    pub type_args: &'a [ResolvedConstTypeArg],
+    pub arg_exprs: &'a [ResolvedConstExpr],
+    pub expected_return: Option<InternedTyId>,
+    pub initial: ConstGenericInstantiation,
 }
 
 pub fn instantiate_resolved_const_function_generics(
@@ -104,11 +120,14 @@ pub fn instantiate_resolved_const_function_generics(
     let mut analyzer = Analyzer::for_typed_query(input);
     analyzer.instantiate_resolved_function_generics(
         span,
-        signature_module_id,
-        signature,
-        type_args,
-        arg_exprs,
-        expected_return,
+        ConstFunctionInstantiationInput {
+            signature_module_id,
+            signature,
+            type_args,
+            arg_exprs,
+            expected_return,
+            initial: ConstGenericInstantiation::default(),
+        },
     )
 }
 
@@ -275,7 +294,7 @@ pub(crate) struct Analyzer<'a> {
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
-    resolved_call_type_substitutions: HashMap<Span, SymbolMap<InternedTyId>>,
+    resolved_call_instantiations: HashMap<Span, ConstGenericInstantiation>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -328,7 +347,7 @@ impl Analyzer<'_> {
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
-            resolved_call_type_substitutions: HashMap::new(),
+            resolved_call_instantiations: HashMap::new(),
         }
     }
 
@@ -371,7 +390,7 @@ impl Analyzer<'_> {
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
-            resolved_call_type_substitutions: HashMap::new(),
+            resolved_call_instantiations: HashMap::new(),
         }
     }
 

@@ -48,6 +48,7 @@ pub(crate) fn builtin_function_symbol(name: SymbolId) -> Option<BuiltinFunction>
         known::CMPXCHG_WEAK => Some(BuiltinFunction::CmpxchgWeak),
         known::FENCE => Some(BuiltinFunction::Fence),
         known::EMBED => Some(BuiltinFunction::Embed),
+        known::CHAR_FROM_U32 => Some(BuiltinFunction::CharFromU32),
         _ => None,
     }
 }
@@ -94,7 +95,6 @@ pub(crate) fn builtin_trait_method_symbol(name: SymbolId) -> Option<BuiltinTrait
         known::LEN => Some(BuiltinTraitMethod::Len),
         known::START => Some(BuiltinTraitMethod::Start),
         known::END => Some(BuiltinTraitMethod::End),
-        known::CHAR => Some(BuiltinTraitMethod::Char),
         known::ITER_METHOD => Some(BuiltinTraitMethod::IterableIter),
         known::NEXT => Some(BuiltinTraitMethod::IteratorNext),
         _ => None,

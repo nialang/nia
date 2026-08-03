@@ -388,18 +388,178 @@ pub const fn width(base: usize) usize {
 }
 
 #[test]
-fn runtime_call_to_const_function_is_rejected() {
-    let root = temp_dir("runtime_call_to_const_function_is_rejected");
+fn const_function_is_available_at_comptime_and_runtime() {
+    let root = temp_dir("const_function_is_available_at_comptime_and_runtime");
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
-    4
+const fn width(value: usize) usize {
+    value * 2
 }
 
-fn main() i32 {
-    width() as i32
+const arrayLen: usize = width(5);
+
+fn main(input: usize) i32 {
+    let values: [arrayLen]u8 = [0; arrayLen];
+    width(input) as i32 + values.len() as i32
 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_receiver_method_is_available_at_comptime_and_runtime() {
+    let root = temp_dir("const_receiver_method_is_available_at_comptime_and_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Width {
+    value: usize,
+}
+
+extend Width {
+    const fn doubled(self) usize {
+        self.value * 2
+    }
+}
+
+const compileTimeWidth: usize = Width{value: 5}.doubled();
+
+fn main(input: usize) i32 {
+    let values: [compileTimeWidth]u8 = [0; compileTimeWidth];
+    Width{value: input}.doubled() as i32 + values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_associated_function_is_available_at_comptime_and_runtime() {
+    let root = temp_dir("const_associated_function_is_available_at_comptime_and_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Width {
+    value: usize,
+}
+
+extend Width {
+    const fn fromValue(value: usize) Width {
+        { value: value }
+    }
+}
+
+const compileTimeWidth: usize = Width::fromValue(5).value;
+
+fn main(input: usize) i32 {
+    let values: [compileTimeWidth]u8 = [0; compileTimeWidth];
+    Width::fromValue(input).value as i32 + values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_const_methods_infer_extension_target_at_comptime_and_runtime() {
+    let root = temp_dir("generic_const_methods_infer_extension_target_at_comptime_and_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    const fn value(self) T {
+        self.value
+    }
+
+    const fn fromValue(value: T) Box[T] {
+        { value: value }
+    }
+}
+
+const receiverValue: usize = Box[usize]{value: 4}.value();
+const associatedValue: usize = Box[usize]::fromValue(6).value();
+const arrayLen: usize = receiverValue + associatedValue;
+
+fn main(input: usize) i32 {
+    let values: [arrayLen]u8 = [0; arrayLen];
+    Box[usize]::fromValue(input).value() as i32 + values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_const_functions_and_methods_work_at_comptime_and_runtime() {
+    let root = temp_dir("imported_const_functions_and_methods_work_at_comptime_and_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+module widths;
+using entry::widths;
+
+const arrayLen: usize = widths::double(2) + widths::Width::fromValue(3).doubled();
+
+fn main(input: usize) i32 {
+    let values: [arrayLen]u8 = [0; arrayLen];
+    widths::double(input) as i32
+        + widths::Width::fromValue(input).doubled() as i32
+        + values.len() as i32
+}
+"#,
+    );
+    write(
+        &root.join("widths.nia"),
+        r#"
+pub struct Width {
+    value: usize,
+}
+
+pub const fn double(value: usize) usize {
+    value * 2
+}
+
+extend Width {
+    pub const fn fromValue(value: usize) Width {
+        { value: value }
+    }
+
+    pub const fn doubled(self) usize {
+        self.value * 2
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_expression_rejects_runtime_only_function() {
+    let root = temp_dir("const_expression_rejects_runtime_only_function");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeWidth(value: usize) usize {
+    value * 2
+}
+
+const arrayLen: usize = runtimeWidth(5);
 "#,
     );
 
@@ -408,7 +568,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("`const fn` can only be called from a const expression")),
+            .contains("const expression can only call `const fn`")),
         "{:?}",
         program.diagnostics
     );

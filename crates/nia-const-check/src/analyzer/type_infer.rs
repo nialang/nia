@@ -26,12 +26,16 @@ impl Analyzer<'_> {
     pub(super) fn instantiate_resolved_function_generics(
         &mut self,
         span: Span,
-        signature_module_id: ModuleId,
-        signature: &FunctionSignature,
-        type_args: &[ResolvedConstTypeArg],
-        arg_exprs: &[ResolvedConstExpr],
-        expected_return: Option<InternedTyId>,
+        input: ConstFunctionInstantiationInput<'_>,
     ) -> Result<ConstGenericInstantiation, ConstError> {
+        let ConstFunctionInstantiationInput {
+            signature_module_id,
+            signature,
+            type_args,
+            arg_exprs,
+            expected_return,
+            initial,
+        } = input;
         if self.ensure_type_context(signature_module_id).is_none() {
             return Err(ConstError {
                 span,
@@ -52,8 +56,8 @@ impl Analyzer<'_> {
                 ),
             });
         }
-        let mut substitutions = SymbolMap::default();
-        let mut const_substitutions = SymbolMap::default();
+        let mut substitutions = initial.type_substitutions;
+        let mut const_substitutions = initial.const_substitutions;
         if type_args.is_empty() {
             if let Some(expected) = expected_return
                 && let Some(expected) = self.type_for_module_or_none(expected, signature_module_id)
@@ -464,6 +468,8 @@ impl Analyzer<'_> {
                 .map(ConstValueType::Runtime),
             ResolvedConstExprKind::LayoutBuiltin { .. }
             | ResolvedConstExprKind::FieldOffsetBuiltin { .. }
+            | ResolvedConstExprKind::Method { .. }
+            | ResolvedConstExprKind::AssociatedFunction { .. }
             | ResolvedConstExprKind::Null
             | ResolvedConstExprKind::Assign(_) => None,
         }

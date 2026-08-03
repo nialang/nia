@@ -854,7 +854,7 @@ boundary for ordinary const values such as user const structs, imported
 
 Const lowering consumes `SemanticUseTable` from `nia-sema-ir` for source
 positions that already have semantic identity: value uses, local definitions,
-and type uses. The table is a shared semantic input surface, not a const
+type uses, and nominal type prefixes used by associated calls. The table is a shared semantic input surface, not a const
 resolver. Callers such as `nia-const-check`, `nia-body-check`, and
 `nia-static-check` decide which resolved locals and globals are valid in their
 context, then pass one table to `nia-const-ir`. This prevents compile-time
@@ -878,6 +878,15 @@ const semantic bodies. AST lowering is performed by callers such as
 `nia-const-check`, `nia-body-check`, static validation, or the early target
 pruner before values reach the engine; the engine itself only accepts the
 const semantic representation.
+
+`const fn` is const-capable rather than const-eval-only. Const evaluation
+interprets its const semantic body when the call occurs in a constant
+expression. The ordinary body-check, reachability, backend-lowering, and
+code-generation pipeline retains the same function when it is reachable from
+runtime code. Constant expressions reject ordinary `fn`; runtime expressions
+may call either function kind. Receiver and associated calls use the shared
+visible-extension index, including target generic substitutions, so const
+execution does not maintain a name-based method whitelist.
 
 ### 8.3 `nia-const-check`
 

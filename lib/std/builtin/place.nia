@@ -75,11 +75,6 @@ pub trait End {
     fn end(&self) [Self as End]::Output;
 }
 
-@[builtin("Char")]
-pub trait Char {
-    fn char(self) ?char;
-}
-
 @[builtin("array.Len")]
 extend[T, N: usize] [N]T : Len {
     fn len(&self) usize;
@@ -151,9 +146,4 @@ extend[T] ..=T : End {
     type Output = T;
 
     fn end(&self) T;
-}
-
-@[builtin("u32.Char")]
-extend u32 : Char {
-    fn char(self) ?char;
 }

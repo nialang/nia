@@ -239,9 +239,6 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_node_any_function(&function.node_key)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
-        if signature.is_const {
-            return None;
-        }
         if !signature.is_extern && !signature.has_body {
             return None;
         }

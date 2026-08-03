@@ -314,16 +314,107 @@ impl Analyzer<'_> {
             .map(|def| def.kind)
     }
 
-    pub(super) fn resolved_const_function(
-        &self,
+    pub(super) fn resolved_const_callee(
+        &mut self,
         callee: &ResolvedConstExpr,
-    ) -> Option<GlobalDefId> {
+    ) -> Option<ResolvedConstCallee> {
         if let Some(ConstNameResolution::Global(global_id)) = callee.name_resolution()
             && self.def_kind_of(global_id) == Some(DefKind::Function)
         {
-            return Some(global_id);
+            return Some(ResolvedConstCallee {
+                function_id: global_id,
+                receiver: None,
+                target_instantiation: ConstGenericInstantiation::default(),
+            });
         }
-        None
+        let (target_ty, name, receiver) = match callee.kind() {
+            ResolvedConstExprKind::Method { receiver, name } => (
+                self.resolved_const_arg_runtime_type(receiver, None)?,
+                *name,
+                Some(receiver.as_ref().clone()),
+            ),
+            ResolvedConstExprKind::AssociatedFunction { target, name } => {
+                let module_id = self.current_execution_module_id();
+                let target_ty = match target {
+                    ResolvedConstAssociatedTarget::Type(target) => {
+                        let target_ty = self.substitute_ty_generics(target.ty());
+                        self.type_for_module_or_none(target_ty, module_id)?
+                    }
+                    ResolvedConstAssociatedTarget::Nominal { def_id, args } => {
+                        self.ensure_type_context(module_id)?;
+                        let args = args
+                            .iter()
+                            .map(|arg| self.type_for_module_or_none(arg.ty(), module_id))
+                            .collect::<Option<Vec<_>>>()?;
+                        self.type_contexts.get(&module_id)?.intern(TyKind::Nominal {
+                            def_id: *def_id,
+                            args,
+                            const_args: Vec::new(),
+                        })
+                    }
+                };
+                (target_ty, *name, None)
+            }
+            _ => return None,
+        };
+        let visible_extensions =
+            (self.input.program.visible_extensions?)(self.current_execution_module_id())?;
+        let actual_target_ty = self
+            .type_normalization_for_module(self.current_execution_module_id())?
+            .as_ref()
+            .normalize(target_ty);
+        let mut candidates = visible_extensions
+            .all_methods_named(&name)
+            .into_iter()
+            .filter_map(|(candidate_target_ty, method)| {
+                let function_id = method.def_id;
+                self.signatures_for_module(function_id.module_id)
+                    .and_then(|signatures| {
+                        signatures
+                            .as_ref()
+                            .functions
+                            .get(&function_id.def_id)
+                            .cloned()
+                    })
+                    .filter(|signature| {
+                        signature.is_const
+                            && signature
+                                .params
+                                .first()
+                                .is_some_and(|param| param.receiver.is_some())
+                                == receiver.is_some()
+                    })?;
+                let mut target_instantiation = ConstGenericInstantiation::default();
+                self.infer_generics_from_tys(
+                    callee.span(),
+                    function_id.module_id,
+                    candidate_target_ty,
+                    actual_target_ty,
+                    &mut target_instantiation.type_substitutions,
+                )
+                .ok()?;
+                let substituted_target = self.const_expected_param_type(
+                    function_id.module_id,
+                    candidate_target_ty,
+                    &target_instantiation.type_substitutions,
+                )?;
+                (substituted_target == actual_target_ty).then_some((
+                    candidate_target_ty == actual_target_ty,
+                    ResolvedConstCallee {
+                        function_id,
+                        receiver: receiver.clone(),
+                        target_instantiation,
+                    },
+                ))
+            })
+            .collect::<Vec<_>>();
+        if candidates.len() > 1 {
+            let exact = candidates.iter().filter(|(is_exact, _)| *is_exact).count();
+            if exact == 1 {
+                candidates.retain(|(is_exact, _)| *is_exact);
+            }
+        }
+        (candidates.len() == 1).then(|| candidates.remove(0).1)
     }
 
     pub(super) fn resolved_const_enum_variant(

@@ -856,25 +856,15 @@ fn main(slice: & [usize]) usize {
 }
 
 #[test]
-fn builtin_char_trait_models_checked_scalar_conversion() {
-    let root = temp_dir("builtin_char_trait_models_checked_scalar_conversion");
+fn unicode_char_api_models_checked_scalar_conversion() {
+    let root = temp_dir("unicode_char_api_models_checked_scalar_conversion");
     write(
         &root.join("main.nia"),
         r#"
 using std::unicode;
 
-fn convert[T](value: T) ?char
-where T: Char {
-    value.char()
-}
-
-fn associated_convert[T](value: T) ?char
-where T: Char {
-    [T]::char(value)
-}
-
 fn main() i32 {
-    let a = switch convert(65u32) {
+    let a = switch unicode::fromScalarValue(65) {
         ?ch => {
             ch
         },
@@ -882,7 +872,7 @@ fn main() i32 {
             return 1;
         },
     };
-    let b = switch associated_convert(0x10ffffu32) {
+    let b = switch unicode::fromScalarValue(0x10ffff) {
         ?ch => {
             ch
         },
@@ -890,10 +880,10 @@ fn main() i32 {
             return 2;
         },
     };
-    if a.codepoint() != 65u32 or b.codepoint() != 0x10ffffu32 {
+    if a.codepoint() != 65 or b.codepoint() != 0x10ffff {
         return 3;
     }
-    switch [char]::from_u32(0xd800u32) {
+    switch unicode::fromScalarValue(0xd800) {
         ?ch => {
             _ = ch;
             return 4;
@@ -910,13 +900,13 @@ fn main() i32 {
 }
 
 #[test]
-fn builtin_char_trait_rejects_unproven_receivers() {
-    let root = temp_dir("builtin_char_trait_rejects_unproven_receivers");
+fn char_conversion_builtin_requires_u32() {
+    let root = temp_dir("char_conversion_builtin_requires_u32");
     write(
         &root.join("main.nia"),
         r#"
 fn main() ?char {
-    65usize.char()
+    std::builtin::charFromU32(65usize)
 }
 "#,
     );
@@ -927,8 +917,8 @@ fn main() ?char {
             diagnostic
                 .diagnostic
                 .summary
-                .contains("trait bound not satisfied")
-                && diagnostic.diagnostic.summary.contains("Char")
+                .contains("Unicode scalar value")
+                && diagnostic.diagnostic.summary.contains("u32")
         }),
         "{:?}",
         program.diagnostics

@@ -281,27 +281,14 @@ impl<'a> BodyChecker<'a> {
                 args,
             );
         }
-        if signature.is_const && !self.in_const_context() {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                "`const fn` can only be called from a const expression",
-            ));
-            for arg in args {
-                self.check_expr(arg);
-            }
-            return self.error();
-        }
         if signature.generics.is_empty() {
             let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
-            if !signature.is_const {
-                self.record_resolved_node_call(
-                    span,
-                    &expr.node_key,
-                    ResolvedCall::Function(resolved.def_id),
-                );
-            }
+            self.record_resolved_node_call(
+                span,
+                &expr.node_key,
+                ResolvedCall::Function(resolved.def_id),
+            );
             return signature.return_type;
         }
         self.check_inferred_generic_function_call(expr, resolved.def_id, signature, args, expected)

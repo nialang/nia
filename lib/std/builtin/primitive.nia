@@ -54,6 +54,10 @@ pub type void;
 @[builtin("never")]
 pub type never;
 
+// Constructs a `char` only when `value` is a Unicode scalar value.
+@[builtin("charFromU32")]
+pub const fn charFromU32(value: u32) ?char;
+
 @[builtin("i8")]
 extend i8 {
     pub const MIN: i8;

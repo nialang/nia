@@ -295,7 +295,11 @@ fn eval_resolved_const_expr_flow(
                 }
                 env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
             } else {
-                let mut values = Vec::with_capacity(args.len());
+                let has_receiver = matches!(callee.kind(), ResolvedConstExprKind::Method { .. });
+                let mut values = Vec::with_capacity(args.len() + usize::from(has_receiver));
+                if let ResolvedConstExprKind::Method { receiver, .. } = callee.kind() {
+                    values.push(eval_resolved_value_or_return_flow!(receiver, env));
+                }
                 for arg in args {
                     values.push(eval_resolved_value_or_return_flow!(arg, env));
                 }
@@ -412,6 +416,12 @@ fn eval_resolved_const_expr_flow(
         }
         ResolvedConstExprKind::Block(block) => {
             return eval_resolved_function_block(block, env);
+        }
+        ResolvedConstExprKind::Method { .. } | ResolvedConstExprKind::AssociatedFunction { .. } => {
+            return Err(ConstError {
+                span,
+                message: "const function target cannot be used as a value".to_string(),
+            });
         }
     };
     Ok(ConstEvalFlow::Value(value))
@@ -684,6 +694,12 @@ fn eval_const_expr_flow(
         } => eval_value_or_return_flow!(inner, env),
         EarlyConstExprKind::Block(block) => {
             return eval_function_block(block, env);
+        }
+        EarlyConstExprKind::Method { .. } | EarlyConstExprKind::AssociatedFunction { .. } => {
+            return Err(ConstError {
+                span: expr.span,
+                message: "const function target cannot be used as a value".to_string(),
+            });
         }
     };
     Ok(ConstEvalFlow::Value(value))
