@@ -1,13 +1,10 @@
 pub(pkg) module core;
-pub(pkg) module parse;
 pub(pkg) module primitive;
 pub(pkg) module template;
 
 using pkg::fmt::core;
-using pkg::fmt::parse;
 using pkg::fmt::primitive;
 using pkg::fmt::template;
 
 pub using core::{Error, FormatWriter, Format, FormatPresentation, FormatSpec, Formatter};
-pub using parse::{ParseFrom, ParseError, parse, parse_radix};
 pub using template::{print_checked, print_unchecked};

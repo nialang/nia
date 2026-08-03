@@ -635,17 +635,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_fmt_parses_primitives() {
-    let root = temp_dir("emit_exe_std_fmt_parses_primitives");
+fn emit_exe_std_parse_parses_primitives() {
+    let root = temp_dir("emit_exe_std_parse_parses_primitives");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-using std::fmt;
+using std::parse;
 using std::process;
+using std::slice;
 
-fn expect_i32(result: fmt::ParseError!i32, expected: i32) bool {
+enum LevelError: i32 {
+    Invalid = 1,
+    _,
+}
+
+struct Level {
+    code: u8,
+}
+
+extend Level : parse::From[&[char]] {
+    type Error = LevelError;
+
+    fn parse(input: &[char]) LevelError!Level {
+        if input.equals(&"high") {
+            !{ code: 1 }
+        } else {
+            LevelError::Invalid!
+        }
+    }
+}
+
+fn expect_i32(result: parse::Error!i32, expected: i32) bool {
     switch result {
         !value => { value == expected },
         error! => { _ = error;
@@ -653,7 +675,7 @@ fn expect_i32(result: fmt::ParseError!i32, expected: i32) bool {
     }
 }
 
-fn expect_error_i32(result: fmt::ParseError!i32, expected: fmt::ParseError) bool {
+fn expect_error_i32(result: parse::Error!i32, expected: parse::Error) bool {
     switch result {
         !value => { _ = value;
                 false },
@@ -661,7 +683,7 @@ fn expect_error_i32(result: fmt::ParseError!i32, expected: fmt::ParseError) bool
     }
 }
 
-fn expect_error_u8(result: fmt::ParseError!u8, expected: fmt::ParseError) bool {
+fn expect_error_u8(result: parse::Error!u8, expected: parse::Error) bool {
     switch result {
         !value => { _ = value;
                 false },
@@ -669,146 +691,155 @@ fn expect_error_u8(result: fmt::ParseError!u8, expected: fmt::ParseError) bool {
     }
 }
 
-fn expect_u8(result: fmt::ParseError!u8, expected: u8) bool {
+fn expect_u8(result: parse::Error!u8, expected: u8) bool {
     switch result {
         !value => { value == expected },
         error! => { _ = error;
                 false },
-    }
-}
-
-fn expect_error_bool(result: fmt::ParseError!bool, expected: fmt::ParseError) bool {
-    switch result {
-        !value => { _ = value;
-                false },
-        error! => { error == expected },
     }
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    if not expect_i32(fmt::parse[i32](&"-2147483648"[..]), i32::MIN) {
+    if not expect_i32(parse::value[i32](&"-2147483648"), i32::MIN) {
         return process::exit(1)!;
     }
-    if not expect_i32(fmt::parse[i32](&"+2147483647"[..]), i32::MAX) {
+    if not expect_i32(parse::value[i32](&"+2147483647"), i32::MAX) {
         return process::exit(2)!;
     }
-    switch fmt::parse[u128](&"340282366920938463463374607431768211455"[..]) {
+    switch parse::value[u128](&"340282366920938463463374607431768211455") {
         !value => { if value != u128::MAX {
                 return process::exit(3)!;
             } },
         error! => { return process::exit(4)!; },
     }
-    switch fmt::parse[usize](&"12345"[..]) {
-        !value => { if value != 12345usize {
+    switch parse::value[usize](&"12345") {
+        !value => { if value != 12345 {
                 return process::exit(5)!;
             } },
         error! => { return process::exit(6)!; },
     }
-    switch fmt::parse[bool](&"false"[..]) {
+    switch parse::value[bool](&"false") {
         !value => { if value {
                 return process::exit(7)!;
             } },
         error! => { return process::exit(8)!; },
     }
 
-    if not expect_error_i32(fmt::parse[i32](&""[..]), fmt::ParseError::Empty) {
+    if not expect_error_i32(parse::value[i32](&""), parse::Error::Empty) {
         return process::exit(9)!;
     }
-    if not expect_error_i32(fmt::parse[i32](&"-"[..]), fmt::ParseError::InvalidDigit) {
+    if not expect_error_i32(parse::value[i32](&"-"), parse::Error::InvalidDigit) {
         return process::exit(10)!;
     }
-    if not expect_error_i32(fmt::parse[i32](&"12x"[..]), fmt::ParseError::InvalidDigit) {
+    if not expect_error_i32(parse::value[i32](&"12x"), parse::Error::InvalidDigit) {
         return process::exit(11)!;
     }
-    if not expect_error_i32(fmt::parse[i32](&"2147483648"[..]), fmt::ParseError::Overflow) {
+    if not expect_error_i32(parse::value[i32](&"2147483648"), parse::Error::Overflow) {
         return process::exit(12)!;
     }
-    if not expect_error_u8(fmt::parse[u8](&"-1"[..]), fmt::ParseError::InvalidSign) {
+    if not expect_error_u8(parse::value[u8](&"-1"), parse::Error::InvalidSign) {
         return process::exit(13)!;
     }
-    if not expect_error_u8(fmt::parse[u8](&"256"[..]), fmt::ParseError::Overflow) {
+    if not expect_error_u8(parse::value[u8](&"256"), parse::Error::Overflow) {
         return process::exit(14)!;
     }
-    if not expect_u8(fmt::parse_radix[u8](&"ff"[..], 16u32), 255u8) {
+    if not expect_u8(parse::radix[u8](&"ff", 16), 255) {
         return process::exit(15)!;
     }
-    if not expect_u8(fmt::parse[u8](&"0xff"[..]), 255u8) {
+    if not expect_u8(parse::value[u8](&"0xff"), 255) {
         return process::exit(16)!;
     }
-    if not expect_u8(fmt::parse_radix[u8](&"10101010"[..], 2u32), 170u8) {
+    if not expect_u8(parse::radix[u8](&"10101010", 2), 170) {
         return process::exit(17)!;
     }
-    if not expect_u8(fmt::parse[u8](&"0b10101010"[..]), 170u8) {
+    if not expect_u8(parse::value[u8](&"0b10101010"), 170) {
         return process::exit(18)!;
     }
-    if not expect_u8(fmt::parse[u8](&"0o377"[..]), 255u8) {
+    if not expect_u8(parse::value[u8](&"0o377"), 255) {
         return process::exit(19)!;
     }
-    if not expect_i32(fmt::parse_radix[i32](&"-7B"[..], 16u32), -123) {
+    if not expect_i32(parse::radix[i32](&"-7B", 16), -123) {
         return process::exit(20)!;
     }
-    if not expect_i32(fmt::parse[i32](&"-0x7B"[..]), -123) {
+    if not expect_i32(parse::value[i32](&"-0x7B"), -123) {
         return process::exit(21)!;
     }
-    if not expect_i32(fmt::parse[i32](&"+0b1111011"[..]), 123) {
+    if not expect_i32(parse::value[i32](&"+0b1111011"), 123) {
         return process::exit(22)!;
     }
-    if not expect_error_u8(fmt::parse_radix[u8](&"2"[..], 2u32), fmt::ParseError::InvalidDigit) {
+    if not expect_error_u8(parse::radix[u8](&"2", 2), parse::Error::InvalidDigit) {
         return process::exit(23)!;
     }
-    if not expect_error_u8(fmt::parse_radix[u8](&"10"[..], 1u32), fmt::ParseError::InvalidRadix) {
+    if not expect_error_u8(parse::radix[u8](&"10", 1), parse::Error::InvalidRadix) {
         return process::exit(24)!;
     }
-    if not expect_error_bool(fmt::parse_radix[bool](&"true"[..], 10u32), fmt::ParseError::InvalidRadix) {
-        return process::exit(25)!;
+    switch parse::value[bool](&"yes") {
+        !value => { _ = value;
+                return process::exit(25)!; },
+        error! => { if error != parse::Error::InvalidValue {
+                return process::exit(25)!;
+            } },
     }
-    switch fmt::parse_radix[u128](&"ffffffffffffffffffffffffffffffff"[..], 16u32) {
+    switch parse::value[Level](&"high") {
+        !level => { if level.code != 1 {
+                return process::exit(41)!;
+            } },
+        error! => { return process::exit(42)!; },
+    }
+    switch parse::value[Level](&"low") {
+        !level => { _ = level;
+                return process::exit(43)!; },
+        error! => { if error != LevelError::Invalid {
+                return process::exit(44)!;
+            } },
+    }
+    switch parse::radix[u128](&"ffffffffffffffffffffffffffffffff", 16) {
         !value => { if value != u128::MAX {
                 return process::exit(26)!;
             } },
         error! => { return process::exit(27)!; },
     }
-    switch fmt::parse_radix[u128](&"100000000000000000000000000000000"[..], 16u32) {
+    switch parse::radix[u128](&"100000000000000000000000000000000", 16) {
         !value => { _ = value;
                 return process::exit(28)!; },
-        error! => { if error != fmt::ParseError::Overflow {
+        error! => { if error != parse::Error::Overflow {
                 return process::exit(29)!;
             } },
     }
-    if not expect_error_u8(fmt::parse[u8](&"+1"[..]), fmt::ParseError::InvalidSign) {
+    if not expect_error_u8(parse::value[u8](&"+1"), parse::Error::InvalidSign) {
         return process::exit(30)!;
     }
-    if not expect_error_u8(fmt::parse_radix[u8](&"0xff"[..], 16u32), fmt::ParseError::InvalidDigit) {
+    if not expect_error_u8(parse::radix[u8](&"0xff", 16), parse::Error::InvalidDigit) {
         return process::exit(31)!;
     }
-    if not expect_error_u8(fmt::parse[u8](&"0x"[..]), fmt::ParseError::InvalidDigit) {
+    if not expect_error_u8(parse::value[u8](&"0x"), parse::Error::InvalidDigit) {
         return process::exit(32)!;
     }
-    if not expect_error_u8(fmt::parse[u8](&"0b2"[..]), fmt::ParseError::InvalidDigit) {
+    if not expect_error_u8(parse::value[u8](&"0b2"), parse::Error::InvalidDigit) {
         return process::exit(33)!;
     }
-    if not expect_u8(fmt::parse[u8](&b"255"[..]), 255u8) {
+    if not expect_u8(parse::value[u8](&b"255"), 255) {
         return process::exit(34)!;
     }
-    if not expect_u8(fmt::parse[u8](&b"0xff"[..]), 255u8) {
+    if not expect_u8(parse::value[u8](&b"0xff"), 255) {
         return process::exit(35)!;
     }
-    if not expect_u8(fmt::parse_radix[u8](&b"ff"[..], 16u32), 255u8) {
+    if not expect_u8(parse::radix[u8](&b"ff", 16), 255) {
         return process::exit(36)!;
     }
-    switch fmt::parse[bool](&b"true"[..]) {
+    switch parse::value[bool](&b"true") {
         !value => { if not value {
                 return process::exit(37)!;
             } },
         error! => { return process::exit(38)!; },
     }
-    if not expect_error_u8(fmt::parse_radix[u8](&b"0xff"[..], 16u32), fmt::ParseError::InvalidDigit) {
+    if not expect_error_u8(parse::radix[u8](&b"0xff", 16), parse::Error::InvalidDigit) {
         return process::exit(39)!;
     }
-    let invalid_bytes: [1]u8 = [255u8];
-    if not expect_error_u8(fmt::parse[u8](&invalid_bytes[..]), fmt::ParseError::InvalidDigit) {
+    let invalidBytes: [1]u8 = [255];
+    if not expect_error_u8(parse::value[u8](&invalidBytes), parse::Error::InvalidDigit) {
         return process::exit(40)!;
     }
     !{}

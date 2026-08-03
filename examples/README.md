@@ -25,16 +25,20 @@ to the expected slice.
 precision (`{:.3}`), dynamic width and precision from following `usize`
 arguments (`{:<{}}`, `{:>{}.{}}`), integer bases (`{:x}`, `{:X}`, `{:b}`,
 `{:o}`), signs (`{:+}`), alternate prefixes (`{:#x}`), zero padding (`{:05}`), and pointer
-addresses (`{:p}`). Literal braces are written as `{{` and `}}`. The matching
-parse helpers are `fmt::parse[T](input)` and
-`fmt::parse_radix[T](input, radix)` for primitive integers and bools. They use
-the `fmt::ParseFrom[Input]` protocol, so character text, byte text, C-string
+addresses (`{:p}`). Literal braces are written as `{{` and `}}`.
+
+Value parsing is independent of formatting. Import `std::parse` and use
+`parse::value[T](input)` or `parse::radix[T](input, radix)` for primitive
+integers and bools. Ordinary parsing uses `parse::From[Input]`; explicit-radix
+integer parsing uses `parse::FromRadix[Input]`. Both protocols have an
+associated error type, so user-defined values can retain domain-specific
+parse failures. Character text, byte text, C-string
 views, and process argument/environment views share the same entry points.
 Integer parsing accepts prefixes such as `0x`, `0b`, and `0o`; radix parsing is
 for bare digits in an explicit radix.
 Process arguments and environment entries are C-string-backed views; use
 `arg.bytes()` for raw argument bytes, `arg.cstring()` for the underlying
-`std::CStringView`, parse the argument directly with `fmt::parse[T](arg)`, or
+`std::CStringView`, parse the argument directly with `parse::value[T](arg)`, or
 format the argument value directly with `{}`.
 Use `init.args().program()` for argv[0], `for arg in init.args().skipProgram()`
 for application arguments, and `for env in init.env().iter()` for environment

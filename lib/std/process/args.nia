@@ -1,5 +1,6 @@
 using pkg::cstring;
 using pkg::fmt;
+using pkg::parse;
 using pkg::process::types;
 using pkg::slice;
 
@@ -41,15 +42,23 @@ extend Arg : fmt::Format {
     }
 }
 
-extend[T] T : fmt::ParseFrom[Arg]
-where T: fmt::ParseFrom[cstring::CStringView]
+extend[T] T : parse::From[Arg]
+where T: parse::From[cstring::CStringView]
 {
-    fn parse_from(input: Arg) fmt::ParseError!T {
-        fmt::parse[T](input.cstring())
-    }
+    type Error = [T as parse::From[cstring::CStringView]]::Error;
 
-    fn parse_radix_from(input: Arg, radix: u32) fmt::ParseError!T {
-        fmt::parse_radix[T](input.cstring(), radix)
+    fn parse(input: Arg) [T as parse::From[Arg]]::Error!T {
+        parse::value[T](input.cstring())
+    }
+}
+
+extend[T] T : parse::FromRadix[Arg]
+where T: parse::FromRadix[cstring::CStringView]
+{
+    type Error = [T as parse::FromRadix[cstring::CStringView]]::Error;
+
+    fn parseRadix(input: Arg, radix: u32) [T as parse::FromRadix[Arg]]::Error!T {
+        parse::radix[T](input.cstring(), radix)
     }
 }
 

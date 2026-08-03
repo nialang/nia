@@ -351,43 +351,43 @@ fn cross_module_where_predicate_infers_input_from_impl_candidates() {
     write(
         &root.join("main.nia"),
         r#"
-module fmt;
-using entry::fmt;
+module parse;
+using entry::parse;
 
 fn main() i32 {
-    fmt::parse[i32](&"abc")
+    parse::value[i32](&"abc")
 }
 "#,
     );
     write(
-        &root.join("fmt.nia"),
+        &root.join("parse.nia"),
         r#"
 pub module parse_impl;
-pub using parse_impl::{ParseFrom, parse};
+pub using parse_impl::{From, value};
 "#,
     );
-    std::fs::create_dir_all(root.join("fmt")).expect("create fmt module dir");
+    std::fs::create_dir_all(root.join("parse")).expect("create parse module dir");
     write(
-        &root.join("fmt/parse_impl.nia"),
+        &root.join("parse/parse_impl.nia"),
         r#"
-pub trait ParseFrom[Input] {
-    fn parse_from(input: Input) Self;
+pub trait From[Input] {
+    fn parse(input: Input) Self;
 }
 
-pub fn parse[T, Input](input: Input) T
-where T: ParseFrom[Input]
+pub fn value[T, Input](input: Input) T
+where T: From[Input]
 {
-    [T]::parse_from(input)
+    [T]::parse(input)
 }
 
-extend i32 : ParseFrom[&[char]] {
-    fn parse_from(input: &[char]) i32 {
+extend i32 : From[&[char]] {
+    fn parse(input: &[char]) i32 {
         input.len() as i32
     }
 }
 
-extend i32 : ParseFrom[&[u8]] {
-    fn parse_from(input: &[u8]) i32 {
+extend i32 : From[&[u8]] {
+    fn parse(input: &[u8]) i32 {
         input.len() as i32
     }
 }

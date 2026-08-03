@@ -2815,6 +2815,36 @@ rewinds uniformly, with parser and executable regressions for the concrete
 structural target. Parsing vocabulary and the maintained end-to-end text/path/
 process workflow remain the next reconstruction work.
 
+Standard-library reconstruction progress (2026-08-03, textual parsing batch):
+textual value parsing is now the independent root `std::parse` facade rather
+than a formatting submodule. Ordinary `parse::value[T](input)` and explicit
+`parse::radix[T](input, radix)` calls accept character slices, byte slices,
+C-string views, process arguments, and environment values. `parse::From` and
+`parse::FromRadix` are separate capabilities with associated error types:
+custom values retain domain-specific failures, while `bool` does not pretend
+to support radix parsing. Primitive integer errors retain empty, digit, sign,
+overflow, and radix distinctions; invalid boolean text is `InvalidValue`.
+
+The old `fmt::parse`, `fmt::parse_radix`, `fmt::ParseFrom`, `ParseError`, and
+snake-case protocol methods are physically absent. The implementation uses
+lower-camel names, contextual numeric literals, shared sign/digit scanning,
+and direct borrowed-slice `for` traversal. Build-runner target arguments and
+the C-string/process adapters now depend on parsing directly, so `fmt` owns
+only formatting. The reviewed build-host closure records the new shallow
+facade and provider instead of the deleted `std/fmt/parse.nia` path.
+
+The intended `parse::value[i32](&"123")` spelling exposed a general inference
+gap when other nominal `From` candidates were visible: fixed-array pointers
+were committed as the generic input before their ordinary slice coercion could
+select the where-clause candidate. Function-call candidate filtering now
+compares literal and stable reference targets against exact pointer types and
+pointer-array-to-slice coercions before committing substitutions. Character
+and byte literals, named arrays, and array fields are covered without `[..]`.
+All 153 body-check tests, focused cross-module visibility/reachability tests,
+primitive/custom-error and process-argument executable regressions, one
+production configured build, strict workspace Clippy, formatting, and the
+build-host dependency audit pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

@@ -1,4 +1,5 @@
 using pkg::fmt;
+using pkg::parse;
 using pkg::slice;
 
 pub enum CStringError: i32 {
@@ -73,14 +74,22 @@ extend CStringView : fmt::Format {
     }
 }
 
-extend[T] T : fmt::ParseFrom[CStringView]
-where T: fmt::ParseFrom[&[u8]]
+extend[T] T : parse::From[CStringView]
+where T: parse::From[&[u8]]
 {
-    fn parse_from(input: CStringView) fmt::ParseError!T {
-        fmt::parse[T, &[u8]](input.bytes())
-    }
+    type Error = [T as parse::From[&[u8]]]::Error;
 
-    fn parse_radix_from(input: CStringView, radix: u32) fmt::ParseError!T {
-        fmt::parse_radix[T, &[u8]](input.bytes(), radix)
+    fn parse(input: CStringView) [T as parse::From[CStringView]]::Error!T {
+        parse::value[T, &[u8]](input.bytes())
+    }
+}
+
+extend[T] T : parse::FromRadix[CStringView]
+where T: parse::FromRadix[&[u8]]
+{
+    type Error = [T as parse::FromRadix[&[u8]]]::Error;
+
+    fn parseRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
+        parse::radix[T, &[u8]](input.bytes(), radix)
     }
 }

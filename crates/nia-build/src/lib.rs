@@ -508,6 +508,7 @@ using std::fmt;
 using std::fs;
 using std::io;
 using std::mem;
+using std::parse;
 using std::process;
 using std::string;
 using buildScript;
@@ -690,7 +691,7 @@ fn targetArg(
             return build::Error::Internal(build::ErrorOperation::Initialize)!;
         },
     };
-    let pointerWidth = switch fmt::parse[u32](pointerWidthArg) {
+    let pointerWidth = switch parse::value[u32](pointerWidthArg) {
         !value => {
             value
         },
@@ -718,7 +719,7 @@ fn u32Arg(
             return build::Error::Internal(build::ErrorOperation::Initialize)!;
         },
     };
-    switch fmt::parse[u32](arg) {
+    switch parse::value[u32](arg) {
         !value => !value,
         error! => {
             _ = error;
