@@ -549,7 +549,9 @@ impl Parser {
         let errors_len = self.errors.len();
         let generics = self.parse_generic_params();
         if generics.is_empty() {
-            return generics;
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return Vec::new();
         }
         if self.type_can_start() {
             return generics;

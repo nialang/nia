@@ -2794,7 +2794,26 @@ fallback for ordinary and explicit-generic methods, including mutable array
 pointers. A method defined directly for the fixed-length array retains
 priority, and the normal expected-type path records the coercion for BIR and
 code generation. This removes the need for a duplicate free-function text API.
-Richer text composition remains the next text-workflow work.
+
+Standard-library reconstruction progress (2026-08-03, borrowed text join
+batch): `&[&[char]]` now provides
+`join(allocator, separator) -> mem::Error!String`. It accepts literals,
+sub-slices, and `String::text()` views without a nominal adapter, scans the
+repeatable borrowed slice to compute exact capacity, then fills one allocation.
+Empty input yields an empty owned string, an empty separator is the sole concat
+spelling, and failure leaves every borrowed source unchanged. The maintained
+example uses one `[N]&[char]` annotation followed by the direct
+`(&parts).join(...)` spelling.
+
+Join deliberately does not accept an arbitrary `Iterable` and does not add a
+public text-conversion trait: one-shot iteration cannot support the exact
+sizing pass, and resource-owning generic elements would reopen ownership and
+conversion questions unrelated to borrowed scalar composition. The nested
+slice extension also exposed that generic-parameter lookahead consumed
+`extend [&[char]]` before ordinary target parsing. Empty generic lookahead now
+rewinds uniformly, with parser and executable regressions for the concrete
+structural target. Parsing vocabulary and the maintained end-to-end text/path/
+process workflow remain the next reconstruction work.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

@@ -227,6 +227,35 @@ extend [char] {
     }
 }
 
+extend [&[char]] {
+    pub fn join(
+        &self,
+        allocator: &mut mem::Allocator,
+        separator: &[char],
+    ) mem::Error!String {
+        let separatorCount = if self.isEmpty() { 0 } else { self.len() - 1 };
+        let mut outputLen = switch separator.len().checked_mul(separatorCount) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        for &part in self {
+            outputLen = switch outputLen.checked_add(part.len()) {
+                ?value => value,
+                null => return mem::Error::OutOfMemory!,
+            };
+        }
+
+        let mut out = String::initCapacity(allocator, outputLen).?;
+        for index in 0..self.len() {
+            if index != 0 {
+                out.appendAssumeCapacity(separator);
+            }
+            out.appendAssumeCapacity(self[index]);
+        }
+        !out
+    }
+}
+
 fn replaceAllText(
     allocator: &mut mem::Allocator,
     source: &[char],

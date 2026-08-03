@@ -373,6 +373,11 @@ extend [u8] {
         self.len()
     }
 }
+extend [&[char]] {
+    fn partCount(&self) usize {
+        self.len()
+    }
+}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -391,6 +396,21 @@ extend [u8] {
     assert!(matches!(
         byte_extend.target.kind,
         TypeKind::SlicePointee { .. }
+    ));
+    let ItemKind::Extend(text_parts_extend) = &module.items[3].kind else {
+        panic!("expected extend");
+    };
+    assert!(text_parts_extend.generics.is_empty());
+    assert!(matches!(
+        &text_parts_extend.target.kind,
+        TypeKind::SlicePointee { elem }
+            if matches!(
+                &elem.kind,
+                TypeKind::Slice {
+                    is_readonly: true,
+                    ..
+                }
+            )
     ));
 }
 

@@ -353,6 +353,16 @@ Matching is left-to-right and non-overlapping; an empty needle copies without
 replacement. It allocates the exact scalar capacity once, preserves the source
 on failure, and permits replacement text borrowed from that source.
 
+Borrowed text sequences use
+`parts.join(allocator, separator)`, where `parts` is `&[&[char]]`. Join scans
+that repeatable borrowed slice twice so it can allocate the exact scalar
+capacity once. Empty parts produce an empty `String`; an empty separator is the
+single concatenation spelling. Parts may be literals, scalar sub-slices, or
+`String::text()` views and remain unchanged if allocation fails. The API is not
+generalized over `Iterable` because a one-shot iterator cannot promise the
+required sizing pass, and no public text-conversion trait is justified merely
+to widen this operation.
+
 `PathView` remains a nominal borrowed scalar path and `PathBuf` owns a `String`.
 `PathBuf::fromString` is its ownership-transfer constructor. It does not expose
 a second raw-slice adoption path; callers that intentionally adopt an
@@ -379,7 +389,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/split/replacement/hash, borrowed map lookup, and unmanaged allocator protocol accepted; richer text workflows remain open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/split/replacement/join/hash, borrowed map lookup, and unmanaged allocator protocol accepted; parsing vocabulary and the complete vertical workflow remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
