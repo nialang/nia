@@ -171,47 +171,47 @@ fn visible_trait_impls_follow_facade_reexport_item_modules() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-module fmt;
-using entry::fmt;
+module parse;
+using entry::parse;
 
 fn main() i32 {
-fmt::parse[i32](&"abc")
+parse::value[i32](&"abc")
 }
 "#,
     );
     let entry_id = fixture.entry_id();
-    let fmt_id = fixture.add_child(
+    let parse_id = fixture.add_child(
         entry_id,
-        "fmt",
-        "fmt.nia",
+        "parse",
+        "parse.nia",
         r#"
 pub module parse_impl;
-pub using parse_impl::{ParseFrom, parse};
+pub using parse_impl::{From, value};
 "#,
     );
     let parse_impl_id = fixture.add_child(
-        fmt_id,
+        parse_id,
         "parse_impl",
         "fmt/parse_impl.nia",
         r#"
-pub trait ParseFrom[Input] {
-fn parse_from(input: Input) Self;
+pub trait From[Input] {
+fn parse(input: Input) Self;
 }
 
-pub fn parse[T, Input](input: Input) T
-where T: ParseFrom[Input]
+pub fn value[T, Input](input: Input) T
+where T: From[Input]
 {
-[T]::parse_from(input)
+[T]::parse(input)
 }
 
-extend i32 : ParseFrom[&[char]] {
-fn parse_from(input: &[char]) i32 {
+extend i32 : From[&[char]] {
+fn parse(input: &[char]) i32 {
     input.len() as i32
 }
 }
 
-extend i32 : ParseFrom[&[u8]] {
-fn parse_from(input: &[u8]) i32 {
+extend i32 : From[&[u8]] {
+fn parse(input: &[u8]) i32 {
     input.len() as i32
 }
 }

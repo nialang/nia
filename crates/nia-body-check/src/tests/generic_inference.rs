@@ -185,30 +185,45 @@ fn main(count: usize) usize {
 fn infers_generic_function_input_from_where_predicate_impl_candidates() {
     let checked = pipeline(
         r#"
-trait ParseFrom[Input] {
-    fn parse_from(input: Input) Self;
+trait From[Input] {
+    fn parse(input: Input) Self;
 }
 
-fn parse[T, Input](input: Input) T
-where T: ParseFrom[Input]
+struct Wrapped {}
+
+struct Bytes {
+    data: [3]u8,
+}
+
+fn value[T, Input](input: Input) T
+where T: From[Input]
 {
-    [T]::parse_from(input)
+    [T]::parse(input)
 }
 
-extend i32 : ParseFrom[&[char]] {
-    fn parse_from(input: &[char]) i32 {
+extend i32 : From[&[char]] {
+    fn parse(input: &[char]) i32 {
         input.len() as i32
     }
 }
 
-extend i32 : ParseFrom[&[u8]] {
-    fn parse_from(input: &[u8]) i32 {
+extend i32 : From[&[u8]] {
+    fn parse(input: &[u8]) i32 {
         input.len() as i32
+    }
+}
+
+extend i32 : From[Wrapped] {
+    fn parse(input: Wrapped) i32 {
+        _ = input;
+        0
     }
 }
 
 fn main() i32 {
-    parse[i32](&"abc")
+    let bytes: [3]u8 = [1, 2, 3];
+    let wrapped: Bytes = { data: bytes };
+    value[i32](&"abc") + value[i32](&bytes) + value[i32](&wrapped.data)
 }
 "#,
     );

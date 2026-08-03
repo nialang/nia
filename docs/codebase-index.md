@@ -71,8 +71,8 @@ backends directly.
 - compiler contracts in `lib/std/builtin/`;
 - allocation and memory in `lib/std/mem/`;
 - collections in `lib/std/collections/`;
-- text, formatting, hashing, and iteration in `string.nia`, `unicode.nia`,
-  `fmt/`, `hash/`, and `iter/`;
+- text, parsing, formatting, hashing, and iteration in `string.nia`,
+  `unicode.nia`, `parse.nia`, `parse/`, `fmt/`, `hash/`, and `iter/`;
 - I/O, paths, files, and processes in `io/`, `fs/`, and `process/`;
 - the platform facade and Linux implementation in `os.nia` and `os/linux/`;
 - startup/runtime injection in `start/`;

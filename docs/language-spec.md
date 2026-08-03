@@ -243,8 +243,8 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper traps if the stderr write or flush fails; use `std::io` and
   explicit error propagation for application stdout or recoverable I/O.
-- `std::fmt` defines the formatting and parsing protocol used by writer
-  `.print(...)` and `fmt::parse[T](...)`. Format arguments are passed as a
+- `std::fmt` defines the formatting protocol used by writer `.print(...)`.
+  Format arguments are passed as a
   slice of trait-object handles, usually written as an addressed array literal
   such as `&[&value, &count]`; array pointers coerce to the expected slice.
   Checked writer
@@ -261,12 +261,16 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   `{:#b}`, `{:#o}`), integer presentations (`{:x}`, `{:X}`, `{:b}`, `{:o}`),
   zero padding (`{:05}`, `{:#08x}`), pointer formatting (`{:p}`), and escaped
   braces (`{{` and `}}`). The old shorthand forms such as `{x}` are invalid.
-  `fmt::parse[T](input)` and `fmt::parse_radix[T](input, radix)` use the
-  `fmt::ParseFrom[Input]` protocol. Primitive integers and `bool` parse from
+- `std::parse` owns textual value parsing independently of formatting.
+  `parse::value[T](input)` and `parse::radix[T](input, radix)` use the
+  `parse::From[Input]` protocol. Primitive integers and `bool` parse from
   character text, byte text, C-string views, and process argument/environment
   views without separate byte-specific entry points. Integer parsing accepts
   decimal plus `0x`, `0b`, and `0o` prefixes; radix parsing accepts bare digits
-  in radix 2 through 36.
+  in radix 2 through 36. Failures are `parse::Error::Empty`, `InvalidDigit`,
+  `InvalidSign`, `Overflow`, `InvalidRadix`, or `InvalidValue`. Custom
+  `parse::From` implementations select their own associated error type;
+  radix parsing is a separate `parse::FromRadix` capability.
 - `std::mem` defines the `Allocator` trait plus `Layout` and `Block`, the
   explicit allocation contract used by standard containers. A block must be
   freed with the allocator that produced it, and with the current layout carried

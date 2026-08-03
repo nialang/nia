@@ -1,0 +1,665 @@
+using pkg::slice;
+
+pub enum Error: i32 {
+    Empty = 1,
+    InvalidDigit = 2,
+    InvalidSign = 3,
+    Overflow = 4,
+    InvalidRadix = 5,
+    InvalidValue = 6,
+    _,
+}
+
+pub trait From[Input] {
+    type Error;
+
+    fn parse(input: Input) [Self as From[Input]]::Error!Self;
+}
+
+pub trait FromRadix[Input] {
+    type Error;
+
+    fn parseRadix(input: Input, radix: u32) [Self as FromRadix[Input]]::Error!Self;
+}
+
+struct ParsedInteger {
+    negative: bool,
+    abs: u128,
+}
+
+struct ParsedSign {
+    negative: bool,
+    digitsStart: usize,
+}
+
+trait AsciiUnit : Sized {
+    fn asciiCode(self) u32;
+}
+
+pub fn value[T, Input](input: Input) [T as From[Input]]::Error!T
+where T: From[Input]
+{
+    [T]::parse(input)
+}
+
+pub fn radix[T, Input](input: Input, radix: u32) [T as FromRadix[Input]]::Error!T
+where T: FromRadix[Input]
+{
+    [T]::parseRadix(input, radix)
+}
+
+extend char : AsciiUnit {
+    fn asciiCode(self) u32 {
+        self as u32
+    }
+}
+
+extend u8 : AsciiUnit {
+    fn asciiCode(self) u32 {
+        self as u32
+    }
+}
+
+fn asciiIs[U](unit: U, ch: char) bool
+where U: AsciiUnit
+{
+    unit.asciiCode() == (ch as u32)
+}
+
+fn digitValue[U](unit: U) ?u32
+where U: AsciiUnit
+{
+    let code = unit.asciiCode();
+    if code >= ('0' as u32) and code <= ('9' as u32) {
+        ?(code - ('0' as u32))
+    } else if code >= ('a' as u32) and code <= ('z' as u32) {
+        ?((code - ('a' as u32)) + 10)
+    } else if code >= ('A' as u32) and code <= ('Z' as u32) {
+        ?((code - ('A' as u32)) + 10)
+    } else {
+        null
+    }
+}
+
+fn isHexPrefix[U](unit: U) bool
+where U: AsciiUnit
+{
+    asciiIs[U](unit, 'x') or asciiIs[U](unit, 'X')
+}
+
+fn isBinaryPrefix[U](unit: U) bool
+where U: AsciiUnit
+{
+    asciiIs[U](unit, 'b') or asciiIs[U](unit, 'B')
+}
+
+fn isOctalPrefix[U](unit: U) bool
+where U: AsciiUnit
+{
+    asciiIs[U](unit, 'o') or asciiIs[U](unit, 'O')
+}
+
+fn asciiEquals[U](input: &[U], text: &[char]) bool
+where U: AsciiUnit
+{
+    if input.len() != text.len() {
+        return false;
+    }
+    let mut index = 0;
+    for &unit in input {
+        if not asciiIs[U](unit, text[index]) {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+fn parseSign[U](input: &[U], allowSign: bool) Error!ParsedSign
+where U: AsciiUnit
+{
+    if input.len() == 0 {
+        return Error::Empty!;
+    }
+
+    let first = input[0];
+    if asciiIs[U](first, '-') or asciiIs[U](first, '+') {
+        if not allowSign {
+            return Error::InvalidSign!;
+        }
+        !{ negative: asciiIs[U](first, '-'), digitsStart: 1 }
+    } else {
+        !{ negative: false, digitsStart: 0 }
+    }
+}
+
+fn parseDigits[U](input: &[U], start: usize, radix: u32, negative: bool) Error!ParsedInteger
+where U: AsciiUnit
+{
+    if start == input.len() {
+        return Error::InvalidDigit!;
+    }
+    let mut value: u128 = 0;
+    let wideRadix = radix as u128;
+    for &unit in &input[start..] {
+        let digit = switch digitValue[U](unit) {
+            ?digit => { digit },
+            null => { return Error::InvalidDigit!; },
+        };
+        if digit >= radix {
+            return Error::InvalidDigit!;
+        }
+        let wideDigit = digit as u128;
+        if value > (u128::MAX - wideDigit) / wideRadix {
+            return Error::Overflow!;
+        }
+        value = value * wideRadix + wideDigit;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
+fn parseIntegerRadix[U](input: &[U], radix: u32, allowSign: bool) Error!ParsedInteger
+where U: AsciiUnit
+{
+    if radix < 2 or radix > 36 {
+        return Error::InvalidRadix!;
+    }
+    let sign = parseSign[U](input, allowSign).?;
+    parseDigits[U](input, sign.digitsStart, radix, sign.negative)
+}
+
+fn parseInteger[U](input: &[U], allowSign: bool) Error!ParsedInteger
+where U: AsciiUnit
+{
+    let sign = parseSign[U](input, allowSign).?;
+    let mut digitsStart = sign.digitsStart;
+    let mut radix: u32 = 10;
+    if digitsStart + 1 < input.len() and asciiIs[U](input[digitsStart], '0') {
+        let marker = input[digitsStart + 1];
+        if isHexPrefix[U](marker) {
+            radix = 16;
+            digitsStart += 2;
+        } else if isBinaryPrefix[U](marker) {
+            radix = 2;
+            digitsStart += 2;
+        } else if isOctalPrefix[U](marker) {
+            radix = 8;
+            digitsStart += 2;
+        }
+    }
+    parseDigits[U](input, digitsStart, radix, sign.negative)
+}
+
+fn parseBool[U](input: &[U]) Error!bool
+where U: AsciiUnit
+{
+    if asciiEquals[U](input, &"true") {
+        !true
+    } else if asciiEquals[U](input, &"false") {
+        !false
+    } else if input.len() == 0 {
+        Error::Empty!
+    } else {
+        Error::InvalidValue!
+    }
+}
+
+fn finishUnsigned(parsed: ParsedInteger, max: u128) Error!u128 {
+    if parsed.negative {
+        return Error::InvalidSign!;
+    }
+    if parsed.abs > max {
+        return Error::Overflow!;
+    }
+    !parsed.abs
+}
+
+fn finishSigned(parsed: ParsedInteger, min: i128, max: i128) Error!i128 {
+    let negativeLimit = ((0 - (min + 1)) as u128) + 1;
+    if parsed.negative {
+        if parsed.abs > negativeLimit {
+            return Error::Overflow!;
+        }
+        if parsed.abs == negativeLimit {
+            return !min;
+        }
+        return !(0 - parsed.abs as i128);
+    }
+    if parsed.abs > max as u128 {
+        return Error::Overflow!;
+    }
+    !(parsed.abs as i128)
+}
+
+fn parseUnsignedChars(text: &[char], max: u128) Error!u128 {
+    finishUnsigned(parseInteger[char](text, false).?, max)
+}
+
+fn parseUnsignedRadixChars(text: &[char], radix: u32, max: u128) Error!u128 {
+    finishUnsigned(parseIntegerRadix[char](text, radix, false).?, max)
+}
+
+fn parseSignedChars(text: &[char], min: i128, max: i128) Error!i128 {
+    finishSigned(parseInteger[char](text, true).?, min, max)
+}
+
+fn parseSignedRadixChars(text: &[char], radix: u32, min: i128, max: i128) Error!i128 {
+    finishSigned(parseIntegerRadix[char](text, radix, true).?, min, max)
+}
+
+fn parseUnsignedBytes(bytes: &[u8], max: u128) Error!u128 {
+    finishUnsigned(parseInteger[u8](bytes, false).?, max)
+}
+
+fn parseUnsignedRadixBytes(bytes: &[u8], radix: u32, max: u128) Error!u128 {
+    finishUnsigned(parseIntegerRadix[u8](bytes, radix, false).?, max)
+}
+
+fn parseSignedBytes(bytes: &[u8], min: i128, max: i128) Error!i128 {
+    finishSigned(parseInteger[u8](bytes, true).?, min, max)
+}
+
+fn parseSignedRadixBytes(bytes: &[u8], radix: u32, min: i128, max: i128) Error!i128 {
+    finishSigned(parseIntegerRadix[u8](bytes, radix, true).?, min, max)
+}
+
+extend i8 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!i8 {
+        !(parseSignedChars(text, i8::MIN as i128, i8::MAX as i128).? as i8)
+    }
+}
+
+extend i8 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!i8 {
+        !(parseSignedRadixChars(text, radix, i8::MIN as i128, i8::MAX as i128).? as i8)
+    }
+}
+
+extend i8 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!i8 {
+        !(parseSignedBytes(bytes, i8::MIN as i128, i8::MAX as i128).? as i8)
+    }
+}
+
+extend i8 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!i8 {
+        !(parseSignedRadixBytes(bytes, radix, i8::MIN as i128, i8::MAX as i128).? as i8)
+    }
+}
+
+extend i16 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!i16 {
+        !(parseSignedChars(text, i16::MIN as i128, i16::MAX as i128).? as i16)
+    }
+}
+
+extend i16 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!i16 {
+        !(parseSignedRadixChars(text, radix, i16::MIN as i128, i16::MAX as i128).? as i16)
+    }
+}
+
+extend i16 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!i16 {
+        !(parseSignedBytes(bytes, i16::MIN as i128, i16::MAX as i128).? as i16)
+    }
+}
+
+extend i16 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!i16 {
+        !(parseSignedRadixBytes(bytes, radix, i16::MIN as i128, i16::MAX as i128).? as i16)
+    }
+}
+
+extend i32 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!i32 {
+        !(parseSignedChars(text, i32::MIN as i128, i32::MAX as i128).? as i32)
+    }
+}
+
+extend i32 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!i32 {
+        !(parseSignedRadixChars(text, radix, i32::MIN as i128, i32::MAX as i128).? as i32)
+    }
+}
+
+extend i32 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!i32 {
+        !(parseSignedBytes(bytes, i32::MIN as i128, i32::MAX as i128).? as i32)
+    }
+}
+
+extend i32 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!i32 {
+        !(parseSignedRadixBytes(bytes, radix, i32::MIN as i128, i32::MAX as i128).? as i32)
+    }
+}
+
+extend i64 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!i64 {
+        !(parseSignedChars(text, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i64 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!i64 {
+        !(parseSignedRadixChars(text, radix, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i64 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!i64 {
+        !(parseSignedBytes(bytes, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i64 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!i64 {
+        !(parseSignedRadixBytes(bytes, radix, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i128 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!i128 {
+        parseSignedChars(text, i128::MIN, i128::MAX)
+    }
+}
+
+extend i128 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!i128 {
+        parseSignedRadixChars(text, radix, i128::MIN, i128::MAX)
+    }
+}
+
+extend i128 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!i128 {
+        parseSignedBytes(bytes, i128::MIN, i128::MAX)
+    }
+}
+
+extend i128 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!i128 {
+        parseSignedRadixBytes(bytes, radix, i128::MIN, i128::MAX)
+    }
+}
+
+extend isize : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!isize {
+        !(parseSignedChars(text, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend isize : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!isize {
+        !(parseSignedRadixChars(text, radix, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend isize : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!isize {
+        !(parseSignedBytes(bytes, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend isize : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!isize {
+        !(parseSignedRadixBytes(bytes, radix, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend u8 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!u8 {
+        !(parseUnsignedChars(text, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u8 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!u8 {
+        !(parseUnsignedRadixChars(text, radix, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u8 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!u8 {
+        !(parseUnsignedBytes(bytes, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u8 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!u8 {
+        !(parseUnsignedRadixBytes(bytes, radix, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u16 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!u16 {
+        !(parseUnsignedChars(text, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u16 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!u16 {
+        !(parseUnsignedRadixChars(text, radix, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u16 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!u16 {
+        !(parseUnsignedBytes(bytes, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u16 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!u16 {
+        !(parseUnsignedRadixBytes(bytes, radix, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u32 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!u32 {
+        !(parseUnsignedChars(text, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u32 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!u32 {
+        !(parseUnsignedRadixChars(text, radix, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u32 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!u32 {
+        !(parseUnsignedBytes(bytes, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u32 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!u32 {
+        !(parseUnsignedRadixBytes(bytes, radix, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u64 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!u64 {
+        !(parseUnsignedChars(text, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u64 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!u64 {
+        !(parseUnsignedRadixChars(text, radix, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u64 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!u64 {
+        !(parseUnsignedBytes(bytes, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u64 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!u64 {
+        !(parseUnsignedRadixBytes(bytes, radix, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u128 : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!u128 {
+        parseUnsignedChars(text, u128::MAX)
+    }
+}
+
+extend u128 : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!u128 {
+        parseUnsignedRadixChars(text, radix, u128::MAX)
+    }
+}
+
+extend u128 : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!u128 {
+        parseUnsignedBytes(bytes, u128::MAX)
+    }
+}
+
+extend u128 : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!u128 {
+        parseUnsignedRadixBytes(bytes, radix, u128::MAX)
+    }
+}
+
+extend usize : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!usize {
+        !(parseUnsignedChars(text, usize::MAX as u128).? as usize)
+    }
+}
+
+extend usize : FromRadix[&[char]] {
+    type Error = Error;
+
+    fn parseRadix(text: &[char], radix: u32) Error!usize {
+        !(parseUnsignedRadixChars(text, radix, usize::MAX as u128).? as usize)
+    }
+}
+
+extend usize : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!usize {
+        !(parseUnsignedBytes(bytes, usize::MAX as u128).? as usize)
+    }
+}
+
+extend usize : FromRadix[&[u8]] {
+    type Error = Error;
+
+    fn parseRadix(bytes: &[u8], radix: u32) Error!usize {
+        !(parseUnsignedRadixBytes(bytes, radix, usize::MAX as u128).? as usize)
+    }
+}
+
+extend bool : From[&[char]] {
+    type Error = Error;
+
+    fn parse(text: &[char]) Error!bool {
+        parseBool[char](text)
+    }
+}
+
+extend bool : From[&[u8]] {
+    type Error = Error;
+
+    fn parse(bytes: &[u8]) Error!bool {
+        parseBool[u8](bytes)
+    }
+}

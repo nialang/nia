@@ -686,15 +686,29 @@ impl<'a> BodyChecker<'a> {
                     op: UnaryOp::RefReadOnly,
                     expr: inner,
                 },
-                Some(TyKind::Slice {
+                _,
+            ) if Self::reference_target_has_standalone_type(inner) => {
+                let actual = self.check_expr(expr);
+                self.type_can_match_call_expected(expected, actual)
+            }
+            (
+                ExprKind::Unary {
+                    op: UnaryOp::RefReadOnly,
+                    expr: inner,
+                },
+                _,
+            ) if matches!(&inner.kind, ExprKind::String(_) | ExprKind::ByteString(_)) => {
+                let array = match &inner.kind {
+                    ExprKind::String(literal) => self.string_literal_array_type(literal),
+                    ExprKind::ByteString(literal) => self.byte_string_literal_array_type(literal),
+                    _ => unreachable!(),
+                };
+                let actual = self.interner.intern(TyKind::Pointer {
                     is_readonly: true,
-                    elem,
-                }),
-            ) => match &inner.kind {
-                ExprKind::String(_) => self.types_match(elem, self.primitive(PrimitiveTy::Char)),
-                ExprKind::ByteString(_) => self.types_match(elem, self.primitive(PrimitiveTy::U8)),
-                _ => true,
-            },
+                    elem: array,
+                });
+                self.type_can_match_call_expected(expected, actual)
+            }
             (ExprKind::String(_), Some(TyKind::Array { elem, .. })) => {
                 self.types_match(elem, self.primitive(PrimitiveTy::Char))
             }
@@ -704,6 +718,43 @@ impl<'a> BodyChecker<'a> {
             (ExprKind::String(_), _) | (ExprKind::ByteString(_), _) => false,
             _ => true,
         }
+    }
+
+    fn type_can_match_call_expected(
+        &mut self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
+        if self.types_match(expected, actual) {
+            return true;
+        }
+        let Some((_, actual_slice, actual_readonly)) = self.pointer_array_slice_type(actual) else {
+            return false;
+        };
+        if self.types_match(expected, actual_slice) {
+            return true;
+        }
+        if actual_readonly {
+            return false;
+        }
+        let Some(TyKind::Slice { elem, .. }) = self.interner.get(actual_slice).cloned() else {
+            return false;
+        };
+        let readonly_slice = self.interner.intern(TyKind::Slice {
+            is_readonly: true,
+            elem,
+        });
+        self.types_match(expected, readonly_slice)
+    }
+
+    fn reference_target_has_standalone_type(expr: &Expr) -> bool {
+        matches!(
+            &expr.kind,
+            ExprKind::Ident(_)
+                | ExprKind::Qualified { .. }
+                | ExprKind::Field { .. }
+                | ExprKind::Index { .. }
+        )
     }
 
     fn complete_generic_function_instance_args(

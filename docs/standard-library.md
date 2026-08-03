@@ -69,7 +69,7 @@ Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
 also pulls Unicode behavior. The conservative source-declared facade/provider
 closure is recorded in `std-build-host-dependencies.json` and checked by
-`tools/std_build_host_audit.py`. It currently contains 96 modules: broad facade
+`tools/std_build_host_audit.py`. It currently contains 97 modules: broad facade
 declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
 conceptually require. This is not a claim that loader demand executes every
@@ -204,6 +204,18 @@ contained and is both a prefix and suffix. Content equality is named explicitly
 instead of treating reference equality as sequence equality. `split` produces
 borrowed segments through ordinary `for`, preserving empty segments at leading,
 trailing, or adjacent separators without allocating owned strings.
+Textual value parsing is owned by the root `std::parse` module rather than by
+formatting. `parse::value[T](input)` performs ordinary parsing and
+`parse::radix[T](input, radix)` parses bare integer digits in radix 2 through
+36. The public `parse::From[Input]` and `parse::FromRadix[Input]` protocols let
+character slices, byte slices, C-string views, process arguments, and
+environment values share those entry points without making `fmt` own their
+adapters. Each protocol has an associated error type, so user-defined parsers
+retain their domain errors; `bool` intentionally has no radix capability.
+Protocol methods use `parse` and `parseRadix`; the former snake-case methods
+and `fmt` parsing reexports are physically absent. Integer prefixes, sign
+handling, bounds, and the `parse::Error` distinctions remain explicit and
+allocation-free.
 With `std::hash` imported, `[char]` and `String` implement `Hash[H]` for
 every `Hasher`. The hash commits the scalar count followed by each scalar value;
 it is not a hash of an incidental UTF-8 encoding. `String` also implements

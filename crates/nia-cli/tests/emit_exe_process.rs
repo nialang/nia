@@ -2810,6 +2810,7 @@ fn emit_exe_exposes_process_args_as_values() {
         r#"
 using std::fmt;
 using std::io;
+using std::parse;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -2865,9 +2866,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 return process::exit(18)!;
             }
         } else if for_count == 1 {
-            switch fmt::parse[u16](arg) {
+            switch parse::value[u16](arg) {
                 !value => {
-                    if value != 1234u16 {
+                    if value != 1234 {
                         return process::exit(19)!;
                     }
                 },
@@ -2894,14 +2895,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if second.len() != 4 {
         return process::exit(6)!;
     }
-    switch fmt::parse[u16](second_arg) {
-        !value => { if value != 1234u16 {
+    switch parse::value[u16](second_arg) {
+        !value => { if value != 1234 {
                 return process::exit(14)!;
             } },
         error! => { return process::exit(15)!; },
     }
-    switch fmt::parse_radix[u16](second_arg, 16u32) {
-        !value => { if value != 0x1234u16 {
+    switch parse::radix[u16](second_arg, 16) {
+        !value => { if value != 0x1234 {
                 return process::exit(16)!;
             } },
         error! => { return process::exit(17)!; },
