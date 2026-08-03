@@ -162,7 +162,7 @@ extend Formatter {
     }
 
     pub fn write_char(&mut self, ch: char) Error!void {
-        let encoded = ch.encode_utf8();
+        let encoded = ch.encodeUtf8();
         self.write_bytes(encoded.bytes())
     }
 

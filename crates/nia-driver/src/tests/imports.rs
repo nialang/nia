@@ -1390,7 +1390,7 @@ fn main() void {}
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown namespace `linux`")),
+            .contains("unknown namespace `os`")),
         "{:?}",
         program.diagnostics
     );

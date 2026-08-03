@@ -173,7 +173,7 @@ The current audit sets this design direction:
   when repeating the allocator would obscure the actual mutation.
 
 `unicode::decodeUtf8First` now returns
-`Utf8DecodeError!Utf8Decode`. `Empty`, `Truncated`, `InvalidLeadingByte`,
+`Utf8DecodeError!DecodedUtf8Scalar`. `Empty`, `Truncated`, `InvalidLeadingByte`,
 `InvalidContinuation`, `Overlong`, and `InvalidScalar` are distinct values;
 the former optional decoder is absent and has no compatibility alias.
 `String::fromUtf8(allocator, bytes)` and
@@ -389,7 +389,9 @@ conversion and returns `PathError::ContainsNul` or `PathError::TooLong`.
 duplicate copy, join, and encode entry points have no aliases.
 
 Initial convenience-trait dispositions are deliberately asymmetric. `Char` is
-a Unicode conversion API rather than polymorphic language dispatch.
+not a trait: checked scalar construction is `unicode::fromScalarValue`, backed
+by `std::builtin::charFromU32`, while `char.codepoint()` and
+`char.encodeUtf8()` provide inherent scalar operations.
 `Start`/`End` are range accessors. `Len` and `Ptr`/`PtrMut` need compiler-created
 implementations for structural arrays, slices, or data pointers, but that does
 not require builtin trait identity. Each migration must trace symbol identity,
@@ -409,10 +411,11 @@ LLVM before deleting its builtin declaration.
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, and pipe ownership accepted; process-owned identity/spawn/wait causes remain open |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
-the sum of each scalar's encoded `Utf8::len()` and is not interchangeable with
-scalar count. A NUL scalar is valid scalar text but is rejected when crossing a
-C-string or encoded-path boundary. Invalid UTF-8 is a decode failure before a
-path exists; OS path rejection occurs after representation conversion.
+the sum of each scalar's encoded `Utf8Scalar::byteLen()` and is not
+interchangeable with scalar count. A NUL scalar is valid scalar text but is
+rejected when crossing a C-string or encoded-path boundary. Invalid UTF-8 is a
+decode failure before a path exists; OS path rejection occurs after
+representation conversion.
 
 ## 5. Ownership And Error Baseline
 

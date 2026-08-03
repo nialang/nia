@@ -1375,10 +1375,10 @@ fn std_linux_statx_layout_matches_kernel_abi() {
     write(
         &root.join("main.nia"),
         r#"
-using std::os;
+using std::fs;
 
-fn main() usize {
-    os::page_size()
+fn main(dir: &fs::Dir, path: fs::PathView) void {
+    _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 "#,
     );

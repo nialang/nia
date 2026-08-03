@@ -1111,9 +1111,6 @@ fn builtin_trait_method_signature_matches(
         | (BuiltinTrait::End, BuiltinTraitMethod::End) => {
             builtin_bound_method_signature_matches(module, impl_signature, actual)
         }
-        (BuiltinTrait::Char, BuiltinTraitMethod::Char) => {
-            builtin_char_method_signature_matches(module, actual)
-        }
         (BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter) => {
             builtin_iterable_method_signature_matches(module, impl_signature, actual)
         }
@@ -1263,28 +1260,6 @@ fn builtin_bound_method_signature_matches(
         module.lowering,
         actual.return_type,
         output,
-    )
-}
-
-fn builtin_char_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    actual: &FunctionSignature,
-) -> bool {
-    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::Value) {
-        return false;
-    }
-    let actual_return = module.normalization.normalize(actual.return_type);
-    let Some(TyKind::Optional { elem }) = module.type_store.get(actual_return) else {
-        return false;
-    };
-    types_equivalent(
-        module.type_store,
-        module.lowering,
-        *elem,
-        module
-            .type_store
-            .append_for_module(module.module_id)
-            .intern(TyKind::Primitive(PrimitiveTy::Char)),
     )
 }
 

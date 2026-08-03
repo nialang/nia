@@ -585,7 +585,6 @@ pub enum FunctionBuiltinMethod {
     Len,
     Start,
     End,
-    Char,
     Iter,
 }
 

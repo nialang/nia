@@ -1,11 +1,14 @@
-pub struct Utf8 {
+using pkg::iter;
+using pkg::iter::range;
+
+pub struct Utf8Scalar {
     bytes: [4]u8,
-    len: usize,
+    byteLen: usize,
 }
 
-pub struct Utf8Decode {
-    char: char,
-    len: usize,
+pub struct DecodedUtf8Scalar {
+    scalar: char,
+    byteLen: usize,
 }
 
 pub enum Utf8DecodeError: i32 {
@@ -17,125 +20,117 @@ pub enum Utf8DecodeError: i32 {
     InvalidScalar = 6,
 }
 
-extend Utf8 {
-    pub fn init(bytes: [4]u8, len: usize) Utf8 {
-        { bytes: bytes, len: len }
+extend Utf8Scalar {
+    fn init(bytes: [4]u8, byteLen: usize) Utf8Scalar {
+        { bytes: bytes, byteLen: byteLen }
     }
 
-    pub fn len(&self) usize {
-        self.len
+    pub fn byteLen(&self) usize {
+        self.byteLen
     }
 
     pub fn bytes(&self) &[u8] {
-        & self.bytes[0..self.len]
+        & self.bytes[0..self.byteLen]
     }
 }
 
-extend Utf8Decode {
-    pub fn init(char: char, len: usize) Utf8Decode {
-        { char: char, len: len }
+extend DecodedUtf8Scalar {
+    fn init(scalar: char, byteLen: usize) DecodedUtf8Scalar {
+        { scalar: scalar, byteLen: byteLen }
     }
 
-    pub fn char(&self) char {
-        self.char
+    pub fn scalar(&self) char {
+        self.scalar
     }
 
-    pub fn len(&self) usize {
-        self.len
+    pub fn byteLen(&self) usize {
+        self.byteLen
     }
 }
 
 extend char {
-    pub fn from_u32(value: u32) ?char {
-        value.char()
-    }
-
     pub fn codepoint(self) u32 {
         self as u32
     }
 
-    pub fn encode_utf8(self) Utf8 {
+    pub fn encodeUtf8(self) Utf8Scalar {
         let code = self as u32;
-        if code <= 127u32 {
-            Utf8::init([code as u8, 0, 0, 0], 1)
-        } else if code <= 2047u32 {
-            Utf8::init([
-                192u8 + (code / 64u32) as u8,
-                128u8 + (code % 64u32) as u8,
+        if code <= 127 {
+            Utf8Scalar::init([code as u8, 0, 0, 0], 1)
+        } else if code <= 2047 {
+            Utf8Scalar::init([
+                192 + (code / 64) as u8,
+                128 + (code % 64) as u8,
                 0,
                 0,
             ], 2)
-        } else if code <= 65535u32 {
-            Utf8::init([
-                224u8 + (code / 4096u32) as u8,
-                128u8 + ((code / 64u32) % 64u32) as u8,
-                128u8 + (code % 64u32) as u8,
+        } else if code <= 65535 {
+            Utf8Scalar::init([
+                224 + (code / 4096) as u8,
+                128 + ((code / 64) % 64) as u8,
+                128 + (code % 64) as u8,
                 0,
             ], 3)
         } else {
-            Utf8::init([
-                240u8 + (code / 262144u32) as u8,
-                128u8 + ((code / 4096u32) % 64u32) as u8,
-                128u8 + ((code / 64u32) % 64u32) as u8,
-                128u8 + (code % 64u32) as u8,
+            Utf8Scalar::init([
+                240 + (code / 262144) as u8,
+                128 + ((code / 4096) % 64) as u8,
+                128 + ((code / 64) % 64) as u8,
+                128 + (code % 64) as u8,
             ], 4)
         }
     }
 }
 
-extend u32 {
-    pub fn is_valid_char(self) bool {
-        is_valid_scalar_value(self)
-    }
+pub const fn fromScalarValue(value: u32) ?char {
+    std::builtin::charFromU32(value)
 }
 
-pub fn is_valid_scalar_value(value: u32) bool {
-    value <= 0x10ffffu32 and not (value >= 0xd800u32 and value <= 0xdfffu32)
+pub const fn isValidScalarValue(value: u32) bool {
+    value <= 0x10ffff and not (value >= 0xd800 and value <= 0xdfff)
 }
 
-pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!Utf8Decode {
-    if bytes.len() == 0usize {
+pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
+    if bytes.len() == 0 {
         return Utf8DecodeError::Empty!;
     }
     let first = bytes[0];
     let mut code: u32;
     let mut width: usize;
-    if first < 0x80u8 {
+    if first < 0x80 {
         code = first as u32;
-        width = 1usize;
-    } else if (first & 0xe0u8) == 0xc0u8 {
-        code = (first & 0x1fu8) as u32;
-        width = 2usize;
-    } else if (first & 0xf0u8) == 0xe0u8 {
-        code = (first & 0x0fu8) as u32;
-        width = 3usize;
-    } else if (first & 0xf8u8) == 0xf0u8 and first <= 0xf4u8 {
-        code = (first & 0x07u8) as u32;
-        width = 4usize;
+        width = 1;
+    } else if (first & 0xe0) == 0xc0 {
+        code = (first & 0x1f) as u32;
+        width = 2;
+    } else if (first & 0xf0) == 0xe0 {
+        code = (first & 0x0f) as u32;
+        width = 3;
+    } else if (first & 0xf8) == 0xf0 and first <= 0xf4 {
+        code = (first & 0x07) as u32;
+        width = 4;
     } else {
         return Utf8DecodeError::InvalidLeadingByte!;
     }
     if bytes.len() < width {
         return Utf8DecodeError::Truncated!;
     }
-    let mut index = 1usize;
-    while index < width {
+    for index in 1..width {
         let continuation = bytes[index];
-        if (continuation & 0xc0u8) != 0x80u8 {
+        if (continuation & 0xc0) != 0x80 {
             return Utf8DecodeError::InvalidContinuation!;
         }
-        code = (code << 6u32) | ((continuation & 0x3fu8) as u32);
-        index += 1usize;
+        code = (code << 6) | ((continuation & 0x3f) as u32);
     }
     if isOverlongUtf8(code, width) {
         return Utf8DecodeError::Overlong!;
     }
-    if not is_valid_scalar_value(code) {
+    if not isValidScalarValue(code) {
         return Utf8DecodeError::InvalidScalar!;
     }
-    switch code.char() {
+    switch fromScalarValue(code) {
         ?ch => {
-            !Utf8Decode::init(ch, width)
+            !DecodedUtf8Scalar::init(ch, width)
         },
         null => {
             Utf8DecodeError::InvalidScalar!
@@ -145,10 +140,10 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!Utf8Decode {
 
 fn isOverlongUtf8(code: u32, width: usize) bool {
     switch width {
-        1usize => false,
-        2usize => code < 0x80u32,
-        3usize => code < 0x800u32,
-        4usize => code < 0x10000u32,
+        1 => false,
+        2 => code < 0x80,
+        3 => code < 0x800,
+        4 => code < 0x10000,
         _ => true,
     }
 }

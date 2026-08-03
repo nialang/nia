@@ -95,10 +95,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     receiver,
                     nia_function_ir::FunctionRangeBound::End,
                 ),
-                nia_function_ir::FunctionBuiltinMethod::Char => Err(self.error(
-                    expr.span,
-                    "`char` builtin method must be lowered as an expression",
-                )),
                 nia_function_ir::FunctionBuiltinMethod::Iter => Err(self.error(
                     expr.span,
                     "`iter` builtin method must be resolved before LLVM codegen",

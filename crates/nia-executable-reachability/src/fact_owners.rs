@@ -246,7 +246,6 @@ fn semantic_builtin_method_trait(
         nia_sema_ir::BuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
         nia_sema_ir::BuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         nia_sema_ir::BuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
-        nia_sema_ir::BuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
         nia_sema_ir::BuiltinMethod::Iter => {
             Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
         }
@@ -409,7 +408,6 @@ pub(super) fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> Option<
         BuiltinTraitMethod::Len => Some(known::LEN),
         BuiltinTraitMethod::Start => Some(known::START),
         BuiltinTraitMethod::End => Some(known::END),
-        BuiltinTraitMethod::Char => Some(known::CHAR),
         BuiltinTraitMethod::IteratorNext => Some(known::NEXT),
         BuiltinTraitMethod::IterableIter => Some(known::ITER_METHOD),
     }

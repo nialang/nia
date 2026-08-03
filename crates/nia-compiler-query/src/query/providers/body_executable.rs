@@ -102,7 +102,7 @@ impl ExecutableValueRefEdges {
                 let Some(signature) = signatures.semantic.functions.get(&global_id.def_id) else {
                     return Ok(false);
                 };
-                if signature.is_const || !signature.has_body {
+                if !signature.has_body {
                     return Ok(false);
                 }
                 self.functions.insert(global_id)
@@ -2688,7 +2688,7 @@ fn collect_executable_value_ref_index_for_function(
     function: &FunctionItem,
     index: &mut ExecutableValueRefIndex,
 ) -> QueryResult<()> {
-    if function.is_const || function.body.is_none() {
+    if function.body.is_none() {
         return Ok(());
     }
     let Some(def_id) = defs.def_nodes.get(&function.node_key) else {
@@ -2804,12 +2804,21 @@ impl<'a> ExecutableValueRefCollector<'a> {
 impl<'ast> nia_ast_walk::Visitor<'ast> for ExecutableValueRefCollector<'_> {
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
         self.collect_key(&expr.node_key);
-        nia_ast_walk::walk_expr(self, expr);
+        match &expr.kind {
+            nia_ast::ExprKind::ArrayLiteral {
+                elems: nia_ast::ArrayElements::Repeat { value, .. },
+            }
+            | nia_ast::ExprKind::TypedArrayLiteral {
+                elems: nia_ast::ArrayElements::Repeat { value, .. },
+                ..
+            } => self.visit_expr(value),
+            _ => nia_ast_walk::walk_expr(self, expr),
+        }
     }
 
-    fn visit_type(&mut self, ty: &'ast nia_ast::TypeRef) {
-        self.collect_key(&ty.node_key);
-        nia_ast_walk::walk_type(self, ty);
+    fn visit_type(&mut self, _ty: &'ast nia_ast::TypeRef) {
+        // Type-level expressions are owned by const/layout reachability, not
+        // runtime value reachability.
     }
 }
 

@@ -61,6 +61,12 @@ impl<'a> ResolvedConstLowerInputs<'a> {
 }
 
 pub(crate) trait ConstLowerContext {
+    fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution>;
+
+    fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
+
+    fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId>;
+
     fn resolve_name(
         &self,
         key: &VersionedNodeKey,
@@ -93,12 +99,8 @@ pub(crate) trait ConstLowerContext {
 }
 
 impl ConstLowerContext for EarlyConstLowerInputs<'_> {
-    fn resolve_name(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<ConstNameResolution>, ConstLowerError> {
-        Ok(self.semantic_uses.and_then(|semantic_uses| {
+    fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution> {
+        self.semantic_uses.and_then(|semantic_uses| {
             semantic_uses
                 .node_associated_const_projection(key)
                 .cloned()
@@ -118,7 +120,25 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
                         .node_value_use(key)
                         .map(ConstNameResolution::from)
                 })
-        }))
+        })
+    }
+
+    fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.semantic_uses
+            .and_then(|semantic_uses| semantic_uses.node_type_use(key))
+    }
+
+    fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
+        self.semantic_uses
+            .and_then(|semantic_uses| semantic_uses.node_type_prefix(key))
+    }
+
+    fn resolve_name(
+        &self,
+        key: &VersionedNodeKey,
+        _span: Span,
+    ) -> Result<Option<ConstNameResolution>, ConstLowerError> {
+        Ok(self.probe_name_resolution(key))
     }
 
     fn lower_local_use(
@@ -172,25 +192,42 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
 }
 
 impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
+    fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution> {
+        self.semantic_uses
+            .node_associated_const_projection(key)
+            .cloned()
+            .map(ConstNameResolution::AssociatedConstProjection)
+            .or_else(|| {
+                self.semantic_uses
+                    .node_builtin_associated_value(key)
+                    .map(ConstNameResolution::BuiltinAssociatedValue)
+            })
+            .or_else(|| {
+                self.semantic_uses
+                    .node_const_generic_use(key)
+                    .map(|name| ConstNameResolution::GenericParam(*name))
+            })
+            .or_else(|| {
+                self.semantic_uses
+                    .node_value_use(key)
+                    .map(ConstNameResolution::from)
+            })
+    }
+
+    fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.semantic_uses.node_type_use(key)
+    }
+
+    fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
+        self.semantic_uses.node_type_prefix(key)
+    }
+
     fn resolve_name(
         &self,
         key: &VersionedNodeKey,
         span: Span,
     ) -> Result<Option<ConstNameResolution>, ConstLowerError> {
-        if let Some(projection) = self.semantic_uses.node_associated_const_projection(key) {
-            return Ok(Some(ConstNameResolution::AssociatedConstProjection(
-                projection.clone(),
-            )));
-        }
-        if let Some(value) = self.semantic_uses.node_builtin_associated_value(key) {
-            return Ok(Some(ConstNameResolution::BuiltinAssociatedValue(value)));
-        }
-        if let Some(name) = self.semantic_uses.node_const_generic_use(key) {
-            return Ok(Some(ConstNameResolution::GenericParam(*name)));
-        }
-        self.semantic_uses
-            .node_value_use(key)
-            .map(ConstNameResolution::from)
+        self.probe_name_resolution(key)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "const name"))
     }
@@ -271,6 +308,21 @@ fn lower_expr_internal(
         nia_ast::ExprKind::Null => EarlyConstExprKind::Null,
         nia_ast::ExprKind::Ident(name) => {
             EarlyConstExprKind::Ident(lower_const_name(name, &expr.node_key, expr.span, context)?)
+        }
+        nia_ast::ExprKind::SelfValue => {
+            let Some(name) = context.intern_name("self", expr.span)? else {
+                return Err(ConstLowerError {
+                    span: expr.span,
+                    message: "const receiver lowering requires a symbol table".to_string(),
+                });
+            };
+            let Some(local_id) = lower_local_use(context, &expr.node_key, expr.span)? else {
+                return Err(unresolved_error(expr.span, "const receiver"));
+            };
+            EarlyConstExprKind::Ident(EarlyConstName::resolved(
+                name,
+                ConstNameResolution::Local(local_id),
+            ))
         }
         nia_ast::ExprKind::Qualified { name, .. } => EarlyConstExprKind::Qualified(
             lower_const_name(name, &expr.node_key, expr.span, context)?,
@@ -583,15 +635,6 @@ fn lower_call_with_context(
             });
         }
     }
-    if args.is_empty()
-        && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
-        && let Some(method) = const_builtin_method_name(*name)
-    {
-        return Ok(EarlyConstExprKind::BuiltinMethod {
-            method,
-            lhs: Box::new(lower_expr_internal(lhs, context)?),
-        });
-    }
     let (callee, type_args) = match &callee.kind {
         nia_ast::ExprKind::BracketSuffix {
             callee: generic_callee,
@@ -602,6 +645,93 @@ fn lower_call_with_context(
         ),
         _ => (callee, Vec::new()),
     };
+    if let nia_ast::ExprKind::Field { lhs, name } = &callee.kind {
+        if args.is_empty()
+            && type_args.is_empty()
+            && let Some(method) = const_builtin_method_name(*name)
+        {
+            return Ok(EarlyConstExprKind::BuiltinMethod {
+                method,
+                lhs: Box::new(lower_expr_internal(lhs, context)?),
+            });
+        }
+        return Ok(EarlyConstExprKind::Call {
+            callee: Box::new(EarlyConstExpr {
+                span: callee.span,
+                kind: EarlyConstExprKind::Method {
+                    receiver: Box::new(lower_expr_internal(lhs, context)?),
+                    name: *name,
+                },
+            }),
+            type_args,
+            args: args
+                .iter()
+                .map(|arg| lower_expr_internal(arg, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        });
+    }
+    if let nia_ast::ExprKind::Qualified { lhs, name } = &callee.kind
+        && context.probe_name_resolution(&callee.node_key).is_none()
+    {
+        let nominal_instance = match &lhs.kind {
+            nia_ast::ExprKind::BracketSuffix {
+                callee: nominal,
+                args,
+            } => context
+                .probe_type_prefix(&nominal.node_key)
+                .or_else(|| context.probe_type_prefix(&lhs.node_key))
+                .map(|def_id| {
+                    lower_type_args_with_context(args, context)
+                        .map(|args| EarlyConstAssociatedTarget::Nominal { def_id, args })
+                }),
+            _ => None,
+        }
+        .transpose()?;
+        let target = nominal_instance.or_else(|| {
+            context
+                .probe_type_id(&lhs.node_key)
+                .or_else(|| context.probe_type_id(&callee.node_key))
+                .map(|target_ty| {
+                    EarlyConstAssociatedTarget::Type(EarlyConstTypeArg {
+                        span: lhs.span,
+                        ty_span: lhs.span,
+                        ty: Some(target_ty),
+                    })
+                })
+                .or_else(|| {
+                    context.probe_type_prefix(&lhs.node_key).map(|def_id| {
+                        EarlyConstAssociatedTarget::Nominal {
+                            def_id,
+                            args: Vec::new(),
+                        }
+                    })
+                })
+        });
+        let Some(target) = target else {
+            return Ok(EarlyConstExprKind::Call {
+                callee: Box::new(lower_expr_internal(callee, context)?),
+                type_args,
+                args: args
+                    .iter()
+                    .map(|arg| lower_expr_internal(arg, context))
+                    .collect::<Result<Vec<_>, _>>()?,
+            });
+        };
+        return Ok(EarlyConstExprKind::Call {
+            callee: Box::new(EarlyConstExpr {
+                span: callee.span,
+                kind: EarlyConstExprKind::AssociatedFunction {
+                    target,
+                    name: *name,
+                },
+            }),
+            type_args,
+            args: args
+                .iter()
+                .map(|arg| lower_expr_internal(arg, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        });
+    }
     Ok(EarlyConstExprKind::Call {
         callee: Box::new(lower_expr_internal(callee, context)?),
         type_args,
@@ -966,6 +1096,29 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             lhs: Box::new(resolve_expr(*lhs)?),
             name,
         },
+        EarlyConstExprKind::Method { receiver, name } => ResolvedConstExprKind::Method {
+            receiver: Box::new(resolve_expr(*receiver)?),
+            name,
+        },
+        EarlyConstExprKind::AssociatedFunction { target, name } => {
+            ResolvedConstExprKind::AssociatedFunction {
+                target: match target {
+                    EarlyConstAssociatedTarget::Type(target) => {
+                        ResolvedConstAssociatedTarget::Type(resolve_type_arg(target)?)
+                    }
+                    EarlyConstAssociatedTarget::Nominal { def_id, args } => {
+                        ResolvedConstAssociatedTarget::Nominal {
+                            def_id,
+                            args: args
+                                .into_iter()
+                                .map(resolve_type_arg)
+                                .collect::<Result<Vec<_>, _>>()?,
+                        }
+                    }
+                },
+                name,
+            }
+        }
         EarlyConstExprKind::BuiltinMethod { method, lhs } => ResolvedConstExprKind::BuiltinMethod {
             method,
             lhs: Box::new(resolve_expr(*lhs)?),
@@ -1352,7 +1505,12 @@ fn lower_function_internal(
         .params
         .iter()
         .map(|param| {
-            let Some(name) = &param.name else {
+            let name = match param.name {
+                Some(name) => Some(name),
+                None if param.receiver.is_some() => context.intern_name("self", param.span)?,
+                None => None,
+            };
+            let Some(name) = name else {
                 return Err(ConstLowerError {
                     span: param.span,
                     message: "const function parameter requires a name".to_string(),
@@ -1360,7 +1518,7 @@ fn lower_function_internal(
             };
             Ok(EarlyConstParam {
                 span: param.span,
-                name: *name,
+                name,
                 local_id: lower_local_id(context, &param.node_key, param.span)?,
                 ty: param
                     .ty

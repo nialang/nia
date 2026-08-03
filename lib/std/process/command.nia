@@ -252,7 +252,7 @@ fn appendArgument(
         if ch.codepoint() == 0 {
             return Error::ArgumentContainsNul(argumentIndex)!;
         }
-        byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
+        byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
@@ -263,7 +263,7 @@ fn appendArgument(
     };
     bytes.reserve(allocator, needed).asProcessAllocationError().?;
     for &ch in argument {
-        bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
+        bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
     }
     bytes.appendAssumeCapacity(0);
     !{}
@@ -310,13 +310,13 @@ fn appendEnvironmentEntry(
 ) Error!void {
     let mut byteLen: usize = 1;
     for &ch in entry.name() {
-        byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
+        byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
     for &ch in entry.value() {
-        byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
+        byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
@@ -327,11 +327,11 @@ fn appendEnvironmentEntry(
     };
     bytes.reserve(allocator, needed).asProcessAllocationError().?;
     for &ch in entry.name() {
-        bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
+        bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
     }
     bytes.appendAssumeCapacity(b'=');
     for &ch in entry.value() {
-        bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
+        bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
     }
     bytes.appendAssumeCapacity(0);
     !{}

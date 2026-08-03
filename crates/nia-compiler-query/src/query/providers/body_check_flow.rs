@@ -29,9 +29,7 @@ fn filter_item_tree_node_for_body_check(
 ) {
     match &mut item.kind {
         nia_item_tree::ItemTreeNodeKind::Function(function) => {
-            if !function.is_const
-                && !body_check_filter_includes_function(module_id, defs, &function.node_key, filter)
-            {
+            if !body_check_filter_includes_function(module_id, defs, &function.node_key, filter) {
                 function.body = None;
             }
         }
@@ -44,28 +42,24 @@ fn filter_item_tree_node_for_body_check(
         }
         nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
             for method in &mut item_trait.methods {
-                if !method.function.is_const
-                    && !body_check_filter_includes_function(
-                        module_id,
-                        defs,
-                        &method.function.node_key,
-                        filter,
-                    )
-                {
+                if !body_check_filter_includes_function(
+                    module_id,
+                    defs,
+                    &method.function.node_key,
+                    filter,
+                ) {
                     method.function.body = None;
                 }
             }
         }
         nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
             for method in &mut extend.methods {
-                if !method.function.is_const
-                    && !body_check_filter_includes_function(
-                        module_id,
-                        defs,
-                        &method.function.node_key,
-                        filter,
-                    )
-                {
+                if !body_check_filter_includes_function(
+                    module_id,
+                    defs,
+                    &method.function.node_key,
+                    filter,
+                ) {
                     method.function.body = None;
                 }
             }

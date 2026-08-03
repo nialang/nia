@@ -10,7 +10,6 @@ use nia_function_ir::{
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_symbol::ToSymbolId;
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
-use nia_ty::{PrimitiveTy, TyKind};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn resolve_builtin_operator_calls_in_body(
@@ -1062,11 +1061,6 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         }
-        if method == FunctionBuiltinMethod::Char && self.is_u32(self_ty) {
-            return FunctionExprKind::CharFromU32 {
-                value: Box::new(receiver),
-            };
-        }
         FunctionExprKind::Call {
             callee: FunctionCallee::BuiltinMethod {
                 method,
@@ -1075,11 +1069,6 @@ impl<'a> ModuleLowerer<'a> {
             },
             args,
         }
-    }
-
-    fn is_u32(&self, ty: InternedTyId) -> bool {
-        let ty = self.input.type_normalization.normalize(ty);
-        matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::U32)))
     }
 
     fn resolve_builtin_operator_impl_method(
@@ -1192,7 +1181,6 @@ fn builtin_method_trait(
         FunctionBuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
         FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
-        FunctionBuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
         FunctionBuiltinMethod::Iter => {
             Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
         }

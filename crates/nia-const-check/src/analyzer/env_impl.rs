@@ -1,6 +1,6 @@
 use crate::{
     ConstKey, ConstValueType, TypedConstValue,
-    analyzer::{Analyzer, ConstCallFrame, ConstGenericInstantiation},
+    analyzer::{Analyzer, ConstCallFrame, ConstFunctionInstantiationInput},
     support::{
         cast_const_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
         is_float_primitive, primitive_integer_layout, validate_assignment_shape,
@@ -382,12 +382,13 @@ impl ResolvedConstEnv for Analyzer<'_> {
         arg_exprs: &[ResolvedConstExpr],
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
-        let Some(function_id) = self.resolved_const_function(callee) else {
+        let Some(resolved_callee) = self.resolved_const_callee(callee) else {
             return Err(ConstError {
                 span,
                 message: "const expression can only call `const fn`".to_string(),
             });
         };
+        let function_id = resolved_callee.function_id;
         let Some(signatures) = self.signatures_for_module(function_id.module_id) else {
             return Err(ConstError {
                 span,
@@ -405,25 +406,35 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 message: "const expression can only call `const fn`".to_string(),
             });
         };
-        let instantiation = if let Some(substitutions) =
-            self.resolved_call_type_substitutions.get(&span).cloned()
-        {
-            ConstGenericInstantiation {
-                type_substitutions: substitutions,
-                const_substitutions: SymbolMap::default(),
-            }
-        } else {
-            self.instantiate_resolved_function_generics(
+        if !signature.is_const {
+            return Err(ConstError {
                 span,
-                function_id.module_id,
-                &signature,
-                type_args,
-                arg_exprs,
-                None,
-            )?
-        };
+                message: "const expression can only call `const fn`".to_string(),
+            });
+        }
+        let call_arg_exprs = resolved_callee
+            .receiver
+            .into_iter()
+            .chain(arg_exprs.iter().cloned())
+            .collect::<Vec<_>>();
+        let instantiation =
+            if let Some(instantiation) = self.resolved_call_instantiations.get(&span).cloned() {
+                instantiation
+            } else {
+                self.instantiate_resolved_function_generics(
+                    span,
+                    ConstFunctionInstantiationInput {
+                        signature_module_id: function_id.module_id,
+                        signature: &signature,
+                        type_args,
+                        arg_exprs: &call_arg_exprs,
+                        expected_return: None,
+                        initial: resolved_callee.target_instantiation,
+                    },
+                )?
+            };
         if let Some(value) =
-            self.try_call_builtin_function(span, &signature, type_args, arg_exprs, &args)?
+            self.try_call_builtin_function(span, &signature, type_args, &call_arg_exprs, &args)?
         {
             return Ok(value);
         }
@@ -440,7 +451,8 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let Some(function) = self.const_function_body(function_id) else {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "selected `const fn` body is unavailable during constant evaluation"
+                    .to_string(),
             });
         };
         let value = nia_const_eval::eval_resolved_const_function_call(
@@ -682,6 +694,27 @@ impl Analyzer<'_> {
                 };
                 self.resolve_resolved_field_offset_builtin(span, &type_args[0], &field)
                     .map(Some)
+            }
+            BuiltinFunction::CharFromU32 => {
+                if !type_args.is_empty() || args.len() != 1 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `charFromU32` expects exactly one value argument"
+                            .to_string(),
+                    });
+                }
+                let ConstValue::Int(value) = args[0] else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `charFromU32` requires a u32 value".to_string(),
+                    });
+                };
+                let scalar = u32::try_from(value.bits()).ok().and_then(char::from_u32);
+                Ok(Some(ConstValue::Optional(scalar.map(|value| {
+                    Box::new(ConstValue::Int(nia_ty::IntConst::unsigned(
+                        value as u32 as u128,
+                    )))
+                }))))
             }
             _ => Err(ConstError {
                 span,

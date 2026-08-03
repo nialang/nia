@@ -64,8 +64,8 @@ extend String {
                 !value => value,
                 error! => return TextError::InvalidUtf8(error)!,
             };
-            out.text.appendAssumeCapacity(decoded.char());
-            index += decoded.len();
+            out.text.appendAssumeCapacity(decoded.scalar());
+            index += decoded.byteLen();
         }
         complete = true;
         !out
@@ -90,8 +90,8 @@ extend String {
                 !value => value,
                 error! => return TextError::InvalidUtf8(error)!,
             };
-            self.text.appendAssumeCapacity(decoded.char());
-            index += decoded.len();
+            self.text.appendAssumeCapacity(decoded.scalar());
+            index += decoded.byteLen();
         }
         complete = true;
         !{}
@@ -369,7 +369,7 @@ fn utf8ScalarCount(bytes: &[u8]) TextError!usize {
             error! => return TextError::InvalidUtf8(error)!,
         };
         count += 1;
-        index += decoded.len();
+        index += decoded.byteLen();
     }
     !count
 }

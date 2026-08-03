@@ -1021,7 +1021,7 @@ fn reachable_function_has_runtime_body(
     program_signatures: ExecutableSignatureIndex<'_>,
 ) -> bool {
     (program_signatures.function)(def_id)
-        .map(|signature| !signature.signature.is_const && signature.signature.has_body)
+        .map(|signature| signature.signature.has_body)
         .or_else(|| {
             (program_signatures.trait_default_method)(def_id).map(|(_, trait_signature)| {
                 trait_signature

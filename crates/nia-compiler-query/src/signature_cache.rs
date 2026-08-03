@@ -2577,7 +2577,7 @@ fn read_primitive(cursor: &mut Cursor<&[u8]>) -> Option<PrimitiveTy> {
     })
 }
 
-const BUILTIN_TRAITS: [BuiltinTrait; 33] = [
+const BUILTIN_TRAITS: [BuiltinTrait; 32] = [
     BuiltinTrait::Add,
     BuiltinTrait::Sub,
     BuiltinTrait::Mul,
@@ -2606,7 +2606,6 @@ const BUILTIN_TRAITS: [BuiltinTrait; 33] = [
     BuiltinTrait::Len,
     BuiltinTrait::Start,
     BuiltinTrait::End,
-    BuiltinTrait::Char,
     BuiltinTrait::Iterable,
     BuiltinTrait::Iterator,
     BuiltinTrait::Simd,

@@ -855,6 +855,14 @@ pub enum ResolvedConstExprKind {
         lhs: Box<ResolvedConstExpr>,
         name: SymbolId,
     },
+    Method {
+        receiver: Box<ResolvedConstExpr>,
+        name: SymbolId,
+    },
+    AssociatedFunction {
+        target: ResolvedConstAssociatedTarget,
+        name: SymbolId,
+    },
     BuiltinMethod {
         method: BuiltinTraitMethod,
         lhs: Box<ResolvedConstExpr>,
@@ -1339,6 +1347,14 @@ pub enum EarlyConstExprKind {
         lhs: Box<EarlyConstExpr>,
         name: SymbolId,
     },
+    Method {
+        receiver: Box<EarlyConstExpr>,
+        name: SymbolId,
+    },
+    AssociatedFunction {
+        target: EarlyConstAssociatedTarget,
+        name: SymbolId,
+    },
     BuiltinMethod {
         method: BuiltinTraitMethod,
         lhs: Box<EarlyConstExpr>,
@@ -1525,6 +1541,24 @@ pub struct EarlyConstTypeArg {
     pub span: Span,
     pub ty_span: Span,
     pub ty: Option<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EarlyConstAssociatedTarget {
+    Type(EarlyConstTypeArg),
+    Nominal {
+        def_id: GlobalDefId,
+        args: Vec<EarlyConstTypeArg>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedConstAssociatedTarget {
+    Type(ResolvedConstTypeArg),
+    Nominal {
+        def_id: GlobalDefId,
+        args: Vec<ResolvedConstTypeArg>,
+    },
 }
 
 impl EarlyConstTypeArg {

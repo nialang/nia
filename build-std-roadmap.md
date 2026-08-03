@@ -2075,10 +2075,11 @@ close before Phase G freezes its broader text/path-facing artifact APIs.
 
 Standard-library reconstruction progress (2026-08-02, typed UTF-8 decode
 batch): the optional `utf8_decode_first` API is physically replaced by
-lower-camel `decodeUtf8First` returning `Utf8DecodeError!Utf8Decode`. Empty
-input, truncation, invalid leading bytes, invalid continuation bytes, overlong
-forms, and invalid Unicode scalar values are separate error values. Runtime
-conformance covers a successful non-ASCII scalar and every error category.
+lower-camel `decodeUtf8First` returning
+`Utf8DecodeError!DecodedUtf8Scalar`. Empty input, truncation, invalid leading
+bytes, invalid continuation bytes, overlong forms, and invalid Unicode scalar
+values are separate error values. Runtime conformance covers a successful
+non-ASCII scalar and every error category.
 
 `PathView::from_utf8_into` consumes the typed decoder and explicitly maps its
 six causes into the current coarse `fs::Error::Invalid` boundary. It now clears
@@ -2844,6 +2845,30 @@ All 153 body-check tests, focused cross-module visibility/reachability tests,
 primitive/custom-error and process-argument executable regressions, one
 production configured build, strict workspace Clippy, formatting, and the
 build-host dependency audit pass.
+
+Standard-library reconstruction progress (2026-08-03, Unicode scalar and
+dual-stage const batch): the builtin `Char` trait and `u32.Char` dispatch are
+physically removed. Checked construction is the lower-camel
+`unicode::fromScalarValue`, backed by `std::builtin::charFromU32`; validation is
+`unicode::isValidScalarValue`. Scalar inspection and encoding are inherent
+`char.codepoint()` and `char.encodeUtf8()` operations. Encoded and decoded
+records are named `Utf8Scalar` and `DecodedUtf8Scalar`, with `byteLen()`,
+`bytes()`, and `scalar()` accessors. No snake-case or builtin-trait aliases
+remain.
+
+This API exposed a language-level requirement rather than a std naming issue:
+Nia `const fn` is now formally const-capable, not const-eval-only. A const
+expression may call only `const fn`; the same function is also retained by
+runtime reachability and lowered through the ordinary backend when runtime code
+calls it. Free functions, receiver methods, associated functions, imported
+public functions, and generic extension targets follow that contract. The
+const evaluator consumes the shared semantic type-prefix and visible-extension
+facts, while ordinary runtime calls continue through body checking and
+codegen. Executable coverage uses the same definitions for an array length and
+runtime results, and also proves a private comptime-only helper does not need to
+become a backend root. This is the general staging model for future std APIs,
+not a Unicode-specific exception or a compatibility layer around a restricted
+evaluator.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

@@ -1882,7 +1882,7 @@ impl<'a> ModuleLowerer<'a> {
                     && !self
                         .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }
-        if function.is_const || function.is_extern {
+        if function.is_extern {
             return true;
         }
         if self.input.roots == BackendFunctionRoots::EntryPoints {

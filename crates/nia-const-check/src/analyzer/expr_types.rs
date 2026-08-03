@@ -307,26 +307,36 @@ impl Analyzer<'_> {
         args: &[ResolvedConstExpr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let function_id = self.resolved_const_function(callee)?;
+        let resolved_callee = self.resolved_const_callee(callee)?;
+        let function_id = resolved_callee.function_id;
         let signature = self
             .signatures_for_module(function_id.module_id)?
             .as_ref()
             .functions
             .get(&function_id.def_id)?
             .clone();
+        let call_args = resolved_callee
+            .receiver
+            .into_iter()
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>();
         let instantiation = self
             .instantiate_resolved_function_generics(
                 span,
-                function_id.module_id,
-                &signature,
-                type_args,
-                args,
-                expected,
+                ConstFunctionInstantiationInput {
+                    signature_module_id: function_id.module_id,
+                    signature: &signature,
+                    type_args,
+                    arg_exprs: &call_args,
+                    expected_return: expected,
+                    initial: resolved_callee.target_instantiation,
+                },
             )
             .ok()?;
-        self.resolved_call_type_substitutions
-            .insert(span, instantiation.type_substitutions.clone());
-        if let Some(return_ty) = self.builtin_function_call_return_type(&signature, args, expected)
+        self.resolved_call_instantiations
+            .insert(span, instantiation.clone());
+        if let Some(return_ty) =
+            self.builtin_function_call_return_type(&signature, &call_args, expected)
         {
             return Some(return_ty);
         }

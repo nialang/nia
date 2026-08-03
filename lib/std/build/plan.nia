@@ -85,7 +85,7 @@ extend PlanEncoder {
         let byteLen = utf8Length(value).?;
         self.writeU32(byteLen as u32).?;
         for &ch in value.iter() {
-            self.writeBytes(ch.encode_utf8().bytes()).?;
+            self.writeBytes(ch.encodeUtf8().bytes()).?;
         }
         !{}
     }
@@ -443,7 +443,7 @@ extend Build {
 fn utf8Length(text: &[char]) Error!usize {
     let mut len: usize = 0;
     for &ch in text.iter() {
-        let encodedLen = ch.encode_utf8().bytes().len();
+        let encodedLen = ch.encodeUtf8().byteLen();
         if encodedLen > maxStringBytes - len {
             return invalidPlan();
         }

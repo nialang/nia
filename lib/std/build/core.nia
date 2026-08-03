@@ -1870,7 +1870,7 @@ fn argMatchesText(arg: process::Arg, text: &[char]) bool {
     let bytes = arg.bytes();
     let mut byteIndex: usize = 0;
     for &ch in text.iter() {
-        let encoded = ch.encode_utf8();
+        let encoded = ch.encodeUtf8();
         let encodedBytes = encoded.bytes();
         for &encodedByte in encodedBytes.iter() {
             if byteIndex >= bytes.len() or bytes[byteIndex] != encodedByte {

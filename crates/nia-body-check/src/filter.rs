@@ -77,7 +77,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
 
     pub(super) fn add_function(&mut self, def_id: GlobalDefId) -> bool {
         match self {
-            Self::All => false,
+            Self::All => true,
             Self::ReachableItems {
                 functions,
                 already_checked_functions,
@@ -100,7 +100,10 @@ impl<'a> ActiveBodyCheckFilter<'a> {
         available: &HashMap<GlobalDefId, FunctionItemRef<'_>>,
     ) -> Vec<GlobalDefId> {
         match self {
-            Self::All => available.keys().copied().collect(),
+            Self::All => available
+                .iter()
+                .filter_map(|(def_id, item)| (!item.function.is_const).then_some(*def_id))
+                .collect(),
             Self::ReachableItems {
                 functions,
                 already_checked_functions,

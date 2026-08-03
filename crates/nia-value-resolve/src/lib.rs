@@ -906,10 +906,12 @@ impl<'a> ValueResolver<'a> {
             return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(def_id) = self.defs.module_scope.types.get(&name) {
-            return Some(ResolvedNamespace::Type(GlobalDefId {
+            let type_id = GlobalDefId {
                 module_id: self.defs.module_id,
                 def_id,
-            }));
+            };
+            self.insert_qualified_type_prefix(segment.node_key, type_id);
+            return Some(ResolvedNamespace::Type(type_id));
         }
         if let Some(scope) = self.using_scope
             && let Some(entry) = scope.using_type(&name)
@@ -1235,6 +1237,15 @@ impl<'a> ValueResolver<'a> {
             });
         }
 
+        if let Some(def_id) = self.defs.module_scope.types.get(name) {
+            self.insert_qualified_type_prefix(
+                node_key,
+                GlobalDefId {
+                    module_id: self.defs.module_id,
+                    def_id,
+                },
+            );
+        }
         if let Some(scope) = self.using_scope
             && let Some(entry) = scope.using_type(name)
             && entry.namespace == PublicNamespace::Type

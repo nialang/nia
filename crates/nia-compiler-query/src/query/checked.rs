@@ -116,9 +116,7 @@ fn index_executable_value_ref_item(
         );
     };
     match &item.kind {
-        nia_item_tree::ItemTreeNodeKind::Function(function)
-            if !function.is_const && function.body.is_some() =>
-        {
+        nia_item_tree::ItemTreeNodeKind::Function(function) if function.body.is_some() => {
             insert(&function.node_key);
         }
         nia_item_tree::ItemTreeNodeKind::Binding(binding)
@@ -128,14 +126,14 @@ fn index_executable_value_ref_item(
         }
         nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
             for method in &item_trait.methods {
-                if !method.function.is_const && method.function.body.is_some() {
+                if method.function.body.is_some() {
                     insert(&method.function.node_key);
                 }
             }
         }
         nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
             for method in &extend.methods {
-                if !method.function.is_const && method.function.body.is_some() {
+                if method.function.body.is_some() {
                     insert(&method.function.node_key);
                 }
             }

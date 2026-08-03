@@ -521,10 +521,6 @@ impl<'a> BodyChecker<'a> {
         if matches!(trait_id, BuiltinTrait::Len) {
             return self.primitive(PrimitiveTy::Usize);
         }
-        if matches!(trait_id, BuiltinTrait::Char) {
-            let elem = self.primitive(PrimitiveTy::Char);
-            return self.interner.intern(TyKind::Optional { elem });
-        }
         if matches!(trait_id, BuiltinTrait::Iterable) {
             let iter = self.interner.intern(TyKind::Projection {
                 self_ty,
@@ -605,7 +601,6 @@ fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod>
         BuiltinTraitMethod::Len => Some(BuiltinMethod::Len),
         BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
         BuiltinTraitMethod::End => Some(BuiltinMethod::End),
-        BuiltinTraitMethod::Char => Some(BuiltinMethod::Char),
         BuiltinTraitMethod::IterableIter => Some(BuiltinMethod::Iter),
         _ => None,
     }

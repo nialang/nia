@@ -306,7 +306,6 @@ pub enum BuiltinTrait {
     Len,
     Start,
     End,
-    Char,
     Iterable,
     Iterator,
     Simd,
@@ -355,10 +354,11 @@ pub enum BuiltinFunction {
     CmpxchgWeak,
     Fence,
     Embed,
+    CharFromU32,
 }
 
 impl BuiltinFunction {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::ConstError,
         Self::Trap,
         Self::SizeOf,
@@ -383,6 +383,7 @@ impl BuiltinFunction {
         Self::CmpxchgWeak,
         Self::Fence,
         Self::Embed,
+        Self::CharFromU32,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -411,6 +412,7 @@ impl BuiltinFunction {
             "cmpxchg_weak" => Some(Self::CmpxchgWeak),
             "fence" => Some(Self::Fence),
             "embed" => Some(Self::Embed),
+            "charFromU32" => Some(Self::CharFromU32),
             _ => None,
         }
     }
@@ -441,6 +443,7 @@ impl BuiltinFunction {
             Self::CmpxchgWeak => "cmpxchg_weak",
             Self::Fence => "fence",
             Self::Embed => "embed",
+            Self::CharFromU32 => "charFromU32",
         }
     }
 }
@@ -564,7 +567,6 @@ pub enum BuiltinTraitMethod {
     Len,
     Start,
     End,
-    Char,
     IterableIter,
     IteratorNext,
 }
@@ -831,15 +833,6 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
-            Self::Char,
-            BuiltinTraitMethodDescriptor::method(
-                "char",
-                BuiltinTrait::Char,
-                1,
-                ReceiverKind::Value,
-            ),
-        ),
-        (
             Self::IterableIter,
             BuiltinTraitMethodDescriptor::method(
                 "iter",
@@ -995,7 +988,6 @@ impl BuiltinTrait {
     const LEN_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Len];
     const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
     const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
-    const CHAR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Char];
     const ITERABLE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IterableIter];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
@@ -1029,7 +1021,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 32] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -1058,7 +1050,6 @@ impl BuiltinTrait {
         Self::Len,
         Self::Start,
         Self::End,
-        Self::Char,
         Self::Iterable,
         Self::Iterator,
         Self::Simd,
@@ -1288,14 +1279,6 @@ impl BuiltinTrait {
             0,
             &Self::OUTPUT_ASSOC_TYPES,
             &Self::END_METHODS,
-            &Self::NO_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::Char,
-            "Char",
-            0,
-            &Self::NO_ASSOC_TYPES,
-            &Self::CHAR_METHODS,
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(

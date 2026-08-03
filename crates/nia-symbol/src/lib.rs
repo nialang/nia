@@ -158,7 +158,6 @@ pub mod known {
     known_symbol!(LEN_TRAIT, "Len");
     known_symbol!(START_TRAIT, "Start");
     known_symbol!(END_TRAIT, "End");
-    known_symbol!(CHAR_TRAIT, "Char");
     known_symbol!(ITERABLE_TRAIT, "Iterable");
     known_symbol!(ITERATOR_TRAIT, "Iterator");
     known_symbol!(SIMD_TRAIT, "Simd");
@@ -230,6 +229,7 @@ pub mod known {
     known_symbol!(CMPXCHG_WEAK, "cmpxchg_weak");
     known_symbol!(FENCE, "fence");
     known_symbol!(EMBED, "embed");
+    known_symbol!(CHAR_FROM_U32, "charFromU32");
 
     known_symbol!(ASM_CONFIG, "AsmConfig");
     known_symbol!(I8, "i8");
@@ -318,7 +318,6 @@ pub mod known {
         (LEN_TRAIT, "Len"),
         (START_TRAIT, "Start"),
         (END_TRAIT, "End"),
-        (CHAR_TRAIT, "Char"),
         (ITERABLE_TRAIT, "Iterable"),
         (ITERATOR_TRAIT, "Iterator"),
         (SIMD_TRAIT, "Simd"),
@@ -388,6 +387,7 @@ pub mod known {
         (CMPXCHG_WEAK, "cmpxchg_weak"),
         (FENCE, "fence"),
         (EMBED, "embed"),
+        (CHAR_FROM_U32, "charFromU32"),
         (ASM_CONFIG, "AsmConfig"),
         (I8, "i8"),
         (I16, "i16"),
@@ -488,6 +488,7 @@ impl ToSymbolId for nia_ids::BuiltinFunction {
             Self::CmpxchgWeak => known::CMPXCHG_WEAK,
             Self::Fence => known::FENCE,
             Self::Embed => known::EMBED,
+            Self::CharFromU32 => known::CHAR_FROM_U32,
         }
     }
 }
@@ -525,7 +526,6 @@ impl ToSymbolId for nia_ids::BuiltinTraitMethod {
             Self::Len => known::LEN,
             Self::Start => known::START,
             Self::End => known::END,
-            Self::Char => known::CHAR,
             Self::IterableIter => known::ITER_METHOD,
             Self::IteratorNext => known::NEXT,
         }
@@ -563,7 +563,6 @@ impl ToSymbolId for nia_ids::BuiltinTrait {
             Self::Len => known::LEN_TRAIT,
             Self::Start => known::START_TRAIT,
             Self::End => known::END_TRAIT,
-            Self::Char => known::CHAR_TRAIT,
             Self::Iterable => known::ITERABLE_TRAIT,
             Self::Iterator => known::ITERATOR_TRAIT,
             Self::Simd => known::SIMD_TRAIT,

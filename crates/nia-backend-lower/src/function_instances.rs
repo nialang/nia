@@ -453,9 +453,6 @@ impl<'a> ModuleLowerer<'a> {
         include_body: bool,
     ) -> Option<BackendFunction> {
         let signature = self.input.program.functions().get(&def_id)?;
-        if signature.signature.is_const {
-            return None;
-        }
         if include_body && !signature.signature.is_extern && !signature.signature.has_body {
             return None;
         }

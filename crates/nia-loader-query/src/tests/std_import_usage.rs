@@ -45,7 +45,7 @@ fn query_loader_keeps_unused_explicit_std_imports_shallow() {
     write(
         &main_path,
         r#"
-using std::collections;
+using std::build;
 using std::fs;
 using std::io;
 using std::mem;
@@ -70,7 +70,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(
         warnings
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("collections")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("build")),
         "{warnings:?}"
     );
     assert!(
@@ -79,19 +79,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
             .all(|diagnostic| !diagnostic.diagnostic.summary.contains("process")),
         "{warnings:?}"
     );
-    let collections = module_by_suffix(&program, "lib/std/collections.nia");
+    let build = module_by_suffix(&program, "lib/std/build.nia");
     let fs = module_by_suffix(&program, "lib/std/fs.nia");
     let io = module_by_suffix(&program, "lib/std/io.nia");
     let mem = module_by_suffix(&program, "lib/std/mem.nia");
     let process = module_by_suffix(&program, "lib/std/process.nia");
-    assert!(!collections.process_used_paths, "{collections:?}");
+    assert!(!build.process_used_paths, "{build:?}");
     assert!(!fs.process_used_paths, "{fs:?}");
     assert!(!io.process_used_paths, "{io:?}");
     assert!(!mem.process_used_paths, "{mem:?}");
     assert!(!process.process_used_paths, "{process:?}");
     assert_module_loaded(&program, "lib/std/process/types.nia");
-    assert_module_not_loaded(&program, "lib/std/collections/hash_map.nia");
-    assert_module_not_loaded(&program, "lib/std/collections/array_list.nia");
+    assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/fs/file.nia");
     assert_module_not_loaded(&program, "lib/std/io/file_adapter.nia");
     assert_module_not_loaded(&program, "lib/std/mem/general_purpose_allocator.nia");

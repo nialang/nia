@@ -19,6 +19,7 @@ pub struct SemanticUseTable {
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
     pub node_local_defs: NodeMap<LocalId>,
     pub node_type_uses: NodeMap<InternedTyId>,
+    pub node_type_prefixes: NodeMap<GlobalDefId>,
 }
 
 impl Default for SemanticUseTable {
@@ -73,6 +74,10 @@ impl SemanticUseTable {
     pub fn node_type_use(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
         self.node_type_uses.get(key).copied()
     }
+
+    pub fn node_type_prefix(&self, key: &VersionedNodeKey) -> Option<GlobalDefId> {
+        self.node_type_prefixes.get(key).copied()
+    }
 }
 
 #[derive(Debug)]
@@ -83,6 +88,7 @@ pub struct SemanticUseTableBuilder {
     node_associated_const_projections: NodeMapBuilder<AssociatedConstProjection>,
     node_local_defs: NodeMapBuilder<LocalId>,
     node_type_uses: NodeMapBuilder<InternedTyId>,
+    node_type_prefixes: NodeMapBuilder<GlobalDefId>,
 }
 
 impl SemanticUseTableBuilder {
@@ -98,6 +104,7 @@ impl SemanticUseTableBuilder {
             node_associated_const_projections: NodeMap::builder(store),
             node_local_defs: NodeMap::builder(store),
             node_type_uses: NodeMap::builder(store),
+            node_type_prefixes: NodeMap::builder(store),
         }
     }
 
@@ -184,6 +191,17 @@ impl SemanticUseTableBuilder {
         self.node_type_uses.extend(type_uses);
     }
 
+    pub fn insert_node_type_prefix(&mut self, key: VersionedNodeKey, def_id: GlobalDefId) {
+        self.node_type_prefixes.insert(key, def_id);
+    }
+
+    pub fn extend_node_type_prefixes(
+        &mut self,
+        prefixes: impl IntoIterator<Item = (VersionedNodeKey, GlobalDefId)>,
+    ) {
+        self.node_type_prefixes.extend(prefixes);
+    }
+
     pub fn finish(self) -> SemanticUseTable {
         SemanticUseTable {
             node_value_uses: self.node_value_uses.finish(),
@@ -192,6 +210,7 @@ impl SemanticUseTableBuilder {
             node_associated_const_projections: self.node_associated_const_projections.finish(),
             node_local_defs: self.node_local_defs.finish(),
             node_type_uses: self.node_type_uses.finish(),
+            node_type_prefixes: self.node_type_prefixes.finish(),
         }
     }
 }
@@ -935,7 +954,6 @@ pub enum BuiltinMethod {
     Len,
     Start,
     End,
-    Char,
     Iter,
 }
 
@@ -1036,7 +1054,6 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::Len
             | BuiltinTraitMethod::Start
             | BuiltinTraitMethod::End
-            | BuiltinTraitMethod::Char
             | BuiltinTraitMethod::IterableIter
             | BuiltinTraitMethod::IteratorNext => None,
         }

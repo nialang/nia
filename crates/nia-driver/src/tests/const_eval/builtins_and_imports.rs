@@ -399,3 +399,33 @@ fn main() i32 {
         program.diagnostics
     );
 }
+
+#[test]
+fn unicode_scalar_conversion_evaluates_at_const() {
+    let root = temp_dir("unicode_scalar_conversion_evaluates_at_const");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::unicode;
+
+const scalar: ?char = unicode::fromScalarValue(0x03bb);
+const surrogate: ?char = unicode::fromScalarValue(0xd800);
+const width: usize = switch scalar {
+    ?value => if (value as u32) == 0x03bb { 3 } else { 1 },
+    null => 1,
+};
+const invalidWidth: usize = switch surrogate {
+    ?value => if (value as u32) == 0xd800 { 1 } else { 1 },
+    null => 2,
+};
+
+fn main() i32 {
+    let values: [width + invalidWidth]u8 = [0; width + invalidWidth];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

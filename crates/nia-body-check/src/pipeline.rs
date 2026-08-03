@@ -79,7 +79,7 @@ impl<'a> BodyChecker<'a> {
         module_id: ModuleId,
     ) {
         let function_items = self.function_items_by_id(active_item_tree);
-        let functions = self.body_filter.initial_functions(&function_items);
+        let functions = self.checked_functions.iter().copied().collect::<Vec<_>>();
         for def_id in functions {
             self.lower_checked_function_by_id(def_id, &function_items, timing, module_id);
         }
@@ -182,9 +182,6 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = self.function_signature_for_body(def_id, global_def_id) else {
             return;
         };
-        if signature.is_const {
-            return;
-        }
         let Some(body) = &function.body else {
             return;
         };
@@ -508,12 +505,14 @@ impl<'a> BodyChecker<'a> {
         value: &Expr,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let const_expr = self.lower_const_expr(value).ok()?;
-        let ty = self.const_expr_type_for_ir_with_expected(&const_expr, expected)?;
-        match ty {
-            nia_const_check::ConstValueType::Runtime(ty) => Some(ty),
-            _ => None,
-        }
+        self.with_const_context(|this| {
+            let const_expr = this.lower_const_expr(value).ok()?;
+            let ty = this.const_expr_type_for_ir_with_expected(&const_expr, expected)?;
+            match ty {
+                nia_const_check::ConstValueType::Runtime(ty) => Some(ty),
+                _ => None,
+            }
+        })
     }
 
     pub(super) fn check_global_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
@@ -722,13 +721,6 @@ impl<'a> BodyChecker<'a> {
                 });
             },
         );
-        if signature.is_const {
-            self.current_return = previous_return;
-            self.current_def_id = previous_def_id;
-            self.current_param_locals = previous_param_locals;
-            self.local_types = previous_local_types;
-            return;
-        }
         if let Some(body) = &function.body {
             let expected_tail =
                 (!self.is_void(signature.return_type)).then_some(signature.return_type);
