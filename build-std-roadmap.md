@@ -2550,6 +2550,28 @@ camel, with `succeeded`, `exitCode`, `signalCode`, `takeStdin`, `tryWait`, and
 `killWith`. Typed spawn/wait error payloads, custom environment ownership, and
 the lower-level public `std::os` naming/ownership audit remain open.
 
+Standard-library reconstruction progress (2026-08-03, typed process error
+batch): the former flat open-integer `process::Error` is physically replaced by
+a closed payload enum. Command lowering preserves `mem::Error` and
+`fs::PathError`; embedded NUL reports the zero-based `withArguments` element;
+native spawn preserves the exact open `os::SpawnError`. Child wait, try-wait,
+and kill failures retain their `os::Error`, while pipe close failures retain
+both `StdStream` identity and the OS cause. The former flat `OutOfMemory`,
+`Invalid`, `SpawnStdio`, `SpawnCwd`, `SpawnExec`, operation-only child errors,
+and catch-all `System` values have no aliases; `SpawnSetup` now requires its OS
+cause rather than naming an integer category.
+
+`process::Error.asExitCode` now derives its result from the retained payload;
+path-too-long and spawn-stage values therefore remain distinguishable from
+ordinary invalid input and I/O. `std::build.ErrorCause::Process` uses the same
+mapping and formats nested operation/cause paths such as
+`process/spawn/executable`, `process/kill/invalid`, and
+`process/close/stdout/bad file descriptor`. Runtime conformance exercises path
+encoding, a nonzero argument index, allocation failure, exact exec/cwd stages,
+the `if error is pattern` spelling, and an exact invalid-signal kill cause.
+Custom environment ownership and the lower-level public `std::os`
+naming/ownership audit remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

@@ -1,6 +1,7 @@
 using pkg::cstring;
 using pkg::fs;
 using pkg::io;
+using pkg::mem;
 using pkg::os;
 
 pub enum ExitCode: i32 {
@@ -21,21 +22,22 @@ pub enum StdIo: i32 {
     Pipe = 3,
 }
 
-pub enum Error: i32 {
-    OutOfMemory = 12,
-    Invalid = 22,
-    SpawnSetup = 101,
-    SpawnStdio = 102,
-    SpawnCwd = 103,
-    SpawnExec = 104,
-    Wait = 120,
-    TryWait = 121,
-    Kill = 122,
-    CloseStdin = 130,
-    CloseStdout = 131,
-    CloseStderr = 132,
-    System = 255,
-    _,
+pub enum StdStream {
+    Stdin,
+    Stdout,
+    Stderr,
+}
+
+pub enum Error {
+    Allocation(mem::Error),
+    Path(fs::PathError),
+    ArgumentContainsNul(usize),
+    SpawnSetup(os::Error),
+    Spawn(os::SpawnError),
+    Wait(os::Error),
+    TryWait(os::Error),
+    Kill(os::Error),
+    Close { stream: StdStream, cause: os::Error },
 }
 
 pub enum Signal: i32 {

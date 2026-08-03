@@ -31,6 +31,7 @@ pub using types::{
     Init,
     Signal,
     StdIo,
+    StdStream,
     Term,
     TermKind,
 };

@@ -344,7 +344,7 @@ LLVM before deleting its builtin declaration.
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
-| process argument/environment | `Arg` / `EnvVar` byte views; borrowed scalar `Command` inputs with transient C buffers | `Command` typed lowering; raw host views and explicit `spawnRaw` | `process::Error`, formatting parse errors | typed command path/arguments and borrowed view names accepted; spawn/wait error payloads remain open |
+| process argument/environment | `Arg` / `EnvVar` byte views; borrowed scalar `Command` inputs with transient C buffers | `Command` typed lowering; raw host views and explicit `spawnRaw` | closed `process::Error` payloads preserve `mem::Error`, `PathError`, argument index, `SpawnError`, operation-specific `os::Error`, and close-stream identity | typed command, borrowed views, and process error flow accepted; custom environment ownership and lower-level OS audit remain open |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
 the sum of each scalar's encoded `Utf8::len()` and is not interchangeable with
@@ -441,9 +441,11 @@ arguments are UTF-8 encoded into allocator-owned contiguous storage; offsets are
 collected while the buffer may grow, and raw pointers are created only after
 encoding is complete. Both the build argument list and the process-level
 `argv`/null terminator list are allocator-backed and use conditional cleanup.
-Allocation failure is `OutOfMemory` through the process/build error path, while
-embedded NUL remains an invalid target input. The OS path byte limit remains a
-separate explicit filesystem boundary, not an argv capacity limit.
+Allocation failure remains `mem::Error::OutOfMemory` inside
+`process::Error::Allocation` and then the build error path, while embedded NUL
+retains its command-argument index in `process::Error::ArgumentContainsNul`.
+The OS path byte limit remains a separate `PathError` payload, not an argv
+capacity limit.
 
 External build tools use typed arguments rather than interpolated host paths.
 `CommandArgument::literal` carries opaque text, `packageInput` and `buildInput`

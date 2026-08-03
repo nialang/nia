@@ -161,10 +161,23 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   scalars before invoking the OS. `spawnWithAllocator` and `runWithAllocator`
   provide the same lowering with caller-controlled temporary allocation.
   `spawnRaw` is the explicit low-level pointer-array boundary.
+- `process::Error` is a closed payload enum. `Allocation(mem::Error)` and
+  `Path(fs::PathError)` preserve lowering failures;
+  `ArgumentContainsNul(index)` identifies the zero-based element of the
+  `withArguments` slice; `SpawnSetup(os::Error)` and
+  `Spawn(os::SpawnError)` preserve command configuration and native spawn
+  failures. `Wait`, `TryWait`, and `Kill` retain their `os::Error`, while
+  `Close { stream, cause }` retains both a `StdStream` identity and the close
+  error. The executable inserted as argv[0] is not counted as an argument
+  index. There are no flat compatibility variants for these errors.
 - `Child` transfers pipe handles with `takeStdin`, `takeStdout`, and
   `takeStderr`; it provides `wait`, `tryWait`, `kill`, and `killWith`. `Term`
   classifies results through `kind`, `code`, `succeeded`, `exitCode`, and
   `signalCode`. Raw OS wait-status conversion is not a public process API.
+- `process::Error.asExitCode()` derives the exit value from the retained cause:
+  allocation, path, spawn, and OS errors keep their standard numeric category;
+  an argument NUL maps to invalid input. Build errors retain and format the same
+  nested process cause instead of replacing it with a generic process failure.
 - `std::process` also extends `std::fs.Error` and `std::mem.Error` with
   `asExitCode` and `exit` for explicitly returning standard library errors as
   process exit codes from executable entries. It also extends `std::fs.Error!T`

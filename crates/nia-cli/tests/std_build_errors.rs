@@ -101,3 +101,73 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn build_process_errors_preserve_exit_codes_and_diagnostics() {
+    let root = temp_dir("build_process_errors_preserve_exit_codes_and_diagnostics");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::build;
+using std::io;
+using std::os;
+using std::process;
+
+fn buildError(cause: process::Error) build::Error {
+    build::Error::Failure {
+        operation: build::ErrorOperation::ExecuteCommand,
+        subject: build::ErrorSubject::Compiler,
+        cause: build::ErrorCause::Process(cause),
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let spawn = buildError(process::Error::Spawn(os::SpawnError::Exec));
+    if (spawn.asExitCode() as i32) != 104 {
+        return process::exit(1)!;
+    }
+    let close = buildError(process::Error::Close {
+        stream: process::StdStream::Stdout,
+        cause: os::Error::BadFd,
+    });
+    if (close.asExitCode() as i32) != 9 {
+        return process::exit(2)!;
+    }
+
+    let mut buffer: [256]u8 = [_]u8[0; 256];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    stdout.print(&"{}\n{}\n", &[&spawn, &close]).exit().?;
+    stdout.flush().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write process build error source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile process build error fixture");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output =
+        Command::new(&exe).output_timeout_without_resources("run process build error fixture");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        concat!(
+            "execute command compiler: process/spawn/executable\n",
+            "execute command compiler: process/close/stdout/bad file descriptor\n",
+        )
+    );
+    assert!(output.stderr.is_empty());
+}
