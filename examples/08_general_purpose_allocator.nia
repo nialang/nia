@@ -31,8 +31,8 @@ fn run(init: Init) mem::Error!void {
         total += value;
     }
 
-    let mut used = gpa.query_used();
-    let mut capacity = gpa.query_capacity();
+    let mut used = gpa.used();
+    let mut capacity = gpa.capacity();
 
     debug::print(&"values={} total={} heap_used={} heap_capacity={}\n", &[
         &values,

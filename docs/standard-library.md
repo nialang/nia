@@ -394,6 +394,24 @@ falsely appear to test rollback. Cleanup tests therefore inject only at the
 owned release boundary and assert the complete contextual error as well as
 zero live allocations.
 
+The reviewed memory surface uses lower-camel names throughout its public Nia
+contract: `allocBytes`, `allocSlice`, `freeSlice`, `isEmpty`, `asSlice`, and
+`deinitWithoutLeakCheck`. Arena and general-purpose allocator observations are
+the ordinary `capacity()` and `used()` methods rather than query-prefixed
+duplicates. `ArenaAllocator::reset()` invalidates all arena-backed values while
+retaining capacity for reuse; `deinit()` is the release boundary. The former
+limit-reset variants are removed until a real workload establishes a useful
+retention policy. Fixed-buffer block ownership and last-allocation probes are
+implementation mechanics, not public allocator capabilities.
+
+Memory implementations follow the same inference rule as user code. Places,
+parameters, and range endpoints provide contextual numeric types without
+literal suffixes; accumulator declarations state `usize` once where no
+declaration-point context exists, and slot scans use direct `for` ranges. This
+accepts the low-level memory vocabulary and arena reset semantics. It does not
+close the common allocator protocol: repeated allocator arguments across owned
+collections and text remain active API exploration.
+
 Borrowed views receive no inferred lifetime from Nia. A function-local string
 literal is an array value in that frame; returning `&[char]` obtained from it
 creates a dangling view after return even when the source text looks constant.

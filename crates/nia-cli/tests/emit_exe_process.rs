@@ -1756,7 +1756,7 @@ extend FailFreeAllocator : mem::Allocator {
 
     fn free(&mut self, block: mem::Block) mem::Error!void {
         self.backing.free(block).?;
-        if self.failNextFree and not block.is_empty() {
+        if self.failNextFree and not block.isEmpty() {
             self.failNextFree = false;
             return mem::Error::Invalid!;
         }

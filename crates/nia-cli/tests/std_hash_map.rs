@@ -404,7 +404,7 @@ extend UnitContext : std::collections::HashMapContext[Unit] {
 
 extend FailAllocator : mem::Allocator {
     fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
-        if not layout.is_empty() {
+        if not layout.isEmpty() {
             self.allocCount += 1;
             if self.failAllocAt == self.allocCount {
                 return mem::Error::OutOfMemory!;
@@ -414,7 +414,7 @@ extend FailAllocator : mem::Allocator {
     }
 
     fn free(&mut self, block: mem::Block) mem::Error!void {
-        if not block.is_empty() {
+        if not block.isEmpty() {
             self.freeCount += 1;
             if self.failFreeAt == self.freeCount {
                 return mem::Error::Invalid!;
@@ -1640,7 +1640,7 @@ extend FailAllocator {
 
 extend FailAllocator : mem::Allocator {
     fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
-        if not layout.is_empty() {
+        if not layout.isEmpty() {
             self.allocCount += 1;
             if self.failAllocAt == self.allocCount {
                 return mem::Error::OutOfMemory!;

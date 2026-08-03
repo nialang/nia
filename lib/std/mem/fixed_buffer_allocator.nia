@@ -7,20 +7,20 @@ using types::{Block, Error, Layout};
 
 pub struct FixedBufferAllocator {
     buffer: &mut [u8],
-    end_index: usize,
+    endIndex: usize,
 }
 
 extend FixedBufferAllocator {
     pub fn init(buffer: &mut [u8]) FixedBufferAllocator {
-        { buffer: buffer, end_index: 0 }
+        { buffer: buffer, endIndex: 0 }
     }
 
     pub fn reset(&mut self) void {
-        self.end_index = 0;
+        self.endIndex = 0;
     }
 
     pub fn used(&self) usize {
-        self.end_index
+        self.endIndex
     }
 
     pub fn capacity(&self) usize {
@@ -31,8 +31,8 @@ extend FixedBufferAllocator {
         self.capacity() - self.used()
     }
 
-    pub fn owns_block(&self, block: Block) bool {
-        if block.is_empty() {
+    fn ownsBlock(&self, block: Block) bool {
+        if block.isEmpty() {
             return true;
         }
         let base = self.buffer.ptr() as usize;
@@ -59,12 +59,12 @@ extend FixedBufferAllocator {
         end <= limit
     }
 
-    pub fn is_last_allocation(&self, block: Block) bool {
-        if block.is_empty() {
+    fn isLastAllocation(&self, block: Block) bool {
+        if block.isEmpty() {
             return false;
         }
         let base = self.buffer.ptr() as usize;
-        let cursor = switch base.checked_add(self.end_index) {
+        let cursor = switch base.checked_add(self.endIndex) {
             ?value => {
                 value
             },
@@ -72,7 +72,7 @@ extend FixedBufferAllocator {
                 return false;
             },
         };
-        let block_end = switch (block.ptr() as usize).checked_add(block.size()) {
+        let blockEnd = switch (block.ptr() as usize).checked_add(block.size()) {
             ?value => {
                 value
             },
@@ -80,18 +80,18 @@ extend FixedBufferAllocator {
                 return false;
             },
         };
-        block_end == cursor
+        blockEnd == cursor
     }
 }
 
 extend FixedBufferAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
-        if layout.is_empty() {
+        if layout.isEmpty() {
             return !Block::empty(layout);
         }
 
         let base = self.buffer.ptr_mut() as usize;
-        let current = switch base.checked_add(self.end_index) {
+        let current = switch base.checked_add(self.endIndex) {
             ?value => {
                 value
             },
@@ -108,7 +108,7 @@ extend FixedBufferAllocator : Allocator {
             },
         };
         let offset = aligned - base;
-        let new_end = switch offset.checked_add(layout.size()) {
+        let newEnd = switch offset.checked_add(layout.size()) {
             ?value => {
                 value
             },
@@ -116,34 +116,34 @@ extend FixedBufferAllocator : Allocator {
                 return Error::OutOfMemory!;
             },
         };
-        if new_end > self.buffer.len() {
+        if newEnd > self.buffer.len() {
             return Error::OutOfMemory!;
         }
 
-        self.end_index = new_end;
+        self.endIndex = newEnd;
         !Block::init(aligned as &mut u8, layout)
     }
 
-    pub fn resize(&mut self, block: Block, new_layout: Layout) bool {
-        if block.align() != new_layout.align() {
+    pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
+        if block.align() != newLayout.align() {
             return false;
         }
-        if block.is_empty() {
-            return new_layout.is_empty();
+        if block.isEmpty() {
+            return newLayout.isEmpty();
         }
-        if not self.owns_block(block) {
+        if not self.ownsBlock(block) {
             return false;
         }
-        if not self.is_last_allocation(block) {
-            return new_layout.size() <= block.size();
+        if not self.isLastAllocation(block) {
+            return newLayout.size() <= block.size();
         }
-        if new_layout.size() <= block.size() {
-            self.end_index -= block.size() - new_layout.size();
+        if newLayout.size() <= block.size() {
+            self.endIndex -= block.size() - newLayout.size();
             return true;
         }
 
-        let add = new_layout.size() - block.size();
-        let new_end = switch self.end_index.checked_add(add) {
+        let add = newLayout.size() - block.size();
+        let newEnd = switch self.endIndex.checked_add(add) {
             ?value => {
                 value
             },
@@ -151,32 +151,32 @@ extend FixedBufferAllocator : Allocator {
                 return false;
             },
         };
-        if new_end > self.buffer.len() {
+        if newEnd > self.buffer.len() {
             return false;
         }
-        self.end_index = new_end;
+        self.endIndex = newEnd;
         true
     }
 
-    pub fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
-        if self.resize(block, new_layout) {
-            ?Block::init(block.ptr(), new_layout)
-        } else if block.is_empty() and new_layout.is_empty() {
-            ?Block::empty(new_layout)
+    pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+        if self.resize(block, newLayout) {
+            ?Block::init(block.ptr(), newLayout)
+        } else if block.isEmpty() and newLayout.isEmpty() {
+            ?Block::empty(newLayout)
         } else {
             null
         }
     }
 
     pub fn free(&mut self, block: Block) Error!void {
-        if block.is_empty() {
+        if block.isEmpty() {
             return !{};
         }
-        if not self.owns_block(block) {
+        if not self.ownsBlock(block) {
             return Error::Invalid!;
         }
-        if self.is_last_allocation(block) {
-            self.end_index -= block.size();
+        if self.isLastAllocation(block) {
+            self.endIndex -= block.size();
         }
         !{}
     }

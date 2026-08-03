@@ -17,49 +17,49 @@ extend PageAllocator {
 extend PageAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) types::Error!Block {
         _ = self;
-        if layout.is_empty() {
+        if layout.isEmpty() {
             !Block::empty(layout)
         } else {
-            let ptr = os::mapPages(layout.size(), layout.align()).as_page_allocator_error().?;
+            let ptr = os::mapPages(layout.size(), layout.align()).asPageAllocatorError().?;
             !Block::init(ptr, layout)
         }
     }
 
-    pub fn resize(&mut self, block: Block, new_layout: Layout) bool {
+    pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
         _ = self;
-        if block.align() != new_layout.align() {
+        if block.align() != newLayout.align() {
             return false;
         }
-        if block.is_empty() or new_layout.is_empty() {
-            return block.is_empty() and new_layout.is_empty();
+        if block.isEmpty() or newLayout.isEmpty() {
+            return block.isEmpty() and newLayout.isEmpty();
         }
 
-        let mut old_size: usize;
+        let mut oldSize: usize;
         switch os::pageAlignedLen(block.size()) {
             !size => {
-                old_size = size;
+                oldSize = size;
             },
             err! => {
                 return false;
             },
         }
-        let mut new_size: usize;
-        switch os::pageAlignedLen(new_layout.size()) {
+        let mut newSize: usize;
+        switch os::pageAlignedLen(newLayout.size()) {
             !size => {
-                new_size = size;
+                newSize = size;
             },
             err! => {
                 return false;
             },
         }
-        old_size == new_size
+        oldSize == newSize
     }
 
-    pub fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
-        if self.resize(block, new_layout) {
-            ?Block::init(block.ptr(), new_layout)
-        } else if block.is_empty() and new_layout.is_empty() {
-            ?Block::empty(new_layout)
+    pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+        if self.resize(block, newLayout) {
+            ?Block::init(block.ptr(), newLayout)
+        } else if block.isEmpty() and newLayout.isEmpty() {
+            ?Block::empty(newLayout)
         } else {
             null
         }
@@ -67,10 +67,10 @@ extend PageAllocator : Allocator {
 
     pub fn free(&mut self, block: Block) types::Error!void {
         _ = self;
-        if block.layout().is_empty() {
+        if block.layout().isEmpty() {
             !{}
         } else {
-            os::unmapPages(block.ptr(), block.size()).as_page_allocator_error()
+            os::unmapPages(block.ptr(), block.size()).asPageAllocatorError()
         }
     }
 }
@@ -86,13 +86,13 @@ extend os::Error : error::IntoError[types::Error] {
 }
 
 extend os::Error {
-    fn as_page_allocator_error(self) types::Error {
+    fn asPageAllocatorError(self) types::Error {
         self.into_error()
     }
 }
 
 extend[T] os::Error!T {
-    fn as_page_allocator_error(self) types::Error!T {
+    fn asPageAllocatorError(self) types::Error!T {
         self.cast_error()
     }
 }

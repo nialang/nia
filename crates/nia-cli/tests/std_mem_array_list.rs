@@ -492,13 +492,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not owned.equals(&expectedSource[..]) {
         return process::exit(8)!;
     }
-    switch page.free_slice[i32](owned) {
+    switch page.freeSlice[i32](owned) {
         !ok => { _ = ok; },
         error! => { return process::exit(9)!; },
     }
 
     let mut external: &mut [i32];
-    switch page.alloc_slice[i32](3) {
+    switch page.allocSlice[i32](3) {
         !items => { external = items; },
         error! => { return process::exit(10)!; },
     }
@@ -708,7 +708,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if list.asSlice()[0] == 1234 {
         return process::exit(9)!;
     }
-    page.free_slice[i32](owned).exit().?;
+    page.freeSlice[i32](owned).exit().?;
 
     expectInvalid(list.removeRange(7, 1)).?;
     expectInvalid(list.removeRange(5, 2)).?;

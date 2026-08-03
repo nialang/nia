@@ -8,37 +8,37 @@ pub trait Allocator {
 
     fn free(&mut self, block: Block) Error!void;
 
-    fn resize(&mut self, block: Block, new_layout: Layout) bool {
+    fn resize(&mut self, block: Block, newLayout: Layout) bool {
         _ = self;
-        if block.align() != new_layout.align() {
+        if block.align() != newLayout.align() {
             return false;
         }
-        block.size() == new_layout.size()
+        block.size() == newLayout.size()
     }
 
-    fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
-        if self.resize(block, new_layout) {
-            ?Block::init(block.ptr(), new_layout)
-        } else if block.is_empty() and new_layout.is_empty() {
-            ?Block::empty(new_layout)
+    fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+        if self.resize(block, newLayout) {
+            ?Block::init(block.ptr(), newLayout)
+        } else if block.isEmpty() and newLayout.isEmpty() {
+            ?Block::empty(newLayout)
         } else {
             null
         }
     }
 
-    fn realloc(&mut self, block: Block, new_layout: Layout) Error!Block {
-        if self.remap(block, new_layout) is ?new_block {
-            return !new_block;
+    fn realloc(&mut self, block: Block, newLayout: Layout) Error!Block {
+        if self.remap(block, newLayout) is ?newBlock {
+            return !newBlock;
         }
-        let new_block = self.alloc(new_layout).?;
-        block.copy_prefix_to(new_block);
+        let newBlock = self.alloc(newLayout).?;
+        block.copyPrefixTo(newBlock);
         switch self.free(block) {
             !ok => {
                 _ = ok;
-                !new_block
+                !newBlock
             },
             err! => {
-                switch self.free(new_block) {
+                switch self.free(newBlock) {
                     !ok => {
                         _ = ok;
                     },
@@ -49,23 +49,23 @@ pub trait Allocator {
         }
     }
 
-    fn alloc_bytes(&mut self, len: usize, align: usize) Error!Block {
+    fn allocBytes(&mut self, len: usize, align: usize) Error!Block {
         let layout = Layout::init(len, align).?;
         self.alloc(layout)
     }
 }
 
 extend Allocator {
-    pub fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
+    pub fn allocSlice[T](&mut self, len: usize) Error!&mut [T]
     where T: Sized
     {
         let layout = Layout::array[T](len).?;
-        if layout.is_empty() {
-            return !dangling_slice[T](len);
+        if layout.isEmpty() {
+            return !danglingSlice[T](len);
         }
         switch self.alloc(layout) {
             !block => {
-                !block.as_slice[T]()
+                !block.asSlice[T]()
             },
             err! => {
                 err!
@@ -73,7 +73,7 @@ extend Allocator {
         }
     }
 
-    pub fn free_slice[T](&mut self, slice: &mut [T]) Error!void
+    pub fn freeSlice[T](&mut self, slice: &mut [T]) Error!void
     where T: Sized
     {
         let layout = Layout::array[T](slice.len()).?;
@@ -81,7 +81,7 @@ extend Allocator {
     }
 }
 
-fn dangling_slice[T](len: usize) &mut [T]
+fn danglingSlice[T](len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = std::builtin::align[T]() as &mut T;
@@ -89,13 +89,13 @@ where T: Sized
 }
 
 extend Block {
-    fn copy_prefix_to(&self, to: Block) void {
+    fn copyPrefixTo(&self, to: Block) void {
         let mut count = self.size();
         if count > to.size() {
             count = to.size();
         }
-        let from_bytes = self.bytes();
-        let mut to_bytes = to.bytes();
-        _ = (&mut to_bytes[0..count]).copyFrom(&from_bytes[0..count]);
+        let fromBytes = self.bytes();
+        let mut toBytes = to.bytes();
+        _ = (&mut toBytes[0..count]).copyFrom(&fromBytes[0..count]);
     }
 }

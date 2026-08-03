@@ -2693,6 +2693,37 @@ provider operations are package-private. Ordinary packages cannot import
 the only host boundaries. No public OS alias or compatibility constructor was
 retained.
 
+Standard-library reconstruction progress (2026-08-03, allocator surface and
+arena reset batch): the public memory contract now uses lower-camel
+`allocBytes`, `allocSlice`, `freeSlice`, `isEmpty`, `asSlice`, and
+`deinitWithoutLeakCheck`. Arena and general-purpose capacity observations are
+`capacity()` and `used()` without query-prefixed spellings. The former
+snake-case names have no aliases, and compile-fail conformance proves they are
+absent.
+
+Arena reset semantics are reduced to one ordinary workflow: `reset()`
+invalidates all arena-backed blocks, slices, and containers while retaining
+capacity for reuse; `deinit()` invalidates them and releases the backing
+storage. The duplicate retain-reset spelling and the unused limit-retention
+policy are physically removed. Fixed-buffer ownership and last-allocation
+probes are private mechanics rather than public capabilities.
+
+The implementation audit also moves fields, locals, and helper operations to
+lower camel. Contextual numeric literals omit `usize`; accumulators state their
+type at the declaration when no expression supplies it, and small-page slot
+initialization uses direct `for index in 0..slotCount` iteration. Runtime
+conformance covers typed slices, realloc, fixed buffers, retained arena reset,
+full arena release, GPA small/large allocation, invalid frees, and leak status.
+The build ownership fixture now follows the already accepted `PathBuf::fromView`
+boundary: allocation and release failures remain `ErrorCause::Memory` rather
+than being relabeled as filesystem errors. Executable finalization-count
+fixtures are reconciled with the smaller provider closure after obsolete arena
+methods are removed.
+This accepts the low-level memory vocabulary and reset behavior only: the
+repeated allocator argument across owned collections and text remains the
+common allocator protocol design problem, not compatibility debt hidden by
+this naming pass.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
