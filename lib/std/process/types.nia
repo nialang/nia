@@ -46,7 +46,7 @@ pub enum Error {
     Wait(os::Error),
     TryWait(os::Error),
     Kill(os::Error),
-    Close { stream: StdStream, cause: os::Error },
+    Close { stream: StdStream, cause: io::Error },
 }
 
 pub enum Signal: i32 {
@@ -135,14 +135,25 @@ pub struct ChildState {
 
 pub struct Child {
     state: ChildState,
-    stdin: ?os::FileHandle,
-    stdout: ?os::FileHandle,
-    stderr: ?os::FileHandle,
+    stdin: ?ChildStdin,
+    stdout: ?ChildStdout,
+    stderr: ?ChildStderr,
+}
+
+pub struct ChildStdin {
+    handle: ?os::FileHandle,
+}
+
+pub struct ChildStdout {
+    handle: ?os::FileHandle,
+}
+
+pub struct ChildStderr {
+    handle: ?os::FileHandle,
 }
 
 pub struct Init {
     argc: usize,
     argv: &&u8,
     envp: &&u8,
-    io: &mut io::Io[Error = os::Error],
 }

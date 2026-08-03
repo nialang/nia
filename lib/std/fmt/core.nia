@@ -484,7 +484,7 @@ extend[W] W : FormatWriter
 where W: io::Writer
 {
     fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void {
-        switch self.write_all(bytes) {
+        switch self.writeAll(bytes) {
             !ok => {
                 !ok
             },

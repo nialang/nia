@@ -130,7 +130,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     let close = buildError(process::Error::Close {
         stream: process::StdStream::Stdout,
-        cause: os::Error::BadFd,
+        cause: io::Error::System(io::SystemError::BadFd),
     });
     if (close.asExitCode() as i32) != 9 {
         return process::exit(2)!;
@@ -144,7 +144,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut buffer: [256]u8 = [_]u8[0; 256];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    let mut stdout = io::FileWriter::stdout(&mut buffer);
     stdout.print(&"{}\n{}\n{}\n", &[&spawn, &close, &environment]).exit().?;
     stdout.flush().exit().?;
     !{}

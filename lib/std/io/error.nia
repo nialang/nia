@@ -1,0 +1,79 @@
+using pkg::error;
+using pkg::os;
+
+pub enum SystemError: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    NotEmpty = 39,
+    System = 255,
+    _,
+}
+
+pub enum Error {
+    EndOfStream,
+    ShortWrite,
+    Closed,
+    System(SystemError),
+}
+
+extend os::Error : error::IntoError[SystemError] {
+    fn into_error(self) SystemError {
+        switch self {
+            os::Error::PermissionDenied => SystemError::PermissionDenied,
+            os::Error::NotFound => SystemError::NotFound,
+            os::Error::Interrupted => SystemError::Interrupted,
+            os::Error::Io => SystemError::Io,
+            os::Error::BadFd => SystemError::BadFd,
+            os::Error::Again => SystemError::Again,
+            os::Error::OutOfMemory => SystemError::OutOfMemory,
+            os::Error::Access => SystemError::Access,
+            os::Error::Fault => SystemError::Fault,
+            os::Error::Busy => SystemError::Busy,
+            os::Error::AlreadyExists => SystemError::AlreadyExists,
+            os::Error::CrossDevice => SystemError::CrossDevice,
+            os::Error::NotDir => SystemError::NotDir,
+            os::Error::IsDir => SystemError::IsDir,
+            os::Error::Invalid => SystemError::Invalid,
+            os::Error::NoSpace => SystemError::NoSpace,
+            os::Error::ReadOnly => SystemError::ReadOnly,
+            os::Error::BrokenPipe => SystemError::BrokenPipe,
+            os::Error::OutOfRange => SystemError::OutOfRange,
+            os::Error::TooLong => SystemError::TooLong,
+            os::Error::NotEmpty => SystemError::NotEmpty,
+            _ => SystemError::System,
+        }
+    }
+}
+
+extend os::Error {
+    pub(pkg) fn asIoError(self) Error {
+        Error::System(self.into_error())
+    }
+}
+
+extend[T] os::Error!T {
+    pub(pkg) fn asIoError(self) Error!T {
+        switch self {
+            !value => !value,
+            cause! => cause.asIoError()!,
+        }
+    }
+}

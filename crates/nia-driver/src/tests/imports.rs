@@ -240,8 +240,8 @@ using entry::math; fn main() i32 { 0 }"#,
 }
 
 #[test]
-fn std_io_file_writer_is_created_from_process_io_capability() {
-    let root = temp_dir("std_io_file_writer_is_created_from_process_io_capability");
+fn std_io_file_writer_does_not_require_process_capability_plumbing() {
+    let root = temp_dir("std_io_file_writer_does_not_require_process_capability_plumbing");
     write(
         &root.join("main.nia"),
         r#"
@@ -250,8 +250,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    switch stdout.write_all(&b"nia\n") {
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
+    switch stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -272,8 +272,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn std_io_buffered_file_writer_flushes_explicitly_through_process_io() {
-    let root = temp_dir("std_io_buffered_file_writer_flushes_explicitly_through_process_io");
+fn std_io_buffered_file_writer_flushes_explicitly() {
+    let root = temp_dir("std_io_buffered_file_writer_flushes_explicitly");
     write(
         &root.join("main.nia"),
         r#"
@@ -283,9 +283,9 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [64]u8 = [0; 64];
     let mut raw_buffer: [0]u8 = [];
-    let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
+    let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    switch stdout.write_all(&b"nia\n") {
+    switch stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -314,8 +314,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn std_fs_file_is_not_a_writer_without_process_io_capability() {
-    let root = temp_dir("std_fs_file_is_not_a_writer_without_process_io_capability");
+fn std_fs_file_requires_an_explicit_writer_adapter() {
+    let root = temp_dir("std_fs_file_requires_an_explicit_writer_adapter");
     write(
         &root.join("main.nia"),
         r#"
@@ -323,7 +323,7 @@ using std::fs;
 using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
-    switch file.write_all(&b"nia\n") {
+    switch file.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -349,15 +349,51 @@ pub fn main(init: process::Init) process::ExitCode!void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown struct field `write_all`")),
+            .contains("unknown struct field `writeAll`")),
         "{:?}",
         program.diagnostics
     );
 }
 
 #[test]
-fn std_io_file_reader_is_created_from_process_io_capability() {
-    let root = temp_dir("std_io_file_reader_is_created_from_process_io_capability");
+fn std_process_child_pipes_enforce_read_and_write_roles() {
+    let root = temp_dir("std_process_child_pipes_enforce_read_and_write_roles");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::io;
+using std::process;
+
+fn reject(stdout: process::ChildStdout, stdin: process::ChildStdin, bytes: &mut [u8]) void {
+    _ = stdout.write(bytes);
+    _ = stdin.read(bytes);
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let summaries: Vec<_> = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect();
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown struct field `write`")),
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown struct field `read`")),
+        "{summaries:?}"
+    );
+}
+
+#[test]
+fn std_io_file_reader_does_not_require_process_capability_plumbing() {
+    let root = temp_dir("std_io_file_reader_does_not_require_process_capability_plumbing");
     write(
         &root.join("main.nia"),
         r#"
@@ -366,7 +402,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [64]u8 = [0; 64];
-    let mut reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
+    let mut reader = io::FileReader::stdin(&mut buffer[..]);
     let mut bytes: [1]u8 = [0];
     switch reader.read(&mut bytes[..]) {
         !ok => {
@@ -389,20 +425,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn std_blocking_io_coerces_to_io_trait_object_with_error_binding() {
-    let root = temp_dir("std_blocking_io_coerces_to_io_trait_object_with_error_binding");
+fn std_io_file_writer_does_not_require_a_runtime_backend_object() {
+    let root = temp_dir("std_io_file_writer_does_not_require_a_runtime_backend_object");
     write(
         &root.join("main.nia"),
         r#"
 using std::io;
-using std::os;
-using std::process;
 
-fn main(argc: usize, argv: &&u8, envp: &&u8) void {
-    let mut backend = io::BlockingIo::init();
-    let init = process::Init::init(argc, argv, envp, &mut backend);
-    let object: &mut io::Io[Error = os::Error] = init.io();
-    _ = object;
+fn main(buffer: &mut [u8]) void {
+    let writer = io::FileWriter::stdout(buffer);
+    _ = writer;
 }
 "#,
     );

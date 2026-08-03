@@ -60,16 +60,16 @@ providers.
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
-| `io` | stdout/stderr/files | public runtime and temporary file-handle adapters still expose `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade; replace the remaining OS error/handle escapes and test partial writes |
-| `process` args/env/command | runner context and compiler subprocess | raw argv/envp and coarse spawn/wait errors leak bootstrap mechanics | retire from BuildPlan boundary; expose typed process action/service |
-| `os` Linux facade | path capacity, descriptors, process and I/O providers | operations and intermediate types are package-private; `Error`, `SpawnError`, `FileHandle`, and `ProcessId` remain visible because process/I/O signatures still name them | keep provider private; replace remaining handle/error escapes with typed service roles before deciding whether any raw API is intentional |
+| `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
+| `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, and lifecycle exist; spawn/wait identity and causes still expose OS types | retire from BuildPlan boundary; finish process-owned identity/error types before accepting the service facade |
+| `os` Linux facade | path capacity, descriptors, process and I/O providers | operations, intermediate types, and `FileHandle` are package-private; `Error`, `SpawnError`, and `ProcessId` remain visible through process/collection signatures | keep provider private; replace remaining error/identity escapes before deciding whether the root module is public at all |
 | `build` | graph declaration and execution | callback executor, raw argv, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
 
 Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
 also pulls Unicode behavior. The conservative source-declared facade/provider
 closure is recorded in `std-build-host-dependencies.json` and checked by
-`tools/std_build_host_audit.py`. It currently contains 95 modules: broad facade
+`tools/std_build_host_audit.py`. It currently contains 96 modules: broad facade
 declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
 conceptually require. This is not a claim that loader demand executes every
@@ -344,7 +344,7 @@ LLVM before deleting its builtin declaration.
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
-| process argument/environment | `Arg` / `EnvVar` byte views; borrowed scalar arguments and exact `EnvEntry` values with transient C buffers | `Command` typed argv/envp lowering; inherited, exact-replacement, and empty environment modes; raw host views and explicit `spawnRaw` | closed `process::Error` payloads preserve `mem::Error`, `PathError`, argument/environment index and cause, `SpawnError`, operation-specific `os::Error`, and close-stream identity | typed command, borrowed host views, exact environment configuration, and process error flow accepted; lower-level OS audit remains open |
+| process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, and pipe ownership accepted; process-owned identity/spawn/wait causes remain open |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
 the sum of each scalar's encoded `Utf8::len()` and is not interchangeable with

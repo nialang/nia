@@ -92,6 +92,7 @@ using std::os;
 fn pageSize() usize {
     os::pageSize()
 }
+
 "#,
     )
     .expect("write private std os provider source");
@@ -104,6 +105,32 @@ fn pageSize() usize {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("private"), "{stderr}");
     assert!(stderr.contains("os::pageSize"), "{stderr}");
+}
+
+#[test]
+fn std_os_file_handles_are_package_private() {
+    let root = temp_dir("std_os_file_handles_are_package_private");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::os;
+
+fn rawHandle(handle: os::FileHandle) void {
+    _ = handle;
+}
+"#,
+    )
+    .expect("write private std os handle source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check private std os file handle boundary");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private"), "{stderr}");
+    assert!(stderr.contains("os::FileHandle"), "{stderr}");
 }
 
 #[test]

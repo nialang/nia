@@ -2606,20 +2606,19 @@ Cross-facade provider names use lower camel (`maxPathBytes`, `pageSize`,
 the snake-case spellings. A negative compiler test proves an ordinary package
 cannot call the provider surface.
 
-`std::os` remains public only because current service signatures still name
-`Error`, `SpawnError`, opaque `FileHandle`, and opaque `ProcessId`. The raw
-handle escape supports child-pipe adaptation through `readSome`, `writeSome`,
-and `close`; process identity exposes `raw`. Filesystem `borrow_handle` and
+At this batch point `std::os` remained public because service signatures still
+named `Error`, `SpawnError`, opaque `FileHandle`, and opaque `ProcessId`. The
+raw handle escape supported child-pipe adaptation through `readSome`,
+`writeSome`, and `close`; process identity exposed `raw`. Filesystem `borrow_handle` and
 `take_handle` are physically removed from the user surface and are package-only
 `borrowHandle`/`takeHandle`; close-state conformance now observes `BadFd`
 through ordinary high-level file/directory operations. `File::setPermissions`
 and `syncData` replace their old spellings with no aliases.
 
-This is a visibility boundary, not acceptance of raw handles as the long-term
-I/O design. Typed child stdin/stdout/stderr roles and an I/O error model that no
-longer names `os::Error` are the next ownership boundary; once they replace the
-remaining public signature leaks, the root `std::os` module can be reconsidered
-as a whole. Linux syscall/backend naming remains package-internal audit work.
+This was a visibility boundary, not acceptance of raw handles as the long-term
+I/O design. Typed child stdin/stdout/stderr roles and an I/O error model were
+therefore the next ownership boundary. Linux syscall/backend naming remains
+package-internal audit work.
 The build-host source-closure snapshot is also reconciled with the already
 reviewed plan, ordering, text hashing, and removed memory-copy providers: it now
 records the actual 95-module closure instead of a stale 93-module list.
@@ -2632,6 +2631,30 @@ only `Visibility::Private` functions and instances. A focused O2 regression
 keeps an otherwise locally unused package-visible provider, and the complete
 configured-build path proves the startup/provider call survives multi-object
 code generation.
+
+Standard-library reconstruction progress (2026-08-03, typed child-pipe and I/O
+boundary batch): `Child::takeStdin`, `takeStdout`, and `takeStderr` now transfer
+distinct `ChildStdin`, `ChildStdout`, and `ChildStderr` owners rather than raw OS
+handles. Stdin implements `Writer`; stdout and stderr implement `Reader`.
+`buffered(buffer)` composes each role with the generic buffered adapter without
+requiring users to repeat its type argument. Pipe owners invalidate themselves
+before close, make repeated close idempotent, report later access as
+`io::Error::Closed`, and remain caller-owned across child wait. Runtime and
+compile-fail conformance covers all three roles, EOF, direct and buffered I/O,
+repeated close, and rejecting reads from stdin or writes to stdout.
+
+The public runtime `Io` trait and `BlockingIo` value are physically removed:
+they had no alternate implementation and forced every file or standard-stream
+adapter through `init.io()` while exposing `os::FileHandle`. `process::Init`
+now carries only startup arguments and environment. File readers/writers take
+only caller-provided storage and call the package-private provider directly.
+The raw `FileHandle` type and its operations are package-private, with a
+negative ordinary-package guard. Reviewed Reader/Writer methods are lower camel
+(`readExact`, `writeAll`, `writeByte`, `endOfStream`, `shortWrite`, and
+`discardBuffered`) with no old aliases. Child pipe failures use the closed high-level `io::Error` plus an
+open `io::SystemError` cause; process cleanup retains stream identity around
+that error. Process identity and spawn/wait/kill causes still name OS types and
+remain the next process-provider boundary.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

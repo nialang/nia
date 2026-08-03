@@ -1,0 +1,106 @@
+using pkg::io;
+using pkg::os;
+using pkg::process::types;
+
+using types::{ChildStderr, ChildStdin, ChildStdout};
+
+fn readHandle(handle: ?os::FileHandle, bytes: &mut [u8]) io::Error!usize {
+    switch handle {
+        ?value => value.readSome(bytes).asIoError(),
+        null => io::Error::Closed!,
+    }
+}
+
+fn writeHandle(handle: ?os::FileHandle, bytes: &[u8]) io::Error!usize {
+    switch handle {
+        ?value => value.writeSome(bytes).asIoError(),
+        null => io::Error::Closed!,
+    }
+}
+
+fn closeHandle(handle: &mut ?os::FileHandle) io::Error!void {
+    let owned = handle.*;
+    handle.* = null;
+    switch owned {
+        ?value => value.close().asIoError(),
+        null => !{},
+    }
+}
+
+extend ChildStdin {
+    pub(pkg) fn init(handle: os::FileHandle) ChildStdin {
+        { handle: ?handle }
+    }
+
+    pub fn close(&mut self) io::Error!void {
+        closeHandle(&mut self.handle)
+    }
+
+    pub fn buffered(&mut self, buffer: &mut [u8]) io::BufferedWriter[ChildStdin] {
+        io::BufferedWriter[ChildStdin]::init(self, buffer)
+    }
+}
+
+extend ChildStdin : io::Writer {
+    type Error = io::Error;
+
+    pub fn shortWrite(&self) Error {
+        io::Error::ShortWrite
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        writeHandle(self.handle, bytes)
+    }
+}
+
+extend ChildStdout {
+    pub(pkg) fn init(handle: os::FileHandle) ChildStdout {
+        { handle: ?handle }
+    }
+
+    pub fn close(&mut self) io::Error!void {
+        closeHandle(&mut self.handle)
+    }
+
+    pub fn buffered(&mut self, buffer: &mut [u8]) io::BufferedReader[ChildStdout] {
+        io::BufferedReader[ChildStdout]::init(self, buffer)
+    }
+}
+
+extend ChildStdout : io::Reader {
+    type Error = io::Error;
+
+    pub fn endOfStream(&self) Error {
+        io::Error::EndOfStream
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        readHandle(self.handle, bytes)
+    }
+}
+
+extend ChildStderr {
+    pub(pkg) fn init(handle: os::FileHandle) ChildStderr {
+        { handle: ?handle }
+    }
+
+    pub fn close(&mut self) io::Error!void {
+        closeHandle(&mut self.handle)
+    }
+
+    pub fn buffered(&mut self, buffer: &mut [u8]) io::BufferedReader[ChildStderr] {
+        io::BufferedReader[ChildStderr]::init(self, buffer)
+    }
+}
+
+extend ChildStderr : io::Reader {
+    type Error = io::Error;
+
+    pub fn endOfStream(&self) Error {
+        io::Error::EndOfStream
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        readHandle(self.handle, bytes)
+    }
+}

@@ -79,10 +79,9 @@ fn query_loader_loads_reexported_type_inherent_provider_chain() {
         r#"
 using std::fs;
 using std::io;
-using std::os;
 
-fn main(file: fs::File, state: &mut io::Io[Error = os::Error], buffer: &mut [u8]) fs::Error!io::FileWriter {
-file.writer(state, buffer)
+fn main(file: fs::File, buffer: &mut [u8]) fs::Error!io::FileWriter {
+file.writer(buffer)
 }
 "#,
     );

@@ -124,7 +124,7 @@ pub(pkg) struct DirectoryReader {
     done: bool,
 }
 
-pub struct FileHandle {
+pub(pkg) struct FileHandle {
     platform: platform::FileDescriptor,
 }
 
@@ -587,15 +587,15 @@ extend FileHandle {
         FileHandle::fromPlatform(platform::FileDescriptor::stderr())
     }
 
-    pub fn writeSome(&self, bytes: &[u8]) Error!usize {
+    pub(pkg) fn writeSome(&self, bytes: &[u8]) Error!usize {
         self.platform().write_some(bytes).asOsError()
     }
 
-    pub fn readSome(&self, bytes: &mut [u8]) Error!usize {
+    pub(pkg) fn readSome(&self, bytes: &mut [u8]) Error!usize {
         self.platform().read_some(bytes).asOsError()
     }
 
-    pub fn close(&self) Error!void {
+    pub(pkg) fn close(&self) Error!void {
         self.platform().close().asOsError()
     }
 

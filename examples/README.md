@@ -42,7 +42,9 @@ traversal.
 `10_process_command.nia` shows the typed child-process path: construct a
 `Command` from a `PathView` and `Env`, pass scalar arguments with
 `withArguments`, replace the inherited environment with borrowed scalar
-`EnvEntry` values through `withEnvironment`, and inspect the returned `Term`.
+`EnvEntry` values through `withEnvironment`, take the role-specific
+`ChildStdout`, read it directly as an `io::Reader`, and inspect the returned
+`Term`.
 The command inserts its path as argv[0] and performs UTF-8/C argv and envp
 lowering only during `spawn` or `run`; ordinary callers do not build
 `CStringView` values or raw pointer arrays. `withoutEnvironment` selects an

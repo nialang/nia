@@ -1,7 +1,8 @@
+using pkg::io;
 using pkg::os;
 using pkg::process::types;
 
-using types::{Child, ChildState, ChildStateKind, ChildStatePayload, Error, ExitedChild, RunningChild, Signal, StdStream, Term};
+using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, RunningChild, Signal, StdStream, Term};
 
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
@@ -16,9 +17,18 @@ extend Child {
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         {
             state: ChildState::running(result.pid()),
-            stdin: result.stdin(),
-            stdout: result.stdout(),
-            stderr: result.stderr(),
+            stdin: switch result.stdin() {
+                ?handle => ?ChildStdin::init(handle),
+                null => null,
+            },
+            stdout: switch result.stdout() {
+                ?handle => ?ChildStdout::init(handle),
+                null => null,
+            },
+            stderr: switch result.stderr() {
+                ?handle => ?ChildStderr::init(handle),
+                null => null,
+            },
         }
     }
 
@@ -26,28 +36,29 @@ extend Child {
         self.state.pid()
     }
 
-    pub fn takeStdin(&mut self) ?os::FileHandle {
-        let handle = self.stdin;
+    pub fn takeStdin(&mut self) ?ChildStdin {
+        let pipe = self.stdin;
         self.stdin = null;
-        handle
+        pipe
     }
 
-    pub fn takeStdout(&mut self) ?os::FileHandle {
-        let handle = self.stdout;
+    pub fn takeStdout(&mut self) ?ChildStdout {
+        let pipe = self.stdout;
         self.stdout = null;
-        handle
+        pipe
     }
 
-    pub fn takeStderr(&mut self) ?os::FileHandle {
-        let handle = self.stderr;
+    pub fn takeStderr(&mut self) ?ChildStderr {
+        let pipe = self.stderr;
         self.stderr = null;
-        handle
+        pipe
     }
 
     pub fn closeStdin(&mut self) Error!void {
         switch self.takeStdin() {
-            ?handle => {
-                handle.close().asProcessCloseError(StdStream::Stdin)
+            ?pipe => {
+                let mut owned = pipe;
+                owned.close().asProcessCloseError(StdStream::Stdin)
             },
             null => {
                 !{}
@@ -57,8 +68,9 @@ extend Child {
 
     pub fn closeStdout(&mut self) Error!void {
         switch self.takeStdout() {
-            ?handle => {
-                handle.close().asProcessCloseError(StdStream::Stdout)
+            ?pipe => {
+                let mut owned = pipe;
+                owned.close().asProcessCloseError(StdStream::Stdout)
             },
             null => {
                 !{}
@@ -68,8 +80,9 @@ extend Child {
 
     pub fn closeStderr(&mut self) Error!void {
         switch self.takeStderr() {
-            ?handle => {
-                handle.close().asProcessCloseError(StdStream::Stderr)
+            ?pipe => {
+                let mut owned = pipe;
+                owned.close().asProcessCloseError(StdStream::Stderr)
             },
             null => {
                 !{}
@@ -208,7 +221,7 @@ extend ExitedChild {
     }
 }
 
-extend[T] os::Error!T {
+extend[T] io::Error!T {
     fn asProcessCloseError(self, stream: StdStream) Error!T {
         switch self {
             !value => !value,

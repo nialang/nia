@@ -35,7 +35,7 @@ where R: Reader
         & self.buffer[self.start..self.end]
     }
 
-    pub fn discard_buffered(&mut self) void {
+    pub fn discardBuffered(&mut self) void {
         self.start = 0;
         self.end = 0;
     }
@@ -49,7 +49,7 @@ where R: Reader
         _ = (&mut bytes[0..count]).copyFrom(&self.buffer[self.start..(self.start + count)]);
         self.start += count;
         if self.start == self.end {
-            self.discard_buffered();
+            self.discardBuffered();
         }
         count
     }
@@ -60,8 +60,8 @@ where R: Reader
 {
     type Error = [R as Reader]::Error;
 
-    pub fn end_of_stream(&self) Error {
-        self.reader.end_of_stream()
+    pub fn endOfStream(&self) Error {
+        self.reader.endOfStream()
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
@@ -113,8 +113,8 @@ where W: Writer
 {
     type Error = [W as Writer]::Error;
 
-    pub fn short_write(&self) Error {
-        self.writer.short_write()
+    pub fn shortWrite(&self) Error {
+        self.writer.shortWrite()
     }
 
     pub fn write(&mut self, bytes: &[u8]) Error!usize {
@@ -134,12 +134,12 @@ where W: Writer
         }
     }
 
-    pub fn write_all(&mut self, bytes: &[u8]) Error!void {
+    pub fn writeAll(&mut self, bytes: &[u8]) Error!void {
         if bytes.len() == 0 {
             !{}
         } else if bytes.len() > self.buffer.len() {
             self.flush().?;
-            self.writer.write_all(bytes)
+            self.writer.writeAll(bytes)
         } else {
             let available = self.buffer.len() - self.len;
             if bytes.len() > available {
@@ -152,7 +152,7 @@ where W: Writer
 
     pub fn flush(&mut self) Error!void {
         if self.len != 0 {
-            self.writer.write_all(& self.buffer[0..self.len]).?;
+            self.writer.writeAll(& self.buffer[0..self.len]).?;
             self.len = 0;
         }
         self.writer.flush()

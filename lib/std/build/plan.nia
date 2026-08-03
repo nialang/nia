@@ -430,8 +430,8 @@ extend Build {
             file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
         };
         let mut buffer: [4096]u8 = [_]u8[0; 4096];
-        let mut writer = file.writer(self.init.io(), &mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan).?;
-        writer.write_all(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        let mut writer = file.writer(&mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        writer.writeAll(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
         writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan).?;
         file.sync().asBuildError(Operation::Publish, Subject::BuildPlan).?;
         file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
