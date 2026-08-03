@@ -19,14 +19,14 @@ pub module io;
 pub module iter;
 pub module math;
 pub module mem;
-pub module os;
+pub(pkg) module os;
 pub module process;
 pub module slice;
 pub module string;
 pub module unicode;
 
 pub using atomic::Atomic;
-pub using collections::{ArrayList, HashMap};
+pub using collections::{ArrayList, HashMap, HashMapInitError};
 pub using cstring::{CStringError, CStringView};
 pub using fs::{PathBuf, PathView};
 pub using string::{String, TextError, TextFormatError};

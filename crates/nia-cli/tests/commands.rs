@@ -81,108 +81,26 @@ fn readme_nia_examples_check_as_freestanding_programs() {
 }
 
 #[test]
-fn std_os_provider_surface_is_package_private() {
-    let root = temp_dir("std_os_provider_surface_is_package_private");
+fn std_os_module_is_package_private() {
+    let root = temp_dir("std_os_module_is_package_private");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
         r#"
 using std::os;
 
-fn pageSize() usize {
-    os::pageSize()
-}
-
 "#,
     )
-    .expect("write private std os provider source");
+    .expect("write private std os module source");
 
     let output = support::nia_command()
         .arg("check")
         .arg(&main)
-        .output_timeout_for_compiler("check private std os provider boundary");
+        .output_timeout_for_compiler("check private std os module boundary");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("os::pageSize"), "{stderr}");
-}
-
-#[test]
-fn std_os_file_handles_are_package_private() {
-    let root = temp_dir("std_os_file_handles_are_package_private");
-    let main = root.join("main.nia");
-    std::fs::write(
-        &main,
-        r#"
-using std::os;
-
-fn rawHandle(handle: os::FileHandle) void {
-    _ = handle;
-}
-"#,
-    )
-    .expect("write private std os handle source");
-
-    let output = support::nia_command()
-        .arg("check")
-        .arg(&main)
-        .output_timeout_for_compiler("check private std os file handle boundary");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("os::FileHandle"), "{stderr}");
-}
-
-#[test]
-fn std_os_process_identity_is_package_private() {
-    let root = temp_dir("std_os_process_identity_is_package_private");
-    let main = root.join("main.nia");
-    std::fs::write(
-        &main,
-        r#"
-using std::os;
-
-fn rawProcessId(pid: os::ProcessId) void {
-    _ = pid;
-}
-"#,
-    )
-    .expect("write private std os process identity source");
-
-    let output = support::nia_command()
-        .arg("check")
-        .arg(&main)
-        .output_timeout_for_compiler("check private std os process identity boundary");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("os::ProcessId"), "{stderr}");
-}
-
-#[test]
-fn std_os_spawn_errors_are_package_private() {
-    let root = temp_dir("std_os_spawn_errors_are_package_private");
-    let main = root.join("main.nia");
-    std::fs::write(
-        &main,
-        r#"
-using std::os;
-
-fn rawSpawnError(cause: os::SpawnError) void {
-    _ = cause;
-}
-"#,
-    )
-    .expect("write private std os spawn error source");
-
-    let output = support::nia_command()
-        .arg("check")
-        .arg(&main)
-        .output_timeout_for_compiler("check private std os spawn error boundary");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("os::SpawnError"), "{stderr}");
+    assert!(stderr.contains("std::os"), "{stderr}");
 }
 
 #[test]

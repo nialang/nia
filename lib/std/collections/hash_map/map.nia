@@ -15,7 +15,7 @@ using entries::{
     HashMapGetOrInsertResult,
     HashMapReplacement,
 };
-using types::{HashMapContext, HashMapLookupContext};
+using types::{HashMapContext, HashMapInitError, HashMapLookupContext};
 
 pub struct HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
@@ -33,8 +33,18 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 {
-    pub fn init() os::Error!HashMapWithContext[K, V, DefaultHashMapContext] {
-        let seed = raw::randomSeed().?;
+    pub fn init() HashMapWithContext[K, V, DefaultHashMapContext] {
+        switch HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() {
+            !map => map,
+            error! => {
+                _ = error;
+                std::builtin::trap()
+            },
+        }
+    }
+
+    pub fn tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
+        let seed = raw::randomSeed().asHashMapInitError().?;
         !HashMapWithContext[K, V, DefaultHashMapContext]::initSeed(seed)
     }
 
@@ -59,8 +69,18 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn initContext(context: C) os::Error!HashMapWithContext[K, V, C] {
-        let seed = raw::randomSeed().?;
+    pub fn initContext(context: C) HashMapWithContext[K, V, C] {
+        switch HashMapWithContext[K, V, C]::tryInitContext(context) {
+            !map => map,
+            error! => {
+                _ = error;
+                std::builtin::trap()
+            },
+        }
+    }
+
+    pub fn tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
+        let seed = raw::randomSeed().asHashMapInitError().?;
         !HashMapWithContext[K, V, C]::initContextSeed(context, seed)
     }
 
@@ -804,6 +824,15 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             null => {
                 !{}
             },
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    fn asHashMapInitError(self) HashMapInitError!T {
+        switch self {
+            !value => !value,
+            cause! => HashMapInitError::fromOs(cause)!,
         }
     }
 }
