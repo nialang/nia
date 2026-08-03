@@ -2757,6 +2757,27 @@ text/collection boundary. The accepted protocol still leaves deep element
 cleanup and type-specific ownership designs as separate work; it does not
 declare that every std type must be unmanaged.
 
+Standard-library reconstruction progress (2026-08-03, borrowed split batch):
+contiguous sequence splitting now belongs to `[T] where T: Eq[T]`, beside the
+existing equality and search operations. `split(separator)` returns the
+allocation-free `SliceSplit[T]` iterator and `String::split` delegates to its
+borrowed scalar slice, so ordinary code uses `for part in
+text.split(separator)` without constructing temporary owned strings or naming
+an allocator. The maintained slice/string conformance and slice example use
+direct `for`, if-pattern/search composition, and contextual numeric inference.
+
+Matching is left-to-right and non-overlapping. Leading, trailing, and adjacent
+separators retain empty segments; empty input retains one empty segment, and an
+empty separator yields the original slice once because direct element
+iteration already covers that workflow. Source and separator storage must stay
+valid and unchanged for the iterator lifetime. `SliceSplit` deliberately does
+not implement `DoubleEndedIterator`: a self-overlapping multi-element
+separator showed that a naive final-match scan disagrees with forward
+boundaries, while recomputing those boundaries for every `nextBack` is
+quadratic. Reverse splitting remains unaccepted until a searcher or retained-
+boundary design carries that contract honestly. Text replacement and richer
+composition remain the next text-workflow work.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

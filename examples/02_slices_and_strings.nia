@@ -66,6 +66,12 @@ pub fn main(init: Init) ExitCode!void {
     let mut c_name_len = c_name.len();
     let mut stable_bytes_len = stable_bytes.len();
     let mut first_written = writable[0];
+    let mut wordCount = 0;
+    for word in (&phrase[..]).split(&" ") {
+        if word.equals(&"slice") or word.equals(&"coercion") {
+            wordCount += 1;
+        }
+    }
 
     if first_written != 2 {
         return exit(1)!;
@@ -93,6 +99,9 @@ pub fn main(init: Init) ExitCode!void {
     }
     if copied_len != 3 or copied[0] != b'n' or copied[2] != b'a' {
         return exit(7)!;
+    }
+    if wordCount != 2 {
+        return exit(10)!;
     }
 
     debug::print(

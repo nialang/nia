@@ -102,6 +102,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(7)!;
     }
 
+    let mut fieldIndex = 0;
+    for field in owned.split(&" ") {
+        let matches = if fieldIndex == 0 {
+            field.equals(&"alpha")
+        } else if fieldIndex == 1 {
+            field.equals(&"λ")
+        } else if fieldIndex == 2 {
+            field.equals(&"beta")
+        } else if fieldIndex == 3 {
+            field.equals(&"λ!++?")
+        } else {
+            false
+        };
+        if not matches {
+            return process::exit(7)!;
+        }
+        fieldIndex += 1;
+    }
+    if fieldIndex != 4 {
+        return process::exit(7)!;
+    }
+
     let mut lambdaCount = 0;
     for &ch in text.iter() {
         if ch == 'λ' {

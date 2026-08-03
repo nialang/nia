@@ -313,8 +313,8 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   iterable directly with `for`; both `&[T]` and `&mut [T]` yield `&T` through
   that shared protocol. Use `.iterMut()` explicitly when the loop needs `&mut
   T` items. Slices whose elements implement `Eq[T]` also provide sequence
-  equality, prefix/suffix, and contiguous search operations; `Ord[T]` enables
-  lexicographic comparison.
+  equality, prefix/suffix, contiguous search, and borrowed `SliceSplit`
+  iteration; `Ord[T]` enables lexicographic comparison.
 - `std::cmp` defines the closed `Ordering` result used by lexicographic slice
   comparison: `Less`, `Equal`, and `Greater`.
 - `std::iter` defines iterator support types. Native range values such as
@@ -953,6 +953,17 @@ against an empty slice; a needle longer than the receiver does not match.
 Mutable slice values can call these read-only receiver methods directly: method
 resolution applies the same `&mut [T]` to `&[T]` coercion accepted at ordinary
 typed boundaries.
+
+`split(separator)` returns an allocation-free `std::slice::SliceSplit[T]` whose
+iterator items are borrowed `&[T]` segments. Matching is left-to-right and
+non-overlapping. Leading, trailing, and adjacent separators therefore produce
+empty segments; an empty receiver produces one empty segment. An empty
+separator performs no split and yields the complete receiver once, because
+ordinary element iteration already has the direct `for &item in slice`
+spelling. The iterator borrows both slices, so the receiver and separator must
+remain valid and unchanged until iteration ends. `SliceSplit` is intentionally
+not double-ended: reverse matching of self-overlapping multi-element separators
+requires a separate boundary/search model rather than hidden rescanning.
 
 `copyFrom(source)` is the ordinary slice copy operation. It copies
 `min(receiver.len(), source.len())` initialized element representations,
@@ -3237,9 +3248,10 @@ allocation, or temporary-buffer cleanup failure. `TextError` contains only the
 actually produce.
 Borrowed `[char]` receives `equals`, `startsWith`, `endsWith`, `find`, and
 `contains` from the generic slice sequence API. `String` exposes the same
-scalar-text content operations by delegating to its borrowed view. `find`
+scalar-text content operations and borrowed `split(separator)` iterator by
+delegating to its borrowed view. `find`
 returns the first matching scalar index as `?usize`. An empty needle matches at
-index zero, and all five operations are allocation-free.
+index zero, and these operations are allocation-free.
 `[char]` and `String` implement `std::hash::Hash[H]` when `H` implements
 `Hasher`. Text hashing writes the scalar count followed by each scalar value;
 `String` delegates to that borrowed representation and implements content
