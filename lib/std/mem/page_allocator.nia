@@ -20,7 +20,7 @@ extend PageAllocator : Allocator {
         if layout.is_empty() {
             !Block::empty(layout)
         } else {
-            let ptr = os::map_pages(layout.size(), layout.align()).as_page_allocator_error().?;
+            let ptr = os::mapPages(layout.size(), layout.align()).as_page_allocator_error().?;
             !Block::init(ptr, layout)
         }
     }
@@ -35,7 +35,7 @@ extend PageAllocator : Allocator {
         }
 
         let mut old_size: usize;
-        switch os::page_aligned_len(block.size()) {
+        switch os::pageAlignedLen(block.size()) {
             !size => {
                 old_size = size;
             },
@@ -44,7 +44,7 @@ extend PageAllocator : Allocator {
             },
         }
         let mut new_size: usize;
-        switch os::page_aligned_len(new_layout.size()) {
+        switch os::pageAlignedLen(new_layout.size()) {
             !size => {
                 new_size = size;
             },
@@ -70,7 +70,7 @@ extend PageAllocator : Allocator {
         if block.layout().is_empty() {
             !{}
         } else {
-            os::unmap_pages(block.ptr(), block.size()).as_page_allocator_error()
+            os::unmapPages(block.ptr(), block.size()).as_page_allocator_error()
         }
     }
 }

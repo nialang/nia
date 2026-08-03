@@ -21,11 +21,11 @@ extend BlockingIo : Io {
 
     pub fn write_file(&mut self, file: os::FileHandle, bytes: &[u8]) os::Error!usize {
         _ = self;
-        file.write_some(bytes)
+        file.writeSome(bytes)
     }
 
     pub fn read_file(&mut self, file: os::FileHandle, bytes: &mut [u8]) os::Error!usize {
         _ = self;
-        file.read_some(bytes)
+        file.readSome(bytes)
     }
 }

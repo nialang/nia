@@ -2597,6 +2597,42 @@ indices, and bounded-allocation failure. The example uses direct borrowed
 arrays and immutable command configuration. Lower-level public `std::os`
 naming/ownership and the broader UTF-8/C-string role audit remain open.
 
+Standard-library reconstruction progress (2026-08-03, OS provider boundary
+batch): page mapping, raw filesystem operations, random data, spawn/wait,
+signals, process termination, directory parsing, metadata conversion, wait
+status, and spawn configuration are now package-private `std::os` capabilities.
+Cross-facade provider names use lower camel (`maxPathBytes`, `pageSize`,
+`openAt`, `mapPages`, `spawnRaw`, `tryWait`, and `killWith`) without retaining
+the snake-case spellings. A negative compiler test proves an ordinary package
+cannot call the provider surface.
+
+`std::os` remains public only because current service signatures still name
+`Error`, `SpawnError`, opaque `FileHandle`, and opaque `ProcessId`. The raw
+handle escape supports child-pipe adaptation through `readSome`, `writeSome`,
+and `close`; process identity exposes `raw`. Filesystem `borrow_handle` and
+`take_handle` are physically removed from the user surface and are package-only
+`borrowHandle`/`takeHandle`; close-state conformance now observes `BadFd`
+through ordinary high-level file/directory operations. `File::setPermissions`
+and `syncData` replace their old spellings with no aliases.
+
+This is a visibility boundary, not acceptance of raw handles as the long-term
+I/O design. Typed child stdin/stdout/stderr roles and an I/O error model that no
+longer names `os::Error` are the next ownership boundary; once they replace the
+remaining public signature leaks, the root `std::os` module can be reconsidered
+as a whole. Linux syscall/backend naming remains package-internal audit work.
+The build-host source-closure snapshot is also reconciled with the already
+reviewed plan, ordering, text hashing, and removed memory-copy providers: it now
+records the actual 95-module closure instead of a stale 93-module list.
+
+Production-path validation exposed a compiler bug rather than a reason to
+re-publicize `os::exit`: full module DCE classified every non-`pub` function as
+private, so a `pub(pkg)` definition with only cross-module callers disappeared
+from its object while another object retained the call. The backend now removes
+only `Visibility::Private` functions and instances. A focused O2 regression
+keeps an otherwise locally unused package-visible provider, and the complete
+configured-build path proves the startup/provider call survives multi-object
+code generation.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

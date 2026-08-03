@@ -820,7 +820,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(5)!;
     }
     let mut byte: [1]u8 = [0];
-    let amount = switch handle.read_some(&mut byte[..]) {
+    let amount = switch handle.readSome(&mut byte[..]) {
         !value => {
             value
         },

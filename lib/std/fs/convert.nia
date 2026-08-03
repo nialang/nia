@@ -76,7 +76,7 @@ extend os::FileMetadata {
             null => {},
         }
         let mut status_changed: ?Timestamp = null;
-        switch self.status_changed() {
+        switch self.statusChanged() {
             ?value => {
                 status_changed = ?value.as_fs_timestamp();
             },
@@ -84,11 +84,11 @@ extend os::FileMetadata {
         }
         Metadata::init(
             self.kind().as_fs_file_kind(),
-            self.file_id(),
-            self.link_count(),
+            self.fileId(),
+            self.linkCount(),
             self.size(),
             self.permissions(),
-            self.preferred_block_size(),
+            self.preferredBlockSize(),
             accessed,
             self.modified().as_fs_timestamp(),
             status_changed,

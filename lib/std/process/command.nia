@@ -137,7 +137,7 @@ extend Command {
     }
 
     pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
-        let mut pathStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let mut pathStorage: [os::maxPathBytes]u8 = [_]u8[0; os::maxPathBytes];
         let encodedPath = self.path.encode(&mut pathStorage[..]).asProcessPathError().?;
         switch self.environment {
             CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
@@ -190,14 +190,14 @@ extend Command {
         };
 
         let mut options = os::SpawnOptions::init();
-        options.set_stdin(self.stdin.asOsStdio()).asProcessSpawnSetupError().?;
-        options.set_stdout(self.stdout.asOsStdio()).asProcessSpawnSetupError().?;
-        options.set_stderr(self.stderr.asOsStdio()).asProcessSpawnSetupError().?;
-        let mut cwdStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        options.setStdin(self.stdin.asOsStdio()).asProcessSpawnSetupError().?;
+        options.setStdout(self.stdout.asOsStdio()).asProcessSpawnSetupError().?;
+        options.setStderr(self.stderr.asOsStdio()).asProcessSpawnSetupError().?;
+        let mut cwdStorage: [os::maxPathBytes]u8 = [_]u8[0; os::maxPathBytes];
         switch self.cwd {
             ?cwd => {
                 let encodedCwd = cwd.encode(&mut cwdStorage[..]).asProcessPathError().?;
-                options.set_cwd(encodedCwd.ptr());
+                options.setCwd(encodedCwd.ptr());
             },
             null => {},
         }
@@ -226,7 +226,7 @@ extend StdIo {
 }
 
 pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
-    let pid = os::spawn_raw(path, argv, envp).asProcessSpawnError().?;
+    let pid = os::spawnRaw(path, argv, envp).asProcessSpawnError().?;
     !Child::init(pid)
 }
 

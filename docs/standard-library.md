@@ -60,16 +60,16 @@ providers.
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
-| `io` | stdout/stderr/files | public runtime type exposes `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade, hide OS provider and test partial writes |
+| `io` | stdout/stderr/files | public runtime and temporary file-handle adapters still expose `os::Error`; buffering/flush cleanup semantics need a matrix | keep host-service facade; replace the remaining OS error/handle escapes and test partial writes |
 | `process` args/env/command | runner context and compiler subprocess | raw argv/envp and coarse spawn/wait errors leak bootstrap mechanics | retire from BuildPlan boundary; expose typed process action/service |
-| `os` Linux facade | path capacity, descriptors, process and I/O providers | broad public low-level facade is a layer violation for build scripts | keep package-private platform provider; review intentional unsafe API separately |
+| `os` Linux facade | path capacity, descriptors, process and I/O providers | operations and intermediate types are package-private; `Error`, `SpawnError`, `FileHandle`, and `ProcessId` remain visible because process/I/O signatures still name them | keep provider private; replace remaining handle/error escapes with typed service roles before deciding whether any raw API is intentional |
 | `build` | graph declaration and execution | callback executor, raw argv, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
 
 Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
 also pulls Unicode behavior. The conservative source-declared facade/provider
 closure is recorded in `std-build-host-dependencies.json` and checked by
-`tools/std_build_host_audit.py`. It currently contains 93 modules: broad facade
+`tools/std_build_host_audit.py`. It currently contains 95 modules: broad facade
 declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
 conceptually require. This is not a claim that loader demand executes every

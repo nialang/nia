@@ -81,6 +81,32 @@ fn readme_nia_examples_check_as_freestanding_programs() {
 }
 
 #[test]
+fn std_os_provider_surface_is_package_private() {
+    let root = temp_dir("std_os_provider_surface_is_package_private");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::os;
+
+fn pageSize() usize {
+    os::pageSize()
+}
+"#,
+    )
+    .expect("write private std os provider source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check private std os provider boundary");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private"), "{stderr}");
+    assert!(stderr.contains("os::pageSize"), "{stderr}");
+}
+
+#[test]
 fn repository_examples_parse_and_representative_examples_check() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let examples_dir = manifest_dir
