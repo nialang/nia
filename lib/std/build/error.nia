@@ -2,6 +2,7 @@ using pkg::error;
 using pkg::fmt;
 using pkg::fs;
 using pkg::mem;
+using pkg::os;
 using pkg::process;
 
 pub enum ErrorOperation {
@@ -105,10 +106,7 @@ extend ErrorCause {
                 fs::Error::OutOfMemory => process::exit(12),
                 _ => process::exit(5),
             },
-            ErrorCause::Process(cause) => switch cause {
-                process::Error::OutOfMemory => process::exit(12),
-                _ => process::exit(5),
-            },
+            ErrorCause::Process(cause) => cause.asExitCode(),
             ErrorCause::Exit(cause) => {
                 _ = cause;
                 process::exit(1)
@@ -350,18 +348,120 @@ fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::E
 
 fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!void {
     switch cause {
-        process::Error::OutOfMemory => formatter.write_text(&"out of memory"),
-        process::Error::Invalid => formatter.write_text(&"invalid"),
-        process::Error::SpawnSetup => formatter.write_text(&"spawn setup"),
-        process::Error::SpawnStdio => formatter.write_text(&"spawn stdio"),
-        process::Error::SpawnCwd => formatter.write_text(&"spawn working directory"),
-        process::Error::SpawnExec => formatter.write_text(&"spawn executable"),
-        process::Error::Wait => formatter.write_text(&"wait"),
-        process::Error::TryWait => formatter.write_text(&"try wait"),
-        process::Error::Kill => formatter.write_text(&"kill"),
-        process::Error::CloseStdin => formatter.write_text(&"close stdin"),
-        process::Error::CloseStdout => formatter.write_text(&"close stdout"),
-        process::Error::CloseStderr => formatter.write_text(&"close stderr"),
-        _ => formatter.write_text(&"system"),
+        process::Error::Allocation(cause) => {
+            writeCausePrefix(formatter, &"allocation").?;
+            writeMemoryCause(formatter, cause)
+        },
+        process::Error::Path(cause) => {
+            writeCausePrefix(formatter, &"path").?;
+            writePathCause(formatter, cause)
+        },
+        process::Error::ArgumentContainsNul(index) => {
+            formatter.write_text(&"argument[").?;
+            formatter.write_unsigned(index as u128).?;
+            formatter.write_text(&"]/contains NUL")
+        },
+        process::Error::SpawnSetup(cause) => {
+            writeCausePrefix(formatter, &"spawn setup").?;
+            writeOsCause(formatter, cause)
+        },
+        process::Error::Spawn(cause) => {
+            writeCausePrefix(formatter, &"spawn").?;
+            writeSpawnCause(formatter, cause)
+        },
+        process::Error::Wait(cause) => {
+            writeCausePrefix(formatter, &"wait").?;
+            writeOsCause(formatter, cause)
+        },
+        process::Error::TryWait(cause) => {
+            writeCausePrefix(formatter, &"try wait").?;
+            writeOsCause(formatter, cause)
+        },
+        process::Error::Kill(cause) => {
+            writeCausePrefix(formatter, &"kill").?;
+            writeOsCause(formatter, cause)
+        },
+        process::Error::Close { stream, cause } => {
+            writeCausePrefix(formatter, &"close").?;
+            writeStdStream(formatter, stream).?;
+            formatter.write_text(&"/").?;
+            writeOsCause(formatter, cause)
+        },
     }
+}
+
+fn writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Error!void {
+    switch cause {
+        fs::PathError::ContainsNul => formatter.write_text(&"contains NUL"),
+        fs::PathError::TooLong => formatter.write_text(&"too long"),
+        _ => formatter.write_text(&"unknown"),
+    }
+}
+
+fn writeStdStream(formatter: &mut fmt::Formatter, stream: process::StdStream) fmt::Error!void {
+    formatter.write_text(switch stream {
+        process::StdStream::Stdin => &"stdin",
+        process::StdStream::Stdout => &"stdout",
+        process::StdStream::Stderr => &"stderr",
+    })
+}
+
+fn writeOsCause(formatter: &mut fmt::Formatter, cause: os::Error) fmt::Error!void {
+    formatter.write_text(switch cause {
+        os::Error::PermissionDenied => &"permission denied",
+        os::Error::NotFound => &"not found",
+        os::Error::Interrupted => &"interrupted",
+        os::Error::Io => &"I/O",
+        os::Error::BadFd => &"bad file descriptor",
+        os::Error::Again => &"try again",
+        os::Error::OutOfMemory => &"out of memory",
+        os::Error::Access => &"access denied",
+        os::Error::Fault => &"bad address",
+        os::Error::Busy => &"busy",
+        os::Error::AlreadyExists => &"already exists",
+        os::Error::CrossDevice => &"cross device",
+        os::Error::NotDir => &"not a directory",
+        os::Error::IsDir => &"is a directory",
+        os::Error::Invalid => &"invalid",
+        os::Error::NoSpace => &"no space",
+        os::Error::ReadOnly => &"read only",
+        os::Error::BrokenPipe => &"broken pipe",
+        os::Error::OutOfRange => &"out of range",
+        os::Error::TooLong => &"too long",
+        os::Error::NotEmpty => &"not empty",
+        os::Error::System => &"system",
+        _ => &"unknown",
+    })
+}
+
+fn writeSpawnCause(formatter: &mut fmt::Formatter, cause: os::SpawnError) fmt::Error!void {
+    formatter.write_text(switch cause {
+        os::SpawnError::PermissionDenied => &"permission denied",
+        os::SpawnError::NotFound => &"not found",
+        os::SpawnError::Interrupted => &"interrupted",
+        os::SpawnError::Io => &"I/O",
+        os::SpawnError::BadFd => &"bad file descriptor",
+        os::SpawnError::Again => &"try again",
+        os::SpawnError::OutOfMemory => &"out of memory",
+        os::SpawnError::Access => &"access denied",
+        os::SpawnError::Fault => &"bad address",
+        os::SpawnError::Busy => &"busy",
+        os::SpawnError::AlreadyExists => &"already exists",
+        os::SpawnError::CrossDevice => &"cross device",
+        os::SpawnError::NotDir => &"not a directory",
+        os::SpawnError::IsDir => &"is a directory",
+        os::SpawnError::Invalid => &"invalid",
+        os::SpawnError::NoSpace => &"no space",
+        os::SpawnError::ReadOnly => &"read only",
+        os::SpawnError::BrokenPipe => &"broken pipe",
+        os::SpawnError::OutOfRange => &"out of range",
+        os::SpawnError::TooLong => &"too long",
+        os::SpawnError::NotEmpty => &"not empty",
+        os::SpawnError::Setup => &"setup",
+        os::SpawnError::Stdio => &"standard I/O",
+        os::SpawnError::Cwd => &"working directory",
+        os::SpawnError::Exec => &"executable",
+        os::SpawnError::System => &"system",
+        _ => &"unknown",
+    })
 }

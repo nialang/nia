@@ -150,7 +150,20 @@ using std::mem;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let invalidArguments: [1]&[char] = [&"bad\0argument"];
+    let invalidPath = process::Command::init(std::PathView::init(&"bad\0path"), init.env());
+    switch invalidPath.spawn() {
+        !child => {
+            _ = child;
+            return process::exit(7)!;
+        },
+        process::Error::Path(std::fs::PathError::ContainsNul)! => {},
+        error! => {
+            _ = error;
+            return process::exit(8)!;
+        },
+    }
+
+    let invalidArguments: [2]&[char] = [&"valid", &"bad\0argument"];
     let invalid = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withArguments(&invalidArguments);
     switch invalid.spawn() {
@@ -158,8 +171,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = child;
             return process::exit(1)!;
         },
-        process::Error::Invalid! => {},
+        process::Error::ArgumentContainsNul(1)! => {},
         error! => {
+            _ = error;
             return process::exit(2)!;
         },
     }
@@ -173,8 +187,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = child;
             return process::exit(5)!;
         },
-        process::Error::OutOfMemory! => {},
+        process::Error::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
+            _ = error;
             return process::exit(6)!;
         },
     }
@@ -412,12 +427,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => {
             value
         },
+        process::Error::Spawn(std::os::SpawnError::Exec)! => return !{},
         error! => {
-            if error == process::Error::SpawnExec {
-                return !{};
-            } else {
-                return process::exit(2)!;
-            }
+            _ = error;
+            return process::exit(2)!;
         },
     };
     _ = child;
@@ -469,7 +482,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 value
             },
             error! => {
-                if error == process::Error::SpawnExec {
+                if error is process::Error::Spawn(std::os::SpawnError::Exec) {
                     index += 1;
                     continue;
                 } else {
@@ -1182,6 +1195,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
+    switch child.killWith(999i32 as process::Signal) {
+        !value => {
+            _ = value;
+            return process::exit(10)!;
+        },
+        process::Error::Kill(std::os::Error::Invalid)! => {},
+        error! => {
+            _ = error;
+            return process::exit(11)!;
+        },
+    }
     let term = switch child.killWith(process::Signal::Kill) {
         !value => {
             value
@@ -1326,12 +1350,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => {
             value
         },
+        process::Error::Spawn(std::os::SpawnError::Cwd)! => return !{},
         error! => {
-            if error == process::Error::SpawnCwd {
-                return !{};
-            } else {
-                return process::exit(3)!;
-            }
+            _ = error;
+            return process::exit(3)!;
         },
     };
     _ = child;
@@ -2200,6 +2222,8 @@ fn emit_exe_exit_code_is_open_enum() {
         r#"
 using std::process;
 using std::fs;
+using std::mem;
+using std::os;
 
 using process::{ExitCode, exit};
 
@@ -2230,6 +2254,21 @@ pub fn main(init: process::Init) ExitCode!void {
     }
     if (fs::Error::NotFound.asExitCode() as i32) != 2 {
         return exit(3)!;
+    }
+    if (process::Error::Allocation(mem::Error::OutOfMemory).asExitCode() as i32) != 12 {
+        return exit(5)!;
+    }
+    if (process::Error::Path(fs::PathError::TooLong).asExitCode() as i32) != 36 {
+        return exit(6)!;
+    }
+    if (process::Error::ArgumentContainsNul(3).asExitCode() as i32) != 22 {
+        return exit(7)!;
+    }
+    if (process::Error::Spawn(os::SpawnError::Exec).asExitCode() as i32) != 104 {
+        return exit(8)!;
+    }
+    if (process::Error::Kill(os::Error::Invalid).asExitCode() as i32) != 22 {
+        return exit(9)!;
     }
     let picked = pick_result().exit().?;
     if (picked as i32) != 11 {

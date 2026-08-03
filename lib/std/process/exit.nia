@@ -44,7 +44,27 @@ extend[T] os::Error!T {
 
 extend Error : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
-        self as i32 as ExitCode
+        switch self {
+            Error::Allocation(cause) => cause.asExitCode(),
+            Error::Path(cause) => switch cause {
+                fs::PathError::ContainsNul => exit(22),
+                fs::PathError::TooLong => exit(36),
+                _ => exit(255),
+            },
+            Error::ArgumentContainsNul(index) => {
+                _ = index;
+                exit(22)
+            },
+            Error::SpawnSetup(cause) => cause.asExitCode(),
+            Error::Spawn(cause) => exit(cause as i32),
+            Error::Wait(cause) => cause.asExitCode(),
+            Error::TryWait(cause) => cause.asExitCode(),
+            Error::Kill(cause) => cause.asExitCode(),
+            Error::Close { stream, cause } => {
+                _ = stream;
+                cause.asExitCode()
+            },
+        }
     }
 }
 

@@ -1,5 +1,4 @@
 using pkg::collections;
-using pkg::error;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
@@ -118,41 +117,43 @@ extend Command {
 
     pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
         let mut pathStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let encodedPath = self.path.encode(&mut pathStorage[..]).asFsError().asProcessSetupError().?;
+        let encodedPath = self.path.encode(&mut pathStorage[..]).asProcessPathError().?;
 
         let mut argumentBytes = collections::ArrayList[u8]::init();
-        defer argumentBytes.deinit(allocator).asProcessSetupError().?;
-        argumentBytes.appendSlice(allocator, encodedPath.nulTerminatedBytes()).asProcessSetupError().?;
+        defer argumentBytes.deinit(allocator).asProcessAllocationError().?;
+        argumentBytes.appendSlice(allocator, encodedPath.nulTerminatedBytes()).asProcessAllocationError().?;
         switch self.arguments {
             ?arguments => {
+                let mut argumentIndex: usize = 0;
                 for &argument in arguments {
-                    appendArgument(allocator, &mut argumentBytes, argument).?;
+                    appendArgument(allocator, &mut argumentBytes, argument, argumentIndex).?;
+                    argumentIndex += 1;
                 }
             },
             null => {},
         }
 
         let mut argv = collections::ArrayList[&u8]::init();
-        defer argv.deinit(allocator).asProcessSetupError().?;
+        defer argv.deinit(allocator).asProcessAllocationError().?;
         let bytes = argumentBytes.asSlice();
         let mut start: usize = 0;
         while start < bytes.len() {
-            argv.push(allocator, &bytes[start]).asProcessSetupError().?;
+            argv.push(allocator, &bytes[start]).asProcessAllocationError().?;
             while bytes[start] != 0 {
                 start += 1;
             }
             start += 1;
         }
-        argv.push(allocator, 0usize as &u8).asProcessSetupError().?;
+        argv.push(allocator, 0usize as &u8).asProcessAllocationError().?;
 
         let mut options = os::SpawnOptions::init();
-        options.set_stdin(self.stdin.asOsStdio()).asProcessSetupError().?;
-        options.set_stdout(self.stdout.asOsStdio()).asProcessSetupError().?;
-        options.set_stderr(self.stderr.asOsStdio()).asProcessSetupError().?;
+        options.set_stdin(self.stdin.asOsStdio()).asProcessSpawnSetupError().?;
+        options.set_stdout(self.stdout.asOsStdio()).asProcessSpawnSetupError().?;
+        options.set_stderr(self.stderr.asOsStdio()).asProcessSpawnSetupError().?;
         let mut cwdStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         switch self.cwd {
             ?cwd => {
-                let encodedCwd = cwd.encode(&mut cwdStorage[..]).asFsError().asProcessSetupError().?;
+                let encodedCwd = cwd.encode(&mut cwdStorage[..]).asProcessPathError().?;
                 options.set_cwd(encodedCwd.ptr());
             },
             null => {},
@@ -182,12 +183,12 @@ extend StdIo {
 }
 
 pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
-    let pid = os::spawn_raw(path, argv, envp).asProcessError().?;
+    let pid = os::spawn_raw(path, argv, envp).asProcessSpawnError().?;
     !Child::init(pid)
 }
 
 fn spawnWithOptions(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
-    let result = os::spawn(path, argv, envp, options).asProcessError().?;
+    let result = os::spawn(path, argv, envp, options).asProcessSpawnError().?;
     !Child::fromSpawnResult(result)
 }
 
@@ -195,22 +196,23 @@ fn appendArgument(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     argument: &[char],
+    argumentIndex: usize,
 ) Error!void {
     let mut byteLen: usize = 0;
     for &ch in argument {
         if ch.codepoint() == 0 {
-            return Error::Invalid!;
+            return Error::ArgumentContainsNul(argumentIndex)!;
         }
         byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
             ?value => value,
-            null => return Error::OutOfMemory!,
+            null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
     let needed = switch byteLen.checked_add(1) {
         ?value => value,
-        null => return Error::OutOfMemory!,
+        null => return Error::Allocation(mem::Error::OutOfMemory)!,
     };
-    bytes.reserve(allocator, needed).asProcessSetupError().?;
+    bytes.reserve(allocator, needed).asProcessAllocationError().?;
     for &ch in argument {
         bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
     }
@@ -218,88 +220,38 @@ fn appendArgument(
     !{}
 }
 
-extend os::SpawnError : error::IntoError[Error] {
-    fn into_error(self) Error {
-        switch self {
-            os::SpawnError::Invalid => Error::Invalid,
-            os::SpawnError::Setup => Error::SpawnSetup,
-            os::SpawnError::Stdio => Error::SpawnStdio,
-            os::SpawnError::Cwd => Error::SpawnCwd,
-            os::SpawnError::Exec => Error::SpawnExec,
-            os::SpawnError::System => Error::System,
-            _ => Error::System,
-        }
-    }
-}
-
-extend os::SpawnError {
-    fn asProcessError(self) Error {
-        self.into_error()
-    }
-}
-
 extend[T] os::SpawnError!T {
-    fn asProcessError(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend os::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+    fn asProcessSpawnError(self) Error!T {
         switch self {
-            os::Error::Invalid => Error::Invalid,
-            os::Error::System => Error::System,
-            _ => Error::SpawnSetup,
+            !value => !value,
+            cause! => Error::Spawn(cause)!,
         }
-    }
-}
-
-extend os::Error {
-    fn asProcessSetupError(self) Error {
-        self.into_error()
     }
 }
 
 extend[T] os::Error!T {
-    fn asProcessSetupError(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend fs::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+    fn asProcessSpawnSetupError(self) Error!T {
         switch self {
-            fs::Error::Invalid => Error::Invalid,
-            fs::Error::TooLong => Error::Invalid,
-            _ => Error::SpawnSetup,
+            !value => !value,
+            cause! => Error::SpawnSetup(cause)!,
         }
     }
 }
 
-extend fs::Error {
-    fn asProcessSetupError(self) Error {
-        self.into_error()
-    }
-}
-
-extend[T] fs::Error!T {
-    fn asProcessSetupError(self) Error!T {
-        self.cast_error()
-    }
-}
-
-extend mem::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+extend[T] fs::PathError!T {
+    fn asProcessPathError(self) Error!T {
         switch self {
-            mem::Error::OutOfMemory => Error::OutOfMemory,
-            mem::Error::Invalid => Error::Invalid,
-            _ => Error::System,
+            !value => !value,
+            cause! => Error::Path(cause)!,
         }
     }
 }
 
 extend[T] mem::Error!T {
-    fn asProcessSetupError(self) Error!T {
-        self.cast_error()
+    fn asProcessAllocationError(self) Error!T {
+        switch self {
+            !value => !value,
+            cause! => Error::Allocation(cause)!,
+        }
     }
 }

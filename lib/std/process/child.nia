@@ -1,7 +1,7 @@
 using pkg::os;
 using pkg::process::types;
 
-using types::{Child, ChildState, ChildStateKind, ChildStatePayload, Error, ExitedChild, RunningChild, Signal, Term};
+using types::{Child, ChildState, ChildStateKind, ChildStatePayload, Error, ExitedChild, RunningChild, Signal, StdStream, Term};
 
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
@@ -47,7 +47,7 @@ extend Child {
     pub fn closeStdin(&mut self) Error!void {
         switch self.takeStdin() {
             ?handle => {
-                handle.close().asProcessError(Error::CloseStdin)
+                handle.close().asProcessCloseError(StdStream::Stdin)
             },
             null => {
                 !{}
@@ -58,7 +58,7 @@ extend Child {
     pub fn closeStdout(&mut self) Error!void {
         switch self.takeStdout() {
             ?handle => {
-                handle.close().asProcessError(Error::CloseStdout)
+                handle.close().asProcessCloseError(StdStream::Stdout)
             },
             null => {
                 !{}
@@ -69,7 +69,7 @@ extend Child {
     pub fn closeStderr(&mut self) Error!void {
         switch self.takeStderr() {
             ?handle => {
-                handle.close().asProcessError(Error::CloseStderr)
+                handle.close().asProcessCloseError(StdStream::Stderr)
             },
             null => {
                 !{}
@@ -93,7 +93,7 @@ extend Child {
         }
         let pid = self.state.pid();
         self.closeStdin().?;
-        let status = os::wait(pid).asProcessError(Error::Wait).?;
+        let status = os::wait(pid).asProcessWaitError().?;
         self.state = ChildState::exited(pid, status);
         self.closeStdout().?;
         self.closeStderr().?;
@@ -108,7 +108,7 @@ extend Child {
             null => {},
         }
         let pid = self.state.pid();
-        let status = os::try_wait(pid).asProcessError(Error::TryWait).?;
+        let status = os::try_wait(pid).asProcessTryWaitError().?;
         switch status {
             ?value => {
                 self.state = ChildState::exited(pid, value);
@@ -149,7 +149,7 @@ extend Child {
             },
             null => {},
         }
-        os::kill_with(self.state.pid(), signal as i32).asProcessError(Error::Kill).?;
+        os::kill_with(self.state.pid(), signal as i32).asProcessKillError().?;
         self.wait()
     }
 }
@@ -208,25 +208,38 @@ extend ExitedChild {
     }
 }
 
-extend os::Error {
-    fn asProcessError(self, context: Error) Error {
+extend[T] os::Error!T {
+    fn asProcessCloseError(self, stream: StdStream) Error!T {
         switch self {
-            os::Error::Invalid => Error::Invalid,
-            os::Error::System => Error::System,
-            _ => context,
+            !value => !value,
+            cause! => Error::Close { stream: stream, cause: cause }!,
         }
     }
 }
 
 extend[T] os::Error!T {
-    fn asProcessError(self, context: Error) Error!T {
+    fn asProcessWaitError(self) Error!T {
         switch self {
-            !value => {
-                !value
-            },
-            error! => {
-                error.asProcessError(context)!
-            },
+            !value => !value,
+            cause! => Error::Wait(cause)!,
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    fn asProcessTryWaitError(self) Error!T {
+        switch self {
+            !value => !value,
+            cause! => Error::TryWait(cause)!,
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    fn asProcessKillError(self) Error!T {
+        switch self {
+            !value => !value,
+            cause! => Error::Kill(cause)!,
         }
     }
 }
