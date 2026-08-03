@@ -6,8 +6,8 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_std_string_compares_searches_and_hashes_scalar_text() {
-    let root = temp_dir("emit_exe_std_string_compares_searches_and_hashes_scalar_text");
+fn emit_exe_std_string_supports_scalar_text_workflows() {
+    let root = temp_dir("emit_exe_std_string_supports_scalar_text_workflows");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -176,6 +176,64 @@ pub fn main(init: process::Init) process::ExitCode!void {
     defer literalReplaced.deinit(page).exit().?;
     if not literalReplaced.equals(&"xbx") {
         return process::exit(26)!;
+    }
+
+    let parts: [4]&[char] = [&"left", &"λ", &"", &"right"];
+    let mut joined = (&parts).join(page, &"|").exit().?;
+    defer joined.deinit(page).exit().?;
+    if not joined.equals(&"left|λ||right") or joined.capacity() != joined.len() {
+        return process::exit(27)!;
+    }
+
+    let mut concatenated = (&parts).join(page, &"").exit().?;
+    defer concatenated.deinit(page).exit().?;
+    if not concatenated.equals(&"leftλright") {
+        return process::exit(28)!;
+    }
+
+    let emptyParts: [0]&[char] = [];
+    let mut emptyJoined = (&emptyParts).join(page, &"ignored").exit().?;
+    defer emptyJoined.deinit(page).exit().?;
+    if not emptyJoined.isEmpty() or emptyJoined.capacity() != 0 {
+        return process::exit(29)!;
+    }
+
+    let singlePart: [1]&[char] = [text];
+    let mut singleJoined = (&singlePart).join(page, &"ignored").exit().?;
+    defer singleJoined.deinit(page).exit().?;
+    singleJoined.textMut()[0] = 'A';
+    if not singleJoined.equals(&"Alpha λ beta λ") or not text.equals(&"alpha λ beta λ") {
+        return process::exit(30)!;
+    }
+
+    let borrowedParts: [2]&[char] = [text, owned.text()];
+    let mut joinedBorrowed = (&borrowedParts).join(page, &" / ").exit().?;
+    defer joinedBorrowed.deinit(page).exit().?;
+    joinedBorrowed.textMut()[0] = 'A';
+    if not joinedBorrowed.equals(&"Alpha λ beta λ / alpha λ beta λ!++?")
+        or not text.equals(&"alpha λ beta λ")
+        or not owned.equals(&"alpha λ beta λ!++?")
+    {
+        return process::exit(31)!;
+    }
+
+    let mut joinTinyStorage: [4]u8 = [0; 4];
+    let mut joinTiny = mem::FixedBufferAllocator::init(&mut joinTinyStorage);
+    let largeParts: [2]&[char] = [&"aaa", &"bbb"];
+    switch (&largeParts).join(&mut joinTiny, &"--") {
+        !result => {
+            let mut unexpected = result;
+            unexpected.deinit(&mut joinTiny).exit().?;
+            return process::exit(32)!;
+        },
+        mem::Error::OutOfMemory! => {},
+        err! => {
+            _ = err;
+            return process::exit(33)!;
+        },
+    }
+    if not largeParts[0].equals(&"aaa") or not largeParts[1].equals(&"bbb") {
+        return process::exit(34)!;
     }
 
     let mut lambdaCount = 0;

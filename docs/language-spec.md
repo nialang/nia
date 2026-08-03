@@ -978,6 +978,21 @@ length before allocation, allocates once, and returns `mem::Error::OutOfMemory`
 without a partial result. `replacement` may borrow from the source because the
 source remains unchanged while the independent result is built.
 
+A borrowed text sequence `&[&[char]]` provides
+`join(allocator, separator)`. The result is an independent `String`; input
+parts and the separator remain borrowed and unchanged. Empty input produces an
+empty string, one part produces an independent copy without a separator, and
+an empty separator concatenates the parts. Join scans the repeatable input
+slice once to compute the exact scalar length and then once to fill a single
+allocation. Length overflow and allocation failure both report
+`mem::Error::OutOfMemory` without a partial result. A literal collection uses
+one contextual annotation:
+
+```nia
+let parts: [3]&[char] = [&"build", &"λ", owned.text()];
+let mut joined = (&parts).join(allocator, &"/").?;
+```
+
 `copyFrom(source)` is the ordinary slice copy operation. It copies
 `min(receiver.len(), source.len())` initialized element representations,
 handles overlapping ranges, and returns that element count. The return value
@@ -2464,6 +2479,9 @@ extend math::Point {
 }
 ```
 
+Concrete structural targets use the same type grammar, including nested slice
+pointees such as `extend [&[char]] { ... }`.
+
 `extend` itself is not marked `pub`. Method visibility is written on the method:
 
 ```nia
@@ -3263,7 +3281,9 @@ Borrowed `[char]` receives `equals`, `startsWith`, `endsWith`, `find`, and
 `contains` from the generic slice sequence API. `String` exposes the same
 scalar-text content operations and borrowed `split(separator)` iterator by
 delegating to its borrowed view. Borrowed `[char]` and `String` also expose
-allocator-explicit `replaceAll`, which creates independent owned text. `find`
+allocator-explicit `replaceAll`, which creates independent owned text.
+Borrowed text sequences expose allocator-explicit `join`, also producing an
+independent `String`. `find`
 returns the first matching scalar index as `?usize`. An empty needle matches at
 index zero, and these operations are allocation-free.
 `[char]` and `String` implement `std::hash::Hash[H]` when `H` implements
