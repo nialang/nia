@@ -170,8 +170,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emits_std_file_writer_through_process_io_capability() {
-    let root = temp_dir("emits_std_file_writer_through_process_io_capability");
+fn emits_std_file_writer_without_runtime_backend_plumbing() {
+    let root = temp_dir("emits_std_file_writer_without_runtime_backend_plumbing");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -181,8 +181,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    switch stdout.write_all(&b"nia\n") {
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
+    switch stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -216,8 +216,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emits_std_buffered_file_writer_flush_through_process_io() {
-    let root = temp_dir("emits_std_buffered_file_writer_flush_through_process_io");
+fn emits_std_buffered_file_writer_flush() {
+    let root = temp_dir("emits_std_buffered_file_writer_flush");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -228,9 +228,9 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [64]u8 = [0; 64];
     let mut raw_buffer: [0]u8 = [];
-    let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
+    let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    switch stdout.write_all(&b"nia\n") {
+    switch stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },

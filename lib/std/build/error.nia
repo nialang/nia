@@ -1,6 +1,7 @@
 using pkg::error;
 using pkg::fmt;
 using pkg::fs;
+using pkg::io;
 using pkg::mem;
 using pkg::os;
 using pkg::process;
@@ -391,7 +392,7 @@ fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt:
             writeCausePrefix(formatter, &"close").?;
             writeStdStream(formatter, stream).?;
             formatter.write_text(&"/").?;
-            writeOsCause(formatter, cause)
+            writeIoCause(formatter, cause)
         },
     }
 }
@@ -452,6 +453,39 @@ fn writeOsCause(formatter: &mut fmt::Formatter, cause: os::Error) fmt::Error!voi
         os::Error::System => &"system",
         _ => &"unknown",
     })
+}
+
+fn writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!void {
+    switch cause {
+        io::Error::EndOfStream => formatter.write_text(&"end of stream"),
+        io::Error::ShortWrite => formatter.write_text(&"short write"),
+        io::Error::Closed => formatter.write_text(&"closed"),
+        io::Error::System(system) => formatter.write_text(switch system {
+            io::SystemError::PermissionDenied => &"permission denied",
+            io::SystemError::NotFound => &"not found",
+            io::SystemError::Interrupted => &"interrupted",
+            io::SystemError::Io => &"I/O",
+            io::SystemError::BadFd => &"bad file descriptor",
+            io::SystemError::Again => &"try again",
+            io::SystemError::OutOfMemory => &"out of memory",
+            io::SystemError::Access => &"access denied",
+            io::SystemError::Fault => &"bad address",
+            io::SystemError::Busy => &"busy",
+            io::SystemError::AlreadyExists => &"already exists",
+            io::SystemError::CrossDevice => &"cross device",
+            io::SystemError::NotDir => &"not a directory",
+            io::SystemError::IsDir => &"is a directory",
+            io::SystemError::Invalid => &"invalid",
+            io::SystemError::NoSpace => &"no space",
+            io::SystemError::ReadOnly => &"read only",
+            io::SystemError::BrokenPipe => &"broken pipe",
+            io::SystemError::OutOfRange => &"out of range",
+            io::SystemError::TooLong => &"too long",
+            io::SystemError::NotEmpty => &"not empty",
+            io::SystemError::System => &"system",
+            _ => &"unknown",
+        }),
+    }
 }
 
 fn writeSpawnCause(formatter: &mut fmt::Formatter, cause: os::SpawnError) fmt::Error!void {

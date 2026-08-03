@@ -202,10 +202,6 @@ extend Build {
         cleanupResult(firstError)
     }
 
-    pub fn io(&self) &mut io::Io[Error = os::Error] {
-        self.init.io()
-    }
-
     pub fn packageRoot(&self) fs::PathView {
         self.paths.packageRoot.view()
     }
@@ -584,7 +580,7 @@ extend Build {
 
     pub fn reportError(&mut self, error: Error) Error!void {
         let mut buffer: [1024]u8 = [_]u8[0; 1024];
-        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer);
+        let mut stderr = io::FileWriter::stderr(&mut buffer);
         stderr.print(
             &"build error: {}\n",
             &[&error],
@@ -687,7 +683,7 @@ extend Build {
 
     fn reportUnknownStep(&mut self, step: process::Arg) Error!void {
         let mut buffer: [256]u8 = [_]u8[0; 256];
-        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer);
+        let mut stderr = io::FileWriter::stderr(&mut buffer);
         stderr.print(&"unknown build step `{}`\n", &[&step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
         stderr.flush().asBuildError(Operation::Report, Subject::RequestedStep)
     }

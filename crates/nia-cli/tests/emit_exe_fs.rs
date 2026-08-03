@@ -37,8 +37,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     cwd.create_dir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()).exit().?;
     let mut file = cwd.create_file(path.view(), fs::CreateOptions::read_write()).exit().?;
     let mut buffer: [16]u8 = [0; 16];
-    let mut writer = file.writer(init.io(), &mut buffer[..]).exit().?;
-    writer.write_all(&b"joined").exit().?;
+    let mut writer = file.writer(&mut buffer[..]).exit().?;
+    writer.writeAll(&b"joined").exit().?;
     writer.flush().exit().?;
     file.close().exit().?;
     !{}
@@ -170,8 +170,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     let mut write_buffer: [64]u8 = [0; 64];
-    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    switch writer.write_all(&b"nia fs") {
+    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    switch writer.writeAll(&b"nia fs") {
         !ok => {
             _ = ok;
         },
@@ -206,9 +206,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     let mut read_buffer: [64]u8 = [0; 64];
-    let mut reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
+    let mut reader = opened.reader(&mut read_buffer[..]).exit().?;
     let mut bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
-    switch reader.read_exact(&mut bytes[..]) {
+    switch reader.readExact(&mut bytes[..]) {
         !ok => {
             _ = ok;
         },
@@ -287,8 +287,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     let mut write_buffer: [16]u8 = [0; 16];
-    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    switch writer.write_all(&b"open close") {
+    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    switch writer.writeAll(&b"open close") {
         !ok => {
             _ = ok;
         },
@@ -323,9 +323,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     let mut read_buffer: [16]u8 = [0; 16];
-    let mut reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
+    let mut reader = opened.reader(&mut read_buffer[..]).exit().?;
     let mut bytes: [10]u8 = [0; 10];
-    switch reader.read_exact(&mut bytes[..]) {
+    switch reader.readExact(&mut bytes[..]) {
         !ok => {
             _ = ok;
         },
@@ -431,7 +431,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     let mut buffer: [8]u8 = [0; 8];
-    switch file.writer(init.io(), &mut buffer[..]) {
+    switch file.writer(&mut buffer[..]) {
         !writer => {
             _ = writer;
             return process::exit(7)!;
@@ -581,8 +581,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut write_buffer: [16]u8 = [0; 16];
-    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    switch writer.write_all(&b"abcdef") {
+    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    switch writer.writeAll(&b"abcdef") {
         !ok => {
             _ = ok;
         },
@@ -766,8 +766,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut write_buffer: [16]u8 = [0; 16];
-    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    switch writer.write_all(&b"metadata") {
+    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    switch writer.writeAll(&b"metadata") {
         !ok => {
             _ = ok;
         },
@@ -984,8 +984,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
     let mut buffer: [64]u8 = [0; 64];
-    let mut writer = file.writer(init.io(), &mut buffer[..]).exit().?;
-    switch writer.write_all(&b"ok") {
+    let mut writer = file.writer(&mut buffer[..]).exit().?;
+    switch writer.writeAll(&b"ok") {
         !ok => {
             _ = ok;
         },

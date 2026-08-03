@@ -60,7 +60,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     configure(b).?;
 
     let mut buffer: [1024]u8 = [_]u8[0; 1024];
-    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.print(&"root={}\n", &[b.packageRoot().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     stdout.print(&"build={}\n", &[b.buildDir().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     stdout.print(&"cache={}\n", &[b.cacheDir().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;

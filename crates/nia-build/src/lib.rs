@@ -518,7 +518,7 @@ extend[T] build::Error!T {
             !value => !value,
             error! => {
                 let mut buffer: [1024]u8 = [_]u8[0; 1024];
-                let mut stderr = io::FileWriter::stderr(init.io(), &mut buffer[..]);
+                let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
                 switch stderr.print(&"build error: {}\n", &[&error]).asBuildError(
                     build::ErrorOperation::Report,
                     build::ErrorSubject::Diagnostic,

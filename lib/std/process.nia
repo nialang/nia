@@ -4,6 +4,7 @@ pub(pkg) module command;
 pub(pkg) module env;
 pub(pkg) module exit;
 pub(pkg) module init;
+pub(pkg) module pipe;
 pub(pkg) module term;
 pub(pkg) module types;
 
@@ -13,6 +14,7 @@ using pkg::process::command;
 using pkg::process::env;
 using pkg::process::exit;
 using pkg::process::init;
+using pkg::process::pipe;
 using pkg::process::term;
 
 pub using command::spawnRaw;
@@ -22,6 +24,9 @@ pub using types::{
     Args,
     ArgsIter,
     Child,
+    ChildStderr,
+    ChildStdin,
+    ChildStdout,
     Command,
     Env,
     EnvEntry,

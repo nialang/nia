@@ -175,11 +175,17 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   `SpawnSetup(os::Error)` and `Spawn(os::SpawnError)` preserve command
   configuration and native spawn failures. `Wait`, `TryWait`, and `Kill` retain
   their `os::Error`, while `Close { stream, cause }` retains both a `StdStream`
-  identity and the close error. The executable inserted as argv[0] is not
+  identity and an `io::Error`. The executable inserted as argv[0] is not
   counted as an argument index. There are no flat compatibility variants for
   these errors.
-- `Child` transfers pipe handles with `takeStdin`, `takeStdout`, and
-  `takeStderr`; it provides `wait`, `tryWait`, `kill`, and `killWith`. `Term`
+- `Child` transfers role-specific `ChildStdin`, `ChildStdout`, and `ChildStderr`
+  values with `takeStdin`, `takeStdout`, and `takeStderr`. Child stdin implements
+  `io::Writer`; child stdout and stderr implement `io::Reader`. Each role owns
+  an invalidatable handle, provides idempotent `close`, reports later access as
+  `io::Error::Closed`, and offers `buffered(buffer)` without requiring callers
+  to spell a generic adapter type. A taken pipe remains owned by the caller
+  across `wait` or `tryWait`; the child closes only untaken pipes. `Child` also
+  provides `wait`, `tryWait`, `kill`, and `killWith`. `Term`
   classifies results through `kind`, `code`, `succeeded`, `exitCode`, and
   `signalCode`. Raw OS wait-status conversion is not a public process API.
 - `process::Error.asExitCode()` derives the exit value from the retained cause:
@@ -204,17 +210,22 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   the pointer remains valid and reaches an accessible NUL byte for every view
   operation.
 - `std::os` defines the target-dispatched provider used by typed std services.
-  Page mapping, path/file operations, random data, spawn/wait, signals, and
+  Page mapping, path/file operations, raw file handles, random data, spawn/wait,
+  signals, and
   process termination are package-private implementation capabilities rather
   than an alternate public API. `Error` and `SpawnError` remain public because
-  current process and I/O signatures retain their exact causes. The opaque
-  `FileHandle` and `ProcessId` escape types remain temporarily available for
-  child pipes and process identity; their public operations are limited to
-  `readSome`, `writeSome`, `close`, and `raw`.
+  current process signatures retain their exact causes. `ProcessId` remains a
+  temporary public escape for process identity and exposes only `raw`; raw
+  `FileHandle` is package-private and is not a user adaptation path.
 - `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
-  `FileReader` and `FileWriter` adapt the temporary `os::FileHandle` escape
-  type, so complete reads and writes are provided by `std::io` rather than by
-  platform file-descriptor helpers.
+  Their reviewed convenience methods are `readExact`, `writeAll`, `writeByte`,
+  `endOfStream`, `shortWrite`, and `discardBuffered`; the former snake-case
+  spellings are absent.
+  `FileReader::stdin(buffer)`, `FileWriter::stdout(buffer)`,
+  `FileWriter::stderr(buffer)`, and `File.reader/writer(buffer)` hide platform
+  handles and need no runtime backend object. `process::Init` consequently
+  carries only argument and environment startup views; it has no `io()`
+  capability plumbing.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper traps if the stderr write or flush fails; use `std::io` and
   explicit error propagation for application stdout or recoverable I/O.

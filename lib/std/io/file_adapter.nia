@@ -1,21 +1,17 @@
 using pkg::fs;
-using pkg::io::runtime;
 using pkg::io::traits;
 using pkg::os;
 using pkg::slice;
 
 using traits::{Reader, Writer};
-using runtime::Io;
 
 pub struct FileWriter {
-    io: &mut Io[Error = os::Error],
     file: os::FileHandle,
     buffer: &mut [u8],
     len: usize,
 }
 
 pub struct FileReader {
-    io: &mut Io[Error = os::Error],
     file: os::FileHandle,
     buffer: &mut [u8],
     start: usize,
@@ -23,26 +19,26 @@ pub struct FileReader {
 }
 
 extend fs::File {
-    pub fn writer(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) fs::Error!FileWriter {
-        !FileWriter::init(io, self.borrowHandle().?, buffer)
+    pub fn writer(&self, buffer: &mut [u8]) fs::Error!FileWriter {
+        !FileWriter::init(self.borrowHandle().?, buffer)
     }
 
-    pub fn reader(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) fs::Error!FileReader {
-        !FileReader::init(io, self.borrowHandle().?, buffer)
+    pub fn reader(&self, buffer: &mut [u8]) fs::Error!FileReader {
+        !FileReader::init(self.borrowHandle().?, buffer)
     }
 }
 
 extend FileWriter {
-    pub fn init(io: &mut Io[Error = os::Error], file: os::FileHandle, buffer: &mut [u8]) FileWriter {
-        { io: io, file: file, buffer: buffer, len: 0 }
+    pub(pkg) fn init(file: os::FileHandle, buffer: &mut [u8]) FileWriter {
+        { file: file, buffer: buffer, len: 0 }
     }
 
-    pub fn stdout(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
-        FileWriter::init(io, os::FileHandle::stdout(), buffer)
+    pub fn stdout(buffer: &mut [u8]) FileWriter {
+        FileWriter::init(os::FileHandle::stdout(), buffer)
     }
 
-    pub fn stderr(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
-        FileWriter::init(io, os::FileHandle::stderr(), buffer)
+    pub fn stderr(buffer: &mut [u8]) FileWriter {
+        FileWriter::init(os::FileHandle::stderr(), buffer)
     }
 
     pub fn len(&self) usize {
@@ -58,10 +54,7 @@ extend FileWriter {
     }
 
     fn write_direct(&mut self, bytes: &[u8]) fs::Error!usize {
-        self.io.write_file(
-            self.file,
-            bytes,
-        ).as_fs_error()
+        self.file.writeSome(bytes).as_fs_error()
     }
 
     fn append_buffered(&mut self, bytes: &[u8]) void {
@@ -77,7 +70,7 @@ extend FileWriter {
 extend FileWriter : Writer {
     type Error = fs::Error;
 
-    pub fn short_write(&self) Error {
+    pub fn shortWrite(&self) Error {
         fs::Error::Io
     }
 
@@ -103,7 +96,7 @@ extend FileWriter : Writer {
         while self.len != 0 {
             let n = self.write_direct(& self.buffer[0..self.len]).?;
             if n == 0 {
-                return self.short_write()!;
+                return self.shortWrite()!;
             }
             if n == self.len {
                 self.len = 0;
@@ -121,12 +114,12 @@ extend FileWriter : Writer {
 }
 
 extend FileReader {
-    pub fn init(io: &mut Io[Error = os::Error], file: os::FileHandle, buffer: &mut [u8]) FileReader {
-        { io: io, file: file, buffer: buffer, start: 0, end: 0 }
+    pub(pkg) fn init(file: os::FileHandle, buffer: &mut [u8]) FileReader {
+        { file: file, buffer: buffer, start: 0, end: 0 }
     }
 
-    pub fn stdin(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileReader {
-        FileReader::init(io, os::FileHandle::stdin(), buffer)
+    pub fn stdin(buffer: &mut [u8]) FileReader {
+        FileReader::init(os::FileHandle::stdin(), buffer)
     }
 
     pub fn len(&self) usize {
@@ -141,16 +134,13 @@ extend FileReader {
         & self.buffer[self.start..self.end]
     }
 
-    pub fn discard_buffered(&mut self) void {
+    pub fn discardBuffered(&mut self) void {
         self.start = 0;
         self.end = 0;
     }
 
     fn read_direct(&mut self, bytes: &mut [u8]) fs::Error!usize {
-        self.io.read_file(
-            self.file,
-            bytes,
-        ).as_fs_error()
+        self.file.readSome(bytes).as_fs_error()
     }
 
     fn read_buffered(&mut self, bytes: &mut [u8]) usize {
@@ -162,7 +152,7 @@ extend FileReader {
         _ = (&mut bytes[0..count]).copyFrom(&self.buffer[self.start..(self.start + count)]);
         self.start += count;
         if self.start == self.end {
-            self.discard_buffered();
+            self.discardBuffered();
         }
         count
     }
@@ -171,7 +161,7 @@ extend FileReader {
 extend FileReader : Reader {
     type Error = fs::Error;
 
-    pub fn end_of_stream(&self) Error {
+    pub fn endOfStream(&self) Error {
         fs::Error::Io
     }
 

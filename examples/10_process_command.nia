@@ -10,9 +10,18 @@ pub fn main(init: Init) ExitCode!void {
     // The executable path becomes argv[0]; arguments contains only user arguments.
     let command = process::Command::init(fs::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
-        .withEnvironment(&environment);
-    let term = command.run().exit().?;
-    if not term.succeeded() {
+        .withEnvironment(&environment)
+        .withStdout(process::StdIo::Pipe);
+    let mut child = command.spawn().exit().?;
+    let mut stdout = switch child.takeStdout() {
+        ?value => value,
+        null => return process::exit(1)!,
+    };
+    let mut output: [18]u8 = [0; 18];
+    stdout.readExact(&mut output[..]).exit().?;
+    stdout.close().exit().?;
+    let term = child.wait().exit().?;
+    if not term.succeeded() or not (&output[..]).equals(&b"typed environment\n") {
         return process::exit(1)!;
     }
     !{}

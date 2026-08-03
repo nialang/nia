@@ -7,7 +7,7 @@ pub fn main(init: Init) ExitCode!void {
     let mut buffer: [128]u8 = [0; 128];
     // Application stdout goes through std::io. The writer keeps pointers to
     // the runtime I/O state and caller-provided scratch buffer.
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    let mut stdout = io::FileWriter::stdout(&mut buffer);
     let name = "nia";
     let answer: i32 = 42;
     let byte: u8 = 171;

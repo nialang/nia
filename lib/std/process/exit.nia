@@ -42,6 +42,35 @@ extend[T] os::Error!T {
     }
 }
 
+extend io::SystemError : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
+extend io::Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        switch self {
+            io::Error::EndOfStream => exit(5),
+            io::Error::ShortWrite => exit(5),
+            io::Error::Closed => exit(9),
+            io::Error::System(cause) => cause.into_error(),
+        }
+    }
+}
+
+extend io::Error {
+    pub fn asExitCode(self) ExitCode {
+        self.into_error()
+    }
+}
+
+extend[T] io::Error!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}
+
 extend Error : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
         switch self {

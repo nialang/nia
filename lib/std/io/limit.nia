@@ -42,8 +42,8 @@ where R: Reader
 {
     type Error = [R as Reader]::Error;
 
-    pub fn end_of_stream(&self) Error {
-        self.reader.end_of_stream()
+    pub fn endOfStream(&self) Error {
+        self.reader.endOfStream()
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {

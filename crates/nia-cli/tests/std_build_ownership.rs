@@ -221,7 +221,7 @@ fn isPlanEncodingOom(error: build::Error) bool {
 
 fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!void {
     let mut buffer: [512]u8 = [_]u8[0; 512];
-    let mut stderr = io::FileWriter::stderr(init.io(), &mut buffer[..]);
+    let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
     stderr.print(&"unexpected build error: {}\n", &[&error]).exit().?;
     stderr.flush().exit().?;
     !{}

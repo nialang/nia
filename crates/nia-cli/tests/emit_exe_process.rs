@@ -412,8 +412,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
     let mut buffer: [64]u8 = [0; 64];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    stdout.write_all(&b"ok").exit().?;
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
+    stdout.writeAll(&b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -469,8 +469,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
     let mut buffer: [64]u8 = [0; 64];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    stdout.write_all(&b"ok").exit().?;
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
+    stdout.writeAll(&b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -529,8 +529,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
     let mut buffer: [64]u8 = [0; 64];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    stdout.write_all(&b"ok").exit().?;
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
+    stdout.writeAll(&b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -710,7 +710,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    let handle = switch child.takeStdout() {
+    let mut stdout = switch child.takeStdout() {
         ?value => {
             value
         },
@@ -718,11 +718,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     };
-    let mut read_buffer: [16]u8 = [0; 16];
-    let mut reader = io::FileReader::init(init.io(), handle, &mut read_buffer[..]);
+    let mut readBuffer: [16]u8 = [0; 16];
     let mut output: [11]u8 = [0; 11];
-    reader.read_exact(&mut output[..]).exit().?;
-    handle.close().exit().?;
+    {
+        let mut reader = stdout.buffered(&mut readBuffer[..]);
+        reader.readExact(&mut output[..]).exit().?;
+    }
+    stdout.close().exit().?;
     let term = switch child.wait() {
         !value => {
             value
@@ -756,6 +758,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
+
 "#,
     )
     .expect("write test source");
@@ -779,6 +782,69 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_command_can_pipe_stderr() {
+    let root = temp_dir("emit_exe_std_process_command_can_pipe_stderr");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::io;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let arguments: [2]&[char] = [&"-c", &"printf pipe-error >&2"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStderr(process::StdIo::Pipe);
+    let mut child = switch command.spawn() {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(1)!;
+        },
+    };
+    let mut stderr = switch child.takeStderr() {
+        ?value => value,
+        null => return process::exit(2)!,
+    };
+    let mut output: [10]u8 = [0; 10];
+    stderr.readExact(&mut output[..]).exit().?;
+    stderr.close().exit().?;
+    let term = child.wait().exit().?;
+    if not term.succeeded() {
+        return process::exit(3)!;
+    }
+    let expected: [10]u8 = [b'p', b'i', b'p', b'e', b'-', b'e', b'r', b'r', b'o', b'r'];
+    if not (&output[..]).equals(&expected[..]) {
+        return process::exit(4)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std process pipe stderr");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe)
+        .output_timeout_without_resources("run emitted std process pipe stderr executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit() {
     let root = temp_dir("emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit");
     let main = root.join("main.nia");
@@ -787,6 +853,7 @@ fn emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit() {
         &main,
         r#"
 using std;
+using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -800,7 +867,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     };
-    let handle = switch child.takeStdout() {
+    let mut stdout = switch child.takeStdout() {
         ?value => {
             value
         },
@@ -820,7 +887,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(5)!;
     }
     let mut byte: [1]u8 = [0];
-    let amount = switch handle.readSome(&mut byte[..]) {
+    let amount = switch stdout.read(&mut byte[..]) {
         !value => {
             value
         },
@@ -828,7 +895,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(6)!;
         },
     };
-    handle.close().exit().?;
+    stdout.close().exit().?;
+    stdout.close().exit().?;
+    switch stdout.read(&mut byte[..]) {
+        !value => {
+            _ = value;
+            return process::exit(8)!;
+        },
+        io::Error::Closed! => {},
+        error! => {
+            _ = error;
+            return process::exit(9)!;
+        },
+    }
     if amount != 0usize {
         return process::exit(7)!;
     }
@@ -881,7 +960,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     };
 
-    let stdin_handle = switch child.takeStdin() {
+    let mut stdin = switch child.takeStdin() {
         ?value => {
             value
         },
@@ -889,13 +968,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     };
-    let mut write_buffer: [16]u8 = [0; 16];
-    let mut writer = io::FileWriter::init(init.io(), stdin_handle, &mut write_buffer[..]);
-    writer.write_all(&b"roundtrip").exit().?;
-    writer.flush().exit().?;
-    stdin_handle.close().exit().?;
+    let mut writeBuffer: [16]u8 = [0; 16];
+    {
+        let mut writer = stdin.buffered(&mut writeBuffer[..]);
+        writer.writeAll(&b"roundtrip").exit().?;
+        writer.flush().exit().?;
+    }
+    stdin.close().exit().?;
 
-    let stdout_handle = switch child.takeStdout() {
+    let mut stdout = switch child.takeStdout() {
         ?value => {
             value
         },
@@ -903,11 +984,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(4)!;
         },
     };
-    let mut read_buffer: [16]u8 = [0; 16];
-    let mut reader = io::FileReader::init(init.io(), stdout_handle, &mut read_buffer[..]);
     let mut output: [9]u8 = [0; 9];
-    reader.read_exact(&mut output[..]).exit().?;
-    stdout_handle.close().exit().?;
+    stdout.readExact(&mut output[..]).exit().?;
+    stdout.close().exit().?;
 
     let term = switch child.wait() {
         !value => {
@@ -2142,7 +2221,7 @@ using std::process;
 
 pub fn write(init: process::Init) process::ExitCode!void {
     let mut buffer = [_]u8[0; 128];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    let mut stdout = io::FileWriter::stdout(&mut buffer);
     defer stdout.flush().exit().?;
     let text = b"left";
     stdout.print(&"{}\n", &[&text[..]]).exit()
@@ -2159,7 +2238,7 @@ using std::process;
 
 pub fn write(init: process::Init) process::ExitCode!void {
     let mut buffer = [_]u8[0; 128];
-    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    let mut stdout = io::FileWriter::stdout(&mut buffer);
     defer stdout.flush().exit().?;
     let text = b"right";
     stdout.print(&"{}\n", &[&text[..]]).exit()
@@ -2470,7 +2549,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut writer = io::DiscardingWriter::init();
-    switch writer.write_all(&b"nia") {
+    switch writer.writeAll(&b"nia") {
         !ok => { _ = ok; },
         error! => { return process::exit(1)!; },
     }
