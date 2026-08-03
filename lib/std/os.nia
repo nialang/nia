@@ -6,7 +6,7 @@ using pkg::error;
 
 pub(pkg) const maxPathBytes: usize = platform::max_path_bytes;
 
-pub enum Error: i32 {
+pub(pkg) enum Error: i32 {
     PermissionDenied = 1,
     NotFound = 2,
     Interrupted = 4,

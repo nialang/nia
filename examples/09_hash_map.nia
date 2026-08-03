@@ -14,8 +14,7 @@ fn run(init: Init) mem::Error!void {
     defer gpa.deinit().ok().?;
     let allocator = &mut gpa;
 
-    // initSeed is deterministic, which keeps example output stable.
-    let mut scores = std::HashMap[i32, i32]::initSeed(2024u64);
+    let mut scores = std::HashMap[i32, i32]::init();
     defer scores.deinit(allocator).?;
 
     // Reserve before repeated insertion when an approximate size is known.

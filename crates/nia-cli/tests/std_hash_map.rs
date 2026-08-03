@@ -190,6 +190,92 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_hash_map_initialization_is_ergonomic_and_typed() {
+    let root = temp_dir("emit_exe_std_hash_map_initialization_is_ergonomic_and_typed");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::collections;
+using std::process;
+
+struct Context {}
+
+extend Context {
+    fn init() Context {
+        {}
+    }
+}
+
+extend Context : collections::HashMapContext[i32] {
+    fn hash(&self, seed: u64, key: &i32) u64 {
+        _ = self;
+        seed ^ (key.* as u64)
+    }
+
+    fn eql(&self, left: &i32, right: &i32) bool {
+        _ = self;
+        left.* == right.*
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let direct = std::HashMap[i32, i32]::init();
+    if not direct.isEmpty() {
+        return process::exit(1)!;
+    }
+    let fallible = switch std::HashMap[i32, i32]::tryInit() {
+        !map => map,
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+    };
+    if not fallible.isEmpty() {
+        return process::exit(3)!;
+    }
+    let contextual = collections::HashMapWithContext[i32, i32, Context]::initContext(Context::init());
+    if not contextual.isEmpty() {
+        return process::exit(4)!;
+    }
+    let typed = switch collections::HashMapWithContext[i32, i32, Context]::tryInitContext(Context::init()) {
+        !map => map,
+        std::HashMapInitError::System! => return process::exit(5)!,
+        error! => {
+            _ = error;
+            return process::exit(6)!;
+        },
+    };
+    if not typed.isEmpty() {
+        return process::exit(7)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write hash map initialization source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit hash map initialization executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run hash map initialization executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_hash_map_supports_basic_operations() {
     let root = temp_dir("emit_exe_std_hash_map_supports_basic_operations");
     let main = root.join("main.nia");

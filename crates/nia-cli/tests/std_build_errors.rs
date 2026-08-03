@@ -112,7 +112,6 @@ fn build_process_errors_preserve_exit_codes_and_diagnostics() {
         r#"
 using std::build;
 using std::io;
-using std::os;
 using std::process;
 
 fn buildError(cause: process::Error) build::Error {

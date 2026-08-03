@@ -117,6 +117,15 @@ through `reserve`, `reserveExact`, and `ensureTotalCapacity`; `truncate` changes
 length, while `shrinkToFit` and `shrinkToCapacity` never discard elements.
 Public operations do not expose uninitialized element slots or capacity as a
 live `&mut [T]`.
+`HashMap::init()` creates an empty map directly with a randomized seed;
+`initContext(context)` does the same for a custom hash/equality context.
+Those direct forms trap if the runtime cannot establish its default randomized
+hashing policy.
+Programs that can recover from unavailable system randomness use `tryInit()`
+or `tryInitContext(context)` and match `HashMapInitError`. `initSeed(seed)` and
+`initContextSeed(context, seed)` are the explicit deterministic constructors
+for reproducible hashing. The ordinary constructors do not require callers to
+name an OS provider error.
 `HashMapLookupContext[K, Q]` permits lookup with a query-view type distinct from
 the stored key. The default context implements `String` lookup by borrowed
 `&[char]`; `containsKeyBy`, `getBy`, `getMutBy`, `getEntryBy`, `getEntryMutBy`,
@@ -212,7 +221,8 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   that can operate directly on `&u8`. A `fromPtrUnchecked` caller must ensure
   the pointer remains valid and reaches an accessible NUL byte for every view
   operation.
-- `std::os` defines the target-dispatched provider used by typed std services.
+- The package-private `os` module defines the target-dispatched provider used
+  by typed std services.
   Page mapping, path/file operations, raw file handles, random data, spawn/wait,
   signals, and
   process termination are package-private implementation capabilities rather
@@ -302,9 +312,10 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   `RangeInclusive`, and `RangeFrom`. Their `Step` trait is implemented for the
   built-in integer types that have representable `MAX` values.
 
-`std::os` is a Nia-defined OS layer, not libc. Platform-specific syscall
-backends are package-internal implementation details. A future `std::c` can
-model optional libc linkage without becoming the default executable runtime.
+The package-private std OS provider is Nia-defined, not libc. Platform-specific
+syscall backends are package-internal implementation details. A future
+`std::c` can model optional libc linkage without becoming the default
+executable runtime.
 
 ## 3. Lexical Structure
 

@@ -2676,6 +2676,23 @@ invented stage number. No compatibility variants or OS aliases were added.
 The remaining public OS error escape is hash-map random seeding and is a
 separate collection initialization boundary.
 
+Standard-library reconstruction progress (2026-08-03, HashMap initialization
+and private OS root batch): ordinary empty maps now use the direct
+`HashMap::init()` and `initContext(context)` constructors. They obtain a
+randomized seed internally and treat failure to establish the default hashing
+policy as unrecoverable. Callers that can recover use `tryInit()` or
+`tryInitContext(context)` and the collection-owned `HashMapInitError`;
+deterministic tests and algorithms retain the explicit `initSeed` and
+`initContextSeed` forms. The maintained example now uses the ordinary direct
+constructor instead of teaching users to invent a numeric seed.
+
+With collection initialization no longer returning `os::Error`, the root OS
+module, its generic error, spawn error, process identity, handles, and all
+provider operations are package-private. Ordinary packages cannot import
+`std::os`; typed `fs`, `io`, `process`, `mem`, and collection services remain
+the only host boundaries. No public OS alias or compatibility constructor was
+retained.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

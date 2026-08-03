@@ -2457,8 +2457,6 @@ fn emit_exe_exit_code_is_open_enum() {
 using std::process;
 using std::fs;
 using std::mem;
-using std::os;
-
 using process::{ExitCode, exit};
 
 fn pick(flag: bool) ExitCode {

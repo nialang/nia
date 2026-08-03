@@ -44,8 +44,8 @@ builtin and language core
 ```
 
 The root `std` facade exports intentional user contracts. Provider modules stay
-package-private. The public `os` surface is not a shortcut around typed host
-services; platform-specific syscalls and descriptors belong below fs/io/process.
+package-private. There is no public `os` shortcut around typed host services;
+platform-specific syscalls and descriptors belong below fs/io/process.
 Ordinary programs that do not use build must not load `std::build` or its
 providers.
 
@@ -62,7 +62,7 @@ providers.
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes exist | retire from BuildPlan boundary; continue lifecycle and raw-boundary audit before accepting the service facade |
-| `os` Linux facade | path capacity, descriptors, process and I/O providers | operations, intermediate types, `FileHandle`, and `ProcessId` are package-private; only `Error` still escapes through collection initialization | keep provider private; replace the remaining randomness error escape before deciding whether the root module is public at all |
+| `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
 | `build` | graph declaration and execution | callback executor, raw argv, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
 
 Direct `std::build` source imports currently reach `collections`, `process`,
@@ -308,6 +308,12 @@ pair. The duplicate `clearRetainingCapacity`, `clearAndFree`, `reserveExact`,
 `fetchRemove`, and `getKeyValue` entry points are absent rather than retained as
 aliases. `ensureUnusedCapacity` is an implementation detail; the distinct
 public `ensureTotalCapacity` operation establishes an absolute capacity floor.
+`init()` and `initContext(context)` are the ordinary direct empty-map
+constructors and obtain a randomized hash seed, trapping if that runtime
+policy cannot be established. The recoverable forms are
+`tryInit()` and `tryInitContext(context)`, which preserve randomness failures
+as `HashMapInitError`. Deterministic callers use `initSeed(seed)` or
+`initContextSeed(context, seed)` explicitly.
 
 The one owned scalar-text type is named `String`, not `StringBuf`: it stores
 Unicode scalars and cannot serve as an arbitrary byte buffer. Its reviewed
