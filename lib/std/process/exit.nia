@@ -55,6 +55,11 @@ extend Error : error::IntoError[ExitCode] {
                 _ = index;
                 exit(22)
             },
+            Error::Environment { index, cause } => {
+                _ = index;
+                _ = cause;
+                exit(22)
+            },
             Error::SpawnSetup(cause) => cause.asExitCode(),
             Error::Spawn(cause) => exit(cause as i32),
             Error::Wait(cause) => cause.asExitCode(),

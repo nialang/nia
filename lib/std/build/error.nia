@@ -361,6 +361,12 @@ fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt:
             formatter.write_unsigned(index as u128).?;
             formatter.write_text(&"]/contains NUL")
         },
+        process::Error::Environment { index, cause } => {
+            formatter.write_text(&"environment[").?;
+            formatter.write_unsigned(index as u128).?;
+            formatter.write_text(&"]/").?;
+            writeEnvEntryCause(formatter, cause)
+        },
         process::Error::SpawnSetup(cause) => {
             writeCausePrefix(formatter, &"spawn setup").?;
             writeOsCause(formatter, cause)
@@ -386,6 +392,20 @@ fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt:
             writeStdStream(formatter, stream).?;
             formatter.write_text(&"/").?;
             writeOsCause(formatter, cause)
+        },
+    }
+}
+
+fn writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryError) fmt::Error!void {
+    switch cause {
+        process::EnvEntryError::EmptyName => formatter.write_text(&"empty name"),
+        process::EnvEntryError::NameContainsEquals => formatter.write_text(&"name contains '='"),
+        process::EnvEntryError::NameContainsNul => formatter.write_text(&"name contains NUL"),
+        process::EnvEntryError::ValueContainsNul => formatter.write_text(&"value contains NUL"),
+        process::EnvEntryError::DuplicateName(firstIndex) => {
+            formatter.write_text(&"duplicates environment[").?;
+            formatter.write_unsigned(firstIndex as u128).?;
+            formatter.write_text(&"]")
         },
     }
 }

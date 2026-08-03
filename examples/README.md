@@ -41,9 +41,12 @@ for application arguments, and `for env in init.env().iter()` for environment
 traversal.
 `10_process_command.nia` shows the typed child-process path: construct a
 `Command` from a `PathView` and `Env`, pass scalar arguments with
-`withArguments`, and inspect the returned `Term`. The command inserts its path
-as argv[0] and performs UTF-8/C argv lowering only during `spawn` or `run`;
-ordinary callers do not build `CStringView` values or raw pointer arrays.
+`withArguments`, replace the inherited environment with borrowed scalar
+`EnvEntry` values through `withEnvironment`, and inspect the returned `Term`.
+The command inserts its path as argv[0] and performs UTF-8/C argv and envp
+lowering only during `spawn` or `run`; ordinary callers do not build
+`CStringView` values or raw pointer arrays. `withoutEnvironment` selects an
+explicitly empty envp.
 
 Run an example from the repository root with:
 
@@ -119,7 +122,7 @@ should receive that same handle.
 - `09_hash_map.nia`: `std::HashMap` with explicit allocator ownership,
   `getOrInsert` entry slots, mutable entry/value iteration, removal, and
   formatted output.
-- `10_process_command.nia`: typed child-process paths and scalar arguments,
-  inherited environment/stdio, and termination status handling.
+- `10_process_command.nia`: typed child-process paths, scalar arguments and
+  exact environment entries, inherited stdio, and termination status handling.
 - `modules/main.nia`: file modules, aliases, selected `using`, `pub using`, and
   formatted results from imported code.

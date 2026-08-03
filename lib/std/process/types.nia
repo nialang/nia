@@ -28,10 +28,19 @@ pub enum StdStream {
     Stderr,
 }
 
+pub enum EnvEntryError {
+    EmptyName,
+    NameContainsEquals,
+    NameContainsNul,
+    ValueContainsNul,
+    DuplicateName(usize),
+}
+
 pub enum Error {
     Allocation(mem::Error),
     Path(fs::PathError),
     ArgumentContainsNul(usize),
+    Environment { index: usize, cause: EnvEntryError },
     SpawnSetup(os::Error),
     Spawn(os::SpawnError),
     Wait(os::Error),
@@ -54,7 +63,7 @@ pub struct Term {
 pub struct Command {
     path: fs::PathView,
     arguments: ?&[&[char]],
-    env: Env,
+    environment: CommandEnvironment,
     stdin: StdIo,
     stdout: StdIo,
     stderr: StdIo,
@@ -87,6 +96,17 @@ pub struct EnvIter {
 
 pub struct EnvVar {
     text: cstring::CStringView,
+}
+
+pub struct EnvEntry {
+    name: &[char],
+    value: &[char],
+}
+
+pub(pkg) enum CommandEnvironment {
+    Inherit(Env),
+    Exact(&[EnvEntry]),
+    Empty,
 }
 
 pub enum ChildStateKind: i32 {
