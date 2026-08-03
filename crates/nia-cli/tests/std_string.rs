@@ -94,6 +94,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(7)!;
     }
 
+    owned.reserve(page, 3).exit().?;
+    let reservedCapacity = owned.capacity();
+    owned.appendAssumeCapacity(&"++");
+    owned.pushAssumeCapacity('?');
+    if not owned.endsWith(&"!++?") or owned.capacity() != reservedCapacity {
+        return process::exit(7)!;
+    }
+
     let mut lambdaCount = 0;
     for &ch in text.iter() {
         if ch == 'λ' {
@@ -282,4 +290,31 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn check_std_path_buf_does_not_adopt_raw_owned_text() {
+    let root = temp_dir("check_std_path_buf_does_not_adopt_raw_owned_text");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std;
+
+fn main() void {
+    let mut text: [3]char = ['n', 'i', 'a'];
+    _ = std::PathBuf::fromOwnedSlice(&mut text[..]);
+}
+"#,
+    )
+    .expect("write obsolete path ownership source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check obsolete path ownership API");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("fromOwnedSlice"), "{stderr}");
 }

@@ -409,10 +409,10 @@ types. Its required decisions and acceptance order are:
 2. specify scalar length versus UTF-8 byte length, validation, truncation, and
    invalid-sequence errors. Validated UTF-8 views/buffers, if introduced, remain
    distinct from arbitrary bytes and from scalar text;
-3. choose one allocator ownership model. Explicit allocator parameters may
-   remain when they preserve Nia's transparent memory model, but common
-   construction/mutation must compose with `defer expr;` without repeated
-   unsafe ownership reconstruction or hidden allocator lifetimes;
+3. choose allocator ownership by role rather than applying one wrapper shape
+   globally. Standalone collections may remain unmanaged when that avoids
+   hidden allocator lifetimes, while an operation helper or aggregate owner may
+   retain the allocator for the operation or complete object graph it owns;
 4. align literal coercion, adjacent and multiline literal construction,
    runtime append/format construction, comparison/hash/search, and path/process
    conversion around those roles;
@@ -2723,6 +2723,39 @@ This accepts the low-level memory vocabulary and reset behavior only: the
 repeated allocator argument across owned collections and text remains the
 common allocator protocol design problem, not compatibility debt hidden by
 this naming pass.
+
+Standard-library reconstruction progress (2026-08-03, allocator ownership
+protocol batch): allocator storage is now decided by ownership suitability,
+not by a library-wide managed/unmanaged switch. Standalone `ArrayList`,
+`HashMap`, and `String` values remain unmanaged. They do not retain a mutable
+allocator reference or pay for one in every empty or nested value. `Build`
+retains its allocator because it owns the complete plan object graph;
+operation-scoped formatting and process-lowering helpers may likewise retain
+one for the operation they own. A future managed representation requires a
+concrete ownership role and workload rather than symmetry with unmanaged
+collections.
+
+The provenance rule is explicit: every remap, extraction, and release of a
+current non-empty backing allocation uses the allocator that produced it.
+`fromOwnedSlice` adopts the caller's provenance and `intoOwnedSlice` preserves
+it; `toOwnedSlice` and `clone` may use a different target allocator because
+they create independent storage. Conformance uses two general-purpose
+allocators to prove that an owned copy belongs to its target, a transfer stays
+with its source, and a rejected wrong-allocator release leaves the list
+available for correct cleanup. Allocators without ownership diagnostics do not
+weaken the caller's contract.
+
+Allocator repetition is removed where capacity makes allocation impossible,
+not by hiding allocator state. `ArrayList` and `HashMap` already compose
+`reserve` with assume-capacity mutation. `String` now has `reserve`,
+`pushAssumeCapacity`, and `appendAssumeCapacity` for the same batch workflow.
+Ordinary potentially allocating methods keep the allocator immediately after
+the receiver, while reads and capacity-preserving operations remain allocator-
+free. `PathBuf::fromOwnedSlice` is physically removed: path ownership transfers
+through `fromString`, and raw scalar-slice adoption remains at the underlying
+text/collection boundary. The accepted protocol still leaves deep element
+cleanup and type-specific ownership designs as separate work; it does not
+declare that every std type must be unmanaged.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

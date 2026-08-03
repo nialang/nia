@@ -452,24 +452,21 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    let mut allocator = mem::PageAllocator::init();
-    let mut page = &mut allocator;
+    let mut sourcePage = mem::PageAllocator::init();
+    let mut sourceGpa = mem::GeneralPurposeAllocator::init(&mut sourcePage);
+    defer sourceGpa.deinit().ok().exit().?;
+    let sourceAllocator = &mut sourceGpa;
+
+    let mut targetPage = mem::PageAllocator::init();
+    let mut targetGpa = mem::GeneralPurposeAllocator::init(&mut targetPage);
+    defer targetGpa.deinit().ok().exit().?;
+    let targetAllocator = &mut targetGpa;
 
     let mut source = std::ArrayList[i32]::init();
-    switch source.push(page, 1) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
-    }
-    switch source.push(page, 2) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(2)!; },
-    }
+    source.push(sourceAllocator, 1).exit().?;
+    source.push(sourceAllocator, 2).exit().?;
 
-    let mut cloned: std::ArrayList[i32];
-    switch source.clone(page) {
-        !value => { cloned = value; },
-        error! => { return process::exit(3)!; },
-    }
+    let mut cloned = source.clone(sourceAllocator).exit().?;
     let mut sourceItems = source.asMutSlice();
     sourceItems[0] = 9;
     let expectedSource: [2]i32 = [9, 2];
@@ -481,27 +478,22 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(5)!;
     }
 
-    let mut owned: &mut [i32];
-    switch source.intoOwnedSlice(page) {
-        !value => { owned = value; },
-        error! => { return process::exit(6)!; },
+    let mut copied = source.toOwnedSlice(targetAllocator).exit().?;
+    if not copied.equals(&expectedSource[..]) {
+        return process::exit(6)!;
     }
+    targetAllocator.freeSlice[i32](copied).exit().?;
+
+    let mut owned = source.intoOwnedSlice(sourceAllocator).exit().?;
     if source.len() != 0 or source.capacity() != 0 {
         return process::exit(7)!;
     }
     if not owned.equals(&expectedSource[..]) {
         return process::exit(8)!;
     }
-    switch page.freeSlice[i32](owned) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(9)!; },
-    }
+    sourceAllocator.freeSlice[i32](owned).exit().?;
 
-    let mut external: &mut [i32];
-    switch page.allocSlice[i32](3) {
-        !items => { external = items; },
-        error! => { return process::exit(10)!; },
-    }
+    let mut external = targetAllocator.allocSlice[i32](3).exit().?;
     external[0] = 4;
     external[1] = 5;
     external[2] = 6;
@@ -510,14 +502,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if adopted.capacity() != 3 or not adopted.asSlice().equals(&expectedAdopted[..]) {
         return process::exit(11)!;
     }
-    switch adopted.deinit(page) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(12)!; },
+
+    switch cloned.deinit(targetAllocator) {
+        !ok => {
+            _ = ok;
+            return process::exit(12)!;
+        },
+        err! => {
+            if err as i32 != mem::Error::Invalid as i32 {
+                return process::exit(13)!;
+            }
+        },
     }
-    switch cloned.deinit(page) {
-        !ok => { _ = ok; },
-        error! => { return process::exit(13)!; },
+    if not cloned.asSlice().equals(&expectedClone[..]) {
+        return process::exit(14)!;
     }
+    cloned.deinit(sourceAllocator).exit().?;
+    adopted.deinit(targetAllocator).exit().?;
     !{}
 }
 "#,

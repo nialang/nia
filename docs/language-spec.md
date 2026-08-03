@@ -277,6 +277,13 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   and `freeSlice` are the convenience allocation forms. `Layout.isEmpty` and
   `Block.isEmpty` test zero-sized storage; `Block.asSlice[T]` exposes a typed
   view whose element count is derived from the block size.
+- `ArrayList`, `HashMap`, and `String` do not store an allocator. Every
+  operation that may allocate, remap, or release their current backing storage
+  takes one explicitly, immediately after the receiver, and it must be the same
+  allocator that produced that non-empty storage. Read-only and capacity-
+  preserving operations take no allocator. An owned copy or clone establishes
+  new provenance from its target allocator and may therefore use a different
+  allocator from the source.
 - `std::mem.PageAllocator` maps each allocation through the OS page layer. It is
   useful as a low-level backing allocator, not as the default container
   allocator for many small objects.
@@ -3217,6 +3224,10 @@ conversion: empty bytes are valid empty text, invalid non-empty sequences return
 `std::TextError::Allocation`.
 `String::appendUtf8(allocator, bytes)` has the same error model and preserves
 the original scalar text when validation or allocation fails.
+`String::reserve(allocator, additional)` reserves an additional scalar count.
+After that capacity is established, `pushAssumeCapacity(ch)` and
+`appendAssumeCapacity(text)` perform allocator-free mutations; their explicit
+precondition is that the complete result fits the existing capacity.
 `String::appendFormat(allocator, template, args)` formats through a temporary
 byte buffer and then performs typed UTF-8 append. It returns
 `TextFormatError`, which distinguishes `Format`, `InvalidUtf8`, and
@@ -3233,6 +3244,11 @@ index zero, and all five operations are allocation-free.
 `Hasher`. Text hashing writes the scalar count followed by each scalar value;
 `String` delegates to that borrowed representation and implements content
 `Eq[String]`, so equal owned text has equal hash output.
+`String::fromOwnedSlice` adopts an allocator-owned scalar slice without
+changing its allocator provenance, and `intoOwnedSlice(allocator)` transfers
+the exact initialized allocation out while emptying the string. `PathBuf` does
+not repeat that low-level adoption boundary: `PathBuf::fromString` transfers an
+owned string, while `fromView` and `fromUtf8` allocate and copy.
 `PathBuf::fromView(allocator, path)` copies a borrowed path and reports
 `mem::Error`; `PathBuf::fromUtf8(allocator, bytes)` preserves `TextError` rather
 than collapsing decoding and allocation failures into filesystem errors.
