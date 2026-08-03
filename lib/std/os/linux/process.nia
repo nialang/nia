@@ -39,7 +39,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
     defer error_pipe.close_all();
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
-        SpawnError::from_errno(ret.syscall_error())!
+        SpawnError::Setup(ret.syscall_error())!
     } else if ret == 0 {
         error_pipe.close_read();
         switch apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
@@ -63,7 +63,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
         report_spawn_error(&error_pipe, SpawnStage::Exec, exec_ret.syscall_error());
         exit(127);
-        SpawnError::Invalid!
+        SpawnError::Setup(Errno::Io)!
     } else {
         stdin_pipe.close_read();
         stdout_pipe.close_write();
@@ -76,7 +76,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
             },
             null => {
                 _ = wait(pid);
-                return SpawnError::Setup!;
+                return SpawnError::Setup(Errno::Io)!;
             },
         };
         switch read_spawn_error(error_read, pid).? {
@@ -125,7 +125,7 @@ fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?Spaw
                 return !null;
             }
             _ = wait(pid);
-            return SpawnError::Io!;
+            return SpawnError::Setup(Errno::Io)!;
         }
         read_len += amount;
     }
@@ -373,9 +373,7 @@ extend[T] Errno!T {
             !value => {
                 !value
             },
-            error! => {
-                SpawnError::from_errno(error)!
-            },
+            error! => SpawnError::Setup(error)!,
         }
     }
 }

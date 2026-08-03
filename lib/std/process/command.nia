@@ -7,7 +7,7 @@ using pkg::process::types;
 using pkg::slice;
 using pkg::unicode;
 
-using types::{Child, Command, CommandEnvironment, Env, EnvEntry, EnvEntryError, Error, StdIo, Term};
+using types::{Child, Command, CommandEnvironment, Env, EnvEntry, EnvEntryError, Error, SpawnError, StdIo, SystemError, Term};
 
 extend Command {
     pub fn init(path: fs::PathView, env: Env) Command {
@@ -190,9 +190,9 @@ extend Command {
         };
 
         let mut options = os::SpawnOptions::init();
-        options.setStdin(self.stdin.asOsStdio()).asProcessSpawnSetupError().?;
-        options.setStdout(self.stdout.asOsStdio()).asProcessSpawnSetupError().?;
-        options.setStderr(self.stderr.asOsStdio()).asProcessSpawnSetupError().?;
+        options.setStdin(self.stdin.asOsStdio()).asCommandSpawnSetupError().?;
+        options.setStdout(self.stdout.asOsStdio()).asCommandSpawnSetupError().?;
+        options.setStderr(self.stderr.asOsStdio()).asCommandSpawnSetupError().?;
         let mut cwdStorage: [os::maxPathBytes]u8 = [_]u8[0; os::maxPathBytes];
         switch self.cwd {
             ?cwd => {
@@ -226,12 +226,18 @@ extend StdIo {
 }
 
 pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
-    let pid = os::spawnRaw(path, argv, envp).asProcessSpawnError().?;
+    let pid = switch os::spawnRaw(path, argv, envp) {
+        !value => value,
+        cause! => return commandSpawnError(cause)!,
+    };
     !Child::init(pid)
 }
 
 fn spawnWithOptions(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
-    let result = os::spawn(path, argv, envp, options).asProcessSpawnError().?;
+    let result = switch os::spawn(path, argv, envp, options) {
+        !value => value,
+        cause! => return commandSpawnError(cause)!,
+    };
     !Child::fromSpawnResult(result)
 }
 
@@ -348,29 +354,37 @@ fn appendCStringPointers(
     !{}
 }
 
-extend[T] os::SpawnError!T {
-    fn asProcessSpawnError(self) Error!T {
-        switch self {
-            !value => !value,
-            cause! => Error::Spawn(cause)!,
-        }
-    }
-}
-
-extend[T] os::Error!T {
-    fn asProcessSpawnSetupError(self) Error!T {
-        switch self {
-            !value => !value,
-            cause! => Error::SpawnSetup(cause)!,
-        }
-    }
-}
-
 extend[T] fs::PathError!T {
     fn asProcessPathError(self) Error!T {
         switch self {
             !value => !value,
             cause! => Error::Path(cause)!,
+        }
+    }
+}
+
+fn commandSpawnError(cause: os::SpawnError) Error {
+    switch cause {
+        os::SpawnError::Setup(system) => {
+            Error::Spawn(SpawnError::Setup(SystemError::fromOs(system)))
+        },
+        os::SpawnError::Stdio(system) => {
+            Error::Spawn(SpawnError::Stdio(SystemError::fromOs(system)))
+        },
+        os::SpawnError::Cwd(system) => {
+            Error::Spawn(SpawnError::Cwd(SystemError::fromOs(system)))
+        },
+        os::SpawnError::Exec(system) => {
+            Error::Spawn(SpawnError::Exec(SystemError::fromOs(system)))
+        },
+    }
+}
+
+extend[T] os::Error!T {
+    fn asCommandSpawnSetupError(self) Error!T {
+        switch self {
+            !value => !value,
+            cause! => Error::SpawnSetup(SystemError::fromOs(cause))!,
         }
     }
 }

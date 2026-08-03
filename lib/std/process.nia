@@ -36,9 +36,12 @@ pub using types::{
     Error,
     ExitCode,
     Init,
+    ProcessId,
     Signal,
+    SpawnError,
     StdIo,
     StdStream,
+    SystemError,
     Term,
     TermKind,
 };

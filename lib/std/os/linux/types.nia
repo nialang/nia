@@ -44,33 +44,11 @@ pub enum SpawnStage: i32 {
     _,
 }
 
-pub enum SpawnError: i32 {
-    PermissionDenied = 1,
-    NoEntry = 2,
-    Interrupted = 4,
-    Io = 5,
-    BadFd = 9,
-    Again = 11,
-    NoMemory = 12,
-    Access = 13,
-    Fault = 14,
-    Busy = 16,
-    Exists = 17,
-    CrossDevice = 18,
-    NotDir = 20,
-    IsDir = 21,
-    Invalid = 22,
-    NoSpace = 28,
-    ReadOnly = 30,
-    BrokenPipe = 32,
-    OutOfRange = 34,
-    TooLong = 36,
-    NotEmpty = 39,
-    Setup = 101,
-    Stdio = 102,
-    Cwd = 103,
-    Exec = 104,
-    _,
+pub enum SpawnError {
+    Setup(Errno),
+    Stdio(Errno),
+    Cwd(Errno),
+    Exec(Errno),
 }
 
 pub enum OpenMode: i32 {
@@ -165,17 +143,13 @@ extend Errno {
 }
 
 extend SpawnError {
-    pub fn from_errno(errno: Errno) SpawnError {
-        errno as i32 as SpawnError
-    }
-
     pub fn from_stage(stage: SpawnStage, errno: Errno) SpawnError {
         switch stage {
-            SpawnStage::Setup => SpawnError::Setup,
-            SpawnStage::Stdio => SpawnError::Stdio,
-            SpawnStage::Cwd => SpawnError::Cwd,
-            SpawnStage::Exec => SpawnError::Exec,
-            _ => SpawnError::from_errno(errno),
+            SpawnStage::Setup => SpawnError::Setup(errno),
+            SpawnStage::Stdio => SpawnError::Stdio(errno),
+            SpawnStage::Cwd => SpawnError::Cwd(errno),
+            SpawnStage::Exec => SpawnError::Exec(errno),
+            _ => SpawnError::Setup(errno),
         }
     }
 }
