@@ -24,6 +24,8 @@ pub using types::{
     Child,
     Command,
     Env,
+    EnvEntry,
+    EnvEntryError,
     EnvIter,
     EnvVar,
     Error,

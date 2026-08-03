@@ -2572,6 +2572,31 @@ the `if error is pattern` spelling, and an exact invalid-signal kill cause.
 Custom environment ownership and the lower-level public `std::os`
 naming/ownership audit remain open.
 
+Standard-library reconstruction progress (2026-08-03, typed process
+environment batch): `Command` now models startup-environment inheritance,
+exact replacement through borrowed scalar `EnvEntry` values, and an explicit
+empty environment as three distinct states. `withEnvironment` never silently
+merges with inherited entries, while `withoutEnvironment` communicates the
+empty intent directly. The former `env()` getter is physically absent because
+a single `Env` result cannot truthfully represent all three states; there is no
+compatibility facade.
+
+Spawn validates exact entries before transient allocation: names must be
+non-empty and contain neither `=` nor NUL, values cannot contain NUL, and names
+must be unique. `process::Error::Environment` retains the failing entry index;
+`EnvEntryError::DuplicateName` also retains the first matching index. Build
+diagnostics preserve those paths, and process exit conversion classifies all
+environment validation failures as invalid input. Spawn owns temporary UTF-8
+`NAME=value\0` storage and the envp pointer array, so public callers borrow
+scalar text without constructing native buffers or transferring allocator
+ownership.
+
+Runtime conformance proves non-ASCII values, exact replacement rather than
+inheritance merging, explicit empty envp, all validation causes, duplicate
+indices, and bounded-allocation failure. The example uses direct borrowed
+arrays and immutable command configuration. Lower-level public `std::os`
+naming/ownership and the broader UTF-8/C-string role audit remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

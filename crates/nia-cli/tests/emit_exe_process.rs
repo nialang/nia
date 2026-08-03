@@ -233,6 +233,157 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_command_configures_exact_environment() {
+    let root = temp_dir("emit_exe_std_process_command_configures_exact_environment");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+fn expectEnvironmentError(
+    init: process::Init,
+    entries: &[process::EnvEntry],
+    expectedIndex: usize,
+    expectedCause: process::EnvEntryError,
+) process::ExitCode!void {
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withEnvironment(entries);
+    switch command.spawn() {
+        !child => {
+            _ = child;
+            return process::exit(20)!;
+        },
+        process::Error::Environment { index, cause }! => {
+            if index != expectedIndex {
+                return process::exit(21)!;
+            }
+            switch cause {
+                process::EnvEntryError::EmptyName => switch expectedCause {
+                    process::EnvEntryError::EmptyName => {},
+                    _ => return process::exit(22)!,
+                },
+                process::EnvEntryError::NameContainsEquals => switch expectedCause {
+                    process::EnvEntryError::NameContainsEquals => {},
+                    _ => return process::exit(23)!,
+                },
+                process::EnvEntryError::NameContainsNul => switch expectedCause {
+                    process::EnvEntryError::NameContainsNul => {},
+                    _ => return process::exit(24)!,
+                },
+                process::EnvEntryError::ValueContainsNul => switch expectedCause {
+                    process::EnvEntryError::ValueContainsNul => {},
+                    _ => return process::exit(25)!,
+                },
+                process::EnvEntryError::DuplicateName(firstIndex) => switch expectedCause {
+                    process::EnvEntryError::DuplicateName(expectedFirstIndex) => {
+                        if firstIndex != expectedFirstIndex {
+                            return process::exit(26)!;
+                        }
+                    },
+                    _ => return process::exit(27)!,
+                },
+            }
+        },
+        error! => {
+            _ = error;
+            return process::exit(28)!;
+        },
+    }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let exactEnvironment: [1]process::EnvEntry = [process::EnvEntry::init(&"MODE", &"λ")];
+    let exactArguments: [2]&[char] = [
+        &"-c",
+        &"test \"$MODE\" = \"λ\" && test -z \"${NIA_INHERITED_SENTINEL+x}\"",
+    ];
+    let exact = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&exactArguments)
+        .withEnvironment(&exactEnvironment);
+    let exactTerm = exact.run().exit().?;
+    if not exactTerm.succeeded() {
+        return process::exit(1)!;
+    }
+
+    let emptyArguments: [2]&[char] = [
+        &"-c",
+        &"test -z \"${NIA_INHERITED_SENTINEL+x}\" && test -z \"${MODE+x}\"",
+    ];
+    let empty = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&emptyArguments)
+        .withoutEnvironment();
+    let emptyTerm = empty.run().exit().?;
+    if not emptyTerm.succeeded() {
+        return process::exit(2)!;
+    }
+
+    let emptyName: [1]process::EnvEntry = [process::EnvEntry::init(&"", &"value")];
+    expectEnvironmentError(init, &emptyName, 0, process::EnvEntryError::EmptyName).?;
+
+    let equalsName: [1]process::EnvEntry = [process::EnvEntry::init(&"BAD=NAME", &"value")];
+    expectEnvironmentError(init, &equalsName, 0, process::EnvEntryError::NameContainsEquals).?;
+
+    let nulName: [1]process::EnvEntry = [process::EnvEntry::init(&"BAD\0NAME", &"value")];
+    expectEnvironmentError(init, &nulName, 0, process::EnvEntryError::NameContainsNul).?;
+
+    let nulValue: [1]process::EnvEntry = [process::EnvEntry::init(&"NAME", &"bad\0value")];
+    expectEnvironmentError(init, &nulValue, 0, process::EnvEntryError::ValueContainsNul).?;
+
+    let duplicate: [2]process::EnvEntry = [
+        process::EnvEntry::init(&"NAME", &"first"),
+        process::EnvEntry::init(&"NAME", &"second"),
+    ];
+    expectEnvironmentError(init, &duplicate, 1, process::EnvEntryError::DuplicateName(0)).?;
+
+    let largeValue: [512]char = [_]char['x'; 512];
+    let largeEnvironment: [1]process::EnvEntry = [process::EnvEntry::init(&"LARGE", &largeValue)];
+    let mut storage: [128]u8 = [_]u8[0; 128];
+    let mut fixed = mem::FixedBufferAllocator::init(&mut storage[..]);
+    let allocator: &mut mem::Allocator = &mut fixed;
+    let noMemory = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withEnvironment(&largeEnvironment);
+    switch noMemory.spawnWithAllocator(allocator) {
+        !child => {
+            _ = child;
+            return process::exit(3)!;
+        },
+        process::Error::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(4)!;
+        },
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write exact command environment source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std process exact environment");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .env("NIA_INHERITED_SENTINEL", "present")
+        .status_timeout("run emitted std process environment executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_process_command_can_ignore_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_ignore_stdout");
     let main = root.join("main.nia");
@@ -2263,6 +2414,12 @@ pub fn main(init: process::Init) ExitCode!void {
     }
     if (process::Error::ArgumentContainsNul(3).asExitCode() as i32) != 22 {
         return exit(7)!;
+    }
+    if (process::Error::Environment {
+        index: 2,
+        cause: process::EnvEntryError::EmptyName,
+    }.asExitCode() as i32) != 22 {
+        return exit(10)!;
     }
     if (process::Error::Spawn(os::SpawnError::Exec).asExitCode() as i32) != 104 {
         return exit(8)!;

@@ -4,16 +4,17 @@ using pkg::mem;
 using pkg::os;
 using pkg::process::child;
 using pkg::process::types;
+using pkg::slice;
 using pkg::unicode;
 
-using types::{Child, Command, Env, Error, StdIo, Term};
+using types::{Child, Command, CommandEnvironment, Env, EnvEntry, EnvEntryError, Error, StdIo, Term};
 
 extend Command {
     pub fn init(path: fs::PathView, env: Env) Command {
         {
             path: path,
             arguments: null,
-            env: env,
+            environment: CommandEnvironment::Inherit(env),
             stdin: StdIo::Inherit,
             stdout: StdIo::Inherit,
             stderr: StdIo::Inherit,
@@ -27,10 +28,6 @@ extend Command {
 
     pub fn arguments(&self) ?&[&[char]] {
         self.arguments
-    }
-
-    pub fn env(&self) Env {
-        self.env
     }
 
     pub fn stdin(&self) StdIo {
@@ -53,7 +50,7 @@ extend Command {
         {
             path: self.path,
             arguments: ?arguments,
-            env: self.env,
+            environment: self.environment,
             stdin: self.stdin,
             stdout: self.stdout,
             stderr: self.stderr,
@@ -65,7 +62,7 @@ extend Command {
         {
             path: self.path,
             arguments: self.arguments,
-            env: self.env,
+            environment: self.environment,
             stdin: behavior,
             stdout: self.stdout,
             stderr: self.stderr,
@@ -77,7 +74,7 @@ extend Command {
         {
             path: self.path,
             arguments: self.arguments,
-            env: self.env,
+            environment: self.environment,
             stdin: self.stdin,
             stdout: behavior,
             stderr: self.stderr,
@@ -89,7 +86,7 @@ extend Command {
         {
             path: self.path,
             arguments: self.arguments,
-            env: self.env,
+            environment: self.environment,
             stdin: self.stdin,
             stdout: self.stdout,
             stderr: behavior,
@@ -101,11 +98,35 @@ extend Command {
         {
             path: self.path,
             arguments: self.arguments,
-            env: self.env,
+            environment: self.environment,
             stdin: self.stdin,
             stdout: self.stdout,
             stderr: self.stderr,
             cwd: ?cwd,
+        }
+    }
+
+    pub fn withEnvironment(self, entries: &[EnvEntry]) Command {
+        {
+            path: self.path,
+            arguments: self.arguments,
+            environment: CommandEnvironment::Exact(entries),
+            stdin: self.stdin,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            cwd: self.cwd,
+        }
+    }
+
+    pub fn withoutEnvironment(self) Command {
+        {
+            path: self.path,
+            arguments: self.arguments,
+            environment: CommandEnvironment::Empty,
+            stdin: self.stdin,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            cwd: self.cwd,
         }
     }
 
@@ -118,6 +139,11 @@ extend Command {
     pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
         let mut pathStorage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let encodedPath = self.path.encode(&mut pathStorage[..]).asProcessPathError().?;
+        switch self.environment {
+            CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
+            CommandEnvironment::Inherit(env) => { _ = env; },
+            CommandEnvironment::Empty => {},
+        }
 
         let mut argumentBytes = collections::ArrayList[u8]::init();
         defer argumentBytes.deinit(allocator).asProcessAllocationError().?;
@@ -136,15 +162,32 @@ extend Command {
         let mut argv = collections::ArrayList[&u8]::init();
         defer argv.deinit(allocator).asProcessAllocationError().?;
         let bytes = argumentBytes.asSlice();
-        let mut start: usize = 0;
-        while start < bytes.len() {
-            argv.push(allocator, &bytes[start]).asProcessAllocationError().?;
-            while bytes[start] != 0 {
-                start += 1;
-            }
-            start += 1;
-        }
-        argv.push(allocator, 0usize as &u8).asProcessAllocationError().?;
+        appendCStringPointers(allocator, bytes, &mut argv).?;
+
+        let mut environmentBytes = collections::ArrayList[u8]::init();
+        defer environmentBytes.deinit(allocator).asProcessAllocationError().?;
+        let mut environmentPointers = collections::ArrayList[&u8]::init();
+        defer environmentPointers.deinit(allocator).asProcessAllocationError().?;
+        let emptyEnvp: [1]&u8 = [0usize as &u8];
+        let envp = switch self.environment {
+            CommandEnvironment::Inherit(env) => env.rawEnvp(),
+            CommandEnvironment::Exact(entries) => {
+                if entries.isEmpty() {
+                    &emptyEnvp[0]
+                } else {
+                    for &entry in entries {
+                        appendEnvironmentEntry(allocator, &mut environmentBytes, entry).?;
+                    }
+                    appendCStringPointers(
+                        allocator,
+                        environmentBytes.asSlice(),
+                        &mut environmentPointers,
+                    ).?;
+                    environmentPointers.asSlice().ptr()
+                }
+            },
+            CommandEnvironment::Empty => &emptyEnvp[0],
+        };
 
         let mut options = os::SpawnOptions::init();
         options.set_stdin(self.stdin.asOsStdio()).asProcessSpawnSetupError().?;
@@ -158,7 +201,7 @@ extend Command {
             },
             null => {},
         }
-        spawnWithOptions(bytes.ptr(), argv.asSlice().ptr(), self.env.rawEnvp(), options)
+        spawnWithOptions(bytes.ptr(), argv.asSlice().ptr(), envp, options)
     }
 
     pub fn run(&self) Error!Term {
@@ -217,6 +260,91 @@ fn appendArgument(
         bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
     }
     bytes.appendAssumeCapacity(0);
+    !{}
+}
+
+fn validateEnvironment(entries: &[EnvEntry]) Error!void {
+    let mut index: usize = 0;
+    for &entry in entries {
+        if entry.name().isEmpty() {
+            return Error::Environment { index: index, cause: EnvEntryError::EmptyName }!;
+        }
+        for &ch in entry.name() {
+            if ch.codepoint() == 0 {
+                return Error::Environment { index: index, cause: EnvEntryError::NameContainsNul }!;
+            }
+            if ch == '=' {
+                return Error::Environment { index: index, cause: EnvEntryError::NameContainsEquals }!;
+            }
+        }
+        for &ch in entry.value() {
+            if ch.codepoint() == 0 {
+                return Error::Environment { index: index, cause: EnvEntryError::ValueContainsNul }!;
+            }
+        }
+        let mut priorIndex: usize = 0;
+        for &prior in &entries[0..index] {
+            if entry.name().equals(prior.name()) {
+                return Error::Environment {
+                    index: index,
+                    cause: EnvEntryError::DuplicateName(priorIndex),
+                }!;
+            }
+            priorIndex += 1;
+        }
+        index += 1;
+    }
+    !{}
+}
+
+fn appendEnvironmentEntry(
+    allocator: &mut mem::Allocator,
+    bytes: &mut collections::ArrayList[u8],
+    entry: EnvEntry,
+) Error!void {
+    let mut byteLen: usize = 1;
+    for &ch in entry.name() {
+        byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
+            ?value => value,
+            null => return Error::Allocation(mem::Error::OutOfMemory)!,
+        };
+    }
+    for &ch in entry.value() {
+        byteLen = switch byteLen.checked_add(ch.encode_utf8().len()) {
+            ?value => value,
+            null => return Error::Allocation(mem::Error::OutOfMemory)!,
+        };
+    }
+    let needed = switch byteLen.checked_add(1) {
+        ?value => value,
+        null => return Error::Allocation(mem::Error::OutOfMemory)!,
+    };
+    bytes.reserve(allocator, needed).asProcessAllocationError().?;
+    for &ch in entry.name() {
+        bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
+    }
+    bytes.appendAssumeCapacity(b'=');
+    for &ch in entry.value() {
+        bytes.appendSliceAssumeCapacity(ch.encode_utf8().bytes());
+    }
+    bytes.appendAssumeCapacity(0);
+    !{}
+}
+
+fn appendCStringPointers(
+    allocator: &mut mem::Allocator,
+    bytes: &[u8],
+    pointers: &mut collections::ArrayList[&u8],
+) Error!void {
+    let mut start: usize = 0;
+    while start < bytes.len() {
+        pointers.push(allocator, &bytes[start]).asProcessAllocationError().?;
+        while bytes[start] != 0 {
+            start += 1;
+        }
+        start += 1;
+    }
+    pointers.push(allocator, 0usize as &u8).asProcessAllocationError().?;
     !{}
 }
 

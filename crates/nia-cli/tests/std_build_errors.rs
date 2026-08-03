@@ -135,10 +135,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if (close.asExitCode() as i32) != 9 {
         return process::exit(2)!;
     }
+    let environment = buildError(process::Error::Environment {
+        index: 1,
+        cause: process::EnvEntryError::DuplicateName(0),
+    });
+    if (environment.asExitCode() as i32) != 22 {
+        return process::exit(3)!;
+    }
 
     let mut buffer: [256]u8 = [_]u8[0; 256];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
-    stdout.print(&"{}\n{}\n", &[&spawn, &close]).exit().?;
+    stdout.print(&"{}\n{}\n{}\n", &[&spawn, &close, &environment]).exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -167,6 +174,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         concat!(
             "execute command compiler: process/spawn/executable\n",
             "execute command compiler: process/close/stdout/bad file descriptor\n",
+            "execute command compiler: process/environment[1]/duplicates environment[0]\n",
         )
     );
     assert!(output.stderr.is_empty());
