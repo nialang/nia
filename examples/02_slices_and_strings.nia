@@ -1,7 +1,9 @@
 using std::debug;
 using std::fmt;
+using std::mem;
 using std::process;
 using std::slice;
+using std::string;
 using process::{Init, ExitCode, exit};
 
 static stable_bytes_storage = b"nia";
@@ -72,6 +74,11 @@ pub fn main(init: Init) ExitCode!void {
             wordCount += 1;
         }
     }
+    let phraseText: &[char] = &phrase;
+    let mut textStorage: [128]u8 = [0; 128];
+    let mut textAllocator = mem::FixedBufferAllocator::init(&mut textStorage);
+    let mut replaced = phraseText.replaceAll(&mut textAllocator, &"coercion", &"iteration").exit().?;
+    defer replaced.deinit(&mut textAllocator).exit().?;
 
     if first_written != 2 {
         return exit(1)!;
@@ -102,6 +109,9 @@ pub fn main(init: Init) ExitCode!void {
     }
     if wordCount != 2 {
         return exit(10)!;
+    }
+    if not replaced.equals(&"slice iteration") {
+        return exit(11)!;
     }
 
     debug::print(

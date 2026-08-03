@@ -178,6 +178,15 @@ extend String {
         self.text().split(separator)
     }
 
+    pub fn replaceAll(
+        &self,
+        allocator: &mut mem::Allocator,
+        needle: &[char],
+        replacement: &[char],
+    ) mem::Error!String {
+        replaceAllText(allocator, self.text(), needle, replacement)
+    }
+
     pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
         self.text.ensureTotalCapacity(allocator, capacity)
     }
@@ -205,6 +214,50 @@ extend String {
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
         self.text.intoOwnedSlice(allocator)
     }
+}
+
+extend [char] {
+    pub fn replaceAll(
+        &self,
+        allocator: &mut mem::Allocator,
+        needle: &[char],
+        replacement: &[char],
+    ) mem::Error!String {
+        replaceAllText(allocator, self, needle, replacement)
+    }
+}
+
+fn replaceAllText(
+    allocator: &mut mem::Allocator,
+    source: &[char],
+    needle: &[char],
+    replacement: &[char],
+) mem::Error!String {
+    let matchCount = source.split(needle).count() - 1;
+    let removed = switch needle.len().checked_mul(matchCount) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let added = switch replacement.len().checked_mul(matchCount) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let outputLen = switch (source.len() - removed).checked_add(added) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+
+    let mut out = String::initCapacity(allocator, outputLen).?;
+    let mut firstPart = true;
+    for part in source.split(needle) {
+        if firstPart {
+            firstPart = false;
+        } else {
+            out.appendAssumeCapacity(replacement);
+        }
+        out.appendAssumeCapacity(part);
+    }
+    !out
 }
 
 extend String : Eq[String] {

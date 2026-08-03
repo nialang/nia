@@ -347,7 +347,11 @@ known additional scalar count; `pushAssumeCapacity` and
 `appendAssumeCapacity` then perform a checked-by-caller batch without repeating
 an allocator argument or changing capacity. `split(separator)` delegates to
 the generic borrowed slice iterator and does not allocate temporary `String`
-values.
+values. `replaceAll(allocator, needle, replacement)` is available on borrowed
+`[char]` and owned `String` text and always returns an independent `String`.
+Matching is left-to-right and non-overlapping; an empty needle copies without
+replacement. It allocates the exact scalar capacity once, preserves the source
+on failure, and permits replacement text borrowed from that source.
 
 `PathView` remains a nominal borrowed scalar path and `PathBuf` owns a `String`.
 `PathBuf::fromString` is its ownership-transfer constructor. It does not expose
@@ -375,7 +379,7 @@ LLVM before deleting its builtin declaration.
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/split/hash, borrowed map lookup, and unmanaged allocator protocol accepted; replacement and richer text workflows remain open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/split/replacement/hash, borrowed map lookup, and unmanaged allocator protocol accepted; richer text workflows remain open |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |

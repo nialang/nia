@@ -890,7 +890,11 @@ read([1, 2, 3]); // error
 
 String and byte string literal expressions have type `&[N]char` and `&[N]u8`.
 When a slice is expected, the ordinary pointer-array-to-slice coercion can
-produce `&[char]` or `&[u8]`.
+produce `&[char]` or `&[u8]`. Method resolution applies the same coercion when
+`&[N]T` or `&mut [N]T` has no matching method but the corresponding slice does.
+Methods defined for the fixed-length array remain more direct and take
+priority. The selected method's receiver kind controls the final coercion, so a
+read-only array pointer cannot call a mutable slice method.
 
 Range forms:
 
@@ -964,6 +968,15 @@ spelling. The iterator borrows both slices, so the receiver and separator must
 remain valid and unchanged until iteration ends. `SliceSplit` is intentionally
 not double-ended: reverse matching of self-overlapping multi-element separators
 requires a separate boundary/search model rather than hidden rescanning.
+
+Scalar text provides `replaceAll(allocator, needle, replacement)` on both
+borrowed `[char]` and owned `String` receivers. It returns a new owned `String`
+and never mutates or consumes the source. Matches use the same left-to-right,
+non-overlapping boundaries as `split`; an empty needle performs no replacement
+and returns an independent copy. The implementation computes the exact output
+length before allocation, allocates once, and returns `mem::Error::OutOfMemory`
+without a partial result. `replacement` may borrow from the source because the
+source remains unchanged while the independent result is built.
 
 `copyFrom(source)` is the ordinary slice copy operation. It copies
 `min(receiver.len(), source.len())` initialized element representations,
@@ -3249,7 +3262,8 @@ actually produce.
 Borrowed `[char]` receives `equals`, `startsWith`, `endsWith`, `find`, and
 `contains` from the generic slice sequence API. `String` exposes the same
 scalar-text content operations and borrowed `split(separator)` iterator by
-delegating to its borrowed view. `find`
+delegating to its borrowed view. Borrowed `[char]` and `String` also expose
+allocator-explicit `replaceAll`, which creates independent owned text. `find`
 returns the first matching scalar index as `?usize`. An empty needle matches at
 index zero, and these operations are allocation-free.
 `[char]` and `String` implement `std::hash::Hash[H]` when `H` implements
