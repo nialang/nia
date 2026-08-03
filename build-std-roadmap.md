@@ -2775,8 +2775,26 @@ not implement `DoubleEndedIterator`: a self-overlapping multi-element
 separator showed that a naive final-match scan disagrees with forward
 boundaries, while recomputing those boundaries for every `nextBack` is
 quadratic. Reverse splitting remains unaccepted until a searcher or retained-
-boundary design carries that contract honestly. Text replacement and richer
-composition remain the next text-workflow work.
+boundary design carries that contract honestly.
+
+Standard-library reconstruction progress (2026-08-03, scalar replacement
+batch): borrowed `[char]` and owned `String` now expose
+`replaceAll(allocator, needle, replacement)`. The operation always creates an
+independent `String`; it does not mutate or consume its receiver. It shares
+`split`'s left-to-right, non-overlapping matching model, treats an empty needle
+as a request for an independent unchanged copy, accepts replacement text that
+borrows from the source, and computes the exact scalar capacity before its
+single allocation. Fixed-buffer conformance proves that allocation failure
+returns no partial text and leaves the source unchanged.
+
+The direct Nia spelling `(&"aba").replaceAll(...)` exposed a compiler gap:
+typed parameter boundaries already coerced `&[N]T` to `&[T]`, while extension
+method lookup did not. Method resolution now uses that same coercion as a
+fallback for ordinary and explicit-generic methods, including mutable array
+pointers. A method defined directly for the fixed-length array retains
+priority, and the normal expected-type path records the coercion for BIR and
+code generation. This removes the need for a duplicate free-function text API.
+Richer text composition remains the next text-workflow work.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

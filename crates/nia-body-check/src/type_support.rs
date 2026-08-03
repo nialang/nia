@@ -553,7 +553,7 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
-    pub(crate) fn pointer_array_slice_type_for_trait_object_source(
+    pub(crate) fn pointer_array_slice_type(
         &mut self,
         actual: InternedTyId,
     ) -> Option<(InternedTyId, InternedTyId, bool)> {

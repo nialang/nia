@@ -124,6 +124,60 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(7)!;
     }
 
+    let mut replacedBorrowed = text.replaceAll(page, &"λ", &"nia").exit().?;
+    defer replacedBorrowed.deinit(page).exit().?;
+    if not replacedBorrowed.equals(&"alpha nia beta nia") or not text.equals(&"alpha λ beta λ") {
+        return process::exit(19)!;
+    }
+
+    let aliasReplacement = &owned.text()[0..5];
+    let mut replacedOwned = owned.replaceAll(page, &"λ", aliasReplacement).exit().?;
+    defer replacedOwned.deinit(page).exit().?;
+    if not replacedOwned.equals(&"alpha alpha beta alpha!++?")
+        or not owned.equals(&"alpha λ beta λ!++?")
+    {
+        return process::exit(20)!;
+    }
+
+    let repeated: &[char] = &"--a----b--";
+    let mut removed = repeated.replaceAll(page, &"--", &"").exit().?;
+    defer removed.deinit(page).exit().?;
+    if not removed.equals(&"ab") {
+        return process::exit(21)!;
+    }
+
+    let mut unchanged = text.replaceAll(page, &"", &"ignored").exit().?;
+    defer unchanged.deinit(page).exit().?;
+    unchanged.textMut()[0] = 'A';
+    if not unchanged.equals(&"Alpha λ beta λ") or not text.equals(&"alpha λ beta λ") {
+        return process::exit(22)!;
+    }
+
+    let mut tinyStorage: [4]u8 = [0; 4];
+    let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage);
+    let growthSource: &[char] = &"aaa";
+    switch growthSource.replaceAll(&mut tiny, &"a", &"zz") {
+        !result => {
+            let mut unexpected = result;
+            unexpected.deinit(&mut tiny).exit().?;
+            return process::exit(23)!;
+        },
+        mem::Error::OutOfMemory! => {},
+        err! => {
+            _ = err;
+            return process::exit(24)!;
+        },
+    }
+    if not growthSource.equals(&"aaa") {
+        return process::exit(25)!;
+    }
+
+    let mut literalReplaced = (&"aba").replaceAll(page, &"a", &"x").exit().?;
+    defer literalReplaced.deinit(page).exit().?;
+    if not literalReplaced.equals(&"xbx") {
+        return process::exit(26)!;
+    }
+
     let mut lambdaCount = 0;
     for &ch in text.iter() {
         if ch == 'λ' {

@@ -31,6 +31,14 @@ pub(super) struct MethodGenericContext<'a> {
     pub(super) expected: Option<InternedTyId>,
 }
 
+struct MethodReceiverResolution {
+    receiver_ty: InternedTyId,
+    candidates: Vec<MethodCandidate>,
+    trait_candidates: Vec<TraitMethodCandidate>,
+    dynamic_candidates: Vec<DynamicTraitMethodCandidate>,
+    trait_candidates_searched: bool,
+}
+
 #[derive(Clone)]
 pub(super) struct TraitMethodCandidate {
     pub(super) trait_id: GlobalDefId,
@@ -84,59 +92,23 @@ impl<'a> BodyChecker<'a> {
         let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
             this.check_expr(receiver)
         });
-        let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
-            this.method_candidates_for_receiver(receiver_ty, name)
-        });
-        let (trait_candidates, trait_candidates_searched) = if candidates.is_empty() {
-            (
-                self.profile_stage("body_check.profile.method.trait_candidates", |this| {
-                    this.trait_method_candidates_for_receiver(receiver_ty, name)
-                }),
-                true,
-            )
-        } else {
-            (
-                self.profile_stage(
-                    "body_check.profile.method.assumed_trait_candidates",
-                    |this| this.assumed_trait_method_candidates_for_receiver(receiver_ty, name),
-                ),
-                false,
-            )
-        };
-        let dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
-        let dynamic_candidates = dynamic_receiver_ty
-            .map(|object_ty| {
-                self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
-                    this.dynamic_trait_method_candidates_for_receiver(object_ty, name)
-                })
-            })
-            .unwrap_or_default();
-        let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
-        if candidates.is_empty()
-            && trait_candidates.is_empty()
-            && dynamic_candidates.is_empty()
-            && crate::symbols::builtin_trait_method_symbol(*name).is_some()
-        {
-            call_receiver_ty = self
-                .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
-                .unwrap_or(receiver_ty);
-        }
+        let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
         self.check_method_call_with_receiver_ty(
             MethodCall {
                 span,
                 node_key: &expr.node_key,
                 receiver,
-                receiver_ty: call_receiver_ty,
+                receiver_ty: resolution.receiver_ty,
                 actual_receiver_ty: receiver_ty,
                 name,
                 type_args: None,
                 args,
                 expected,
             },
-            candidates,
-            trait_candidates,
-            dynamic_candidates,
-            trait_candidates_searched,
+            resolution.candidates,
+            resolution.trait_candidates,
+            resolution.dynamic_candidates,
+            resolution.trait_candidates_searched,
         )
     }
 
@@ -153,33 +125,61 @@ impl<'a> BodyChecker<'a> {
         let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
             this.check_expr(receiver)
         });
-        let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
-            this.method_candidates_for_receiver(receiver_ty, name)
-        });
-        let (trait_candidates, trait_candidates_searched) = if candidates.is_empty() {
-            (
-                self.profile_stage("body_check.profile.method.trait_candidates", |this| {
-                    this.trait_method_candidates_for_receiver(receiver_ty, name)
-                }),
-                true,
-            )
-        } else {
-            (
-                self.profile_stage(
-                    "body_check.profile.method.assumed_trait_candidates",
-                    |this| this.assumed_trait_method_candidates_for_receiver(receiver_ty, name),
-                ),
-                false,
-            )
-        };
-        let dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
-        let dynamic_candidates = dynamic_receiver_ty
-            .map(|object_ty| {
-                self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
-                    this.dynamic_trait_method_candidates_for_receiver(object_ty, name)
-                })
-            })
-            .unwrap_or_default();
+        let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
+        self.check_method_call_with_receiver_ty(
+            MethodCall {
+                span,
+                node_key: &expr.node_key,
+                receiver,
+                receiver_ty: resolution.receiver_ty,
+                actual_receiver_ty: receiver_ty,
+                name,
+                type_args: Some(type_args),
+                args,
+                expected,
+            },
+            resolution.candidates,
+            resolution.trait_candidates,
+            resolution.dynamic_candidates,
+            resolution.trait_candidates_searched,
+        )
+    }
+
+    fn method_receiver_resolution(
+        &mut self,
+        receiver: &Expr,
+        actual_receiver_ty: InternedTyId,
+        name: &SymbolId,
+    ) -> MethodReceiverResolution {
+        let mut receiver_ty = actual_receiver_ty;
+        let (mut candidates, mut trait_candidates, mut trait_candidates_searched) =
+            self.method_candidates_and_traits(receiver_ty, name);
+        let mut dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
+        let mut dynamic_candidates = self.dynamic_method_candidates(dynamic_receiver_ty, name);
+
+        if candidates.is_empty()
+            && trait_candidates.is_empty()
+            && dynamic_candidates.is_empty()
+            && let Some(slice_ty) = self.pointer_array_method_receiver_slice_ty(receiver_ty)
+        {
+            let (slice_candidates, slice_trait_candidates, slice_traits_searched) =
+                self.method_candidates_and_traits(slice_ty, name);
+            let slice_dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(slice_ty);
+            let slice_dynamic_candidates =
+                self.dynamic_method_candidates(slice_dynamic_receiver_ty, name);
+            if !slice_candidates.is_empty()
+                || !slice_trait_candidates.is_empty()
+                || !slice_dynamic_candidates.is_empty()
+            {
+                receiver_ty = slice_ty;
+                candidates = slice_candidates;
+                trait_candidates = slice_trait_candidates;
+                trait_candidates_searched = slice_traits_searched;
+                dynamic_receiver_ty = slice_dynamic_receiver_ty;
+                dynamic_candidates = slice_dynamic_candidates;
+            }
+        }
+
         let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
         if candidates.is_empty()
             && trait_candidates.is_empty()
@@ -187,26 +187,61 @@ impl<'a> BodyChecker<'a> {
             && crate::symbols::builtin_trait_method_symbol(*name).is_some()
         {
             call_receiver_ty = self
-                .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
+                .builtin_place_method_receiver_coercion(receiver, name, actual_receiver_ty)
                 .unwrap_or(receiver_ty);
         }
-        self.check_method_call_with_receiver_ty(
-            MethodCall {
-                span,
-                node_key: &expr.node_key,
-                receiver,
-                receiver_ty: call_receiver_ty,
-                actual_receiver_ty: receiver_ty,
-                name,
-                type_args: Some(type_args),
-                args,
-                expected,
-            },
+        MethodReceiverResolution {
+            receiver_ty: call_receiver_ty,
             candidates,
             trait_candidates,
             dynamic_candidates,
             trait_candidates_searched,
-        )
+        }
+    }
+
+    fn method_candidates_and_traits(
+        &mut self,
+        receiver_ty: InternedTyId,
+        name: &SymbolId,
+    ) -> (Vec<MethodCandidate>, Vec<TraitMethodCandidate>, bool) {
+        let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
+            this.method_candidates_for_receiver(receiver_ty, name)
+        });
+        if candidates.is_empty() {
+            let trait_candidates = self
+                .profile_stage("body_check.profile.method.trait_candidates", |this| {
+                    this.trait_method_candidates_for_receiver(receiver_ty, name)
+                });
+            (candidates, trait_candidates, true)
+        } else {
+            let trait_candidates = self.profile_stage(
+                "body_check.profile.method.assumed_trait_candidates",
+                |this| this.assumed_trait_method_candidates_for_receiver(receiver_ty, name),
+            );
+            (candidates, trait_candidates, false)
+        }
+    }
+
+    fn dynamic_method_candidates(
+        &mut self,
+        receiver_ty: Option<InternedTyId>,
+        name: &SymbolId,
+    ) -> Vec<DynamicTraitMethodCandidate> {
+        receiver_ty
+            .map(|object_ty| {
+                self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
+                    this.dynamic_trait_method_candidates_for_receiver(object_ty, name)
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    fn pointer_array_method_receiver_slice_ty(
+        &mut self,
+        receiver_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        self.pointer_array_slice_type(receiver_ty)
+            .map(|(_, slice_ty, _)| slice_ty)
     }
 
     fn check_method_call_with_receiver_ty(

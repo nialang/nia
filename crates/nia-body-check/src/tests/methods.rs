@@ -187,6 +187,72 @@ fn main(values: &mut [i32]) bool {
 }
 
 #[test]
+fn pointer_arrays_can_call_slice_extension_methods() {
+    let checked = pipeline(
+        r#"
+trait SliceMetric {
+    fn metric(&self) i32;
+}
+
+extend[T] [T]
+where T: Sized
+{
+    fn itemCount(&self) usize {
+        self.len()
+    }
+
+    fn replaceFirst(&mut self, value: T) void {
+        self[0] = value;
+    }
+
+    fn choose[U](&self, value: U) U {
+        value
+    }
+
+    fn storageKind(&self) i32 {
+        1
+    }
+}
+
+extend[T] [T] : SliceMetric
+where T: Sized
+{
+    fn metric(&self) i32 {
+        self.len() as i32
+    }
+}
+
+extend[T] [2]T
+where T: Sized
+{
+    fn storageKind(&self) i32 {
+        2
+    }
+}
+
+fn main() i32 {
+    let literalCount = (&"nia").itemCount();
+    let choices: [2]i32 = [1, 2];
+    let selected = (&choices).choose[i32](7);
+    let metric = (&choices).metric();
+    let storageKind = (&choices).storageKind();
+    let mut values: [2]i32 = [3, 4];
+    (&mut values).replaceFirst(9);
+    literalCount as i32 + selected + metric + storageKind + values[0]
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .count(),
+        4
+    );
+}
+
+#[test]
 fn associated_function_and_field_access_use_extension_owner_type() {
     let checked = pipeline(
         r#"

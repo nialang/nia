@@ -274,8 +274,7 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
     ) -> Option<InternedTyId> {
         let actual = self.normalization.normalize(actual);
-        let (array_ty, slice_ty, slice_is_readonly) =
-            self.pointer_array_slice_type_for_trait_object_source(actual)?;
+        let (array_ty, slice_ty, slice_is_readonly) = self.pointer_array_slice_type(actual)?;
         self.coerce_pointer_to_trait_object(expr, expected, slice_ty)?;
         self.record_pointer_array_to_slice_node_coercion(
             expr,
