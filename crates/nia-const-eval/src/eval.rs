@@ -41,6 +41,19 @@ enum ConstEvalFlow {
 
 const CONST_LOOP_LIMIT: usize = 100_000;
 
+fn with_const_eval_session<E, T>(
+    env: &mut E,
+    evaluate: impl FnOnce(&mut E) -> Result<T, ConstError>,
+) -> Result<T, ConstError>
+where
+    E: ConstCommonEnv + ?Sized,
+{
+    env.begin_const_eval();
+    let result = evaluate(env);
+    env.end_const_eval();
+    result
+}
+
 macro_rules! eval_value_or_return_flow {
     ($expr:expr, $env:expr) => {
         match eval_const_expr_flow($expr, $env)? {
@@ -101,14 +114,14 @@ pub fn eval_early_const_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstValue, ConstError> {
-    eval_const_expr(expr, env)
+    with_const_eval_session(env, |env| eval_const_expr(expr, env))
 }
 
 pub fn eval_resolved_const_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstValue, ConstError> {
-    eval_resolved_const_expr_value(expr, env)
+    with_const_eval_session(env, |env| eval_resolved_const_expr_value(expr, env))
 }
 
 fn eval_resolved_const_expr_value(
@@ -161,6 +174,7 @@ fn eval_resolved_const_expr_flow(
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     let span = expr.span();
+    env.consume_const_eval_step(span)?;
     let value = match expr.kind() {
         ResolvedConstExprKind::Bool(value) => ConstValue::Bool(*value),
         ResolvedConstExprKind::Null => ConstValue::Optional(None),
@@ -431,6 +445,7 @@ fn eval_const_expr_flow(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
+    env.consume_const_eval_step(expr.span())?;
     let value = match &expr.kind {
         EarlyConstExprKind::Bool(value) => ConstValue::Bool(*value),
         EarlyConstExprKind::Null => ConstValue::Optional(None),
@@ -1826,14 +1841,14 @@ pub fn eval_early_const_int_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<IntConst, ConstError> {
-    eval_const_int_expr(expr, env)
+    with_const_eval_session(env, |env| eval_const_int_expr(expr, env))
 }
 
 pub fn eval_resolved_const_int_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<IntConst, ConstError> {
-    eval_resolved_const_int_expr_inner(expr, env)
+    with_const_eval_session(env, |env| eval_resolved_const_int_expr_inner(expr, env))
 }
 
 fn eval_resolved_const_int_expr_inner(
@@ -1866,14 +1881,14 @@ pub fn eval_early_const_bool_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<bool, ConstError> {
-    eval_const_bool_expr(expr, env)
+    with_const_eval_session(env, |env| eval_const_bool_expr(expr, env))
 }
 
 pub fn eval_resolved_const_bool_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<bool, ConstError> {
-    eval_resolved_const_bool_expr_inner(expr, env)
+    with_const_eval_session(env, |env| eval_resolved_const_bool_expr_inner(expr, env))
 }
 
 fn eval_resolved_const_bool_expr_inner(
@@ -1900,14 +1915,16 @@ pub fn eval_early_const_array_len_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<u64, ConstError> {
-    eval_const_array_len_expr(expr, env)
+    with_const_eval_session(env, |env| eval_const_array_len_expr(expr, env))
 }
 
 pub fn eval_resolved_const_array_len_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<u64, ConstError> {
-    int_to_array_len(expr.span(), eval_resolved_const_int_expr_inner(expr, env)?)
+    with_const_eval_session(env, |env| {
+        int_to_array_len(expr.span(), eval_resolved_const_int_expr_inner(expr, env)?)
+    })
 }
 
 struct EarlyConstCall<'a> {
@@ -1943,7 +1960,7 @@ fn eval_const_function_call(
             ),
         });
     }
-    env.push_const_scope(span)?;
+    env.push_function_frame(span)?;
     if let Err(err) = env.bind_function_context(
         span,
         function_module_id,
@@ -1951,12 +1968,12 @@ fn eval_const_function_call(
         type_substitutions,
         const_substitutions,
     ) {
-        env.pop_const_scope();
+        env.pop_function_frame();
         return Err(err);
     }
     for (param, value) in params.iter().zip(args) {
         if let Err(err) = env.bind_function_param(param.span, param, value) {
-            env.pop_const_scope();
+            env.pop_function_frame();
             return Err(err);
         }
     }
@@ -1973,7 +1990,7 @@ fn eval_const_function_call(
             message: "const function must return a value".to_string(),
         }),
     });
-    env.pop_const_scope();
+    env.pop_function_frame();
     result
 }
 
@@ -1985,18 +2002,20 @@ pub fn eval_early_const_function_call(
     args: Vec<ConstValue>,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstValue, ConstError> {
-    eval_const_function_call(
-        EarlyConstCall {
-            span,
-            function_module_id,
-            params: &function.params,
-            body: &function.body,
-            type_substitutions,
-            const_substitutions: Vec::new(),
-            args,
-        },
-        env,
-    )
+    with_const_eval_session(env, |env| {
+        eval_const_function_call(
+            EarlyConstCall {
+                span,
+                function_module_id,
+                params: &function.params,
+                body: &function.body,
+                type_substitutions,
+                const_substitutions: Vec::new(),
+                args,
+            },
+            env,
+        )
+    })
 }
 
 pub struct ResolvedConstCallInput<'a> {
@@ -2022,19 +2041,21 @@ pub fn eval_resolved_const_function_call(
         const_substitutions,
         args,
     } = input;
-    eval_resolved_const_function_call_inner(
-        ResolvedConstCall {
-            span,
-            function_id,
-            function_module_id,
-            params: function.params(),
-            body: function.body(),
-            type_substitutions,
-            const_substitutions,
-            args,
-        },
-        env,
-    )
+    with_const_eval_session(env, |env| {
+        eval_resolved_const_function_call_inner(
+            ResolvedConstCall {
+                span,
+                function_id,
+                function_module_id,
+                params: function.params(),
+                body: function.body(),
+                type_substitutions,
+                const_substitutions,
+                args,
+            },
+            env,
+        )
+    })
 }
 
 struct ResolvedConstCall<'a> {
@@ -2072,7 +2093,7 @@ fn eval_resolved_const_function_call_inner(
             ),
         });
     }
-    env.push_const_scope(span)?;
+    env.push_function_frame(span)?;
     if let Err(err) = env.bind_function_context(
         span,
         function_module_id,
@@ -2080,12 +2101,12 @@ fn eval_resolved_const_function_call_inner(
         type_substitutions,
         const_substitutions,
     ) {
-        env.pop_const_scope();
+        env.pop_function_frame();
         return Err(err);
     }
     for (param, value) in params.iter().zip(args) {
         if let Err(err) = env.bind_resolved_function_param(param.span(), param, value) {
-            env.pop_const_scope();
+            env.pop_function_frame();
             return Err(err);
         }
     }
@@ -2102,7 +2123,7 @@ fn eval_resolved_const_function_call_inner(
             message: "const function must return a value".to_string(),
         }),
     });
-    env.pop_const_scope();
+    env.pop_function_frame();
     result
 }
 
@@ -2189,6 +2210,7 @@ fn eval_function_stmt(
     stmt: &EarlyConstStmt,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
+    env.consume_const_eval_step(stmt.span)?;
     match &stmt.kind {
         EarlyConstStmtKind::Binding(binding) => match eval_const_expr_flow(&binding.value, env)? {
             ConstEvalFlow::Value(value) => {
@@ -2251,6 +2273,7 @@ fn eval_resolved_function_stmt(
     stmt: &ResolvedConstStmt,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
+    env.consume_const_eval_step(stmt.span())?;
     match stmt.kind() {
         ResolvedConstStmtKind::Binding(binding) => {
             match eval_resolved_const_expr_flow(binding.value(), env)? {
@@ -2973,6 +2996,7 @@ fn eval_while_stmt(
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     for _ in 0..CONST_LOOP_LIMIT {
+        env.consume_const_eval_step(span)?;
         let cond_value =
             match eval_condition_flow(cond, env, "const while condition must evaluate to bool")? {
                 ConstConditionFlow::Value(value) => value,
@@ -3001,6 +3025,7 @@ fn eval_resolved_while_stmt(
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     for _ in 0..CONST_LOOP_LIMIT {
+        env.consume_const_eval_step(span)?;
         let cond_value = match eval_resolved_condition_flow(
             cond,
             env,
@@ -3031,6 +3056,7 @@ fn eval_loop_stmt(
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     for _ in 0..CONST_LOOP_LIMIT {
+        env.consume_const_eval_step(span)?;
         match eval_function_block(body, env)? {
             ConstEvalFlow::Value(_) | ConstEvalFlow::Void | ConstEvalFlow::Continue => {}
             ConstEvalFlow::Break => return Ok(ConstEvalFlow::Void),
@@ -3050,6 +3076,7 @@ fn eval_resolved_loop_stmt(
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     for _ in 0..CONST_LOOP_LIMIT {
+        env.consume_const_eval_step(span)?;
         match eval_resolved_function_block(body, env)? {
             ConstEvalFlow::Value(_) | ConstEvalFlow::Void | ConstEvalFlow::Continue => {}
             ConstEvalFlow::Break => return Ok(ConstEvalFlow::Void),

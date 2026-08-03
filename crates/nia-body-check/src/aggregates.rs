@@ -1026,6 +1026,18 @@ impl<'a> BodyChecker<'a> {
 }
 
 impl ConstCommonEnv for BodyChecker<'_> {
+    fn begin_const_eval(&mut self) {
+        self.const_eval_budget.begin_session();
+    }
+
+    fn end_const_eval(&mut self) {
+        self.const_eval_budget.end_session();
+    }
+
+    fn consume_const_eval_step(&mut self, span: Span) -> Result<(), ConstError> {
+        self.const_eval_budget.consume_step(span)
+    }
+
     fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
         self.global_def_kind(def_id) == Some(DefKind::EnumVariant)
     }
@@ -1038,6 +1050,18 @@ impl ConstCommonEnv for BodyChecker<'_> {
 
     fn pop_const_scope(&mut self) {
         self.const_call_locals.pop();
+    }
+
+    fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
+        self.const_eval_budget.enter_call(span)?;
+        self.const_call_locals
+            .push(crate::ConstCallFrame::default());
+        Ok(())
+    }
+
+    fn pop_function_frame(&mut self) {
+        self.const_call_locals.pop();
+        self.const_eval_budget.leave_call();
     }
 
     fn bind_function_context(

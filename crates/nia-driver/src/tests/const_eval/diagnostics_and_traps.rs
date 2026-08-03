@@ -2,6 +2,208 @@
 use super::*;
 
 #[test]
+fn unused_const_function_rejects_wrong_return_type() {
+    let root = temp_dir("unused_const_function_rejects_wrong_return_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongReturn() usize {
+    true
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const function body does not match its declared type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_runtime_call_in_expression_statement() {
+    let root = temp_dir("unused_const_function_rejects_runtime_call_in_expression_statement");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongCall() usize {
+    runtimeOnly();
+    2
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_runtime_call_in_unselected_branch() {
+    let root = temp_dir("unused_const_function_rejects_runtime_call_in_unselected_branch");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongCall() usize {
+    if false {
+        return runtimeOnly();
+    }
+    2
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_runtime_method_in_assignment() {
+    let root = temp_dir("unused_const_function_rejects_runtime_method_in_assignment");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Value {
+    inner: usize,
+}
+
+extend Value {
+    fn runtimeOnly(self) usize {
+        self.inner
+    }
+}
+
+const fn wrongCall() usize {
+    let mut result: usize = 0;
+    result = Value{inner: 1}.runtimeOnly();
+    result
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_local_initializer_type_mismatch() {
+    let root = temp_dir("unused_const_function_rejects_local_initializer_type_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongLocal() usize {
+    let value: usize = true;
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const binding initializer does not match its declared type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn recursive_const_evaluation_has_a_call_depth_limit() {
+    let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn recurse(value: usize) usize {
+    recurse(value + 1)
+}
+
+const result: usize = recurse(0);
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const evaluation exceeded the 256 call depth limit")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn terminating_recursive_const_function_remains_valid() {
+    let root = temp_dir("terminating_recursive_const_function_remains_valid");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn countdown(value: usize) usize {
+    if value == 0 {
+        return 0;
+    }
+    countdown(value - 1) + 1
+}
+
+const result: usize = countdown(32);
+
+fn main() i32 {
+    result as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_dependency_cycles_are_diagnosed() {
     let root = temp_dir("const_dependency_cycles_are_diagnosed");
     write(

@@ -454,9 +454,11 @@ impl Analyzer<'_> {
                 callee,
                 type_args,
                 args,
-            } => self
-                .resolved_const_tuple_enum_literal_type(callee, args)
-                .or_else(|| {
+            } => {
+                if self.resolved_const_enum_variant(callee).is_some() {
+                    self.resolved_const_tuple_enum_literal_type(callee, args)
+                        .map(ConstValueType::Runtime)
+                } else {
                     self.resolved_const_call_return_type(
                         expr.span(),
                         callee,
@@ -464,14 +466,24 @@ impl Analyzer<'_> {
                         args,
                         expected,
                     )
-                })
-                .map(ConstValueType::Runtime),
+                    .map(ConstValueType::Runtime)
+                }
+            }
             ResolvedConstExprKind::LayoutBuiltin { .. }
             | ResolvedConstExprKind::FieldOffsetBuiltin { .. }
             | ResolvedConstExprKind::Method { .. }
             | ResolvedConstExprKind::AssociatedFunction { .. }
-            | ResolvedConstExprKind::Null
-            | ResolvedConstExprKind::Assign(_) => None,
+            | ResolvedConstExprKind::Null => None,
+            ResolvedConstExprKind::Assign(assign) => {
+                let ResolvedConstAssignTargetKind::Local { path, .. } = assign.lhs().kind();
+                for element in path {
+                    if let ResolvedConstAssignPathElemKind::Index { index, .. } = element.kind() {
+                        let _ = self.resolved_const_expr_type(index, None);
+                    }
+                }
+                let _ = self.resolved_const_expr_type(assign.rhs(), None);
+                None
+            }
         }
     }
 
@@ -1746,15 +1758,27 @@ impl Analyzer<'_> {
     ) -> Option<()> {
         match stmt.kind() {
             ResolvedConstStmtKind::Binding(binding) => {
-                let ty = binding
+                let explicit = binding
                     .explicit_type()
-                    .map(|ty| self.substitute_ty_generics(ty))
-                    .map(ConstValueType::Runtime)
-                    .or_else(|| self.resolved_const_expr_type(binding.value(), None))?;
+                    .map(|ty| self.substitute_ty_generics(ty));
+                let inferred = self.resolved_const_expr_type(binding.value(), explicit);
+                if let (Some(expected), Some(ConstValueType::Runtime(actual))) =
+                    (explicit, &inferred)
+                    && !self.const_function_types_match(expected, *actual)
+                {
+                    self.push_const_function_type_mismatch(
+                        binding.value().span(),
+                        "const binding initializer",
+                    );
+                }
+                let ty = explicit.map(ConstValueType::Runtime).or(inferred)?;
                 self.bind_const_local_type(binding.local_id(), ty);
                 Some(())
             }
-            ResolvedConstStmtKind::Expr(_) => Some(()),
+            ResolvedConstStmtKind::Expr(expr) => {
+                let _ = self.resolved_const_expr_type(expr, None);
+                Some(())
+            }
             ResolvedConstStmtKind::If {
                 cond,
                 then_branch,
@@ -1794,6 +1818,145 @@ impl Analyzer<'_> {
         result
     }
 
+    pub(super) fn check_resolved_const_function_block(
+        &mut self,
+        block: &ResolvedConstBlock,
+        return_type: Option<InternedTyId>,
+    ) -> Option<()> {
+        self.push_typed_const_scope();
+        let result = (|| {
+            for stmt in block.stmts() {
+                self.check_resolved_const_stmt(stmt)?;
+            }
+            if let Some(tail) = block.tail() {
+                self.check_const_function_result(tail, return_type, "const function body")?;
+            }
+            Some(())
+        })();
+        self.pop_typed_const_scope();
+        result
+    }
+
+    fn check_const_function_result(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
+        context: &str,
+    ) -> Option<()> {
+        let expected = expected.map(|ty| self.substitute_ty_generics(ty));
+        let actual = self.resolved_const_expr_type(expr, expected);
+        if let (Some(expected), Some(ConstValueType::Runtime(actual))) = (expected, actual)
+            && !self.const_function_types_match(expected, actual)
+        {
+            self.push_const_function_type_mismatch(expr.span(), context);
+        }
+        Some(())
+    }
+
+    fn push_const_function_type_mismatch(&mut self, span: Span, context: &str) {
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            span,
+            format!("{context} does not match its declared type"),
+        ));
+    }
+
+    fn const_function_types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+        let module_id = self.current_execution_module_id();
+        let expected = self
+            .type_normalization_for_module(module_id)
+            .map(|normalization| normalization.as_ref().normalize(expected))
+            .unwrap_or(expected);
+        let actual = self
+            .type_normalization_for_module(module_id)
+            .map(|normalization| normalization.as_ref().normalize(actual))
+            .unwrap_or(actual);
+        if expected == actual {
+            return true;
+        }
+        match (self.ty_kind(expected), self.ty_kind(actual)) {
+            (
+                Some(TyKind::Array {
+                    len: expected_len,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                }),
+            ) => {
+                let lengths_match = expected_len == actual_len
+                    || matches!(
+                        (
+                            self.array_len_const_value(expected_len),
+                            self.array_len_const_value(actual_len),
+                        ),
+                        (Some(expected), Some(actual)) if expected == actual
+                    );
+                lengths_match && self.const_function_types_match(expected_elem, actual_elem)
+            }
+            (
+                Some(TyKind::Optional {
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Optional { elem: actual_elem }),
+            )
+            | (
+                Some(TyKind::SlicePointee {
+                    elem: expected_elem,
+                }),
+                Some(TyKind::SlicePointee { elem: actual_elem }),
+            ) => self.const_function_types_match(expected_elem, actual_elem),
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: expected_readonly,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                Some(TyKind::VolatilePointer {
+                    is_readonly: expected_readonly,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                Some(TyKind::Slice {
+                    is_readonly: expected_readonly,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) => {
+                expected_readonly == actual_readonly
+                    && self.const_function_types_match(expected_elem, actual_elem)
+            }
+            (
+                Some(TyKind::ErrorUnion {
+                    error: expected_error,
+                    value: expected_value,
+                }),
+                Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }),
+            ) => {
+                self.const_function_types_match(expected_error, actual_error)
+                    && self.const_function_types_match(expected_value, actual_value)
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn check_resolved_const_stmt(
         &mut self,
         stmt: &nia_const_ir::ResolvedConstStmt,
@@ -1804,14 +1967,33 @@ impl Analyzer<'_> {
             | ResolvedConstStmtKind::ForIn(_)
             | ResolvedConstStmtKind::While { .. }
             | ResolvedConstStmtKind::Loop { .. } => self.bind_typed_resolved_const_stmt(stmt),
-            ResolvedConstStmtKind::Expr(_)
-            | ResolvedConstStmtKind::Break
-            | ResolvedConstStmtKind::Continue => Some(()),
-            ResolvedConstStmtKind::Return(Some(expr)) => {
-                self.resolved_const_expr_type(expr, None)?;
+            ResolvedConstStmtKind::Expr(expr) => {
+                let _ = self.resolved_const_expr_type(expr, None);
                 Some(())
             }
-            ResolvedConstStmtKind::Return(None) => Some(()),
+            ResolvedConstStmtKind::Break | ResolvedConstStmtKind::Continue => Some(()),
+            ResolvedConstStmtKind::Return(Some(expr)) => {
+                let return_type = self
+                    .call_locals
+                    .iter()
+                    .rev()
+                    .find_map(|frame| frame.return_type);
+                self.check_const_function_result(expr, return_type, "const return value")
+            }
+            ResolvedConstStmtKind::Return(None) => {
+                let return_type = self
+                    .call_locals
+                    .iter()
+                    .rev()
+                    .find_map(|frame| frame.return_type)
+                    .map(|ty| self.substitute_ty_generics(ty));
+                if return_type.is_some_and(|ty| {
+                    !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Void)))
+                }) {
+                    self.push_const_function_type_mismatch(stmt.span(), "const return value");
+                }
+                Some(())
+            }
         }
     }
 

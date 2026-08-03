@@ -307,7 +307,14 @@ impl Analyzer<'_> {
         args: &[ResolvedConstExpr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let resolved_callee = self.resolved_const_callee(callee)?;
+        let Some(resolved_callee) = self.resolved_const_callee(callee) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::CONST,
+                span,
+                "const expression can only call `const fn`".to_string(),
+            ));
+            return None;
+        };
         let function_id = resolved_callee.function_id;
         let signature = self
             .signatures_for_module(function_id.module_id)?
@@ -315,6 +322,14 @@ impl Analyzer<'_> {
             .functions
             .get(&function_id.def_id)?
             .clone();
+        if !signature.is_const {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::CONST,
+                span,
+                "const expression can only call `const fn`".to_string(),
+            ));
+            return None;
+        }
         let call_args = resolved_callee
             .receiver
             .into_iter()

@@ -201,6 +201,7 @@ struct BodyChecker<'a> {
     current_param_locals: Vec<LocalId>,
     const_context_depth: usize,
     const_call_locals: Vec<ConstCallFrame>,
+    const_eval_budget: nia_const_eval::ConstEvalBudget,
     body_filter: ActiveBodyCheckFilter<'a>,
     product: BodyCheckProduct,
     checked_functions: HashSet<GlobalDefId>,

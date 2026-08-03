@@ -1698,6 +1698,14 @@ function. A constant expression may call `const fn`, but may not call an
 ordinary `fn`. This gives one implementation a dual-stage contract rather than
 separate compile-time and runtime definitions.
 
+The const-capability contract is checked at the declaration, independently of
+whether the function is used. Tail expressions, explicit returns, expression
+statements, and all source branches must use const-capable operations and agree
+with the declared types. Branch selection controls evaluation, not semantic
+validity: an ordinary `fn` call in an unselected branch is still invalid, while
+a const-capable operation such as `std::builtin::error` may remain in a branch
+that is not selected for a particular call.
+
 Constant evaluation may use ordinary `let mut` locals for loops, accumulation,
 and aggregate construction. Each call receives fresh local state. That state
 cannot modify a module or associated `const`, has no observable address or
@@ -1728,6 +1736,14 @@ fn runtimeDouble(value: usize) usize {
     double(value) // emitted as a runtime call
 }
 ```
+
+Constant evaluation is resource bounded. One outer evaluation currently has a
+1,000,000-step budget and a maximum const-function call depth of 256; an
+individual `while` or `loop` is additionally limited to 100,000 iterations.
+Nested calls and loops consume the same outer step budget. Exceeding a limit is
+a source diagnostic at the active expression or call site, not a runtime stack
+overflow or an indefinitely running compiler. These limits constrain compiler
+execution and do not make a non-terminating const expression valid.
 
 ### 5.7 Static Storage
 
