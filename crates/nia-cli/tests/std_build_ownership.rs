@@ -54,14 +54,14 @@ extend FaultAllocator {
 
 extend FaultAllocator : mem::Allocator {
     fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
-        if not layout.is_empty() {
+        if not layout.isEmpty() {
             self.allocationAttempts += 1usize;
             if self.failAt == self.allocationAttempts {
                 return mem::Error::OutOfMemory!;
             }
         }
         let block = self.backing.alloc(layout).?;
-        if not block.is_empty() {
+        if not block.isEmpty() {
             self.activeAllocations += 1usize;
         }
         !block
@@ -69,7 +69,7 @@ extend FaultAllocator : mem::Allocator {
 
     fn free(&mut self, block: mem::Block) mem::Error!void {
         self.backing.free(block).?;
-        if not block.is_empty() {
+        if not block.isEmpty() {
             if self.activeAllocations == 0usize {
                 return mem::Error::Invalid!;
             }
@@ -92,7 +92,7 @@ fn isBuildDirRetainOom(error: build::Error) bool {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::BuildDir,
-            cause: build::ErrorCause::FileSystem(fs::Error::OutOfMemory),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
     }
@@ -125,7 +125,7 @@ fn isPackageRootReleaseInvalid(error: build::Error) bool {
         build::Error::Failure {
             operation: build::ErrorOperation::Release,
             subject: build::ErrorSubject::PackageRoot,
-            cause: build::ErrorCause::FileSystem(fs::Error::Invalid),
+            cause: build::ErrorCause::Memory(mem::Error::Invalid),
         } => true,
         _ => false,
     }
@@ -136,7 +136,7 @@ fn isImportRetainOom(error: build::Error) bool {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::ModuleImport(1usize),
-            cause: build::ErrorCause::FileSystem(fs::Error::OutOfMemory),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
     }

@@ -263,7 +263,7 @@ where T: Sized
         if self.slicePointsIntoAllocation(values) {
             let copyLayout = mem::Layout::array[T](values.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
-            let mut copy = copyBlock.as_slice[T]();
+            let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(values);
             switch self.insertStableSlice(allocator, index, copy) {
                 !ok => {
@@ -311,7 +311,7 @@ where T: Sized
         if self.slicePointsIntoAllocation(values) {
             let copyLayout = mem::Layout::array[T](values.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
-            let mut copy = copyBlock.as_slice[T]();
+            let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(values);
             switch self.replaceRangeStable(allocator, start, count, copy) {
                 !ok => {
@@ -442,7 +442,7 @@ where T: Sized
         if self.slicePointsIntoAllocation(items) {
             let copyLayout = mem::Layout::array[T](items.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
-            let mut copy = copyBlock.as_slice[T]();
+            let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(items);
             switch self.appendStableSlice(allocator, copy) {
                 !ok => {

@@ -3,8 +3,8 @@ using std::process;
 using build_script;
 
 fn use_allocator(allocator: &mut mem::Allocator) mem::Error!void {
-    let mut bytes = allocator.alloc_slice[u8](4usize).?;
-    allocator.free_slice[u8](bytes).?;
+    let mut bytes = allocator.allocSlice[u8](4).?;
+    allocator.freeSlice[u8](bytes).?;
     !{}
 }
 

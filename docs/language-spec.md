@@ -273,7 +273,10 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   by that block. `resize` and `remap` may change the size but preserve the
   allocation's alignment and either keep the same pointer with an updated size
   or fail without moving the allocation; `realloc` may allocate a new block,
-  copy the shared prefix, and free the old block.
+  copy the shared prefix, and free the old block. `allocBytes`, `allocSlice`,
+  and `freeSlice` are the convenience allocation forms. `Layout.isEmpty` and
+  `Block.isEmpty` test zero-sized storage; `Block.asSlice[T]` exposes a typed
+  view whose element count is derived from the block size.
 - `std::mem.PageAllocator` maps each allocation through the OS page layer. It is
   useful as a low-level backing allocator, not as the default container
   allocator for many small objects.
@@ -281,9 +284,10 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   be reset as a whole. It is useful for examples, stack-backed scratch work, and
   bounded programs where out-of-memory is part of normal control flow.
 - `std::mem.ArenaAllocator` provides region-style allocation over a child
-  allocator. `reset`, `reset_retain_capacity`, and `deinit` invalidate every
-  block, slice, and container backing allocation obtained from that arena; only
-  copied scalar values should be kept across those calls.
+  allocator. `reset` invalidates every block, slice, and container backing
+  allocation obtained from that arena while retaining reusable capacity;
+  `deinit` invalidates those allocations and releases the retained capacity.
+  Only copied scalar values should be kept across either call.
 - `std::mem.GeneralPurposeAllocator` is the ordinary heap allocator currently
   provided by the standard library. It uses small-allocation slabs plus larger
   child-backed allocations, performs basic invalid-free and double-free checks,
@@ -292,7 +296,7 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   allocations were still live at shutdown. `DeinitStatus.ok()` maps a clean
   shutdown to `void` and a leak to `std::mem.Error::Invalid`; the common
   `deinit().ok().?` form checks both deallocation errors and leak status with
-  one propagation point. Use `deinit_without_leak_check` only when that cleanup
+  one propagation point. Use `deinitWithoutLeakCheck` only when that cleanup
   is intentionally unchecked. Wrap a GPA later in synchronization primitives
   rather than sharing one instance concurrently.
 - `std::atomic` defines `Atomic[T]`, ordering constants, and ordering-specific

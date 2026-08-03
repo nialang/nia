@@ -18,11 +18,11 @@ using std::process;
 
 fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
     let mut allocator = mem::PageAllocator::init();
-    switch allocator.alloc_slice[i32](0) {
+    switch allocator.allocSlice[i32](0) {
         !items => { if items.len() != 0 {
                     return process::exit(2)!;
                 }
-                switch allocator.free_slice[i32](items) {
+                switch allocator.freeSlice[i32](items) {
                     !ok => { _ = ok; },
                     error! => { return process::exit(3)!; },
                 } },
@@ -33,11 +33,11 @@ fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
 
 fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
     let mut allocator = mem::PageAllocator::init();
-    switch allocator.alloc_slice[void](4) {
+    switch allocator.allocSlice[void](4) {
         !items => { if items.len() != 4 {
                     return process::exit(2)!;
                 }
-                switch allocator.free_slice[void](items) {
+                switch allocator.freeSlice[void](items) {
                     !ok => { _ = ok; },
                     error! => { return process::exit(3)!; },
                 } },
@@ -58,7 +58,7 @@ fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void
         !value => { block = value; },
         error! => { return process::exit(2)!; },
     }
-    let mut items = block.as_slice[void]();
+    let mut items = block.asSlice[void]();
     if items.len() != 0 {
         return process::exit(3)!;
     }
@@ -267,7 +267,7 @@ where T: Sized
             null
         } else {
             let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &T;
-            self.index += 1usize;
+            self.index += 1;
             ?item
         }
     }

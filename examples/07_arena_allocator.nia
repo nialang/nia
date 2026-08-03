@@ -35,23 +35,23 @@ fn run(init: Init) mem::Error!void {
     fillScores(&mut scores, allocator).?;
 
     let mut firstTotal = sum(scores.asSlice());
-    let mut firstCapacity = arena.query_capacity();
-    let mut firstUsed = arena.query_used();
+    let mut firstCapacity = arena.capacity();
+    let mut firstUsed = arena.used();
 
     // Every slice or container allocation from the arena becomes invalid after
     // reset. Only keep copied scalar results across this boundary.
-    arena.reset_retain_capacity().?;
+    arena.reset().?;
 
     // New allocations after reset may reuse retained arena storage.
-    let mut labels = allocator.alloc_slice[u8](16).?;
+    let mut labels = allocator.allocSlice[u8](16).?;
     // This is mutable byte storage, not a string literal; string and
     // byte-string literal forms are covered in 02_slices_and_strings.nia.
     labels[0] = b'o';
     labels[1] = b'k';
 
     let mut bytesLen = labels.len();
-    let mut retainedCapacity = arena.query_capacity();
-    let mut retainedUsed = arena.query_used();
+    let mut retainedCapacity = arena.capacity();
+    let mut retainedUsed = arena.used();
 
     debug::print(
         &"arena first_total={} capacity={} used={} retained_capacity={} retained_used={} scratch_len={}\n",

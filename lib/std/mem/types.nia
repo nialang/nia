@@ -38,8 +38,8 @@ extend Layout {
     pub fn array[T](count: usize) Error!Layout
     where T: Sized
     {
-        let elem_len = std::builtin::size[T]();
-        let size = switch elem_len.checked_mul(count) {
+        let elemLen = std::builtin::size[T]();
+        let size = switch elemLen.checked_mul(count) {
             ?value => {
                 value
             },
@@ -58,7 +58,7 @@ extend Layout {
         self.align
     }
 
-    pub fn is_empty(&self) bool {
+    pub fn isEmpty(&self) bool {
         self.size == 0
     }
 }
@@ -88,23 +88,23 @@ extend Block {
         self.layout.align()
     }
 
-    pub fn is_empty(&self) bool {
-        self.layout.is_empty()
+    pub fn isEmpty(&self) bool {
+        self.layout.isEmpty()
     }
 
     pub fn bytes(&self) &mut [u8] {
         &mut self.ptr[0..self.size()]
     }
 
-    pub fn as_slice[T](&self) &mut [T]
+    pub fn asSlice[T](&self) &mut [T]
     where T: Sized
     {
         let mut ptr = self.ptr as &mut T;
-        let elem_size = std::builtin::size[T]();
-        if elem_size == 0usize {
+        let elemSize = std::builtin::size[T]();
+        if elemSize == 0 {
             &mut ptr[0..0]
         } else {
-            &mut ptr[0..(self.size() / elem_size)]
+            &mut ptr[0..(self.size() / elemSize)]
         }
     }
 }
