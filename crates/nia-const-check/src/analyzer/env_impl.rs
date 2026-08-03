@@ -26,6 +26,18 @@ use nia_ty::{IntConst, TyKind};
 use std::path::{Path, PathBuf};
 
 impl ConstCommonEnv for Analyzer<'_> {
+    fn begin_const_eval(&mut self) {
+        self.const_eval_budget.begin_session();
+    }
+
+    fn end_const_eval(&mut self) {
+        self.const_eval_budget.end_session();
+    }
+
+    fn consume_const_eval_step(&mut self, span: Span) -> Result<(), ConstError> {
+        self.const_eval_budget.consume_step(span)
+    }
+
     fn symbol_name(&self, symbol: SymbolId) -> String {
         Analyzer::symbol_name(self, symbol)
     }
@@ -194,6 +206,17 @@ impl ConstCommonEnv for Analyzer<'_> {
 
     fn pop_const_scope(&mut self) {
         self.call_locals.pop();
+    }
+
+    fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
+        self.const_eval_budget.enter_call(span)?;
+        self.call_locals.push(ConstCallFrame::default());
+        Ok(())
+    }
+
+    fn pop_function_frame(&mut self) {
+        self.call_locals.pop();
+        self.const_eval_budget.leave_call();
     }
 
     fn bind_function_context(

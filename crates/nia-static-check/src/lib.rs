@@ -430,6 +430,7 @@ impl StaticChecker<'_> {
             program_const: self.program_const,
             symbols: self.symbols,
             target: self.target,
+            budget: nia_const_eval::ConstEvalBudget::default(),
         };
         let expr =
             nia_const_ir::lower_expr_resolved_with_context(expr, &context).map_err(|err| {
@@ -551,9 +552,22 @@ struct StaticConstEnv<'a> {
     program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
     symbols: &'a SymbolTable,
     target: &'a TargetConfig,
+    budget: nia_const_eval::ConstEvalBudget,
 }
 
 impl ConstCommonEnv for StaticConstEnv<'_> {
+    fn begin_const_eval(&mut self) {
+        self.budget.begin_session();
+    }
+
+    fn end_const_eval(&mut self) {
+        self.budget.end_session();
+    }
+
+    fn consume_const_eval_step(&mut self, span: Span) -> Result<(), ConstError> {
+        self.budget.consume_step(span)
+    }
+
     fn symbol_name(&self, symbol: SymbolId) -> String {
         StaticConstEnv::symbol_name(self, symbol)
     }

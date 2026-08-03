@@ -1228,6 +1228,7 @@ impl<'a> BodyChecker<'a> {
             current_param_locals: self.current_param_locals.clone(),
             const_context_depth: self.const_context_depth,
             const_call_locals: Vec::new(),
+            const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             body_filter: self.body_filter.clone(),
             product: self.product,
             checked_functions: self.checked_functions.clone(),

@@ -18,7 +18,95 @@ pub struct ConstError {
     pub message: String,
 }
 
+pub const DEFAULT_CONST_EVAL_STEP_LIMIT: usize = 1_000_000;
+pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 256;
+
+#[derive(Debug, Clone)]
+pub struct ConstEvalBudget {
+    step_limit: usize,
+    remaining_steps: usize,
+    call_depth_limit: usize,
+    call_depth: usize,
+    session_depth: usize,
+}
+
+impl ConstEvalBudget {
+    pub fn new(step_limit: usize, call_depth_limit: usize) -> Self {
+        Self {
+            step_limit,
+            remaining_steps: step_limit,
+            call_depth_limit,
+            call_depth: 0,
+            session_depth: 0,
+        }
+    }
+
+    pub fn begin_session(&mut self) {
+        if self.session_depth == 0 {
+            self.remaining_steps = self.step_limit;
+            self.call_depth = 0;
+        }
+        self.session_depth += 1;
+    }
+
+    pub fn end_session(&mut self) {
+        self.session_depth = self.session_depth.saturating_sub(1);
+        if self.session_depth == 0 {
+            self.call_depth = 0;
+        }
+    }
+
+    pub fn consume_step(&mut self, span: Span) -> Result<(), ConstError> {
+        let Some(remaining) = self.remaining_steps.checked_sub(1) else {
+            return Err(ConstError {
+                span,
+                message: format!(
+                    "const evaluation exceeded the {} step limit",
+                    self.step_limit
+                ),
+            });
+        };
+        self.remaining_steps = remaining;
+        Ok(())
+    }
+
+    pub fn enter_call(&mut self, span: Span) -> Result<(), ConstError> {
+        if self.call_depth >= self.call_depth_limit {
+            return Err(ConstError {
+                span,
+                message: format!(
+                    "const evaluation exceeded the {} call depth limit",
+                    self.call_depth_limit
+                ),
+            });
+        }
+        self.call_depth += 1;
+        Ok(())
+    }
+
+    pub fn leave_call(&mut self) {
+        self.call_depth = self.call_depth.saturating_sub(1);
+    }
+}
+
+impl Default for ConstEvalBudget {
+    fn default() -> Self {
+        Self::new(
+            DEFAULT_CONST_EVAL_STEP_LIMIT,
+            DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT,
+        )
+    }
+}
+
 pub trait ConstCommonEnv {
+    fn begin_const_eval(&mut self) {}
+
+    fn end_const_eval(&mut self) {}
+
+    fn consume_const_eval_step(&mut self, _span: Span) -> Result<(), ConstError> {
+        Ok(())
+    }
+
     fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_from_optional_resolver(None, symbol)
     }

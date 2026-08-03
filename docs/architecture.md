@@ -888,6 +888,21 @@ may call either function kind. Receiver and associated calls use the shared
 visible-extension index, including target generic substitutions, so const
 execution does not maintain a name-based method whitelist.
 
+Const capability is validated eagerly for every lowered `const fn`, including
+unused functions and unselected source branches. This declaration pass checks
+statement expressions and declared return contexts without executing
+data-dependent failures. The evaluator remains the execution engine rather
+than the place where an annotation first becomes semantically meaningful.
+Runtime body checking stays reachability-driven, so eager const validation does
+not create function bodies, executable facts, or backend roots.
+
+Production const environments carry a per-outer-evaluation budget shared by
+nested calls and loops. The evaluator consumes steps at expression, statement,
+and loop boundaries and enters a bounded function frame before binding call
+locals. Both module const checking and function-body local const execution use
+that mechanism. Limit failures return `ConstError` through the normal
+diagnostic path; they cannot recurse until the host stack or process is lost.
+
 ### 8.3 `nia-const-check`
 
 Lowers AST plus local/value/type semantic tables into `ConstModule`, then

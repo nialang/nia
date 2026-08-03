@@ -951,6 +951,88 @@ Acceptance:
   array-pointer-to-slice forms while ordinary examples avoid redundant type
   annotations.
 
+### Language hardening track: Dual-stage Const Semantics
+
+Goal: turn the dual-stage `const fn` model exposed by the Unicode scalar API
+into a complete language contract before more standard-library APIs depend on
+it. A `const fn` is one definition that is valid for compile-time execution and
+may also be called through the ordinary runtime pipeline; it is neither a
+const-eval-only function kind nor a promise checked only when one particular
+constant happens to call it.
+
+This track starts from the Unicode scalar batch during the standard-library
+reconstruction track. Its declaration-contract and evaluator-resource work
+must close before further const-capable std APIs freeze. Cross-stage,
+incremental, and stress coverage may proceed beside the remaining text work,
+but must close before Phase H.
+
+Round 1, declaration contract and evaluator safety:
+
+- validate every `const fn` body at its declaration, including tail and return
+  types, expression statements, calls in unselected branches, generic bodies,
+  receiver methods, and associated functions;
+- reject ordinary runtime-only `fn` calls as a const-capability error without
+  evaluating the body, while retaining legal data-dependent const failures such
+  as an unselected `std::builtin::error` branch;
+- keep signature, definition, value/type resolution, and visible-extension
+  facts shared with the ordinary semantic pipeline instead of adding a
+  name-based const call resolver;
+- replace per-loop-only protection with one deterministic evaluation budget and
+  a bounded const call stack shared across nested calls, loops, imports, and
+  generic instantiations;
+- report budget and depth exhaustion as source diagnostics with the active call
+  site rather than allowing host stack exhaustion, process abort, or a hung
+  compiler.
+
+Round 2, cross-stage semantic and backend conformance:
+
+- execute the same const-capable definitions at compile time and in emitted
+  programs across arithmetic, casts, aggregates, `if ... is`, `switch`, `for`,
+  methods, associated functions, imports, generics, and const generics;
+- specify and test the defined cross-stage behavior of overflow, division,
+  remainder, shifts, casts, traps, and other boundary operations instead of
+  inheriting accidental evaluator/backend differences;
+- cover const-only, runtime-only, dual-used, and unused definitions, including
+  function references and generic instances, so const-only work never becomes
+  a backend root and runtime work is never omitted or emitted twice;
+- keep const execution in `nia-const-ir`/`nia-const-eval` and runtime execution
+  in the ordinary checked-function/backend path while moving genuinely shared
+  semantic rules to their existing common owner.
+
+Round 3, query, incremental, and resource hardening:
+
+- compare incremental and clean compilation while changing `fn` to/from
+  `const fn`, changing use sites among const-only/runtime-only/dual-used, and
+  editing imported const-capable bodies and generic targets;
+- prove const values, diagnostics, reachable bodies, instances, backend roots,
+  and cached signatures invalidate as one coherent dependency closure without
+  stale stage-specific facts;
+- add deterministic parallel stress for deep calls, recursion, nested loops,
+  cross-module calls, and budget exhaustion, with bounded wall time and memory;
+- record focused const-check/evaluation/query timing baselines so dual-stage
+  support does not silently duplicate whole-program body checking.
+
+Acceptance:
+
+- an unused invalid `const fn` is rejected at its declaration, including wrong
+  returns and ordinary function calls in expression statements or unselected
+  branches, while a valid unused definition produces no runtime body or backend
+  root;
+- terminating recursive const evaluation succeeds within the documented
+  implementation limits, while direct, mutual, imported, generic, and
+  non-terminating recursion fail deterministically without exhausting the host;
+- one maintained executable matrix observes equal results from compile-time and
+  runtime calls over every accepted const control-flow and aggregate family;
+- reachability and monomorphization matrices distinguish const-only,
+  runtime-only, dual-used, referenced, and generic definitions without leaks,
+  omissions, or duplicate instances;
+- randomized incremental/clean comparison includes stage transitions and
+  imported const edits, and strict workspace checks plus focused compiler and
+  executable suites pass;
+- architecture and language documentation state declaration validation,
+  use-site staging, resource limits, and the ownership boundary between const
+  checking, evaluation, ordinary body checking, reachability, and codegen.
+
 ### Phase G: Artifact And Package-Boundary Surface
 
 Goal: make the graph useful for ordinary multi-artifact Nia projects without
@@ -1048,6 +1130,7 @@ Phase A
   -> Phase E coordinator execution
      +-> Phase F cache/resources
      +-> std reconstruction
+         +-> dual-stage const hardening
   -> Phase G artifact surface
   -> Phase H closure
 ```
@@ -1095,6 +1178,8 @@ before its batch commit. The final maintained matrix includes:
 | Invalid/corrupt plan | no action side effect; precise validation error |
 | No-op warm build | action/compiler/codegen/link/process counts near validation-only |
 | Source/module-map edit | exact dependent action/artifact invalidation |
+| Const stage transition | clean/incremental agreement for values, diagnostics, runtime roots, and instances |
+| Const resource exhaustion | deterministic depth/step diagnostic with bounded wall time and memory |
 | Generated source | producer output identity flows to consumer input fingerprint |
 | External command | declared args/env/cwd/tool/inputs/outputs determine reuse |
 | Action failure/cancel | dependent work stops; active work settles; staged outputs retired |
@@ -2869,6 +2954,31 @@ runtime results, and also proves a private comptime-only helper does not need to
 become a backend root. This is the general staging model for future std APIs,
 not a Unicode-specific exception or a compatibility layer around a restricted
 evaluator.
+
+Dual-stage const hardening progress (2026-08-03, declaration and resource
+foundation batch): the roadmap now carries a separate three-round const stage
+covering declaration validity, cross-stage/backend conformance, and
+query/incremental/resource hardening. The first implementation wave makes
+unused `const fn` bodies participate in declaration checking for tail/return
+contexts, explicit local initializer types, expression statements, assignment
+operands, and ordinary free/method calls even in unselected branches. Enum
+payload constructors remain const data construction rather than being
+misclassified as function calls, and semantically equal array types compare
+evaluated lengths instead of requiring identical const-expression identities.
+
+Const evaluation now opens one resource session per outer expression. Module
+const checking and function-body local const execution share a 1,000,000-step
+budget and a 256-frame function-call limit across nested evaluation; the
+existing single-loop limit remains an additional guard. Exhaustion returns an
+ordinary source diagnostic at the active site. Infinite recursion therefore
+cannot consume the host stack, while terminating recursion remains valid. Unit
+coverage proves budget reset and depth release; driver coverage proves unused
+wrong returns, wrong local initializers, ordinary calls in statements,
+assignments, and unselected branches, finite recursion, and bounded infinite
+recursion. All 17 const-evaluator tests, all 505 driver tests, and all 194
+compiler-query tests pass. The remaining declaration-depth audit, cross-stage
+differential matrix, and incremental/stress rounds stay explicitly open under
+the new track.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

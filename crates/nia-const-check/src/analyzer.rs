@@ -16,11 +16,12 @@ use crate::{
 use nia_const_eval::ConstError;
 use nia_const_ir::{
     ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral, ConstUnaryOp,
-    ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssociatedTarget,
-    ResolvedConstBlock, ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind,
-    ResolvedConstFieldInit, ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern,
-    ResolvedConstPatternKind, ResolvedConstStmtKind, ResolvedConstSwitch,
-    ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
+    ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssignPathElemKind,
+    ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget, ResolvedConstBlock,
+    ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
+    ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern, ResolvedConstPatternKind,
+    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArmBody,
+    ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -295,12 +296,14 @@ pub(crate) struct Analyzer<'a> {
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
     resolved_call_instantiations: HashMap<Span, ConstGenericInstantiation>,
+    const_eval_budget: nia_const_eval::ConstEvalBudget,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConstCallFrame {
     module_id: Option<ModuleId>,
     function_id: Option<GlobalDefId>,
+    return_type: Option<InternedTyId>,
     locals: HashMap<LocalId, ConstValue>,
     local_types: HashMap<LocalId, ConstValueType>,
     mutable_locals: HashSet<LocalId>,
@@ -313,6 +316,7 @@ impl From<TypedConstFrame> for ConstCallFrame {
         Self {
             module_id: frame.module_id,
             function_id: frame.function_id,
+            return_type: None,
             locals: HashMap::new(),
             local_types: frame.local_types,
             mutable_locals: HashSet::new(),
@@ -348,6 +352,7 @@ impl Analyzer<'_> {
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_instantiations: HashMap::new(),
+            const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
         }
     }
 
@@ -391,6 +396,7 @@ impl Analyzer<'_> {
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_instantiations: HashMap::new(),
+            const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
         }
     }
 
@@ -468,9 +474,16 @@ impl Analyzer<'_> {
         function_id: GlobalDefId,
         function: &ResolvedConstFunction,
     ) {
+        let return_type = self
+            .input
+            .signatures
+            .functions
+            .get(&function_id.def_id)
+            .map(|signature| signature.return_type);
         let mut frame = ConstCallFrame {
             module_id: Some(function_id.module_id),
             function_id: Some(function_id),
+            return_type,
             ..ConstCallFrame::default()
         };
         for param in function.params() {
@@ -482,7 +495,7 @@ impl Analyzer<'_> {
         }
         self.call_locals.push(frame);
         let _ = self.with_execution_module(function_id.module_id, |this| {
-            this.check_resolved_const_block(function.body())
+            this.check_resolved_const_function_block(function.body(), return_type)
         });
         self.call_locals.pop();
     }
