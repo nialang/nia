@@ -1,4 +1,4 @@
-use nia_ids::GlobalDefId;
+use nia_ids::{GlobalDefId, LocalId};
 use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
@@ -19,6 +19,24 @@ pub enum ConstValue {
     },
     Optional(Option<Box<ConstValue>>),
     ErrorUnion(Result<Box<ConstValue>, Box<ConstValue>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedConstCallOutput {
+    pub value: ConstValue,
+    pub mutable_receiver: Option<ConstValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedConstPlace {
+    pub local_id: LocalId,
+    pub path: Vec<ResolvedConstPlaceElem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedConstPlaceElem {
+    Field(SymbolId),
+    Index(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]

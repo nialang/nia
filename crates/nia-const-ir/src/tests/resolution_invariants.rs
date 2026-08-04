@@ -41,6 +41,7 @@ fn resolved_function_rejects_unresolved_locals() {
             name: sym("x"),
             local_id: None,
             ty: None,
+            receiver: None,
         }],
         body: EarlyConstBlock {
             span: span(),
@@ -54,6 +55,31 @@ fn resolved_function_rejects_unresolved_locals() {
     assert_eq!(
         err.message,
         "failed to resolve const function parameter local"
+    );
+}
+
+#[test]
+fn resolved_function_preserves_mutable_receiver_kind() {
+    let function = EarlyConstFunction {
+        span: span(),
+        params: vec![EarlyConstParam {
+            span: span(),
+            name: sym("self"),
+            local_id: Some(LocalId(0)),
+            ty: None,
+            receiver: Some(nia_ids::ReceiverKind::Ref),
+        }],
+        body: EarlyConstBlock {
+            span: span(),
+            stmts: Vec::new(),
+            tail: Some(Box::new(int_expr("1"))),
+        },
+    };
+
+    let function = ResolvedConstFunction::new(function).expect("resolved const function");
+    assert_eq!(
+        function.params()[0].receiver(),
+        Some(nia_ids::ReceiverKind::Ref)
     );
 }
 

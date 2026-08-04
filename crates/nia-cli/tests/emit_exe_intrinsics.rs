@@ -342,15 +342,31 @@ extend Width {
     const fn doubled(self) usize {
         self.value * 2
     }
+
+    const fn increment(&mut self) usize {
+        self.value += 1;
+        self.value
+    }
 }
 
-const arrayLen: usize = double(2) + Width::fromValue(3).doubled() + compileOnlyWidth();
+const fn incrementedWidth() usize {
+    let mut width = Width::fromValue(3);
+    width.increment()
+}
+
+const arrayLen: usize = double(2)
+    + Width::fromValue(3).doubled()
+    + compileOnlyWidth()
+    + incrementedWidth();
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
+    let mut width = Width::fromValue(value);
     double(value) == 14
-        and Width::fromValue(value).doubled() == 14
-        and values.len() == 13
+        and width.doubled() == 14
+        and width.increment() == 8
+        and width.value == 8
+        and values.len() == 17
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {

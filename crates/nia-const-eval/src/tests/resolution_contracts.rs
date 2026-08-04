@@ -59,10 +59,12 @@ fn resolved_function_calls_use_resolved_callee_identity() {
             callee: &ResolvedConstExpr,
             generic_args: &[ResolvedConstGenericArg],
             arg_exprs: &[ResolvedConstExpr],
+            receiver_place: Option<&crate::ResolvedConstPlace>,
             args: Vec<ConstValue>,
         ) -> Result<ConstValue, ConstError> {
             assert!(generic_args.is_empty());
             assert!(arg_exprs.is_empty());
+            assert!(receiver_place.is_none());
             assert!(args.is_empty());
             assert_eq!(
                 callee.name_resolution(),

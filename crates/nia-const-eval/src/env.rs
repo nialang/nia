@@ -354,11 +354,13 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         callee: &ResolvedConstExpr,
         generic_args: &[ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
+        receiver_place: Option<&crate::ResolvedConstPlace>,
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         let _ = callee;
         let _ = generic_args;
         let _ = arg_exprs;
+        let _ = receiver_place;
         let _ = args;
         Err(ConstError {
             span,
@@ -406,6 +408,20 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Err(ConstError {
             span,
             message: "resolved const assignment is not available in this context".to_string(),
+        })
+    }
+
+    fn assign_resolved_place_local(
+        &mut self,
+        span: Span,
+        local_id: nia_ids::LocalId,
+        value: ConstValue,
+    ) -> Result<(), ConstError> {
+        let _ = local_id;
+        let _ = value;
+        Err(ConstError {
+            span,
+            message: "resolved const place writeback is not available in this context".to_string(),
         })
     }
 

@@ -287,15 +287,23 @@ pub struct ResolvedConstParam {
     name: SymbolId,
     local_id: LocalId,
     ty: Option<InternedTyId>,
+    receiver: Option<nia_ids::ReceiverKind>,
 }
 
 impl ResolvedConstParam {
-    pub fn new(span: Span, name: SymbolId, local_id: LocalId, ty: Option<InternedTyId>) -> Self {
+    pub fn new(
+        span: Span,
+        name: SymbolId,
+        local_id: LocalId,
+        ty: Option<InternedTyId>,
+        receiver: Option<nia_ids::ReceiverKind>,
+    ) -> Self {
         Self {
             span,
             name,
             local_id,
             ty,
+            receiver,
         }
     }
 
@@ -313,6 +321,10 @@ impl ResolvedConstParam {
 
     pub fn ty(&self) -> Option<InternedTyId> {
         self.ty
+    }
+
+    pub fn receiver(&self) -> Option<nia_ids::ReceiverKind> {
+        self.receiver
     }
 }
 
@@ -1128,6 +1140,7 @@ pub struct EarlyConstParam {
     pub name: SymbolId,
     pub local_id: Option<LocalId>,
     pub ty: Option<InternedTyId>,
+    pub receiver: Option<nia_ids::ReceiverKind>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
