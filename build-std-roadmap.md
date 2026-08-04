@@ -3423,11 +3423,21 @@ closes scalar-array union Round 2b. Nominal aggregate padding, nested union
 storage, vectors, and pointer provenance remain open and require separate
 representation rounds.
 
-The broader runtime layout query graph still has LP64 defaults outside const
-checking. Cross-target union differential is therefore not closed merely by the
-32-bit const regression. Artifact `TargetDataLayout` must be threaded through
-ordinary, signature, and executable layout queries as a separate architecture
-batch before pointer/provenance work or a general cross-target claim.
+Dual-stage const hardening progress (2026-08-04, artifact layout ownership):
+the remaining compiler layout providers no longer assume LP64. Ordinary,
+signature, executable runtime-body, and executable type-only layout products
+derive `TargetDataLayout` from `CompilerTargetQuery`, making the artifact target
+an explicit query dependency and invalidation input. The standalone body-check
+orchestration helpers likewise derive layout from their existing `TargetConfig`
+instead of silently mixing a caller target with LP64 layouts.
+
+Focused 32-bit query regressions fix `usize` size and alignment at four bytes in
+ordinary and signature products, then carry the same target through a runtime
+entry module and a cross-module executable type owner. This closes runtime
+artifact layout threading as an architecture batch. It does not claim that
+every supported target has an end-to-end LLVM backend differential; later
+pointer/provenance rounds must still test the relevant emitted artifacts rather
+than inferring backend correctness from layout-query coverage.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

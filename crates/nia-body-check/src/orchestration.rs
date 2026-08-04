@@ -10,16 +10,13 @@ pub fn check_module_bodies(
     lowered: &TypeLowering,
     signatures: &ItemSignatures,
 ) -> BodyCheck {
+    let target = TargetConfig::host();
     let empty_normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let layouts = nia_layout::compute_layouts(
-        type_store,
-        defs,
-        signatures,
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let layouts =
+        nia_layout::compute_layouts(type_store, defs, signatures, target_data_layout(&target));
     let empty_const_module = ResolvedConstModule::default();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
@@ -31,7 +28,6 @@ pub fn check_module_bodies(
         typed_values: &empty_typed_const_values,
         array_lengths: &empty_array_lengths,
     };
-    let target = TargetConfig::host();
     let source_path = SourcePath::new("main.nia");
     let symbols = SymbolTable::new();
     let item_tree = ModuleItemTree::from_module(module);
@@ -100,7 +96,7 @@ pub fn check_module_bodies_with_program_signatures(
             root_types: &root_types,
             normalized: &input.normalization.normalized,
             array_lengths: &array_lengths,
-            target: nia_layout::TargetDataLayout::LP64,
+            target: target_data_layout(input.target),
             program: nia_layout::ProgramLayoutContext::default(),
         });
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -136,6 +132,11 @@ pub fn check_module_bodies_with_program_signatures(
     });
     Arc::make_mut(&mut checked.diagnostics).extend(layouts.diagnostics);
     checked
+}
+
+fn target_data_layout(target: &TargetConfig) -> nia_layout::TargetDataLayout {
+    nia_layout::TargetDataLayout::from_pointer_width(target.pointer_width)
+        .expect("body-check target pointer width must have a supported data layout")
 }
 
 fn semantic_use_table_for_body_input(

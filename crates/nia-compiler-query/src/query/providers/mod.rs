@@ -16,6 +16,21 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+fn compiler_target_data_layout(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<nia_layout::TargetDataLayout> {
+    let target = db.get(CompilerTargetQuery)?;
+    nia_layout::TargetDataLayout::from_pointer_width(target.pointer_width).ok_or_else(|| {
+        db.invalid_input(
+            &CompilerTargetQuery,
+            format!(
+                "target pointer width {} does not have a supported data layout",
+                target.pointer_width
+            ),
+        )
+    })
+}
+
 mod body_check_flow;
 mod body_executable;
 mod body_signature_lookup;

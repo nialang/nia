@@ -1148,8 +1148,14 @@ indices. They must not carry source-shaped body expressions or runtime places.
 ### 8.6 `nia-layout`
 
 Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
-instantiated nominal types. It uses explicit target data layout assumptions, such
-as LP64, rather than hidden host assumptions.
+instantiated nominal types. Every compiler layout provider derives its
+`TargetDataLayout` from the artifact `CompilerTargetQuery`; ordinary, signature,
+type-only executable, and runtime-body executable layouts therefore share the
+same pointer size and alignment. The query dependency also makes an artifact
+target change invalidate cached layout products. Standalone body-check entry
+points derive the same data layout from the `TargetConfig` in scope; the
+host-only convenience entry constructs `TargetConfig::host()` once and uses it
+for both checking and layout rather than assuming LP64 independently.
 
 The algorithm reads every existing handle from the session `TypeStore` and
 publishes structural types created by generic substitution through a

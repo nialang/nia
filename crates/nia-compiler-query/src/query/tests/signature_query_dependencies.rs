@@ -343,6 +343,44 @@ fn layout_uses_full_type_module_signatures_and_array_lengths_without_body_produc
 }
 
 #[test]
+fn ordinary_and_signature_layouts_use_artifact_pointer_width() {
+    let fixture = LoadedProgramFixture::new("main.nia", "pub struct Word { value: usize }");
+    let module_id = fixture.entry_id();
+    let mut program = fixture.program();
+    program.target.pointer_width = 32;
+    let db = query_db(program);
+
+    let defs = db.expect_get(ModuleDefsQuery(module_id));
+    let word = defs
+        .semantic
+        .module_scope
+        .types
+        .get(&sym("Word"))
+        .expect("Word definition");
+    for layouts in [
+        db.expect_get(LayoutsQuery(module_id)),
+        db.expect_get(SignatureLayoutsQuery(module_id)),
+    ] {
+        assert_eq!(
+            layouts.semantic.target,
+            nia_layout::TargetDataLayout {
+                pointer_size: 4,
+                pointer_align: 4,
+            }
+        );
+        assert_eq!(
+            layouts
+                .semantic
+                .structs
+                .get(&word)
+                .expect("Word layout")
+                .layout,
+            nia_layout::TypeLayout { size: 4, align: 4 }
+        );
+    }
+}
+
+#[test]
 fn layout_uses_signature_layouts_for_cross_module_types() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

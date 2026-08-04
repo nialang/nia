@@ -427,6 +427,7 @@ pub(super) fn signature_layouts_for_types(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))?;
+        let target = compiler_target_data_layout(db)?;
         let query_failure = RefCell::new(None);
         let program_struct = |def_id: GlobalDefId| {
             capture_query_failure(
@@ -547,7 +548,7 @@ pub(super) fn signature_layouts_for_types(
                 root_types: &[],
                 normalized: &type_normalization.semantic.normalized,
                 array_lengths: &local_array_lengths,
-                target: nia_layout::TargetDataLayout::LP64,
+                target,
                 program: nia_layout::ProgramLayoutContext {
                     symbols: Some(&symbols),
                     array_lengths: Some(&program_array_lengths),
