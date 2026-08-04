@@ -3104,6 +3104,16 @@ than declaration validation. Round 1 remains open for const-only builtin and
 operation capability coverage, optional/error-union and union-specific
 semantics, and the remaining control-flow audit.
 
+Dual-stage const hardening progress (2026-08-04, builtin capability table):
+`BuiltinFunction::is_const_capable` is now the exhaustive shared contract for
+builtin calls. The implemented const set is `error`, `size`, `align`, `offset`,
+`embed`, and `charFromU32`; trap, asm, memory, SIMD, bit, and atomic intrinsics
+remain runtime-only until they gain an explicit const lowering and evaluator
+contract. Const declaration checking rejects a runtime-only builtin even in an
+unused function and names that builtin in the diagnostic. Adding a new builtin
+now requires an explicit const-capability decision in the enum's exhaustive
+match rather than silently inheriting acceptance.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
