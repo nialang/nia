@@ -152,6 +152,207 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_assignment_to_immutable_local() {
+    let root = temp_dir("unused_const_function_rejects_assignment_to_immutable_local");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongAssignment() usize {
+    let value: usize = 1;
+    value = 2;
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("cannot assign to immutable const local `value`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_assignment_type_mismatch() {
+    let root = temp_dir("unused_const_function_rejects_assignment_type_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongAssignment() usize {
+    let mut value: usize = 1;
+    value = true;
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const assignment value does not match the target type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_invalid_assignment_path() {
+    let root = temp_dir("unused_const_function_rejects_invalid_assignment_path");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongAssignment(index: usize) usize {
+    let mut value: usize = 1;
+    value[index] = 2;
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("invalid const assignment target path")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_readonly_slice_assignment() {
+    let root = temp_dir("unused_const_function_rejects_readonly_slice_assignment");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongAssignment(values: &[usize]) usize {
+    let mut view: &[usize] = values;
+    view[0] = 2;
+    view[0]
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("invalid const assignment target path")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_accepts_parameter_indexed_assignment() {
+    let root = temp_dir("unused_const_function_accepts_parameter_indexed_assignment");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn update(index: usize) usize {
+    let mut values: [2]usize = [1, 2];
+    values[index] += 1;
+    values[0]
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn unused_generic_const_function_accepts_plain_assignment() {
+    let root = temp_dir("unused_generic_const_function_accepts_plain_assignment");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn replace[T](value: T, replacement: T) T {
+    let mut result: T = value;
+    result = replacement;
+    result
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn unused_const_function_rejects_non_numeric_compound_assignment() {
+    let root = temp_dir("unused_const_function_rejects_non_numeric_compound_assignment");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongAssignment() usize {
+    let mut value: bool = true;
+    value += false;
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const compound assignment requires compatible numeric operands")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_checks_assignment_tail_as_void() {
+    let root = temp_dir("unused_const_function_checks_assignment_tail_as_void");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongTail() usize {
+    let mut value: usize = 1;
+    value = 2
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const function body does not match its declared type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn recursive_const_evaluation_has_a_call_depth_limit() {
     let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
     write(

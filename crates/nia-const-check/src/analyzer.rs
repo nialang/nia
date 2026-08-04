@@ -15,13 +15,13 @@ use crate::{
 };
 use nia_const_eval::ConstError;
 use nia_const_ir::{
-    ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral, ConstUnaryOp,
-    ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssignPathElemKind,
-    ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget, ResolvedConstBlock,
-    ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
-    ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern, ResolvedConstPatternKind,
-    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArmBody,
-    ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
+    ConstAssignOp, ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral,
+    ConstUnaryOp, ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssign,
+    ResolvedConstAssignPathElemKind, ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget,
+    ResolvedConstBlock, ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind,
+    ResolvedConstFieldInit, ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern,
+    ResolvedConstPatternKind, ResolvedConstStmtKind, ResolvedConstSwitch,
+    ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
