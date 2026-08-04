@@ -1737,6 +1737,15 @@ fn runtimeDouble(value: usize) usize {
 }
 ```
 
+Function pointer types describe an ordinary runtime call signature; they do not
+currently carry a const-callable capability. Runtime code may take the address
+of a `const fn` and call it indirectly, and that reference makes the target a
+runtime-reachable function. Constant evaluation may call the same definition
+directly, but may neither form a function pointer value nor call through one.
+Supporting const indirect calls would require an explicit const-callable
+function type or an equivalent statically checked capability, not inference
+from a pointer value's local origin.
+
 Constant evaluation is resource bounded. One outer evaluation currently has a
 1,000,000-step budget and a maximum const-function call depth of 256; an
 individual `while` or `loop` is additionally limited to 100,000 iterations.

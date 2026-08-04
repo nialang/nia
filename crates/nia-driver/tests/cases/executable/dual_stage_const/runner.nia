@@ -83,6 +83,14 @@ const fn constGenericScore[N: usize](value: i32) i32 {
     value + N as i32
 }
 
+const fn referencedScore(value: i32) i32 {
+    value * 2 + 1
+}
+
+const fn unusedScore(value: i32) i32 {
+    value - 100
+}
+
 const arithmeticExpected: i32 = arithmetic(7);
 const castExpected: i32 = castScore(9);
 const arrayExpected: i32 = arrayScore([2, 3, 5]);
@@ -100,6 +108,7 @@ const constGenericExpected: i32 = constGenericScore[4](11);
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let runtimeWidth = Width::fromValue(14);
+    let runtimeReferencedScore = & referencedScore;
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -144,6 +153,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if constGenericScore[4](11) != constGenericExpected or constGenericExpected != 15 {
         return process::exit(24)!;
+    }
+    if runtimeReferencedScore(12) != 25 {
+        return process::exit(25)!;
     }
     !{}
 }

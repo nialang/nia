@@ -3190,9 +3190,25 @@ callee fact. Ordinary expression checking now owns the lhs first, and const
 field recovery is restricted to genuinely `ConstOnly` structural values. The
 matrix therefore reaches both associated and const-generic runtime instances
 without turning their comptime uses into backend roots. Round 2 remains open
-for `for` after shared iterator/place writeback exists, function references,
+for `for` after shared iterator/place writeback exists,
 overflow/division/remainder/shift/trap boundaries, and the union-representation
 work already identified above.
+
+Dual-stage const hardening progress (2026-08-04, function-reference boundary):
+runtime code now also exercises a `const fn` through a function pointer in
+the executable matrix. The existing `FunctionReference` semantic fact makes
+that target an executable-reachability root, while a focused compiler-query
+regression asserts the exact runtime-function/body set and excludes an unused
+valid `const fn`. Const-only evaluation still adds no runtime reference edge.
+
+Function pointers are deliberately a capability boundary for const evaluation:
+their type records an ordinary runtime call signature but carries no proof that
+every possible target is const-capable. The const declaration filter therefore
+rejects both forming a function pointer value and calling one indirectly with
+specific staging diagnostics. Future comptime indirect calls require an
+explicit const-callable function type/effect or equivalent static data-flow
+proof; evaluator-local provenance guessing is not an acceptable substitute.
+Function references are closed for the current Round 2 contract.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

@@ -80,6 +80,9 @@ impl<'a> BodyChecker<'a> {
                     "builtin method `{}` is not available during const evaluation",
                     method.name()
                 ),
+                ResolvedCall::FunctionPointer => {
+                    "indirect function calls are not available during const evaluation".to_string()
+                }
                 _ => "const expression can only call `const fn`".to_string(),
             };
             self.diagnostics

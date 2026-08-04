@@ -92,6 +92,10 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let item = self.function_item_ref(expr, expected)?;
+        self.reject_const_operation(
+            expr.span,
+            "function pointer values are not available during const evaluation",
+        );
         if !is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
