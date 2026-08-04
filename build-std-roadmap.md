@@ -3265,8 +3265,11 @@ boolean masks are no longer accidentally classified as numeric, while integer
 vectors use LLVM vector `with.overflow` intrinsics and reduce the returned lane
 mask to one any-lane trap condition. The reduction packs `<N x i1>` as `iN`, so
 it neither scalarizes the operation nor inherits the public 64-lane `bitmask`
-limit. Vector division/remainder and shift count/overflow semantics remain the
-next numeric batch.
+limit. Vector division/remainder now use the same reduction for zero-divisor
+and signed `MIN / -1` or `MIN % -1` lane masks, branching around the LLVM
+operation until all lanes are valid; compound assignment shares the helper.
+Vector shift operand shape, count, and left-overflow semantics remain the next
+numeric batch.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

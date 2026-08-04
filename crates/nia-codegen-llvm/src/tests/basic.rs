@@ -536,6 +536,61 @@ fn compoundRem(lhs: u32, rhs: u32) u32 {
 }
 
 #[test]
+fn vector_integer_division_and_remainder_trap_on_any_invalid_lane() {
+    let root = temp_dir("vector_integer_division_and_remainder_trap_on_any_invalid_lane");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn signedDiv(lhs: i8x16, rhs: i8x16) i8x16 { lhs / rhs }
+fn signedRem(lhs: i8x16, rhs: i8x16) i8x16 { lhs % rhs }
+fn unsignedDiv(lhs: u8x16, rhs: u8x16) u8x16 { lhs / rhs }
+fn unsignedRem(lhs: u8x16, rhs: u8x16) u8x16 { lhs % rhs }
+
+fn compoundDiv(lhs: i8x16, rhs: i8x16) i8x16 {
+    let mut value = lhs;
+    value /= rhs;
+    value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("icmp eq <16 x i8>")
+            && ir.contains("divrem.min")
+            && ir.contains("divrem.negative_one"),
+        "expected lane-wise vector div/rem checks:\n{ir}"
+    );
+    assert!(
+        ir.contains("divrem.traps.any")
+            && ir.contains("bitcast <16 x i1>")
+            && ir.contains("divrem.trap"),
+        "expected any-lane vector div/rem trap:\n{ir}"
+    );
+    assert!(ir.contains("sdiv <16 x i8>"), "expected signed div:\n{ir}");
+    assert!(ir.contains("srem <16 x i8>"), "expected signed rem:\n{ir}");
+    assert!(
+        ir.contains("udiv <16 x i8>"),
+        "expected unsigned div:\n{ir}"
+    );
+    assert!(
+        ir.contains("urem <16 x i8>"),
+        "expected unsigned rem:\n{ir}"
+    );
+    assert!(
+        ir.matches("divrem.traps.any").count() >= 5,
+        "compound div must share vector checks:\n{ir}"
+    );
+}
+
+#[test]
 fn scalar_integer_arithmetic_traps_on_overflow() {
     let root = temp_dir("scalar_integer_arithmetic_traps_on_overflow");
     let main = root.join("main.nia");

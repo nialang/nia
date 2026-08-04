@@ -4,7 +4,11 @@ use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionExpr, FunctionExprKind};
 use nia_ids::InternedTyId;
-use nia_llvm::{FloatPredicate, IntPredicate, values::BasicValueEnum};
+use nia_llvm::{
+    FloatPredicate, IntPredicate,
+    types::BasicTypeEnum,
+    values::{BasicValueEnum, IntValue},
+};
 use nia_span::Span;
 
 use super::FunctionCodegen;
@@ -310,21 +314,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     vector_lanes,
                 );
             }
-            BinaryOp::Div | BinaryOp::Rem if !is_vector => {
-                return self.emit_checked_int_div_rem(span, lhs, op, rhs, is_signed);
+            BinaryOp::Div | BinaryOp::Rem => {
+                return self.emit_checked_int_div_rem(span, operand_ty, lhs, op, rhs);
             }
-            BinaryOp::Div if is_signed => {
-                self.builder.build_basic_int_signed_div(lhs, rhs, "divtmp")
-            }
-            BinaryOp::Div => self
-                .builder
-                .build_basic_int_unsigned_div(lhs, rhs, "divtmp"),
-            BinaryOp::Rem if is_signed => {
-                self.builder.build_basic_int_signed_rem(lhs, rhs, "remtmp")
-            }
-            BinaryOp::Rem => self
-                .builder
-                .build_basic_int_unsigned_rem(lhs, rhs, "remtmp"),
             BinaryOp::BitAnd => self.builder.build_basic_and(lhs, rhs, "andtmp"),
             BinaryOp::BitOr => self.builder.build_basic_or(lhs, rhs, "ortmp"),
             BinaryOp::BitXor => self.builder.build_basic_xor(lhs, rhs, "xortmp"),
@@ -531,54 +523,77 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_checked_int_div_rem(
         &mut self,
         span: Span,
+        operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: BinaryOp,
         rhs: BasicValueEnum<'ctx>,
-        is_signed: bool,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let lhs_int = lhs.into_int_value()?;
-        let rhs_int = rhs.into_int_value()?;
-        let int_ty = lhs_int.get_type();
+        let is_signed = self.is_signed_integer(operand_ty);
+        let vector_lanes = match self.module.ty_kind(operand_ty) {
+            Some(nia_ty::TyKind::Vector { lanes, .. }) => Some(*lanes),
+            _ => None,
+        };
+        let llvm_ty = lhs.get_type()?;
+        let zero = llvm_ty
+            .const_zero()
+            .map_err(|_| self.error(span, "failed to create integer zero"))?;
         let rhs_is_zero = self
             .builder
-            .build_int_compare(
-                IntPredicate::EQ,
-                rhs_int,
-                int_ty.const_zero(),
-                "divrem.zero",
-            )
+            .build_basic_int_compare(IntPredicate::EQ, rhs, zero, "divrem.zero")
             .map_err(|_| self.error(span, "failed to check integer divisor"))?;
-        let must_trap = if is_signed {
-            let bits = int_ty.bit_width();
-            let min = int_ty.const_u128(1u128 << (bits - 1));
-            let negative_one = int_ty.const_u128(u128::MAX);
+        let trap_mask = if is_signed {
+            let lane_ty = match self.module.ty_kind(operand_ty) {
+                Some(nia_ty::TyKind::Primitive(primitive)) => {
+                    self.integer_llvm_type(*primitive, span)?
+                }
+                Some(nia_ty::TyKind::Vector { elem, .. }) => self.integer_llvm_type(*elem, span)?,
+                _ => return Err(self.error(span, "expected scalar or vector integer type")),
+            };
+            let bits = lane_ty.bit_width();
+            let min_lane = lane_ty.const_u128(1u128 << (bits - 1));
+            let negative_one_lane = lane_ty.const_u128(u128::MAX);
+            let (min, negative_one) = if let Some(lanes) = vector_lanes {
+                (
+                    self.splat_int_vector_constant(
+                        span,
+                        llvm_ty,
+                        lanes,
+                        min_lane,
+                        "divrem.min.splat",
+                    )?,
+                    self.splat_int_vector_constant(
+                        span,
+                        llvm_ty,
+                        lanes,
+                        negative_one_lane,
+                        "divrem.negative_one.splat",
+                    )?,
+                )
+            } else {
+                (min_lane.into(), negative_one_lane.into())
+            };
             let lhs_is_min = self
                 .builder
-                .build_int_compare(IntPredicate::EQ, lhs_int, min, "divrem.min")
+                .build_basic_int_compare(IntPredicate::EQ, lhs, min, "divrem.min")
                 .map_err(|_| self.error(span, "failed to check signed division lhs"))?;
             let rhs_is_negative_one = self
                 .builder
-                .build_int_compare(
-                    IntPredicate::EQ,
-                    rhs_int,
-                    negative_one,
-                    "divrem.negative_one",
-                )
+                .build_basic_int_compare(IntPredicate::EQ, rhs, negative_one, "divrem.negative_one")
                 .map_err(|_| self.error(span, "failed to check signed division rhs"))?;
             let signed_overflow = self
                 .builder
-                .build_basic_and(
-                    lhs_is_min.into(),
-                    rhs_is_negative_one.into(),
-                    "divrem.overflow",
-                )
+                .build_basic_and(lhs_is_min, rhs_is_negative_one, "divrem.overflow")
                 .map_err(|_| self.error(span, "failed to combine signed division checks"))?;
             self.builder
-                .build_basic_or(rhs_is_zero.into(), signed_overflow, "divrem.traps")
+                .build_basic_or(rhs_is_zero, signed_overflow, "divrem.traps")
                 .map_err(|_| self.error(span, "failed to combine integer division checks"))?
-                .into_int_value()?
         } else {
             rhs_is_zero
+        };
+        let must_trap = if let Some(lanes) = vector_lanes {
+            self.reduce_vector_mask_any(span, trap_mask, lanes, "divrem.traps.any")?
+        } else {
+            trap_mask.into_int_value()?
         };
 
         let trap_block = self
@@ -608,6 +623,34 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             _ => unreachable!("only integer division and remainder reach checked div/rem codegen"),
         };
         result.map_err(|_| self.error(span, "failed to build checked integer division operation"))
+    }
+
+    fn splat_int_vector_constant(
+        &self,
+        span: Span,
+        vector_ty: BasicTypeEnum<'ctx>,
+        lanes: u32,
+        lane: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let zero = vector_ty
+            .const_zero()
+            .map_err(|_| self.error(span, "failed to create zero vector"))?
+            .into_vector_value()?;
+        let index = self.module.context.i32_type().const_zero();
+        let inserted = self
+            .builder
+            .build_insert_element(zero, lane.into(), index, "vector.splat.insert")
+            .map_err(|_| self.error(span, "failed to insert vector constant lane"))?
+            .into_vector_value()?;
+        let mask = BasicTypeEnum::from(self.module.context.i32_type())
+            .vector_type(lanes)
+            .const_zero()
+            .map_err(|_| self.error(span, "failed to create vector splat mask"))?
+            .into_vector_value()?;
+        self.builder
+            .build_shuffle_vector(inserted, inserted, mask, name)
+            .map_err(|_| self.error(span, "failed to splat vector constant"))
     }
 
     fn emit_checked_int_arithmetic(
