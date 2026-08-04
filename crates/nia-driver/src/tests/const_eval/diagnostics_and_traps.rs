@@ -503,6 +503,105 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_switch_pattern_and_checks_arm_body() {
+    let root = temp_dir("unused_const_function_rejects_switch_pattern_and_checks_arm_body");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongSwitch(value: usize) usize {
+    switch value {
+        true => runtimeOnly(),
+        _ => 0,
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const switch pattern does not match the target type")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_incompatible_switch_arm_types() {
+    let root = temp_dir("unused_const_function_rejects_incompatible_switch_arm_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongSwitch(value: usize) usize {
+    switch value {
+        0usize => 1usize,
+        _ => false,
+    }
+}
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const switch arms have incompatible result types")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_checks_switch_body_when_pattern_type_is_unknown() {
+    let root = temp_dir("unused_const_function_checks_switch_body_when_pattern_type_is_unknown");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn unresolvedSwitch(value: usize) usize {
+    switch value {
+        0 => runtimeOnly(),
+        _ => 0,
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn recursive_const_evaluation_has_a_call_depth_limit() {
     let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
     write(
