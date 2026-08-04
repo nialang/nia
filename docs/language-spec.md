@@ -2367,7 +2367,10 @@ scalar checked operation independently to every lane. If any lane's
 mathematical result is not representable in the lane type, the whole vector
 operation traps. Boolean mask vectors are not numeric vectors and do not
 support arithmetic or negation; their bitwise operations remain available.
-Integer-vector division, remainder, and shifts remain a separately specified
+Integer-vector division and remainder likewise trap the whole operation if any
+lane has a zero divisor, or if any signed lane evaluates `MIN / -1` or
+`MIN % -1`. Only after every lane passes these checks does the lane-wise LLVM
+operation execute. Integer-vector shifts remain a separately specified
 boundary.
 
 Bit-counting builtins operate on integer primitive types. `@ctz[T](value)`
