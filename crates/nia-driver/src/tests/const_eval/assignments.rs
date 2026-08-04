@@ -786,6 +786,311 @@ fn main() i32 {
 }
 
 #[test]
+fn imported_generic_const_iterable_executes_trait_witnesses() {
+    let root = temp_dir("imported_generic_const_iterable_executes_trait_witnesses");
+    write(
+        &root.join("main.nia"),
+        r#"
+module pair;
+using entry::pair;
+
+const fn total(values: pair::Pair[usize]) usize {
+    let mut result: usize = 0;
+    for value in values {
+        result += value;
+    }
+    result
+}
+
+const n: usize = total(pair::pair(4, 6));
+
+fn main() i32 {
+    let values: [10]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+    write(
+        &root.join("pair.nia"),
+        r#"
+pub struct Pair[T] {
+    first: T,
+    second: T,
+}
+
+pub struct PairIter[T] {
+    first: T,
+    second: T,
+    index: usize,
+}
+
+extend[T] PairIter[T] : Iterator {
+    type Item = T;
+
+    pub const fn next(&mut self) ?T {
+        switch self.index {
+            0usize => {
+                self.index += 1;
+                ?self.first
+            },
+            1usize => {
+                self.index += 1;
+                ?self.second
+            },
+            _ => null,
+        }
+    }
+}
+
+extend[T] Pair[T] : Iterable {
+    type Item = T;
+    type Iter = PairIter[T];
+
+    pub const fn iter(&self) PairIter[T] {
+        PairIter[T] { first: self.first, second: self.second, index: 0 }
+    }
+}
+
+pub const fn pair[T](first: T, second: T) Pair[T] {
+    Pair[T] { first: first, second: second }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_const_iterator_witness_requires_visible_extension_module() {
+    let root = temp_dir("imported_const_iterator_witness_requires_visible_extension_module");
+    write(
+        &root.join("main.nia"),
+        r#"
+module counter;
+
+const fn total(iter: counter::Counter) usize {
+    let mut result: usize = 0;
+    for value in iter {
+        result += value;
+    }
+    result
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+    write(
+        &root.join("counter.nia"),
+        r#"
+pub struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    pub const fn next(&mut self) ?usize {
+        null
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("for-in expects an Iterable")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_imported_runtime_only_iterator_witness() {
+    let root = temp_dir("unused_const_function_rejects_imported_runtime_only_iterator_witness");
+    write(
+        &root.join("main.nia"),
+        r#"
+module counter;
+using entry::counter;
+
+const fn total(iter: counter::Counter) usize {
+    let mut result: usize = 0;
+    for value in iter {
+        result += value;
+    }
+    result
+}
+
+const fn first(iter: counter::DirectCounter) usize {
+    let mut values = iter;
+    switch values.next() {
+        ?value => value,
+        null => 0,
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+    write(
+        &root.join("counter.nia"),
+        r#"
+pub struct Counter {
+    current: usize,
+    end: usize,
+}
+
+pub struct DirectCounter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    pub fn next(&mut self) ?usize {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+extend DirectCounter : Iterator {
+    type Item = usize;
+
+    pub fn next(&mut self) ?usize {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+extend Counter {
+    pub const fn next(&mut self) ?usize {
+        null
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains(
+                "`Iterator::next` trait witness used by const for-in must be declared `const fn`"
+            )),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("`Iterator::next` trait witness used during const evaluation must be declared `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_imported_runtime_only_iterable_witness() {
+    let root = temp_dir("unused_const_function_rejects_imported_runtime_only_iterable_witness");
+    write(
+        &root.join("main.nia"),
+        r#"
+module bounds;
+using entry::bounds;
+
+const fn total(values: bounds::Bounds) usize {
+    let mut result: usize = 0;
+    for value in values {
+        result += value;
+    }
+    result
+}
+
+const fn iterator(values: bounds::Bounds) bounds::Counter {
+    values.iter()
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+    write(
+        &root.join("bounds.nia"),
+        r#"
+pub struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    pub const fn next(&mut self) ?usize {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+pub struct Bounds {
+    start: usize,
+    end: usize,
+}
+
+extend Bounds : Iterable {
+    type Item = usize;
+    type Iter = Counter;
+
+    pub fn iter(&self) Counter {
+        Counter { current: self.start, end: self.end }
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains(
+                "`Iterable::iter` trait witness used by const for-in must be declared `const fn`"
+            )),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("`Iterable::iter` trait witness used during const evaluation must be declared `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_mutable_receiver_writes_back_nested_place_once() {
     let root = temp_dir("const_mutable_receiver_writes_back_nested_place_once");
     write(

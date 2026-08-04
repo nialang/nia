@@ -173,7 +173,39 @@ impl<'a> BodyChecker<'a> {
             trait_args: Vec::new(),
         });
         self.check_for_iterator(iter.span, iterator_ty, item_ty);
+        if self.body_filter.checks_const_declarations() {
+            self.check_const_for_trait_witness(
+                iter.span,
+                iterable_ty,
+                BuiltinTraitMethod::IterableIter,
+            );
+            self.check_const_for_trait_witness(
+                iter.span,
+                iterator_ty,
+                BuiltinTraitMethod::IteratorNext,
+            );
+        }
         (item_ty, iterator_ty)
+    }
+
+    fn check_const_for_trait_witness(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        method: BuiltinTraitMethod,
+    ) {
+        if self.builtin_trait_witness_is_const_capable(self_ty, method) {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::CONST,
+            span,
+            format!(
+                "`{}::{}` trait witness used by const for-in must be declared `const fn`",
+                method.trait_id().name(),
+                method.name()
+            ),
+        ));
     }
 
     pub(super) fn check_for_iterator(

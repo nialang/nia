@@ -1986,6 +1986,14 @@ methods with those names and does not bind to any standard-library module path.
 Types expose collection-specific iteration by implementing `Iterable`; an
 `Iterator` also satisfies `Iterable` intrinsically with itself as `Iter`.
 
+Inside a `const fn`, every selected user-provided `Iterable::iter` and
+`Iterator::next` witness must itself be declared `const fn`. This is checked
+when the containing const function is declared, even when it is unused. The
+intrinsic `Iterator: Iterable` adaptation has no function witness to check.
+An inherent method named `iter` or `next` does not satisfy this requirement,
+because `for-in` dispatches through the builtin traits rather than ordinary
+method lookup.
+
 The builtin iteration protocol is:
 
 ```nia

@@ -3322,7 +3322,30 @@ Iterator self-iteration, user Iterable construction, direct method calls, and
 loop control flow. The maintained emitted executable runs the same iterator
 definition and `const fn` loop at comptime and runtime. Const `for` and its
 place-writeback prerequisite are closed for Round 1; imported/generic
-iteration remains in the Round 2 matrix.
+iteration is closed by the following Round 2 hardening batch.
+
+Dual-stage const hardening progress (2026-08-04, imported/generic iteration):
+cross-module generic `Pair[T]`/`PairIter[T]` regressions now execute visible
+`Iterable::iter` and `Iterator::next` witnesses with substituted target and
+associated `Item`/`Iter` types. The maintained emitted executable uses the same
+imported generic definitions for an array-length comptime call and a runtime
+call, proving both evaluator execution and backend witness closure.
+
+Const declaration checking now validates the exact builtin-trait witness
+selected by the ordinary trait solver. A runtime-only imported `iter` or `next`
+is rejected even in an unused `const fn`; a same-named inherent const method
+cannot replace the witness used by `for`. Direct `iter()` and `next()` calls
+enforce the same concrete-witness capability. An imported impl outside the
+visible extension closure remains unavailable and produces the ordinary
+`Iterable` diagnostic rather than becoming a const-only visibility exception.
+
+The backend reachability matrix instantiates one generic iterator target only
+at comptime, one at both stages, and one only at runtime. The initial backend
+plan contains only the two runtime `count` instances, and final backend closure
+contains exactly the corresponding two `count`, `iter`, and `next` instances;
+the const-only target does not become a backend root. Imported/generic
+iteration is therefore closed for the current Round 2 contract. Union shared
+representation and the remaining cross-stage aggregate boundaries stay open.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
