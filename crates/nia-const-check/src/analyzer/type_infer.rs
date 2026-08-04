@@ -2716,7 +2716,7 @@ impl Analyzer<'_> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 for_in.iter().span(),
-                "const for-in expects an Iterator".to_string(),
+                "const for-in expects an Iterable".to_string(),
             ));
             return None;
         };
@@ -2748,14 +2748,14 @@ impl Analyzer<'_> {
         let iter_ty = self.type_for_module_or_none(iter_ty, self.current_execution_module_id())?;
         if !self.proves_trait_obligation(
             iter_ty,
-            TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             Vec::new(),
         ) {
             return None;
         }
         let item = self.intern_current_ty(TyKind::Projection {
             self_ty: iter_ty,
-            trait_id: TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            trait_id: TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
             name: nia_symbol::known::ITEM,

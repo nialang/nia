@@ -3158,8 +3158,8 @@ fn eval_resolved_for_in_stmt(
     for_in: &ResolvedConstForIn,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
-    match eval_resolved_const_expr_flow(for_in.iter(), env)? {
-        ConstEvalFlow::Value(_) => {}
+    let iterable = match eval_resolved_const_expr_flow(for_in.iter(), env)? {
+        ConstEvalFlow::Value(value) => value,
         flow @ (ConstEvalFlow::Return(_)
         | ConstEvalFlow::Propagate(_)
         | ConstEvalFlow::Break
@@ -3170,14 +3170,45 @@ fn eval_resolved_for_in_stmt(
                 message: "const for-in iterator requires a value".to_string(),
             });
         }
+    };
+    let mut iterator = env.resolved_for_iterator(span, for_in.iter(), iterable)?;
+    for _ in 0..CONST_LOOP_LIMIT {
+        env.consume_const_eval_step(span)?;
+        let (next_iterator, next) = env.resolved_iterator_next(span, iterator)?;
+        iterator = next_iterator;
+        let ConstValue::Optional(next) = next else {
+            return Err(ConstError {
+                span,
+                message: "const Iterator::next must return an optional value".to_string(),
+            });
+        };
+        let Some(item) = next else {
+            return Ok(ConstEvalFlow::Void);
+        };
+        let mut bindings = Vec::new();
+        if !resolved_pattern_matches(&item, for_in.pattern(), env, &mut bindings)? {
+            return Err(ConstError {
+                span,
+                message: "const for-in pattern did not match Iterator::Item".to_string(),
+            });
+        }
+        env.push_const_scope(span)?;
+        let bind_result = bindings
+            .iter()
+            .try_for_each(|binding| bind_resolved_pattern_value(binding, env));
+        let body_result =
+            bind_result.and_then(|()| eval_resolved_function_block(for_in.body(), env));
+        env.pop_const_scope();
+        match body_result? {
+            ConstEvalFlow::Value(_) | ConstEvalFlow::Void | ConstEvalFlow::Continue => {}
+            ConstEvalFlow::Break => return Ok(ConstEvalFlow::Void),
+            ConstEvalFlow::Return(value) => return Ok(ConstEvalFlow::Return(value)),
+            ConstEvalFlow::Propagate(value) => return Ok(ConstEvalFlow::Propagate(value)),
+        }
     }
-    let _ = span;
-    let _ = for_in.pattern();
-    let _ = for_in.body();
-    let _ = env;
     Err(ConstError {
-        span: for_in.iter().span(),
-        message: "const for-in Iterator execution is not implemented yet".to_string(),
+        span,
+        message: format!("const for-in exceeded {CONST_LOOP_LIMIT} iterations"),
     })
 }
 

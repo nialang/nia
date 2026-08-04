@@ -39,11 +39,7 @@ fn builtin_trait_method_const_capabilities_are_explicit() {
     {
         let expected = !matches!(
             method,
-            BuiltinTraitMethod::DerefMut
-                | BuiltinTraitMethod::Ptr
-                | BuiltinTraitMethod::PtrMut
-                | BuiltinTraitMethod::IterableIter
-                | BuiltinTraitMethod::IteratorNext
+            BuiltinTraitMethod::DerefMut | BuiltinTraitMethod::Ptr | BuiltinTraitMethod::PtrMut
         );
         assert_eq!(method.is_const_capable(), expected, "{}", method.name());
     }

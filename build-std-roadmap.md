@@ -3120,14 +3120,12 @@ second-stage capability decision as builtin functions. `len`, `start`, and
 `end` match the const IR/evaluator implementation; value operators and the
 direct AST forms for reference, dereference, indexing, and slicing retain their
 existing const execution paths. Mutable dereference/pointer extraction and
-`Iterable::iter`/`Iterator::next` are rejected during declaration checking
-instead of being accepted until evaluation discovers an unsupported operation.
-Const `for` is deliberately not implemented by duck-typing a value loop: the
-ordinary runtime lowering calls `Iterable::iter` and repeatedly mutates the
-`Iterator::next(&mut self)` receiver, so const execution first needs a shared
-call/place writeback contract. Round 1 remains open for that control-flow
-boundary, optional/error-union differential coverage, and union-specific value
-representation.
+`Iterable::iter`/`Iterator::next` were initially rejected during declaration
+checking instead of being accepted until evaluation discovered an unsupported
+operation. Const `for` was deliberately not implemented by duck-typing a value
+loop: the ordinary runtime lowering calls `Iterable::iter` and repeatedly
+mutates the `Iterator::next(&mut self)` receiver, so const execution first
+needed the shared call/place writeback contract recorded below.
 
 Dual-stage const hardening progress (2026-08-04, optional/error-union
 declaration contract): unused const-capable definitions now have full-query
@@ -3300,16 +3298,31 @@ observation, so semantic probing cannot alter comptime state or steal resources
 from the real execution.
 
 This is the shared call/place prerequisite for const `for`, not a special
-iterator evaluator. A focused const regression mutates a nested struct in
-an indexed array place, uses a side effect in that index, and fixes the exact
+iterator evaluator. A focused const regression mutates a nested struct in an
+indexed array place, uses a side effect in that index, and fixes the exact
 comptime result. The maintained dual-stage executable also calls one mutable
 receiver definition at comptime and runtime, checking both the returned value
-and the updated runtime owner. `Iterable::iter` and `Iterator::next` remain
-unavailable until the next batch routes their trait-selected bodies through
-this contract and keeps the iterator value as explicit loop state. General
-mutable pointer arguments and dereferenced-place aliasing remain a separate
-extension of the same place model; the current batch makes no snapshot-pointer
-claim for them.
+and the updated runtime owner. General mutable pointer arguments and
+dereferenced-place aliasing remain a separate extension of the same place
+model; this batch makes no snapshot-pointer claim for them.
+
+Dual-stage const hardening progress (2026-08-04, shared const iteration): const
+`for` now follows the ordinary iteration contract. An intrinsic Iterable impl
+for an Iterator preserves the input value as explicit loop state; a user
+Iterable instead invokes its visible `Iterable::iter` trait witness. Every
+iteration invokes the visible `Iterator::next` witness through the mutable
+receiver call contract above, stores the returned receiver state, matches the
+optional Item payload with the ordinary resolved pattern representation, and
+propagates `continue`, `break`, return, and error/optional propagation through
+the existing evaluator flow. Trait witness selection filters by builtin trait
+identity and visibility, so a same-named inherent method cannot accidentally
+become `for` semantics. Direct const `iter()` and `next()` calls use the same
+capability and call path. Focused regressions fix exact results for intrinsic
+Iterator self-iteration, user Iterable construction, direct method calls, and
+loop control flow. The maintained emitted executable runs the same iterator
+definition and `const fn` loop at comptime and runtime. Const `for` and its
+place-writeback prerequisite are closed for Round 1; imported/generic
+iteration remains in the Round 2 matrix.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

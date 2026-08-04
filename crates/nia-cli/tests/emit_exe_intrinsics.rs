@@ -326,6 +326,25 @@ struct Width {
     value: usize,
 }
 
+struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    const fn next(&mut self) ?usize {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
 const fn double(value: usize) usize {
     value * 2
 }
@@ -354,10 +373,20 @@ const fn incrementedWidth() usize {
     width.increment()
 }
 
+const fn iterationTotal(end: usize) usize {
+    let mut total = 0usize;
+    let mut iter = Counter { current: 0, end: end };
+    for value in iter {
+        total += value;
+    }
+    total
+}
+
 const arrayLen: usize = double(2)
     + Width::fromValue(3).doubled()
     + compileOnlyWidth()
-    + incrementedWidth();
+    + incrementedWidth()
+    + iterationTotal(3);
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
@@ -366,7 +395,8 @@ fn runtimeChecks(value: usize) bool {
         and width.doubled() == 14
         and width.increment() == 8
         and width.value == 8
-        and values.len() == 17
+        and iterationTotal(value) == 21
+        and values.len() == 20
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {

@@ -969,7 +969,7 @@ impl BuiltinMethod {
 
     /// Whether the const evaluator implements this compiler intrinsic method.
     pub fn is_const_capable(self) -> bool {
-        matches!(self, Self::Len | Self::Start | Self::End)
+        matches!(self, Self::Len | Self::Start | Self::End | Self::Iter)
     }
 }
 

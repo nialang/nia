@@ -956,10 +956,10 @@ impl BuiltinTraitMethod {
             | Self::SliceMut
             | Self::Len
             | Self::Start
-            | Self::End => true,
-            Self::DerefMut | Self::Ptr | Self::PtrMut | Self::IterableIter | Self::IteratorNext => {
-                false
-            }
+            | Self::End
+            | Self::IterableIter
+            | Self::IteratorNext => true,
+            Self::DerefMut | Self::Ptr | Self::PtrMut => false,
         }
     }
 }

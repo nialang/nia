@@ -368,6 +368,32 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    fn resolved_for_iterator(
+        &mut self,
+        span: Span,
+        iterable: &ResolvedConstExpr,
+        value: ConstValue,
+    ) -> Result<crate::ResolvedConstIterator, ConstError> {
+        let _ = iterable;
+        let _ = value;
+        Err(ConstError {
+            span,
+            message: "const Iterable execution is not available in this context".to_string(),
+        })
+    }
+
+    fn resolved_iterator_next(
+        &mut self,
+        span: Span,
+        iterator: crate::ResolvedConstIterator,
+    ) -> Result<(crate::ResolvedConstIterator, ConstValue), ConstError> {
+        let _ = iterator;
+        Err(ConstError {
+            span,
+            message: "const Iterator execution is not available in this context".to_string(),
+        })
+    }
+
     fn bind_resolved_function_param(
         &mut self,
         span: Span,
