@@ -3254,8 +3254,13 @@ mathematical value is not representable; signed and unsigned right shift lower
 to arithmetic and logical shift respectively. Ordinary operators, builtin
 operator calls, and compound assignment share this path. Host-width checked
 arithmetic must not become the language model, and integer-vector lanes remain
-a separate reduction/trap design item. The next numeric batch should specify
-explicit traps and integer-vector arithmetic boundaries.
+a separate reduction/trap design item. Explicit `std::builtin::trap` is now a
+real dual-stage operation rather than a runtime-only exception: its std
+declaration is `const fn`, const IR retains a distinct trap node, unselected
+branches remain valid, an evaluated comptime trap becomes a source diagnostic,
+and runtime reachability still lowers the same function body to `llvm.trap`.
+This remains separate from the message-bearing, const-only `error` builtin. The
+remaining numeric batch is the integer-vector arithmetic boundary.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

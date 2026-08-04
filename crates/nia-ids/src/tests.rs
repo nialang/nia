@@ -48,3 +48,20 @@ fn builtin_trait_method_const_capabilities_are_explicit() {
         assert_eq!(method.is_const_capable(), expected, "{}", method.name());
     }
 }
+
+#[test]
+fn builtin_function_const_capabilities_are_explicit() {
+    for builtin in BuiltinFunction::ALL {
+        let expected = matches!(
+            builtin,
+            BuiltinFunction::ConstError
+                | BuiltinFunction::Trap
+                | BuiltinFunction::SizeOf
+                | BuiltinFunction::AlignOf
+                | BuiltinFunction::Offset
+                | BuiltinFunction::Embed
+                | BuiltinFunction::CharFromU32
+        );
+        assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
+    }
+}

@@ -544,6 +544,7 @@ impl Analyzer<'_> {
                 let _ = self.resolved_const_expr_type(message, None);
                 expected.map(ConstValueType::Runtime)
             }
+            ResolvedConstExprKind::Trap => expected.map(ConstValueType::Runtime),
             ResolvedConstExprKind::Call {
                 callee,
                 generic_args,

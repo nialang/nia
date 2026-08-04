@@ -1,10 +1,10 @@
 // Control-flow and compile-time builtin functions.
 
-// Terminates the current execution path immediately.
+// Terminates the current execution path immediately at comptime or runtime.
 //
 // `trap` returns `never`, so it can be used in branches that do not continue.
 @[builtin("trap")]
-pub fn trap() never;
+pub const fn trap() never;
 
 // Emits a compile-time diagnostic with a const string message.
 @[builtin("error")]

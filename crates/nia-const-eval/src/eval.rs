@@ -268,6 +268,12 @@ fn eval_resolved_const_expr_flow(
             };
             return Err(ConstError { span, message });
         }
+        ResolvedConstExprKind::Trap => {
+            return Err(ConstError {
+                span,
+                message: "builtin `trap` reached during const evaluation".to_string(),
+            });
+        }
         ResolvedConstExprKind::LayoutBuiltin { builtin, type_arg } => {
             env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
         }
@@ -542,6 +548,12 @@ fn eval_const_expr_flow(
             return Err(ConstError {
                 span: expr.span,
                 message,
+            });
+        }
+        EarlyConstExprKind::Trap => {
+            return Err(ConstError {
+                span: expr.span,
+                message: "builtin `trap` reached during const evaluation".to_string(),
             });
         }
         EarlyConstExprKind::LayoutBuiltin { builtin, type_arg } => {

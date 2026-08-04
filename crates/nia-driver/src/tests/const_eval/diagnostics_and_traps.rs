@@ -1574,6 +1574,59 @@ fn main() i32 {
 }
 
 #[test]
+fn const_trap_is_pruned_by_an_unselected_branch() {
+    let root = temp_dir("const_trap_is_pruned_by_an_unselected_branch");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn selected(flag: bool) usize {
+    if flag {
+        std::builtin::trap();
+    }
+    4
+}
+
+const n: usize = selected(false);
+
+fn main(flag: bool) usize { selected(flag) + n }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_trap_reports_only_when_evaluated() {
+    let root = temp_dir("const_trap_reports_only_when_evaluated");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn selected(flag: bool) usize {
+    if flag {
+        std::builtin::trap();
+    }
+    4
+}
+
+const n: usize = selected(true);
+
+fn main() usize { n }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("builtin `trap` reached during const evaluation")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn trap_builtin_must_be_called() {
     let root = temp_dir("trap_builtin_must_be_called");
     write(

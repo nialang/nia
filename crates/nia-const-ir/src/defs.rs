@@ -890,6 +890,7 @@ pub enum ResolvedConstExprKind {
     CompileError {
         message: Box<ResolvedConstExpr>,
     },
+    Trap,
     BuiltinConstValue(BuiltinConstValue),
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
@@ -1397,6 +1398,7 @@ pub enum EarlyConstExprKind {
     CompileError {
         message: Box<EarlyConstExpr>,
     },
+    Trap,
     BuiltinConstValue(BuiltinConstValue),
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
