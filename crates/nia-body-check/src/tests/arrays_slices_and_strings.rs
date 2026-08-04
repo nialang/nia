@@ -2,6 +2,20 @@
 use super::common::*;
 
 #[test]
+fn constrained_index_uses_the_trait_index_type() {
+    let checked = pipeline(
+        r#"
+fn inspect[T](value: T) usize
+where T: Index[bool, Output = usize] {
+    value[true]
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn records_size_and_align_builtin_values() {
     let checked = pipeline(
         r#"
@@ -751,7 +765,9 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("index"))
+            .any(|diagnostic| diagnostic.summary.contains("[2]u8: Index[bool]")),
+        "{:?}",
+        checked.diagnostics
     );
 }
 

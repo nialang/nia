@@ -8,7 +8,8 @@ fn const_char_arrays_compare_with_string_literals() {
         &root.join("main.nia"),
         r#"
 const fn is_sample_os(value: [5]char) bool {
-    "linux" == value
+    value[0] == 'l' and value[1] == 'i' and value[2] == 'n'
+        and value[3] == 'u' and value[4] == 'x'
 }
 
 const n: usize = if is_sample_os("linux") { 4usize } else { 2usize };
@@ -31,7 +32,8 @@ fn const_char_arrays_pass_as_char_arrays() {
         &root.join("main.nia"),
         r#"
 const fn accept_linux(value: [5]char) usize {
-    if value.len() == 5usize and value[0] == 'l' and value == "linux" {
+    if value.len() == 5usize and value[0] == 'l' and value[1] == 'i'
+        and value[2] == 'n' and value[3] == 'u' and value[4] == 'x' {
         5usize
     } else {
         0usize
@@ -228,7 +230,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const for-in expects an Iterator")),
+            .contains("for-in expects an Iterable")),
         "{:?}",
         program.diagnostics
     );

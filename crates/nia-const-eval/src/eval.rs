@@ -766,6 +766,7 @@ fn eval_builtin_method_value(
 
 fn eval_builtin_len_value(span: Span, value: ConstValue) -> Result<ConstValue, ConstError> {
     match value {
+        ConstValue::Pointer(value) => eval_builtin_len_value(span, *value),
         ConstValue::Array(values) => Ok(ConstValue::Int(IntConst::unsigned(
             u128::try_from(values.len()).map_err(|_| ConstError {
                 span,
@@ -774,7 +775,7 @@ fn eval_builtin_len_value(span: Span, value: ConstValue) -> Result<ConstValue, C
         ))),
         _ => Err(ConstError {
             span,
-            message: "const len requires an array value".to_string(),
+            message: "const len requires an array or slice value".to_string(),
         }),
     }
 }

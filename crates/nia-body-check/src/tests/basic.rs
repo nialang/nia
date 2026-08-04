@@ -2,6 +2,44 @@
 use super::common::*;
 
 #[test]
+fn const_declaration_filter_checks_only_const_roots_without_bodies() {
+    let checked = pipeline_const_declarations(
+        r#"
+fn invalidRuntimeCallee() usize {
+    false
+}
+
+fn invalidOrdinary() usize {
+    false
+}
+
+const fn invalidConst() usize {
+    false
+}
+
+const fn callsRuntime() usize {
+    invalidRuntimeCallee()
+}
+"#,
+    );
+
+    assert_eq!(checked.checked_functions.len(), 2);
+    assert!(checked.ir.function_bodies.is_empty());
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("type mismatch in function body"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_return_tail_and_local_binding_types() {
     let checked = pipeline(
         r#"

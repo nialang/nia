@@ -156,7 +156,25 @@ pub(super) fn pipeline(source: &str) -> TestBodyCheck {
 }
 
 pub(super) fn pipeline_without_visible_extensions(source: &str) -> TestBodyCheck {
-    pipeline_with_options(source, |_, _, _| {}, false)
+    pipeline_with_options(
+        source,
+        |_, _, _| {},
+        false,
+        crate::BodyCheckFilter::All,
+        crate::BodyCheckProduct::Full,
+        true,
+    )
+}
+
+pub(super) fn pipeline_const_declarations(source: &str) -> TestBodyCheck {
+    pipeline_with_options(
+        source,
+        |_, _, _| {},
+        true,
+        crate::BodyCheckFilter::ConstDeclarations,
+        crate::BodyCheckProduct::FactsOnly,
+        false,
+    )
 }
 
 pub(super) fn pipeline_with_values(
@@ -167,7 +185,14 @@ pub(super) fn pipeline_with_values(
         &mut nia_value_resolve::ValueResolutionBuilder,
     ),
 ) -> TestBodyCheck {
-    pipeline_with_options(source, adjust_values, true)
+    pipeline_with_options(
+        source,
+        adjust_values,
+        true,
+        crate::BodyCheckFilter::All,
+        crate::BodyCheckProduct::Full,
+        true,
+    )
 }
 
 fn pipeline_with_options(
@@ -178,6 +203,9 @@ fn pipeline_with_options(
         &mut nia_value_resolve::ValueResolutionBuilder,
     ),
     include_visible_extensions: bool,
+    filter: crate::BodyCheckFilter<'_>,
+    product: crate::BodyCheckProduct,
+    require_valid_const_declarations: bool,
 ) -> TestBodyCheck {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
@@ -275,11 +303,13 @@ fn pipeline_with_options(
     );
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
-    assert!(
-        const_values.diagnostics.is_empty(),
-        "{:?}",
-        const_values.diagnostics
-    );
+    if require_valid_const_declarations {
+        assert!(
+            const_values.diagnostics.is_empty(),
+            "{:?}",
+            const_values.diagnostics
+        );
+    }
     let normalization_input = lowered.explicit_type_roots();
     let normalization =
         nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
@@ -379,8 +409,8 @@ fn pipeline_with_options(
         program_signatures: program_signatures.context(),
         function_scope: FunctionCheckScope::LocalModule,
         program_const: ProgramConstMaps::empty(),
-        filter: crate::BodyCheckFilter::All,
-        product: crate::BodyCheckProduct::Full,
+        filter,
+        product,
         prechecked: None,
     };
     let check = check_module_bodies_with_program_signatures_and_layouts(body_input);

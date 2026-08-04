@@ -70,12 +70,16 @@ impl<'a> BodyChecker<'a> {
                 for arg in args {
                     self.check_expr(arg);
                 }
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    call_span,
-                    "builtin `error` can only be evaluated at const",
-                ));
-                self.error()
+                if self.body_filter.checks_const_declarations() {
+                    self.never()
+                } else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        call_span,
+                        "builtin `error` can only be evaluated at const",
+                    ));
+                    self.error()
+                }
             }
             BuiltinFunction::Trap => {
                 self.record_builtin_function_call(call_span, value_node, builtin, None);

@@ -487,7 +487,10 @@ const fn first_some[T](values: [2]?T) T {
             payload
         },
         null => {
-            values[1].?
+            switch values[1] {
+                ?payload => payload,
+                null => std::builtin::error("missing fallback"),
+            }
         },
     }
 }
@@ -550,7 +553,10 @@ const fn pick[T](slot: Slot[T]) T {
             payload
         },
         null => {
-            slot.fallback.?
+            switch slot.fallback {
+                ?payload => payload,
+                null => std::builtin::error("missing fallback"),
+            }
         },
     }
 }

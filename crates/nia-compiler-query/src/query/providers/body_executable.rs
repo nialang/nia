@@ -742,6 +742,31 @@ pub(super) fn body_check_with_filter_and_layouts(
     .body_check)
 }
 
+pub(super) fn body_check_const_declarations(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<nia_body_check::BodyCheck> {
+    Ok(body_check_with_filter_and_layouts_with_inputs(
+        db,
+        ExecutableBodyCheckInput {
+            module_id,
+            filter: nia_body_check::BodyCheckFilter::ConstDeclarations,
+            layouts: None,
+            program_layouts_override: None,
+            fact_mode: ExecutableFactMode::full(),
+            resolution_inputs: None,
+            seed: None,
+            global_initializer_cache: None,
+            const_module_cache: None,
+            const_inputs: None,
+            program_function_signature_cache: None,
+            product: nia_body_check::BodyCheckProduct::FactsOnly,
+            prechecked: None,
+        },
+    )?
+    .body_check)
+}
+
 pub(super) struct ExecutableBodyCheckInput<'a> {
     pub module_id: ModuleId,
     pub filter: nia_body_check::BodyCheckFilter<'a>,
@@ -851,7 +876,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         )
     } else {
         match filter {
-            nia_body_check::BodyCheckFilter::All => {
+            nia_body_check::BodyCheckFilter::All
+            | nia_body_check::BodyCheckFilter::ConstDeclarations => {
                 full_const_values = db.get(ConstValuesQuery(module_id))?;
                 full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
                 full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id))?;
@@ -1420,7 +1446,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         (
             nia_body_check::BodyCheckProduct::Full,
             nia_body_check::BodyCheckFilter::ReachableFunctions(_)
-            | nia_body_check::BodyCheckFilter::All,
+            | nia_body_check::BodyCheckFilter::All
+            | nia_body_check::BodyCheckFilter::ConstDeclarations,
         ) => filtered_inputs,
     };
     let output = BodyCheckWithResolutionInputs {

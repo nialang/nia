@@ -474,6 +474,7 @@ impl Analyzer<'_> {
         function_id: GlobalDefId,
         function: &ResolvedConstFunction,
     ) {
+        let diagnostics_start = self.diagnostics.len();
         let return_type = self
             .input
             .signatures
@@ -498,6 +499,12 @@ impl Analyzer<'_> {
             this.check_resolved_const_function_block(function.body(), return_type)
         });
         self.call_locals.pop();
+        let declaration_diagnostics = self.diagnostics.split_off(diagnostics_start);
+        self.diagnostics.extend(
+            declaration_diagnostics
+                .into_iter()
+                .filter(|diagnostic| diagnostic.code != codes::TYPE_CHECK.into()),
+        );
     }
 
     fn eval_enum(&mut self, item_enum: &ResolvedConstEnum) {

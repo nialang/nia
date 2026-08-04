@@ -215,11 +215,14 @@ const fn id[T](value: T) T {
     value
 }
 
-const fn use_try(value: ?usize) usize {
-    id(value.?)
+const fn use_try(value: ?usize) ?usize {
+    ?id(value.?)
 }
 
-const n: usize = use_try(?7usize);
+const n: usize = switch use_try(?7usize) {
+    ?value => value,
+    null => 0usize,
+};
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -523,7 +526,8 @@ struct Pair {
     b: i32,
 }
 
-const fn size_of[T]() usize {
+const fn size_of[T]() usize
+where T: Sized {
     std::builtin::size[T]()
 }
 
@@ -566,7 +570,8 @@ fn main() i32 {
     write(
         &root.join("layout.nia"),
         r#"
-pub const fn size_of[T]() usize {
+pub const fn size_of[T]() usize
+where T: Sized {
     std::builtin::size[T]()
 }
 "#,
@@ -652,7 +657,8 @@ struct Pair {
     b: i32,
 }
 
-const fn size_of[T]() usize {
+const fn size_of[T]() usize
+where T: Sized {
     std::builtin::size[T]()
 }
 

@@ -578,7 +578,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const for-in expects an Iterator")),
+            .contains("for-in expects an Iterable")),
         "{:?}",
         program.diagnostics
     );
@@ -618,7 +618,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const for-in expects an Iterator")),
+            .contains("for-in expects an Iterable")),
         "{:?}",
         program.diagnostics
     );
@@ -652,7 +652,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const for-in expects an Iterator")),
+            .contains("for-in expects an Iterable")),
         "{:?}",
         program.diagnostics
     );

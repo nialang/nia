@@ -726,7 +726,7 @@ fn const_array_len_method_evaluates_array_values() {
         &root.join("main.nia"),
         r#"
 const fn total(values: [3]usize, text: [4]char) usize {
-    values.len() + text.len() + values[1..].len()
+    values.len() + text.len() + (&values[1..]).len()
 }
 
 const n: usize = total([1usize, 2usize, 3usize], "nia!");

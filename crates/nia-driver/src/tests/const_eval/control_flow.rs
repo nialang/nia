@@ -11,7 +11,7 @@ const fn width() usize {
     loop {
         break;
     }
-    8;
+    let ignored = 8;
     return 6;
 }
 
