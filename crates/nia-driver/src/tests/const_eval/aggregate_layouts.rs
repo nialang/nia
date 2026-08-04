@@ -582,6 +582,51 @@ where T: Sized {
 }
 
 #[test]
+fn imported_generic_scalar_union_is_shared_across_const_and_runtime_calls() {
+    let root = temp_dir("imported_generic_scalar_union_is_shared_across_const_and_runtime_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+module bits;
+using entry::bits;
+
+const compileSlot: bits::ScalarSlot[f32] = bits::slot[f32](1.0);
+const compileBits: u32 = bits::readBits[f32](compileSlot);
+
+fn main() i32 {
+    let runtimeSlot: bits::ScalarSlot[f32] = bits::slot[f32](1.0);
+    if compileBits == 1065353216
+        and bits::readBits[f32](runtimeSlot) == compileBits {
+        0
+    } else {
+        1
+    }
+}
+"#,
+    );
+    write(
+        &root.join("bits.nia"),
+        r#"
+pub union ScalarSlot[T] {
+    value: T,
+    bits: u32,
+}
+
+pub const fn slot[T](value: T) ScalarSlot[T] {
+    { value: value }
+}
+
+pub const fn readBits[T](slot: ScalarSlot[T]) u32 {
+    slot.bits
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_const_value_evaluates_layout_builtin_in_defining_module() {
     let root = temp_dir("imported_const_value_evaluates_layout_builtin_in_defining_module");
     write(
