@@ -1388,3 +1388,122 @@ fn type_arg() void {
         program.diagnostics
     );
 }
+
+#[test]
+fn unused_const_function_uses_shared_optional_and_error_union_constructor_checks() {
+    let root =
+        temp_dir("unused_const_function_uses_shared_optional_and_error_union_constructor_checks");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn invalidConstructors() void {
+    let optional: ?usize = ?true;
+    let success: usize!usize = !false;
+    let failure: usize!usize = true!;
+    let hiddenCall: ?usize = ?runtimeOnly();
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "type mismatch in optional value",
+        "type mismatch in error-union success value",
+        "type mismatch in error-union error value",
+        "const expression can only call `const fn`",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_uses_shared_propagation_checks() {
+    let root = temp_dir("unused_const_function_uses_shared_propagation_checks");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn invalidOptional(value: ?usize) usize {
+    value.?
+}
+
+const fn invalidError(value: usize!usize) ?usize {
+    ?value.?
+}
+
+const fn invalidOperand(value: usize) usize {
+    value.?
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "optional propagation requires an optional function return type",
+        "error propagation requires an error union function return type",
+        "`.?` requires optional or error union operand",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_audits_invalid_recursive_patterns_and_arm_calls() {
+    let root = temp_dir("unused_const_function_audits_invalid_recursive_patterns_and_arm_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn invalidPatterns(value: usize) usize {
+    switch value {
+        ?payload => runtimeOnly(),
+        !payload => runtimeOnly(),
+        error! => runtimeOnly(),
+        _ => 0,
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "requires an optional target",
+        "requires an error union target",
+        "const expression can only call `const fn`",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}

@@ -30,3 +30,21 @@ fn independent_module_allocators_do_not_alias_handles() {
 
     assert_ne!(first.allocate(), second.allocate());
 }
+
+#[test]
+fn builtin_trait_method_const_capabilities_are_explicit() {
+    for method in BuiltinTraitMethod::DESCRIPTORS
+        .iter()
+        .map(|(method, _)| *method)
+    {
+        let expected = !matches!(
+            method,
+            BuiltinTraitMethod::DerefMut
+                | BuiltinTraitMethod::Ptr
+                | BuiltinTraitMethod::PtrMut
+                | BuiltinTraitMethod::IterableIter
+                | BuiltinTraitMethod::IteratorNext
+        );
+        assert_eq!(method.is_const_capable(), expected, "{}", method.name());
+    }
+}

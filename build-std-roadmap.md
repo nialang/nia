@@ -3114,6 +3114,34 @@ unused function and names that builtin in the diagnostic. Adding a new builtin
 now requires an explicit const-capability decision in the enum's exhaustive
 match rather than silently inheriting acceptance.
 
+Dual-stage const hardening progress (2026-08-04, intrinsic operation
+capabilities): compiler intrinsic methods now carry the same explicit
+second-stage capability decision as builtin functions. `len`, `start`, and
+`end` match the const IR/evaluator implementation; value operators and the
+direct AST forms for reference, dereference, indexing, and slicing retain their
+existing const execution paths. Mutable dereference/pointer extraction and
+`Iterable::iter`/`Iterator::next` are rejected during declaration checking
+instead of being accepted until evaluation discovers an unsupported operation.
+Const `for` is deliberately not implemented by duck-typing a value loop: the
+ordinary runtime lowering calls `Iterable::iter` and repeatedly mutates the
+`Iterator::next(&mut self)` receiver, so const execution first needs a shared
+call/place writeback contract. Round 1 remains open for that control-flow
+boundary, optional/error-union differential coverage, and union-specific value
+representation.
+
+Dual-stage const hardening progress (2026-08-04, optional/error-union
+declaration contract): unused const-capable definitions now have full-query
+regressions for contextual optional and error-union construction, both success
+and error payload types, optional/error propagation return constraints, invalid
+propagation operands, and recursive optional/error-union patterns. Malformed
+patterns do not suppress capability diagnostics in their arm bodies. These
+rules come from the ordinary expression and pattern checker under the const
+declaration filter; `nia-const-check` retains only demand-driven value typing
+and propagation normalization during real evaluation. Optional/error-union
+declaration semantics are therefore closed in Round 1. Cross-stage executable
+comparison remains a Round 2 matrix item; const `for`, place writeback, and
+union-specific representation remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
