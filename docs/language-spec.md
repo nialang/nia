@@ -1734,6 +1734,13 @@ validity: an ordinary `fn` call in an unselected branch is still invalid, while
 a const-capable operation such as `std::builtin::error` may remain in a branch
 that is not selected for a particular call.
 
+`std::builtin::trap()` is a dual-stage const-capable operation returning
+`never`. Reaching it during constant evaluation produces a source diagnostic at
+the call; reaching the same operation at runtime terminates through the target
+trap primitive. Merely declaring it in a branch does not execute it.
+`std::builtin::error(message)` remains distinct: it is a const-only operation
+whose evaluated const string becomes the diagnostic message.
+
 Constant evaluation may use ordinary `let mut` locals for loops, accumulation,
 and aggregate construction. Each call receives fresh local state. That state
 cannot modify a module or associated `const`, has no observable address or

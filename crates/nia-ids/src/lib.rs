@@ -450,13 +450,13 @@ impl BuiltinFunction {
     pub const fn is_const_capable(self) -> bool {
         match self {
             Self::ConstError
+            | Self::Trap
             | Self::SizeOf
             | Self::AlignOf
             | Self::Offset
             | Self::Embed
             | Self::CharFromU32 => true,
-            Self::Trap
-            | Self::Asm
+            Self::Asm
             | Self::MemCopy
             | Self::MemMove
             | Self::MemSet

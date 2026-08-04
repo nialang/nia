@@ -191,6 +191,40 @@ fn main() i32 {
 }
 
 #[test]
+fn const_function_trap_is_available_at_comptime_and_runtime() {
+    let root = temp_dir("const_function_trap_is_available_at_comptime_and_runtime");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+const fn selected(flag: bool) usize {
+    if flag {
+        std::builtin::trap();
+    }
+    4
+}
+
+const n: usize = selected(false);
+
+fn main(flag: bool) usize {
+    selected(flag) + n
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call void @llvm.trap()"), "{ir}");
+    assert!(ir.contains("declare void @llvm.trap()"), "{ir}");
+    assert!(ir.contains("unreachable"), "{ir}");
+}
+
+#[test]
 fn emits_union_storage_and_field_access() {
     let root = temp_dir("emits_union_storage_and_field_access");
     let main = root.join("main.nia");

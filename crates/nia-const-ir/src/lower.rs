@@ -576,6 +576,21 @@ fn lower_call_with_context(
                 message: Box::new(lower_expr_internal(&args[0], context)?),
             });
         }
+        if name == known::TRAP {
+            if type_arg.is_some() {
+                return Err(ConstLowerError {
+                    span: builtin_span,
+                    message: "builtin `trap` does not take a type argument".to_string(),
+                });
+            }
+            if !args.is_empty() {
+                return Err(ConstLowerError {
+                    span: builtin_span,
+                    message: "builtin `trap` does not take value arguments".to_string(),
+                });
+            }
+            return Ok(EarlyConstExprKind::Trap);
+        }
         if let Some(builtin) = layout_builtin_from_symbol(name) {
             let Some(type_arg) = type_arg else {
                 let name = context.symbol_name(name);
@@ -1199,6 +1214,7 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
         EarlyConstExprKind::CompileError { message } => ResolvedConstExprKind::CompileError {
             message: Box::new(resolve_expr(*message)?),
         },
+        EarlyConstExprKind::Trap => ResolvedConstExprKind::Trap,
         EarlyConstExprKind::BuiltinConstValue(builtin) => {
             ResolvedConstExprKind::BuiltinConstValue(builtin)
         }
