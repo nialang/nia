@@ -71,6 +71,24 @@ pub mod intrinsics {
                 "llvm.ctpop" => Some(Self { name: "llvm.ctpop" }),
                 "llvm.ctlz" => Some(Self { name: "llvm.ctlz" }),
                 "llvm.cttz" => Some(Self { name: "llvm.cttz" }),
+                "llvm.sadd.with.overflow" => Some(Self {
+                    name: "llvm.sadd.with.overflow",
+                }),
+                "llvm.uadd.with.overflow" => Some(Self {
+                    name: "llvm.uadd.with.overflow",
+                }),
+                "llvm.ssub.with.overflow" => Some(Self {
+                    name: "llvm.ssub.with.overflow",
+                }),
+                "llvm.usub.with.overflow" => Some(Self {
+                    name: "llvm.usub.with.overflow",
+                }),
+                "llvm.smul.with.overflow" => Some(Self {
+                    name: "llvm.smul.with.overflow",
+                }),
+                "llvm.umul.with.overflow" => Some(Self {
+                    name: "llvm.umul.with.overflow",
+                }),
                 "llvm.bswap" => Some(Self { name: "llvm.bswap" }),
                 "llvm.sqrt" => Some(Self { name: "llvm.sqrt" }),
                 "llvm.floor" => Some(Self { name: "llvm.floor" }),

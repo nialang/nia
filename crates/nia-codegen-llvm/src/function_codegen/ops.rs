@@ -46,9 +46,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .build_basic_float_neg(value, "negtmp")
                         .map_err(|_| self.error(span, "failed to build float negation"))
                 } else {
-                    self.builder
-                        .build_basic_neg(value, "negtmp")
-                        .map_err(|_| self.error(span, "failed to build integer negation"))
+                    let is_vector =
+                        matches!(self.module.ty_kind(ty), Some(nia_ty::TyKind::Vector { .. }));
+                    if is_vector {
+                        self.builder
+                            .build_basic_neg(value, "negtmp")
+                            .map_err(|_| self.error(span, "failed to build integer negation"))
+                    } else {
+                        let int_ty = value.into_int_value()?.get_type();
+                        self.emit_checked_int_arithmetic(
+                            span,
+                            int_ty.const_zero().into(),
+                            BinaryOp::Sub,
+                            value,
+                            self.is_signed_integer(ty),
+                        )
+                    }
                 }
             }
             UnaryOp::Not => {
@@ -270,6 +283,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(nia_ty::TyKind::Vector { .. })
         );
         let result = match op {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul if !is_vector => {
+                return self.emit_checked_int_arithmetic(span, lhs, op, rhs, is_signed);
+            }
             BinaryOp::Add => self.builder.build_basic_int_add(lhs, rhs, "addtmp"),
             BinaryOp::Sub => self.builder.build_basic_int_sub(lhs, rhs, "subtmp"),
             BinaryOp::Mul => self.builder.build_basic_int_mul(lhs, rhs, "multmp"),
@@ -430,6 +446,63 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             _ => unreachable!("only integer division and remainder reach checked div/rem codegen"),
         };
         result.map_err(|_| self.error(span, "failed to build checked integer division operation"))
+    }
+
+    fn emit_checked_int_arithmetic(
+        &mut self,
+        span: Span,
+        lhs: BasicValueEnum<'ctx>,
+        op: BinaryOp,
+        rhs: BasicValueEnum<'ctx>,
+        is_signed: bool,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let intrinsic_name = match (op, is_signed) {
+            (BinaryOp::Add, true) => "llvm.sadd.with.overflow",
+            (BinaryOp::Add, false) => "llvm.uadd.with.overflow",
+            (BinaryOp::Sub, true) => "llvm.ssub.with.overflow",
+            (BinaryOp::Sub, false) => "llvm.usub.with.overflow",
+            (BinaryOp::Mul, true) => "llvm.smul.with.overflow",
+            (BinaryOp::Mul, false) => "llvm.umul.with.overflow",
+            _ => unreachable!("only integer add/sub/mul reach checked arithmetic codegen"),
+        };
+        let ty = lhs.get_type()?;
+        let intrinsic = nia_llvm::intrinsics::Intrinsic::find(intrinsic_name)
+            .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[ty]))
+            .ok_or_else(|| self.error(span, "failed to declare integer overflow intrinsic"))?;
+        let call = self
+            .builder
+            .build_call(intrinsic, &[lhs, rhs], "arith.checked")
+            .map_err(|_| self.error(span, "failed to build checked integer arithmetic"))?;
+        let result = call
+            .try_as_basic_value()
+            .unwrap_basic()
+            .map_err(|_| self.error(span, "integer overflow intrinsic returned no value"))?
+            .into_struct_value()?;
+        let value = self
+            .builder
+            .build_extract_value(result, 0, "arith.value")
+            .map_err(|_| self.error(span, "failed to extract checked arithmetic value"))?;
+        let overflow = self
+            .builder
+            .build_extract_value(result, 1, "arith.overflow")
+            .map_err(|_| self.error(span, "failed to extract integer overflow flag"))?
+            .into_int_value()?;
+
+        let trap_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "arith.trap")?;
+        let continue_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "arith.continue")?;
+        self.builder
+            .build_conditional_branch(overflow, trap_block, continue_block)
+            .map_err(|_| self.error(span, "failed to branch on integer overflow"))?;
+        self.builder.position_at_end(trap_block);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(continue_block);
+        Ok(value)
     }
 
     fn normalize_shift_rhs(

@@ -78,7 +78,7 @@ fn main() i32 {
     assert_eq!(unique.len(), definitions.len(), "{definitions:?}");
     assert!(definitions.len() >= 8, "{definitions:?}");
     declaration_counts.sort_unstable();
-    assert_eq!(declaration_counts, vec![0, 0, 0, 5]);
+    assert_eq!(declaration_counts, vec![0, 0, 0, 7]);
 }
 
 #[test]

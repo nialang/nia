@@ -185,7 +185,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("store i32 41"));
-    assert!(ir.contains("add i32"));
+    assert!(ir.contains("llvm.sadd.with.overflow.i32"));
     assert!(ir.contains("ret i32"));
 }
 
@@ -242,7 +242,7 @@ fn main(xs: &mut [i32]) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("store i32 41"), "{ir}");
-    assert!(ir.contains("add i32"), "{ir}");
+    assert!(ir.contains("llvm.sadd.with.overflow.i32"), "{ir}");
 }
 
 #[test]
@@ -276,7 +276,7 @@ fn main() i32 {
     assert!(ir.contains("getelementptr"));
     assert!(ir.contains("store i32 10"));
     assert!(ir.contains("store i32 2"));
-    assert!(ir.contains("add i32"));
+    assert!(ir.contains("llvm.sadd.with.overflow.i32"));
     assert!(ir.contains("ret i32"));
 }
 
