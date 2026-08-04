@@ -37,7 +37,7 @@ impl Analyzer<'_> {
         let ConstFunctionInstantiationInput {
             signature_module_id,
             signature,
-            type_args,
+            generic_args,
             arg_exprs,
             expected_return,
             initial,
@@ -49,22 +49,22 @@ impl Analyzer<'_> {
                     .to_string(),
             });
         }
-        if !type_args.is_empty()
+        if !generic_args.is_empty()
             && let ArityCheck::Mismatch { actual, .. } =
-                check_exact_arity(signature.generics.len(), type_args.len())
+                check_exact_arity(signature.generic_params.len(), generic_args.len())
         {
             return Err(ConstError {
                 span,
                 message: format!(
                     "generic argument count mismatch for const function: expected {}, got {}",
-                    signature.generics.len(),
+                    signature.generic_params.len(),
                     actual
                 ),
             });
         }
         let mut substitutions = initial.type_substitutions;
         let mut const_substitutions = initial.const_substitutions;
-        if type_args.is_empty() {
+        if generic_args.is_empty() {
             if let Some(expected) = expected_return
                 && let Some(expected) = self.type_for_module_or_none(expected, signature_module_id)
             {
@@ -119,17 +119,37 @@ impl Analyzer<'_> {
                 }
             }
         } else {
-            for (generic, arg) in signature.generic_params.iter().zip(type_args) {
-                match &generic.kind {
-                    GenericParamSignatureKind::Type => {
+            for (generic, arg) in signature.generic_params.iter().zip(generic_args) {
+                match (&generic.kind, arg) {
+                    (GenericParamSignatureKind::Type, ResolvedConstGenericArg::Type(arg)) => {
                         let canonical = self.type_for_module(arg.ty(), signature_module_id)?;
                         substitutions.insert(generic.name, canonical);
                     }
-                    GenericParamSignatureKind::Const { ty } => {
-                        let value = self
-                            .const_generic_arg_from_resolved_type_arg(arg, signature_module_id)?;
+                    (
+                        GenericParamSignatureKind::Const { ty },
+                        ResolvedConstGenericArg::Const(expr),
+                    ) => {
+                        let value = self.const_generic_arg_from_resolved_expr(
+                            expr,
+                            *ty,
+                            signature_module_id,
+                        )?;
                         const_substitutions
                             .insert(generic.name, nia_ty::ConstGenericArg { ty: *ty, value });
+                    }
+                    (GenericParamSignatureKind::Type, _) => {
+                        let name = self.symbol_name(generic.name);
+                        return Err(ConstError {
+                            span: arg.span(),
+                            message: format!("generic argument `{name}` must be a type"),
+                        });
+                    }
+                    (GenericParamSignatureKind::Const { .. }, _) => {
+                        let name = self.symbol_name(generic.name);
+                        return Err(ConstError {
+                            span: arg.span(),
+                            message: format!("generic argument `{name}` must be a const value"),
+                        });
                     }
                 }
             }
@@ -140,21 +160,53 @@ impl Analyzer<'_> {
         })
     }
 
-    fn const_generic_arg_from_resolved_type_arg(
+    fn const_generic_arg_from_resolved_expr(
         &mut self,
-        arg: &ResolvedConstTypeArg,
+        expr: &ResolvedConstExpr,
+        expected_ty: InternedTyId,
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
-        let canonical = self.type_for_module(arg.ty(), module_id)?;
-        match self
+        let expected_ty = self.type_for_module(expected_ty, module_id)?;
+        let expected = self
             .type_contexts
             .get(&module_id)
-            .and_then(|interner| interner.get(canonical))
-        {
-            Some(TyKind::GenericParam(name)) => Ok(nia_ty::ConstGenericValue::GenericParam(*name)),
+            .and_then(|interner| interner.get(expected_ty))
+            .cloned();
+        let value = nia_const_eval::eval_resolved_const_expr(expr, self)?;
+        match (expected, value) {
+            (Some(TyKind::Primitive(PrimitiveTy::Bool)), ConstValue::Bool(value)) => {
+                Ok(nia_ty::ConstGenericValue::Bool(value))
+            }
+            (Some(TyKind::Primitive(PrimitiveTy::Char)), ConstValue::Int(value)) => {
+                let scalar = u32::try_from(value.bits()).ok().and_then(char::from_u32);
+                scalar
+                    .map(nia_ty::ConstGenericValue::Char)
+                    .ok_or_else(|| ConstError {
+                        span: expr.span(),
+                        message: "const generic character argument is not a valid Unicode scalar"
+                            .to_string(),
+                    })
+            }
+            (Some(TyKind::Primitive(primitive)), ConstValue::Int(value))
+                if primitive_integer_layout(primitive, self.input.target.pointer_width)
+                    .is_some() =>
+            {
+                let (min, max) =
+                    primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
+                        .expect("integer primitive must have a target range");
+                if !int_const_in_i128_range(value, min, max) {
+                    return Err(ConstError {
+                        span: expr.span(),
+                        message:
+                            "const generic integer argument is out of range for parameter type"
+                                .to_string(),
+                    });
+                }
+                Ok(nia_ty::ConstGenericValue::Int(value))
+            }
             _ => Err(ConstError {
-                span: arg.span(),
-                message: "const generic argument must be a const value".to_string(),
+                span: expr.span(),
+                message: "const generic argument does not match parameter type".to_string(),
             }),
         }
     }
@@ -474,7 +526,7 @@ impl Analyzer<'_> {
             }
             ResolvedConstExprKind::Call {
                 callee,
-                type_args,
+                generic_args,
                 args,
             } => {
                 if self.resolved_const_enum_variant(callee).is_some() {
@@ -484,7 +536,7 @@ impl Analyzer<'_> {
                     self.resolved_const_call_return_type(
                         expr.span(),
                         callee,
-                        type_args,
+                        generic_args,
                         args,
                         expected,
                     )

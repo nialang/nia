@@ -3169,10 +3169,30 @@ execution root, and pattern-local type recovery inspects only the active
 function body (including imported bodies). Module initializer recovery no
 longer scans function declarations. The differential executable and the
 original combined optional/error-union reproducer both complete without host
-stack growth. Round 2 remains open for `for` after shared iterator/place
-writeback exists, associated functions, const-generic instances, function
-references, overflow/division/remainder/shift/trap boundaries, and the
-union-representation work already identified above.
+stack growth.
+
+Dual-stage const hardening progress (2026-08-04, associated and const-generic
+calls): the executable matrix now includes one associated `const fn` and one
+function-level const-generic instance, with each definition evaluated at
+comptime and emitted through the ordinary runtime pipeline. Const call IR now
+stores an ordered type-or-value generic argument sequence instead of treating
+every bracket argument as a type. Lowering uses ordinary semantic type and
+value facts to resolve the parser's dual candidates; const-function
+instantiation follows `FunctionSignature::generic_params` order and evaluates
+const arguments with the declared primitive type and target range. The former
+fallback that encoded an outer const parameter as a generic type has been
+removed.
+
+Adding the associated call exposed a separate semantic-fact ownership bug:
+field typing tried const-IR recovery before checking an ordinary call on the
+field lhs, so runtime lowering could receive a typed field with no resolved
+callee fact. Ordinary expression checking now owns the lhs first, and const
+field recovery is restricted to genuinely `ConstOnly` structural values. The
+matrix therefore reaches both associated and const-generic runtime instances
+without turning their comptime uses into backend roots. Round 2 remains open
+for `for` after shared iterator/place writeback exists, function references,
+overflow/division/remainder/shift/trap boundaries, and the union-representation
+work already identified above.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

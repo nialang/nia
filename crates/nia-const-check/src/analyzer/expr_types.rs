@@ -404,7 +404,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         callee: &ResolvedConstExpr,
-        type_args: &[ResolvedConstTypeArg],
+        generic_args: &[ResolvedConstGenericArg],
         args: &[ResolvedConstExpr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
@@ -442,7 +442,7 @@ impl Analyzer<'_> {
                 ConstFunctionInstantiationInput {
                     signature_module_id: function_id.module_id,
                     signature: &signature,
-                    type_args,
+                    generic_args,
                     arg_exprs: &call_args,
                     expected_return: expected,
                     initial: resolved_callee.target_instantiation,

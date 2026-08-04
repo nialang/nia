@@ -19,9 +19,9 @@ use nia_const_ir::{
     ConstUnaryOp, ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssign,
     ResolvedConstAssignPathElemKind, ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget,
     ResolvedConstBlock, ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind,
-    ResolvedConstFieldInit, ResolvedConstModule, ResolvedConstPattern, ResolvedConstPatternKind,
-    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArmBody,
-    ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
+    ResolvedConstFieldInit, ResolvedConstGenericArg, ResolvedConstModule, ResolvedConstPattern,
+    ResolvedConstPatternKind, ResolvedConstStmtKind, ResolvedConstSwitch,
+    ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -103,7 +103,7 @@ pub(crate) struct ResolvedConstCallee {
 pub(crate) struct ConstFunctionInstantiationInput<'a> {
     pub signature_module_id: ModuleId,
     pub signature: &'a FunctionSignature,
-    pub type_args: &'a [ResolvedConstTypeArg],
+    pub generic_args: &'a [ResolvedConstGenericArg],
     pub arg_exprs: &'a [ResolvedConstExpr],
     pub expected_return: Option<InternedTyId>,
     pub initial: ConstGenericInstantiation,
@@ -114,7 +114,7 @@ pub fn instantiate_resolved_const_function_generics(
     span: Span,
     signature_module_id: ModuleId,
     signature: &FunctionSignature,
-    type_args: &[ResolvedConstTypeArg],
+    generic_args: &[ResolvedConstGenericArg],
     arg_exprs: &[ResolvedConstExpr],
     expected_return: Option<InternedTyId>,
 ) -> Result<ConstGenericInstantiation, ConstError> {
@@ -124,7 +124,7 @@ pub fn instantiate_resolved_const_function_generics(
         ConstFunctionInstantiationInput {
             signature_module_id,
             signature,
-            type_args,
+            generic_args,
             arg_exprs,
             expected_return,
             initial: ConstGenericInstantiation::default(),

@@ -227,14 +227,14 @@ impl ResolvedConstExpr {
     pub fn call(
         span: Span,
         callee: ResolvedConstExpr,
-        type_args: Vec<ResolvedConstTypeArg>,
+        generic_args: Vec<ResolvedConstGenericArg>,
         args: Vec<ResolvedConstExpr>,
     ) -> Self {
         Self {
             span,
             kind: ResolvedConstExprKind::Call {
                 callee: Box::new(callee),
-                type_args,
+                generic_args,
                 args,
             },
         }
@@ -905,7 +905,7 @@ pub enum ResolvedConstExprKind {
     },
     Call {
         callee: Box<ResolvedConstExpr>,
-        type_args: Vec<ResolvedConstTypeArg>,
+        generic_args: Vec<ResolvedConstGenericArg>,
         args: Vec<ResolvedConstExpr>,
     },
     Unary {
@@ -1079,6 +1079,21 @@ pub struct ResolvedConstTypeArg {
     span: Span,
     ty_span: Span,
     ty: InternedTyId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedConstGenericArg {
+    Type(ResolvedConstTypeArg),
+    Const(ResolvedConstExpr),
+}
+
+impl ResolvedConstGenericArg {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Type(arg) => arg.span(),
+            Self::Const(expr) => expr.span(),
+        }
+    }
 }
 
 impl ResolvedConstTypeArg {
@@ -1397,7 +1412,7 @@ pub enum EarlyConstExprKind {
     },
     Call {
         callee: Box<EarlyConstExpr>,
-        type_args: Vec<EarlyConstTypeArg>,
+        generic_args: Vec<EarlyConstGenericArg>,
         args: Vec<EarlyConstExpr>,
     },
     Unary {
@@ -1541,6 +1556,12 @@ pub struct EarlyConstTypeArg {
     pub span: Span,
     pub ty_span: Span,
     pub ty: Option<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EarlyConstGenericArg {
+    Type(EarlyConstTypeArg),
+    Const(EarlyConstExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]

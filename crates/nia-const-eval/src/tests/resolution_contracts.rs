@@ -57,11 +57,11 @@ fn resolved_function_calls_use_resolved_callee_identity() {
             &mut self,
             span: Span,
             callee: &ResolvedConstExpr,
-            type_args: &[ResolvedConstTypeArg],
+            generic_args: &[ResolvedConstGenericArg],
             arg_exprs: &[ResolvedConstExpr],
             args: Vec<ConstValue>,
         ) -> Result<ConstValue, ConstError> {
-            assert!(type_args.is_empty());
+            assert!(generic_args.is_empty());
             assert!(arg_exprs.is_empty());
             assert!(args.is_empty());
             assert_eq!(
