@@ -50,6 +50,10 @@ pub(super) fn provide_const(
             const_eval
         })
     })?;
+    let declaration_check = super::body_executable::body_check_const_declarations(db, module_id)?;
+    const_eval
+        .diagnostics
+        .extend(declaration_check.diagnostics.iter().cloned());
     let diagnostics = std::mem::take(&mut const_eval.diagnostics);
     Ok(ModuleConstCheck {
         semantic: Arc::new(const_eval),

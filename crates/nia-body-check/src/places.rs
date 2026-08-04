@@ -25,7 +25,6 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_assignment_lhs(lhs);
                 let index_ty =
                     self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexMut, index);
-                self.expect_integer(index.span, index_ty, "index");
                 let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                 if index_ty == self.error() {
                     return self.error();
@@ -37,7 +36,6 @@ impl<'a> BodyChecker<'a> {
                 if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
                     let index_ty =
                         self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexMut, index);
-                    self.expect_integer(index.span, index_ty, "index");
                     let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                     if index_ty == self.error() {
                         return self.error();

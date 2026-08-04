@@ -188,6 +188,44 @@ fn main(flag: bool, x: i32) bool {
 }
 
 #[test]
+fn checks_compound_assignment_operator_trait_and_output() {
+    let checked = pipeline(
+        r#"
+fn invalidOperand() usize {
+    let mut value = true;
+    value += false;
+    0
+}
+
+fn update[T](value: T, rhs: T) T
+where T: Add[T, Output = T] {
+    let mut result = value;
+    result += rhs;
+    result
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("bool: Add[bool]")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| !diagnostic.summary.contains("bool: Add[bool]"))
+            .count(),
+        0,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn char_supports_builtin_equality_and_ordering() {
     let checked = pipeline(
         r#"

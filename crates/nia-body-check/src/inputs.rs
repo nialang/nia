@@ -65,6 +65,7 @@ fn no_program_const_module(_: ModuleId) -> Option<Arc<ResolvedConstModule>> {
 pub enum BodyCheckFilter<'a> {
     #[default]
     All,
+    ConstDeclarations,
     ReachableFunctions(&'a HashSet<GlobalDefId>),
     ReachableItems {
         functions: &'a HashSet<GlobalDefId>,

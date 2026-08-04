@@ -258,17 +258,19 @@ impl<'a> BodyChecker<'a> {
         timing: bool,
         module_id: ModuleId,
     ) {
-        time_body_stage(timing, "body_check.bindings", module_id, || {
-            for item in &active_item_tree.items {
-                if let ItemTreeNodeKind::Binding(binding) = &item.kind {
-                    if binding.is_const() {
-                        self.check_const_binding(item.span, binding);
-                    } else {
-                        self.check_global_binding(item.span, binding);
+        if self.body_filter.includes_module_bindings() {
+            time_body_stage(timing, "body_check.bindings", module_id, || {
+                for item in &active_item_tree.items {
+                    if let ItemTreeNodeKind::Binding(binding) = &item.kind {
+                        if binding.is_const() {
+                            self.check_const_binding(item.span, binding);
+                        } else {
+                            self.check_global_binding(item.span, binding);
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
         time_body_stage(timing, "body_check.functions", module_id, || {
             let function_items =
                 time_body_stage(timing, "body_check.function_index", module_id, || {
@@ -278,23 +280,25 @@ impl<'a> BodyChecker<'a> {
                 self.check_reachable_functions(&function_items, timing, module_id);
             });
         });
-        time_body_stage(timing, "body_check.extends", module_id, || {
-            for item in &active_item_tree.items {
-                if let ItemTreeNodeKind::Extend(extend) = &item.kind
-                    && extend.generics.is_empty()
-                {
-                    for associated_value in &extend.associated_values {
-                        if associated_value.binding.value.is_none() {
-                            continue;
+        if self.body_filter.includes_module_bindings() {
+            time_body_stage(timing, "body_check.extends", module_id, || {
+                for item in &active_item_tree.items {
+                    if let ItemTreeNodeKind::Extend(extend) = &item.kind
+                        && extend.generics.is_empty()
+                    {
+                        for associated_value in &extend.associated_values {
+                            if associated_value.binding.value.is_none() {
+                                continue;
+                            }
+                            self.check_reachable_const_binding(
+                                associated_value.span,
+                                &associated_value.binding,
+                            );
                         }
-                        self.check_reachable_const_binding(
-                            associated_value.span,
-                            &associated_value.binding,
-                        );
                     }
                 }
-            }
-        });
+            });
+        }
     }
 
     pub(super) fn function_items_by_id<'ast>(

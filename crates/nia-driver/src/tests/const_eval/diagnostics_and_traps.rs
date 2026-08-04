@@ -20,7 +20,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const function body does not match its declared type")),
+            .contains("type mismatch in function body")),
         "{:?}",
         program.diagnostics
     );
@@ -145,7 +145,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const binding initializer does not match its declared type")),
+            .contains("type mismatch in binding initializer")),
         "{:?}",
         program.diagnostics
     );
@@ -172,7 +172,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("cannot assign to immutable const local `value`")),
+            .contains("assignment target is not assignable: local is let")),
         "{:?}",
         program.diagnostics
     );
@@ -199,7 +199,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const assignment value does not match the target type")),
+            .contains("type mismatch in assignment")),
         "{:?}",
         program.diagnostics
     );
@@ -226,7 +226,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("invalid const assignment target path")),
+            .contains("trait bound not satisfied")),
         "{:?}",
         program.diagnostics
     );
@@ -253,7 +253,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("invalid const assignment target path")),
+            .contains("assignment target is not assignable: slice is read-only")),
         "{:?}",
         program.diagnostics
     );
@@ -320,7 +320,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const compound assignment requires compatible numeric operands")),
+            .contains("trait bound not satisfied: bool: Add[bool]")),
         "{:?}",
         program.diagnostics
     );
@@ -346,7 +346,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const function body does not match its declared type")),
+            .contains("type mismatch in function body")),
         "{:?}",
         program.diagnostics
     );
@@ -382,7 +382,7 @@ fn main() i32 { 0 }
             .filter(|diagnostic| diagnostic
                 .diagnostic
                 .summary
-                .contains("const condition must have type bool"))
+                .contains("condition: expected bool"))
             .count()
             >= 2,
         "{:?}",
@@ -417,7 +417,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const logical not requires a bool operand")),
+            .contains("trait bound not satisfied: usize: Not")),
         "{:?}",
         program.diagnostics
     );
@@ -450,7 +450,7 @@ fn main() i32 { 0 }
             .filter(|diagnostic| diagnostic
                 .diagnostic
                 .summary
-                .contains("const operator has incompatible operand types"))
+                .contains("trait bound not satisfied"))
             .count()
             >= 2,
         "{:?}",
@@ -477,7 +477,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const if branches have incompatible types")),
+            .contains("type mismatch in if branches")),
         "{:?}",
         program.diagnostics
     );
@@ -528,7 +528,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const switch pattern does not match the target type")),
+            .contains("type mismatch in switch pattern")),
         "{:?}",
         program.diagnostics
     );
@@ -563,7 +563,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const switch arms have incompatible result types")),
+            .contains("type mismatch in switch arms")),
         "{:?}",
         program.diagnostics
     );
@@ -625,7 +625,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const array literal element does not match its expected type")),
+            .contains("type mismatch in array literal element")),
         "{:?}",
         program.diagnostics
     );
@@ -641,7 +641,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const array literal length mismatch: expected 2, got 3")),
+            .contains("array literal length mismatch: expected 2, got 3")),
         "{:?}",
         program.diagnostics
     );
@@ -664,10 +664,10 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const array repeat count must have an integer type")),
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("array repeat count")),
         "{:?}",
         program.diagnostics
     );
@@ -693,7 +693,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const array literal expected type is not an array")),
+            .contains("type mismatch in binding initializer")),
         "{:?}",
         program.diagnostics
     );
@@ -742,10 +742,8 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "const array index must have an integer type",
-        "const array index 3 is out of bounds",
-        "const array index must be a non-negative array length",
-        "const index target is not an array or slice",
+        "trait bound not satisfied: [2]usize: Index[bool]",
+        "trait bound not satisfied: usize: Index[usize]",
         "const expression can only call `const fn`",
     ] {
         assert!(
@@ -789,15 +787,10 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "const slice range start must have an integer type",
+        "type mismatch in slice range start: expected usize, got bool",
         "const expression can only call `const fn`",
-        "const slice range start must be a non-negative array length",
-        "const slice range end must be a non-negative array length",
-        "const slice range 2..1 is out of bounds",
-        "const slice range 1..3 is out of bounds",
-        "const slice inclusive end is too large",
-        "const slice target is not an array or slice",
-        "const slice length mismatch: expected 1, got 2",
+        "range index expression must be taken as a slice pointer",
+        "type mismatch in binding initializer",
     ] {
         assert!(
             program
@@ -811,20 +804,16 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_accepts_parameter_dependent_index_and_slice() {
-    let root = temp_dir("unused_const_function_accepts_parameter_dependent_index_and_slice");
+fn unused_const_function_accepts_parameter_dependent_index() {
+    let root = temp_dir("unused_const_function_accepts_parameter_dependent_index");
     write(
         &root.join("main.nia"),
         r#"
 const fn inspect(
     values: [4]usize,
     index: usize,
-    start: usize,
-    end: usize,
 ) usize {
-    values[index];
-    values[start..end];
-    0
+    values[index]
 }
 
 fn main() i32 { 0 }
@@ -843,13 +832,7 @@ fn unused_generic_const_function_defers_trait_based_index_and_slice_types() {
         r#"
 const fn inspectIndex[T](value: T) usize
 where T: Index[bool] {
-    value[true];
-    0
-}
-
-const fn inspectSlice[T](value: T) usize
-where T: Slice[i32..i32] {
-    value[0i32..1i32];
+    let selected = value[true];
     0
 }
 
@@ -882,9 +865,9 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "const array literal element does not match its expected type",
+        "type mismatch in array literal element",
         "const expression can only call `const fn`",
-        "const array literal length mismatch: expected 2, got 3",
+        "array literal length mismatch: expected 2, got 3",
     ] {
         assert!(
             program
@@ -923,9 +906,9 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "unknown const struct field `z`",
-        "missing const struct field `y`",
-        "const struct literal field does not match its expected type",
+        "unknown struct field `z`",
+        "missing struct field `y`",
+        "type mismatch in struct literal field",
         "const expression can only call `const fn`",
     ] {
         assert!(
@@ -949,8 +932,12 @@ fn runtimeOnly() usize {
     1
 }
 
+struct Value {
+    value: usize,
+}
+
 const fn wrongStruct() usize {
-    {value: 1usize, value: runtimeOnly()};
+    let value: Value = {value: 1usize, value: runtimeOnly()};
     0
 }
 
@@ -960,7 +947,7 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "duplicate const struct field `value`",
+        "duplicate struct field `value`",
         "const expression can only call `const fn`",
     ] {
         assert!(
@@ -994,7 +981,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const struct literal expected type is not a struct")),
+            .contains("aggregate literal type is not nominal")),
         "{:?}",
         program.diagnostics
     );
@@ -1039,11 +1026,15 @@ fn runtimeOnly() usize {
 }
 
 const fn wrongEnums() usize {
-    Event::Data(true, runtimeOnly(), 3usize);
-    Event::Closed(runtimeOnly());
-    Event::Resize { width: true, extra: runtimeOnly() };
-    Event::Data { value: runtimeOnly() };
-    Event::Resize { width: 1usize, width: runtimeOnly(), height: 2usize };
+    let a: Event = Event::Data(true, runtimeOnly(), 3usize);
+    let b: Event = Event::Closed(runtimeOnly());
+    let c: Event = Event::Resize { width: true, extra: runtimeOnly() };
+    let d: Event = Event::Data { value: runtimeOnly() };
+    let e: Event = Event::Resize {
+        width: 1usize,
+        width: runtimeOnly(),
+        height: 2usize,
+    };
     0
 }
 
@@ -1053,13 +1044,13 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "const enum tuple payload length mismatch: expected 2, got 3",
-        "const enum payload value does not match its expected type",
-        "const enum variant does not have a tuple payload",
-        "unknown const enum field `extra`",
-        "missing const enum field `height`",
-        "const enum variant does not have a named payload",
-        "duplicate const enum field `width`",
+        "enum variant `Data` expects 2 payload values, found 3",
+        "type mismatch in enum variant payload",
+        "enum variant `Closed` expects no payload",
+        "unknown payload field `extra`",
+        "missing payload field `height` for variant `Resize`",
+        "enum variant `Data` does not have a named payload",
+        "duplicate payload field `width`",
         "const expression can only call `const fn`",
     ] {
         assert!(

@@ -202,8 +202,12 @@ impl<'a> BodyChecker<'a> {
                     self.check_assignment_lhs(lhs);
                     self.check_assignable(lhs, "assignment target");
                     let lhs_ty = self.assignable_expr_type(lhs);
-                    let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
-                    self.expect_expr_type(rhs, lhs_ty, rhs_ty, "assignment");
+                    if let Some(binary_op) = assign_op_binary(*op) {
+                        self.check_compound_assignment(expr.span, lhs_ty, binary_op, rhs);
+                    } else {
+                        let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
+                        self.expect_expr_type(rhs, lhs_ty, rhs_ty, "assignment");
+                    }
                     self.void()
                 }
             }
@@ -287,7 +291,6 @@ impl<'a> BodyChecker<'a> {
                     IndexArg::Expr(index) => {
                         let index_ty =
                             self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
-                        self.expect_integer(index.span, index_ty, "index");
                         let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                         if index_ty == self.error() {
                             return self.error();
@@ -1070,6 +1073,52 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn check_compound_assignment(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        op: BinaryOp,
+        rhs: &Expr,
+    ) {
+        let rhs_expected = self.is_numeric_literal_expr(rhs).then_some(lhs_ty);
+        let rhs_actual = self.check_expr_with_expected(rhs, rhs_expected);
+        if let Some(expected) = rhs_expected {
+            self.expect_expr_type(rhs, expected, rhs_actual, "compound assignment operand");
+        }
+        let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
+        let Some(trait_id) = BuiltinOperatorOp::Binary(op).trait_id() else {
+            return;
+        };
+        let trait_args = vec![rhs_ty];
+        let trait_is_satisfied = self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        );
+        if !trait_is_satisfied {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+            return;
+        }
+
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: lhs_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args,
+            trait_const_args: Vec::new(),
+            name: known::OUTPUT,
+        });
+        let output = self.normalize_projection(output);
+        self.expect_type(span, lhs_ty, output, "compound assignment result");
+    }
+
     fn check_builtin_shift_expr(
         &mut self,
         span: Span,
@@ -1397,7 +1446,6 @@ impl<'a> BodyChecker<'a> {
             self.check_expr_with_expected(callee, lhs_expected);
             let lhs_ty = self.expr_runtime_ty(callee);
             let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
-            self.expect_integer(index.span, index_ty, "index");
             let index_ty = self.expr_ty(index).unwrap_or(index_ty);
             if index_ty == self.error() {
                 return self.error();
@@ -1557,4 +1605,20 @@ fn builtin_trait_output_is_boolean(trait_id: BuiltinTrait) -> bool {
         trait_id,
         BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
     )
+}
+
+fn assign_op_binary(op: AssignOp) -> Option<BinaryOp> {
+    Some(match op {
+        AssignOp::Assign => return None,
+        AssignOp::Add => BinaryOp::Add,
+        AssignOp::Sub => BinaryOp::Sub,
+        AssignOp::Shl => BinaryOp::Shl,
+        AssignOp::Shr => BinaryOp::Shr,
+        AssignOp::Mul => BinaryOp::Mul,
+        AssignOp::Div => BinaryOp::Div,
+        AssignOp::Rem => BinaryOp::Rem,
+        AssignOp::BitAnd => BinaryOp::BitAnd,
+        AssignOp::BitXor => BinaryOp::BitXor,
+        AssignOp::BitOr => BinaryOp::BitOr,
+    })
 }

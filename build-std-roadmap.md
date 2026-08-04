@@ -966,11 +966,28 @@ must close before further const-capable std APIs freeze. Cross-stage,
 incremental, and stress coverage may proceed beside the remaining text work,
 but must close before Phase H.
 
+Required semantic pipeline:
+
+- the ordinary body/type checker is the sole owner of expression typing,
+  traits and operator projections, aggregates, patterns, places, and control
+  flow for both `fn` and `const fn` declarations;
+- declaration validation checks every `const fn` without making it a comptime
+  evaluation root or a runtime/backend root;
+- comptime reachability is demand-driven from const-expression use sites and
+  feeds `nia-const-ir`/`nia-const-eval`; runtime reachability is independently
+  rooted from executable entry points and feeds the ordinary backend;
+- const-specific checking is limited to capability, staging, evaluation
+  budgets, and traps. It must consume shared typed semantic facts rather than
+  maintaining a second expression type system.
+
 Round 1, declaration contract and evaluator safety:
 
 - validate every `const fn` body at its declaration, including tail and return
   types, expression statements, calls in unselected branches, generic bodies,
   receiver methods, and associated functions;
+- run that validation through a const-declaration root filter over the ordinary
+  body checker in facts-only mode: it must not follow runtime callees, lower
+  BIR, or add executable reachability roots;
 - reject ordinary runtime-only `fn` calls as a const-capability error without
   evaluating the body, while retaining legal data-dependent const failures such
   as an unselected `std::builtin::error` branch;
@@ -3039,22 +3056,17 @@ const-capability errors. Known non-struct contexts are rejected; generic field
 types remain unresolved and have an unused-definition acceptance regression.
 Enum payload aggregates, union-specific semantics, and indexing remain open.
 
-Dual-stage const hardening progress (2026-08-04, indexing and slicing
-declaration audit): unused const-capable definitions now visit index operands
-and both slice bounds even when the target or an earlier bound remains
-unresolved, so nested const-capability failures cannot hide behind incomplete
-type information. Builtin arrays and slices diagnose known non-integer indexes
-or bounds, negative indexes or bounds, concrete out-of-bounds indexes,
-reversed/out-of-bounds ranges, inclusive-end overflow, and concrete contextual
-slice-length mismatches. Parameter-dependent indexes and ranges retain their
-element type with unknown bounds or result length and are checked when a call
-provides concrete values.
-
-This batch does not invent evaluator-only trait lookup. Nominal and constrained
-generic targets keep their ordinary `Index`/`Slice` operand types unresolved at
-this stage; shared trait obligation, output-projection, and const-capability
-semantics remain a later Round 1 convergence task. Enum payload aggregates and
-union-specific semantics also remain open.
+Dual-stage const hardening progress (2026-08-04, indexing and slicing audit,
+superseded by shared declaration checking): unused const-capable definitions
+visit index operands and both slice bounds even when an earlier expression is
+invalid, so nested const-capability failures remain visible. The ordinary body
+checker owns `Index`/`Slice` trait obligations, result projections, integer
+bound typing, pointer-to-slice syntax, and contextual result typing. Concrete
+bounds, reversed ranges, inclusive-end overflow, and other value-dependent
+failures are evaluation-time traps only when comptime reachability executes the
+expression; an unused declaration is not evaluated merely to find a trap.
+Parameter-dependent indexing therefore remains a valid declaration and is
+checked when a call supplies concrete values.
 
 Dual-stage const hardening progress (2026-08-04, enum payload declaration
 audit): unit, tuple, and named enum variant construction now participates in
@@ -3066,6 +3078,25 @@ also visiting every value, including duplicate and unknown fields. Valid
 parameter-dependent tuple and named construction remains accepted. Optional
 and error-union construction/propagation, shared trait/operator semantics, and
 the remaining control-flow declaration audit stay open in Round 1.
+
+Dual-stage const hardening progress (2026-08-04, shared declaration checker
+foundation): `BodyCheckFilter::ConstDeclarations` now selects every const
+function declaration as an ordinary body-check root, excludes globals and
+module bindings, and never follows discovered runtime calls. Compiler-query
+invokes it in `FactsOnly` mode after const semantic facts are available and
+merges its diagnostics into the module const result. Direct architecture
+coverage proves that ordinary functions are not declaration roots, referenced
+runtime callee bodies are not followed, and no typed function body is produced.
+
+The ordinary checker now owns declaration type diagnostics, including trait
+and output-projection validation for compound assignments. The existing const
+IR traversal temporarily remains only for const-capability diagnostics; its
+`TYPE_CHECK` diagnostics are discarded during this transition. Round 1 remains
+open until capability checking consumes shared typed facts and the duplicate
+`resolved_const_expr_type`/`const_function_types_match` inference paths are
+deleted. Diagnostic deduplication, optional/error-union construction,
+union-specific semantics, and the remaining capability/control-flow audit also
+remain open.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
