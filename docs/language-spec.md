@@ -2362,6 +2362,14 @@ Vector comparisons return boolean mask vectors such as `boolx16`. `@bitmask`
 packs a boolean mask vector into `usize`, with lane 0 in the least significant
 bit. It currently supports masks up to 64 lanes.
 
+Integer-vector addition, subtraction, multiplication, and negation apply the
+scalar checked operation independently to every lane. If any lane's
+mathematical result is not representable in the lane type, the whole vector
+operation traps. Boolean mask vectors are not numeric vectors and do not
+support arithmetic or negation; their bitwise operations remain available.
+Integer-vector division, remainder, and shifts remain a separately specified
+boundary.
+
 Bit-counting builtins operate on integer primitive types. `@ctz[T](value)`
 returns the number of trailing zero bits, `@clz[T](value)` returns the number
 of leading zero bits, and `@popcount[T](value)` returns the number of set bits.

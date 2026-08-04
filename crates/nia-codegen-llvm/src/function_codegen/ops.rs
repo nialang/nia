@@ -49,9 +49,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let is_vector =
                         matches!(self.module.ty_kind(ty), Some(nia_ty::TyKind::Vector { .. }));
                     if is_vector {
-                        self.builder
-                            .build_basic_neg(value, "negtmp")
-                            .map_err(|_| self.error(span, "failed to build integer negation"))
+                        let lanes = match self.module.ty_kind(ty) {
+                            Some(nia_ty::TyKind::Vector { lanes, .. }) => *lanes,
+                            _ => unreachable!("vector negation requires a vector type"),
+                        };
+                        let zero = value
+                            .get_type()?
+                            .const_zero()
+                            .map_err(|_| self.error(span, "failed to create vector zero"))?;
+                        self.emit_checked_int_arithmetic(
+                            span,
+                            zero,
+                            BinaryOp::Sub,
+                            value,
+                            self.is_signed_integer(ty),
+                            Some(lanes),
+                        )
                     } else {
                         let int_ty = value.into_int_value()?.get_type();
                         self.emit_checked_int_arithmetic(
@@ -60,6 +73,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             BinaryOp::Sub,
                             value,
                             self.is_signed_integer(ty),
+                            None,
                         )
                     }
                 }
@@ -280,17 +294,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return self.emit_float_binary(span, lhs, op, rhs);
         }
         let is_signed = self.is_signed_integer(operand_ty);
-        let is_vector = matches!(
-            self.module.ty_kind(operand_ty),
-            Some(nia_ty::TyKind::Vector { .. })
-        );
+        let vector_lanes = match self.module.ty_kind(operand_ty) {
+            Some(nia_ty::TyKind::Vector { lanes, .. }) => Some(*lanes),
+            _ => None,
+        };
+        let is_vector = vector_lanes.is_some();
         let result = match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul if !is_vector => {
-                return self.emit_checked_int_arithmetic(span, lhs, op, rhs, is_signed);
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul => {
+                return self.emit_checked_int_arithmetic(
+                    span,
+                    lhs,
+                    op,
+                    rhs,
+                    is_signed,
+                    vector_lanes,
+                );
             }
-            BinaryOp::Add => self.builder.build_basic_int_add(lhs, rhs, "addtmp"),
-            BinaryOp::Sub => self.builder.build_basic_int_sub(lhs, rhs, "subtmp"),
-            BinaryOp::Mul => self.builder.build_basic_int_mul(lhs, rhs, "multmp"),
             BinaryOp::Div | BinaryOp::Rem if !is_vector => {
                 return self.emit_checked_int_div_rem(span, lhs, op, rhs, is_signed);
             }
@@ -598,6 +617,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         op: BinaryOp,
         rhs: BasicValueEnum<'ctx>,
         is_signed: bool,
+        vector_lanes: Option<u32>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let intrinsic_name = match (op, is_signed) {
             (BinaryOp::Add, true) => "llvm.sadd.with.overflow",
@@ -628,8 +648,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let overflow = self
             .builder
             .build_extract_value(result, 1, "arith.overflow")
-            .map_err(|_| self.error(span, "failed to extract integer overflow flag"))?
-            .into_int_value()?;
+            .map_err(|_| self.error(span, "failed to extract integer overflow flag"))?;
+        let overflow = if let Some(lanes) = vector_lanes {
+            self.reduce_vector_mask_any(span, overflow, lanes, "arith.overflow.any")?
+        } else {
+            overflow.into_int_value()?
+        };
 
         let trap_block = self
             .module
@@ -646,6 +670,24 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.emit_trap(span)?;
         self.builder.position_at_end(continue_block);
         Ok(value)
+    }
+
+    fn reduce_vector_mask_any(
+        &self,
+        span: Span,
+        mask: BasicValueEnum<'ctx>,
+        lanes: u32,
+        name: &str,
+    ) -> Result<nia_llvm::values::IntValue<'ctx>, Diagnostic> {
+        let packed_ty = self.module.context.custom_width_int_type(lanes);
+        let packed = self
+            .builder
+            .build_bit_cast(mask, packed_ty, "vector.mask.pack")
+            .map_err(|_| self.error(span, "failed to pack vector condition mask"))?
+            .into_int_value()?;
+        self.builder
+            .build_int_compare(IntPredicate::NE, packed, packed_ty.const_zero(), name)
+            .map_err(|_| self.error(span, "failed to reduce vector condition mask"))
     }
 
     fn normalize_shift_rhs(
