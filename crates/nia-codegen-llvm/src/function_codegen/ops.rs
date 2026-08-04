@@ -320,23 +320,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             BinaryOp::BitAnd => self.builder.build_basic_and(lhs, rhs, "andtmp"),
             BinaryOp::BitOr => self.builder.build_basic_or(lhs, rhs, "ortmp"),
             BinaryOp::BitXor => self.builder.build_basic_xor(lhs, rhs, "xortmp"),
-            BinaryOp::Shl if !is_vector => {
-                return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
-            }
-            BinaryOp::Shr if !is_vector => {
-                return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
+            BinaryOp::Shl | BinaryOp::Shr if is_vector => {
+                return self.emit_checked_vector_shift(span, operand_ty, lhs, op, rhs);
             }
             BinaryOp::Shl => {
-                let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
-                self.builder.build_basic_shl(lhs, rhs, "shltmp")
-            }
-            BinaryOp::Shr if is_signed => {
-                let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
-                self.builder.build_basic_ashr(lhs, rhs, "shrtmp")
+                return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
             }
             BinaryOp::Shr => {
-                let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
-                self.builder.build_basic_lshr(lhs, rhs, "shrtmp")
+                return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
             }
             BinaryOp::Eq => {
                 self.builder
@@ -383,6 +374,133 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         };
         result.map_err(|_| self.error(span, "failed to build binary operation"))
+    }
+
+    fn emit_checked_vector_shift(
+        &mut self,
+        span: Span,
+        operand_ty: InternedTyId,
+        lhs: BasicValueEnum<'ctx>,
+        op: BinaryOp,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(nia_ty::TyKind::Vector { elem, lanes }) = self.module.ty_kind(operand_ty) else {
+            return Err(self.error(span, "expected integer vector shift operand"));
+        };
+        let elem = *elem;
+        let lanes = *lanes;
+        let lane_ty = self.integer_llvm_type(elem, span)?;
+        let lane_bits = lane_ty.bit_width();
+        let vector_ty = lhs.get_type()?;
+        let zero = vector_ty
+            .const_zero()
+            .map_err(|_| self.error(span, "failed to create vector shift zero"))?;
+        let limit = self.splat_int_vector_constant(
+            span,
+            vector_ty,
+            lanes,
+            lane_ty.const_int(u64::from(lane_bits), false),
+            "shift.count.limit",
+        )?;
+        let out_of_range = self
+            .builder
+            .build_basic_int_compare(IntPredicate::UGE, rhs, limit, "shift.count.out_of_range")
+            .map_err(|_| self.error(span, "failed to validate vector shift count range"))?;
+        let invalid_mask = if elem.is_signed_integer() {
+            let negative = self
+                .builder
+                .build_basic_int_compare(IntPredicate::SLT, rhs, zero, "shift.count.negative")
+                .map_err(|_| self.error(span, "failed to validate signed vector shift count"))?;
+            self.builder
+                .build_basic_or(negative, out_of_range, "shift.count.invalid")
+                .map_err(|_| self.error(span, "failed to combine vector shift count checks"))?
+        } else {
+            out_of_range
+        };
+        let invalid =
+            self.reduce_vector_mask_any(span, invalid_mask, lanes, "shift.count.invalid.any")?;
+        let count_trap = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.count.trap")?;
+        let operation = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.operation")?;
+        self.builder
+            .build_conditional_branch(invalid, count_trap, operation)
+            .map_err(|_| self.error(span, "failed to branch on vector shift count validation"))?;
+        self.builder.position_at_end(count_trap);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(operation);
+
+        if op == BinaryOp::Shr {
+            let result = if elem.is_signed_integer() {
+                self.builder.build_basic_ashr(lhs, rhs, "shrtmp")
+            } else {
+                self.builder.build_basic_lshr(lhs, rhs, "shrtmp")
+            };
+            return result.map_err(|_| self.error(span, "failed to build checked vector shift"));
+        }
+
+        let wide_ty: BasicTypeEnum<'ctx> =
+            BasicTypeEnum::from(self.module.context.custom_width_int_type(lane_bits * 2))
+                .vector_type(lanes)
+                .into();
+        let wide_lhs = if elem.is_signed_integer() {
+            self.builder
+                .build_basic_int_s_extend(lhs, wide_ty, "shift.lhs.wide")
+        } else {
+            self.builder
+                .build_basic_int_z_extend(lhs, wide_ty, "shift.lhs.wide")
+        }
+        .map_err(|_| self.error(span, "failed to extend vector shift operand"))?;
+        let wide_rhs = self
+            .builder
+            .build_basic_int_z_extend(rhs, wide_ty, "shift.count.wide")
+            .map_err(|_| self.error(span, "failed to extend vector shift counts"))?;
+        let wide_result = self
+            .builder
+            .build_basic_shl(wide_lhs, wide_rhs, "shift.result.wide")
+            .map_err(|_| self.error(span, "failed to build wide vector shift"))?;
+        let result = self
+            .builder
+            .build_basic_int_truncate(wide_result, vector_ty, "shltmp")
+            .map_err(|_| self.error(span, "failed to truncate vector shift result"))?;
+        let restored = if elem.is_signed_integer() {
+            self.builder
+                .build_basic_int_s_extend(result, wide_ty, "shift.result.restored")
+        } else {
+            self.builder
+                .build_basic_int_z_extend(result, wide_ty, "shift.result.restored")
+        }
+        .map_err(|_| self.error(span, "failed to restore vector shift result"))?;
+        let overflow_mask = self
+            .builder
+            .build_basic_int_compare(
+                IntPredicate::NE,
+                wide_result,
+                restored,
+                "shift.result.overflow",
+            )
+            .map_err(|_| self.error(span, "failed to compare vector shift result"))?;
+        let overflow =
+            self.reduce_vector_mask_any(span, overflow_mask, lanes, "shift.result.overflow.any")?;
+        let overflow_trap = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.overflow.trap")?;
+        let r#continue = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.continue")?;
+        self.builder
+            .build_conditional_branch(overflow, overflow_trap, r#continue)
+            .map_err(|_| self.error(span, "failed to branch on vector shift overflow"))?;
+        self.builder.position_at_end(overflow_trap);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(r#continue);
+        Ok(result)
     }
 
     fn emit_checked_int_shift(

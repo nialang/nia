@@ -3268,8 +3268,16 @@ it neither scalarizes the operation nor inherits the public 64-lane `bitmask`
 limit. Vector division/remainder now use the same reduction for zero-divisor
 and signed `MIN / -1` or `MIN % -1` lane masks, branching around the LLVM
 operation until all lanes are valid; compound assignment shares the helper.
-Vector shift operand shape, count, and left-overflow semantics remain the next
-numeric batch.
+Vector shifts now close the remaining numeric boundary. Ordinary semantic
+checking requires a same-type integer count vector, rejecting the former
+accidental scalar, mismatched-lane, and boolean-mask shapes; uniform counts use
+an explicit splat. Codegen checks negative and out-of-width counts per lane,
+reduces them before shifting, computes left shifts in a vector with doubled
+lane width, and traps on any failed representability round trip. Signed and
+unsigned right shifts remain arithmetic and logical respectively, and compound
+assignment shares the same path. The scalar and vector contracts now avoid
+LLVM poison without introducing an evaluator-local or backend-local type
+system.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
