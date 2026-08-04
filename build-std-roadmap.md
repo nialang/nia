@@ -3238,8 +3238,11 @@ also uses the concrete width, and integer value equality is independent of the
 evaluator's internal signedness encoding. The evaluator neither inspects
 literal suffixes to recover types nor owns a second type system.
 
-The next numeric batch must use the same facts to replace the evaluator's
-generic 128-bit shift rule, then align runtime add/subtract/multiply/negate and
+Concrete-width const shifts now use the same facts: the count must be below the
+instantiated operand width, left shift diagnoses a result that does not fit,
+and signed versus unsigned right shift follows the concrete primitive. The
+32-bit target regression proves `usize` shift bounds do not follow the compiler
+host. The next numeric batch must align runtime add/subtract/multiply/negate and
 shift traps. Host-width checked arithmetic must not become the language model,
 and integer-vector lanes remain a separate reduction/trap design item.
 

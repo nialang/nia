@@ -3313,6 +3313,14 @@ fn eval_typed_binary_int(
             ConstBinaryOp::Rem => lhs.checked_rem(rhs),
             ConstBinaryOp::Add => lhs.checked_add(rhs),
             ConstBinaryOp::Sub => lhs.checked_sub(rhs),
+            ConstBinaryOp::Shl => {
+                let count = typed_shift_count(rhs, semantics.bits)?;
+                lhs.checked_shl(count)
+            }
+            ConstBinaryOp::Shr => {
+                let count = typed_shift_count(rhs, semantics.bits)?;
+                return Ok(IntConst::from_i128(lhs >> count));
+            }
             _ => return eval_binary_int(IntConst::from_i128(lhs), op, IntConst::from_i128(rhs)),
         }
         .filter(|value| signed_value_fits(*value, semantics.bits))
@@ -3333,6 +3341,14 @@ fn eval_typed_binary_int(
             ConstBinaryOp::Rem => Some(lhs % rhs),
             ConstBinaryOp::Add => lhs.checked_add(rhs),
             ConstBinaryOp::Sub => lhs.checked_sub(rhs),
+            ConstBinaryOp::Shl => {
+                let count = typed_shift_count_u128(rhs, semantics.bits)?;
+                lhs.checked_shl(count)
+            }
+            ConstBinaryOp::Shr => {
+                let count = typed_shift_count_u128(rhs, semantics.bits)?;
+                return Ok(IntConst::unsigned(lhs >> count));
+            }
             _ => return eval_binary_uint(lhs, op, rhs).map(IntConst::unsigned),
         }
         .filter(|value| unsigned_value_fits(*value, semantics.bits))
@@ -3349,6 +3365,20 @@ fn int_to_u128(value: IntConst, context: &str) -> Result<u128, String> {
             .ok_or_else(|| format!("integer value is negative in unsigned {context}"));
     }
     Ok(value.bits())
+}
+
+fn typed_shift_count(value: i128, bits: u32) -> Result<u32, String> {
+    u32::try_from(value)
+        .ok()
+        .filter(|count| *count < bits)
+        .ok_or_else(|| "shift count is out of range in const expression".to_string())
+}
+
+fn typed_shift_count_u128(value: u128, bits: u32) -> Result<u32, String> {
+    u32::try_from(value)
+        .ok()
+        .filter(|count| *count < bits)
+        .ok_or_else(|| "shift count is out of range in const expression".to_string())
 }
 
 fn eval_typed_int_neg(
@@ -3393,6 +3423,7 @@ fn integer_overflow_message(op: ConstBinaryOp) -> String {
         ConstBinaryOp::Rem => "remainder",
         ConstBinaryOp::Add => "addition",
         ConstBinaryOp::Sub => "subtraction",
+        ConstBinaryOp::Shl => "left shift",
         _ => "operation",
     };
     format!("integer overflow in const {operation}")

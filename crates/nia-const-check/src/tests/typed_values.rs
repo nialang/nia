@@ -163,6 +163,7 @@ fn const_integer_operations_use_target_pointer_width() {
     let fixture = check_source_for_target(
         r#"
 const hiddenOverflow: usize = (4294967295usize + 1usize) - 1usize;
+const shiftOverflow: usize = 1usize << 32usize;
 "#,
         target,
     );
@@ -174,6 +175,17 @@ const hiddenOverflow: usize = (4294967295usize + 1usize) - 1usize;
             .any(|diagnostic| diagnostic
                 .summary
                 .contains("integer overflow in const addition")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("shift count is out of range in const expression")),
         "{:?}",
         fixture.checked.diagnostics
     );
