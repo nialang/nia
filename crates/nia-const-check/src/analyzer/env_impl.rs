@@ -6,7 +6,10 @@ use crate::{
         is_float_primitive, primitive_integer_layout, validate_assignment_shape,
     },
 };
-use nia_const_eval::{ConstCommonEnv, ConstError, ConstValue, ResolvedConstEnv};
+use nia_const_eval::{
+    ConstCommonEnv, ConstEndianness, ConstError, ConstScalarType, ConstUnionValue, ConstValue,
+    ResolvedConstEnv,
+};
 use nia_const_ir::{
     ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
     ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg, ResolvedConstParam,
@@ -23,7 +26,8 @@ use nia_sema_ir::BuiltinAssociatedValue;
 use nia_span::Span;
 use nia_symbol::symbol_identity_key;
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{IntConst, TyKind};
+use nia_ty::{IntConst, PrimitiveTy, TyKind};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 impl ConstCommonEnv for Analyzer<'_> {
@@ -280,6 +284,168 @@ pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
 }
 
 impl ResolvedConstEnv for Analyzer<'_> {
+    fn prepare_resolved_binding(
+        &mut self,
+        binding: &ResolvedConstBinding,
+    ) -> Result<(), ConstError> {
+        if !matches!(
+            binding.value().kind(),
+            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
+        ) {
+            return Ok(());
+        }
+        let expected = binding
+            .explicit_type()
+            .map(|ty| self.substitute_ty_generics(ty));
+        let _ = self.resolved_const_expr_type(binding.value(), expected);
+        Ok(())
+    }
+
+    fn prepare_resolved_function_result(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Result<(), ConstError> {
+        if !matches!(
+            expr.kind(),
+            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
+        ) {
+            return Ok(());
+        }
+        let expected = self
+            .active_execution_frames()
+            .find_map(|frame| frame.return_type);
+        let _ = self.resolved_const_expr_type(expr, expected);
+        Ok(())
+    }
+
+    fn prepare_resolved_call_arguments(
+        &mut self,
+        span: Span,
+        callee: &ResolvedConstExpr,
+        generic_args: &[ResolvedConstGenericArg],
+        args: &[ResolvedConstExpr],
+    ) -> Result<(), ConstError> {
+        if !args.iter().any(|arg| {
+            matches!(
+                arg.kind(),
+                nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
+            )
+        }) {
+            return Ok(());
+        }
+        let _ = self.resolved_const_call_return_type(span, callee, generic_args, args, None);
+        Ok(())
+    }
+
+    fn prepare_resolved_assignment(
+        &mut self,
+        assign: &nia_const_ir::ResolvedConstAssign,
+    ) -> Result<(), ConstError> {
+        if matches!(
+            assign.rhs().kind(),
+            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
+        ) {
+            self.check_resolved_const_assignment(assign.rhs().span(), assign);
+        }
+        Ok(())
+    }
+
+    fn build_resolved_aggregate(
+        &mut self,
+        span: Span,
+        ty: Option<InternedTyId>,
+        mut fields: BTreeMap<SymbolId, ConstValue>,
+    ) -> Result<ConstValue, ConstError> {
+        let ty = ty.or_else(|| {
+            self.resolved_expr_types
+                .last()
+                .and_then(|types| types.get(&span).copied())
+        });
+        let Some(ty) = ty else {
+            return Ok(ConstValue::Struct(fields));
+        };
+        let module_id = self.current_execution_module_id();
+        self.ensure_type_context(module_id)
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const aggregate execution module type context is unavailable".to_string(),
+            })?;
+        let ty = self.substitute_ty_generics(ty);
+        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+            return Ok(ConstValue::Struct(fields));
+        };
+        if self.def_kind_of(def_id) != Some(DefKind::Union) {
+            return Ok(ConstValue::Struct(fields));
+        }
+        let signature = self.union_signature_for(def_id).ok_or_else(|| ConstError {
+            span,
+            message: "const union signature is unavailable".to_string(),
+        })?;
+        let field_tys = self
+            .const_union_field_types(&signature, &args)
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const union field types are unavailable".to_string(),
+            })?;
+        if fields.len() != 1 {
+            return Err(ConstError {
+                span,
+                message: format!(
+                    "const union literal requires exactly one field, got {}",
+                    fields.len()
+                ),
+            });
+        }
+        let target =
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: "const union evaluation requires a supported target pointer width"
+                        .to_string(),
+                })?;
+        let mut scalar_fields = BTreeMap::new();
+        let mut field_layouts = Vec::with_capacity(field_tys.len());
+        for (name, field_ty) in field_tys {
+            let normalized = self.normalized_ty(field_ty);
+            let TyKind::Primitive(primitive) = self.active_ty_kind(normalized) else {
+                return Err(ConstError {
+                    span,
+                    message: format!(
+                        "const union field `{}` requires an ABI scalar type",
+                        self.symbol_name(name)
+                    ),
+                });
+            };
+            let scalar = const_union_scalar_type(primitive, self.input.target.pointer_width)
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: format!(
+                        "const union field `{}` has an unsupported scalar type",
+                        self.symbol_name(name)
+                    ),
+                })?;
+            scalar_fields.insert(name, scalar);
+            field_layouts.push(nia_layout::primitive_layout(primitive, target));
+        }
+        let layout = nia_layout::union_layout_from_fields(field_layouts.iter());
+        let endianness =
+            ConstEndianness::from_target_name(&self.input.target.endian).ok_or_else(|| {
+                ConstError {
+                    span,
+                    message: "const union evaluation requires `little` or `big` target endianness"
+                        .to_string(),
+                }
+            })?;
+        let (active_field, value) = fields.pop_first().expect("one const union field");
+        let storage_size = usize::try_from(layout.size).map_err(|_| ConstError {
+            span,
+            message: "const union storage size is not representable".to_string(),
+        })?;
+        ConstUnionValue::new(scalar_fields, storage_size, active_field, value, endianness)
+            .map(ConstValue::Union)
+            .map_err(|message| ConstError { span, message })
+    }
+
     fn resolved_integer_semantics(
         &mut self,
         expr: &ResolvedConstExpr,
@@ -706,6 +872,18 @@ impl ResolvedConstEnv for Analyzer<'_> {
         value: ConstValue,
     ) -> Result<(), ConstError> {
         self.assign_local_value(span, local_id, None, value)
+    }
+}
+
+fn const_union_scalar_type(primitive: PrimitiveTy, pointer_width: u32) -> Option<ConstScalarType> {
+    match primitive {
+        PrimitiveTy::F32 => Some(ConstScalarType::Float32),
+        PrimitiveTy::F64 => Some(ConstScalarType::Float64),
+        PrimitiveTy::Bool => Some(ConstScalarType::Bool),
+        PrimitiveTy::Char => Some(ConstScalarType::Char),
+        PrimitiveTy::Void | PrimitiveTy::Never => None,
+        primitive => primitive_integer_layout(primitive, pointer_width)
+            .map(|(bits, signed)| ConstScalarType::Integer { bits, signed }),
     }
 }
 

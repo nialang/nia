@@ -232,6 +232,10 @@ fn eval_resolved_const_expr_flow(
                         message: format!("unknown const field `{}`", env.symbol_name(*name)),
                     })?
                 }
+                ConstValue::Union(value) => value.read(*name).map_err(|message| ConstError {
+                    span,
+                    message: format!("{message} `{}`", env.symbol_name(*name)),
+                })?,
                 _ => {
                     return Err(ConstError {
                         span,
@@ -252,8 +256,8 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::ArrayLiteral { elems, .. } => {
             return eval_resolved_array_literal_flow(elems, env);
         }
-        ResolvedConstExprKind::StructLiteral { fields, .. } => {
-            return eval_resolved_struct_literal_flow(fields, env);
+        ResolvedConstExprKind::StructLiteral { ty, fields } => {
+            return eval_resolved_struct_literal_flow(span, *ty, fields, env);
         }
         ResolvedConstExprKind::EnumStructLiteral { variant, fields } => {
             return eval_resolved_enum_struct_literal_flow(span, variant, fields, env);
@@ -315,6 +319,7 @@ fn eval_resolved_const_expr_flow(
                 }
                 env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
             } else {
+                env.prepare_resolved_call_arguments(span, callee, generic_args, args)?;
                 let has_receiver = matches!(callee.kind(), ResolvedConstExprKind::Method { .. });
                 let mut values = Vec::with_capacity(args.len() + usize::from(has_receiver));
                 let mut receiver_place = None;
@@ -423,6 +428,7 @@ fn eval_resolved_const_expr_flow(
             return eval_resolved_binary_flow(expr, lhs, *op, rhs, env);
         }
         ResolvedConstExprKind::Assign(assign) => {
+            env.prepare_resolved_assignment(assign)?;
             return eval_resolved_assign_expr_flow(span, assign, env);
         }
         ResolvedConstExprKind::Range(range) => {
@@ -1840,6 +1846,8 @@ fn eval_enum_struct_literal_flow(
 }
 
 fn eval_resolved_struct_literal_flow(
+    span: Span,
+    ty: Option<InternedTyId>,
     fields: &[ResolvedConstFieldInit],
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
@@ -1866,7 +1874,9 @@ fn eval_resolved_struct_literal_flow(
             eval_resolved_value_or_return_flow!(field.value(), env),
         );
     }
-    Ok(ConstEvalFlow::Value(ConstValue::Struct(values)))
+    Ok(ConstEvalFlow::Value(
+        env.build_resolved_aggregate(span, ty, values)?,
+    ))
 }
 
 fn eval_resolved_enum_struct_literal_flow(
@@ -2309,6 +2319,7 @@ fn eval_resolved_function_tail_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
+    env.prepare_resolved_function_result(expr)?;
     eval_resolved_const_expr_flow(expr, env)
 }
 
@@ -2410,6 +2421,7 @@ fn eval_resolved_function_stmt(
     env.consume_const_eval_step(stmt.span())?;
     match stmt.kind() {
         ResolvedConstStmtKind::Binding(binding) => {
+            env.prepare_resolved_binding(binding)?;
             match eval_resolved_const_expr_flow(binding.value(), env)? {
                 ConstEvalFlow::Value(value) => {
                     env.bind_resolved_function_local(stmt.span(), binding, value)?;
@@ -2441,6 +2453,7 @@ fn eval_resolved_function_stmt(
                     message: "const function must return a value".to_string(),
                 });
             };
+            env.prepare_resolved_function_result(value)?;
             match eval_resolved_const_expr_flow(value, env)? {
                 ConstEvalFlow::Value(value)
                 | ConstEvalFlow::Return(value)
@@ -2686,6 +2699,10 @@ fn eval_resolved_assign_path_value(
                         ),
                     })?
                 }
+                ConstValue::Union(value) => value.read(*name).map_err(|message| ConstError {
+                    span: *span,
+                    message: format!("{message} `{}`", env.symbol_name(*name)),
+                })?,
                 _ => {
                     return Err(ConstError {
                         span: *span,
@@ -2772,21 +2789,37 @@ fn write_resolved_const_place_path(
         return Ok(value);
     };
     match head {
-        ResolvedConstPlaceElem::Field(name) => {
-            let ConstValue::Struct(mut fields) = root else {
-                return Err(ConstError {
+        ResolvedConstPlaceElem::Field(name) => match root {
+            ConstValue::Struct(mut fields) => {
+                let current = fields.remove(name).ok_or_else(|| ConstError {
                     span,
-                    message: "const field writeback requires a struct value".to_string(),
-                });
-            };
-            let current = fields.remove(name).ok_or_else(|| ConstError {
+                    message: format!("unknown const writeback field `{}`", env.symbol_name(*name)),
+                })?;
+                let updated = write_resolved_const_place_path(span, current, tail, value, env)?;
+                fields.insert(*name, updated);
+                Ok(ConstValue::Struct(fields))
+            }
+            ConstValue::Union(mut union) => {
+                let updated = if tail.is_empty() {
+                    value
+                } else {
+                    let current = union.read(*name).map_err(|message| ConstError {
+                        span,
+                        message: format!("{message} `{}`", env.symbol_name(*name)),
+                    })?;
+                    write_resolved_const_place_path(span, current, tail, value, env)?
+                };
+                union.write(*name, updated).map_err(|message| ConstError {
+                    span,
+                    message: format!("{message} `{}`", env.symbol_name(*name)),
+                })?;
+                Ok(ConstValue::Union(union))
+            }
+            _ => Err(ConstError {
                 span,
-                message: format!("unknown const writeback field `{}`", env.symbol_name(*name)),
-            })?;
-            let updated = write_resolved_const_place_path(span, current, tail, value, env)?;
-            fields.insert(*name, updated);
-            Ok(ConstValue::Struct(fields))
-        }
+                message: "const field writeback requires an aggregate value".to_string(),
+            }),
+        },
         ResolvedConstPlaceElem::Index(index) => {
             let ConstValue::Array(mut values) = root else {
                 return Err(ConstError {
@@ -2879,24 +2912,40 @@ fn write_resolved_assign_path_value(
         ResolvedConstAssignPathElemKind::Field {
             span: field_span,
             name,
-        } => {
-            let ConstValue::Struct(mut fields) = root else {
-                return Err(ConstError {
+        } => match root {
+            ConstValue::Struct(mut fields) => {
+                let current = fields.remove(name).ok_or_else(|| ConstError {
                     span: *field_span,
-                    message: "const field assignment requires a struct value".to_string(),
-                });
-            };
-            let current = fields.remove(name).ok_or_else(|| ConstError {
+                    message: format!(
+                        "unknown const assignment field `{}`",
+                        env.symbol_name(*name)
+                    ),
+                })?;
+                let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
+                fields.insert(*name, updated);
+                Ok(ConstValue::Struct(fields))
+            }
+            ConstValue::Union(mut union) => {
+                let updated = if tail.is_empty() {
+                    value
+                } else {
+                    let current = union.read(*name).map_err(|message| ConstError {
+                        span: *field_span,
+                        message: format!("{message} `{}`", env.symbol_name(*name)),
+                    })?;
+                    write_resolved_assign_path_value(span, current, tail, value, env)?
+                };
+                union.write(*name, updated).map_err(|message| ConstError {
+                    span: *field_span,
+                    message: format!("{message} `{}`", env.symbol_name(*name)),
+                })?;
+                Ok(ConstValue::Union(union))
+            }
+            _ => Err(ConstError {
                 span: *field_span,
-                message: format!(
-                    "unknown const assignment field `{}`",
-                    env.symbol_name(*name)
-                ),
-            })?;
-            let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
-            fields.insert(*name, updated);
-            Ok(ConstValue::Struct(fields))
-        }
+                message: "const field assignment requires an aggregate value".to_string(),
+            }),
+        },
         ResolvedConstAssignPathElemKind::Index {
             span: index_span,
             index,

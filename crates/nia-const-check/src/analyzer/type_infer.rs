@@ -420,7 +420,16 @@ impl Analyzer<'_> {
                 }
             }
             ResolvedConstExprKind::Float(text) => {
-                let primitive = float_literal_suffix_ty(text).unwrap_or(PrimitiveTy::F64);
+                let primitive = float_literal_suffix_ty(text)
+                    .or_else(|| {
+                        expected.and_then(|ty| match self.ty_kind(ty) {
+                            Some(TyKind::Primitive(primitive)) if primitive.is_float() => {
+                                Some(primitive)
+                            }
+                            _ => None,
+                        })
+                    })
+                    .unwrap_or(PrimitiveTy::F64);
                 Some(ConstValueType::Runtime(
                     self.current_runtime_primitive_type(primitive),
                 ))
@@ -454,12 +463,12 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::StructLiteral {
                 ty: Some(ty),
                 fields,
-            } => self.resolved_const_struct_literal_type(expr.span(), fields, Some(*ty)),
+            } => self.resolved_const_aggregate_literal_type(expr.span(), fields, Some(*ty)),
             ResolvedConstExprKind::ArrayLiteral { ty: None, elems } => {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
             }
             ResolvedConstExprKind::StructLiteral { ty: None, fields } => {
-                self.resolved_const_struct_literal_type(expr.span(), fields, expected)
+                self.resolved_const_aggregate_literal_type(expr.span(), fields, expected)
             }
             ResolvedConstExprKind::EnumStructLiteral { variant, fields } => self
                 .resolved_const_named_enum_literal_type(expr.span(), variant, fields)
@@ -595,7 +604,11 @@ impl Analyzer<'_> {
         }
     }
 
-    fn check_resolved_const_assignment(&mut self, span: Span, assign: &ResolvedConstAssign) {
+    pub(super) fn check_resolved_const_assignment(
+        &mut self,
+        span: Span,
+        assign: &ResolvedConstAssign,
+    ) {
         let ResolvedConstAssignTargetKind::Local {
             name,
             local_id,
@@ -1036,7 +1049,7 @@ impl Analyzer<'_> {
         match &lhs {
             ConstValueType::Struct(_) => lhs.structural_field(name).cloned(),
             ConstValueType::Runtime(ty) => self
-                .const_nominal_struct_field_type(*ty, name)
+                .const_nominal_aggregate_field_type(*ty, name)
                 .map(ConstValueType::Runtime),
             ConstValueType::Array { .. }
             | ConstValueType::Int
@@ -1746,7 +1759,7 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn resolved_const_struct_literal_type(
+    pub(super) fn resolved_const_aggregate_literal_type(
         &mut self,
         span: Span,
         fields: &[ResolvedConstFieldInit],
@@ -1767,6 +1780,15 @@ impl Analyzer<'_> {
             }
             return None;
         };
+        if self.def_kind_of(def_id) == Some(DefKind::Union) {
+            return self.resolved_const_union_literal_type(
+                span,
+                fields,
+                expected,
+                def_id,
+                &expected_args,
+            );
+        }
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
             let _ = self.structural_resolved_const_struct_literal_type(fields);
             return None;
@@ -1858,6 +1880,52 @@ impl Analyzer<'_> {
             .map(ConstValueType::Runtime)
     }
 
+    fn resolved_const_union_literal_type(
+        &mut self,
+        span: Span,
+        fields: &[ResolvedConstFieldInit],
+        expected: InternedTyId,
+        def_id: GlobalDefId,
+        expected_args: &[InternedTyId],
+    ) -> Option<ConstValueType> {
+        let signature = self.union_signature_for(def_id)?;
+        let field_tys = self.const_union_field_types(&signature, expected_args)?;
+        if fields.len() != 1 {
+            for field in fields {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+            }
+            self.push_const_type_error(
+                span,
+                &format!(
+                    "const union literal requires exactly one field, got {}",
+                    fields.len()
+                ),
+            );
+            return None;
+        }
+        let field = &fields[0];
+        let Some(expected_field) = field_tys.get(field.name_symbol()).copied() else {
+            let _ = self.resolved_const_expr_type(field.value(), None);
+            let name = self.symbol_name(*field.name_symbol());
+            self.push_const_type_error(
+                field.span(),
+                &format!("unknown const union field `{name}`"),
+            );
+            return None;
+        };
+        let actual = self.resolved_const_contextual_value_type(field.value(), expected_field);
+        if let Some(actual) = actual
+            && !self.const_function_types_match(expected_field, actual)
+        {
+            self.push_const_type_error(
+                field.value().span(),
+                "const union literal field does not match its expected type",
+            );
+            return None;
+        }
+        Some(ConstValueType::Runtime(expected))
+    }
+
     pub(super) fn structural_resolved_const_struct_literal_type(
         &mut self,
         fields: &[ResolvedConstFieldInit],
@@ -1889,19 +1957,25 @@ impl Analyzer<'_> {
         fields_are_valid.then_some(ConstValueType::Struct(typed_fields))
     }
 
-    pub(super) fn const_nominal_struct_field_type(
+    pub(super) fn const_nominal_aggregate_field_type(
         &mut self,
         ty: InternedTyId,
         name: &SymbolId,
     ) -> Option<InternedTyId> {
         let (def_id, args) = self.expected_nominal_parts(ty)?;
-        if self.def_kind_of(def_id) != Some(DefKind::Struct) {
-            return None;
+        match self.def_kind_of(def_id)? {
+            DefKind::Struct => self
+                .struct_signature_for(def_id)
+                .and_then(|signature| self.const_struct_field_types(&signature, &args))?
+                .get(name)
+                .copied(),
+            DefKind::Union => self
+                .union_signature_for(def_id)
+                .and_then(|signature| self.const_union_field_types(&signature, &args))?
+                .get(name)
+                .copied(),
+            _ => None,
         }
-        let signature = self.struct_signature_for(def_id)?;
-        self.const_struct_field_types(&signature, &args)?
-            .get(name)
-            .copied()
     }
 
     pub(super) fn resolved_const_contextual_value_type(
@@ -1947,12 +2021,40 @@ impl Analyzer<'_> {
             .cloned()
     }
 
+    pub(super) fn union_signature_for(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::UnionSignature> {
+        self.signatures_for_module(def_id.module_id)?
+            .as_ref()
+            .unions
+            .get(&def_id.def_id)
+            .cloned()
+    }
+
+    pub(super) fn const_union_field_types(
+        &mut self,
+        signature: &nia_item_signatures::UnionSignature,
+        expected_args: &[InternedTyId],
+    ) -> Option<SymbolMap<InternedTyId>> {
+        self.const_aggregate_field_types(&signature.generics, &signature.fields, expected_args)
+    }
+
     pub(super) fn const_struct_field_types(
         &mut self,
         signature: &nia_item_signatures::StructSignature,
         expected_args: &[InternedTyId],
     ) -> Option<SymbolMap<InternedTyId>> {
-        if signature.generics.len() != expected_args.len() {
+        self.const_aggregate_field_types(&signature.generics, &signature.fields, expected_args)
+    }
+
+    fn const_aggregate_field_types(
+        &mut self,
+        generics: &[SymbolId],
+        signature_fields: &[nia_item_signatures::FieldSignature],
+        expected_args: &[InternedTyId],
+    ) -> Option<SymbolMap<InternedTyId>> {
+        if generics.len() != expected_args.len() {
             return None;
         }
         let current_module = self.current_execution_module_id();
@@ -1961,14 +2063,13 @@ impl Analyzer<'_> {
             .copied()
             .map(|arg| self.type_for_module_or_none(arg, current_module))
             .collect::<Option<Vec<_>>>()?;
-        let substitutions = signature
-            .generics
+        let substitutions = generics
             .iter()
             .cloned()
             .zip(expected_args)
             .collect::<SymbolMap<_>>();
         let mut fields = SymbolMap::default();
-        for field in &signature.fields {
+        for field in signature_fields {
             let canonical = self.type_for_module_or_none(field.ty, current_module)?;
             let ty = {
                 let types = self.type_contexts.get(&current_module)?;

@@ -871,6 +871,7 @@ impl Analyzer<'_> {
             }
             Some(TyKind::Nominal { def_id, .. }) => match self.def_kind_of(def_id) {
                 Some(DefKind::Struct) => self.validate_nominal_struct_value(span, value, ty),
+                Some(DefKind::Union) => self.validate_nominal_union_value(span, value, ty),
                 Some(DefKind::Enum) => self.validate_nominal_enum_value(span, value, def_id),
                 _ => {}
             },
@@ -907,6 +908,34 @@ impl Analyzer<'_> {
         }
         for field in &field_set.unknown_fields {
             self.push_const_extra_struct_field(span, &field.name);
+        }
+    }
+
+    fn validate_nominal_union_value(&mut self, span: Span, value: &ConstValue, ty: InternedTyId) {
+        let ConstValue::Union(value) = value else {
+            self.push_const_type_mismatch(span, "union");
+            return;
+        };
+        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+            return;
+        };
+        let Some(signature) = self.union_signature_for(def_id) else {
+            return;
+        };
+        let Some(field_tys) = self.const_union_field_types(&signature, &args) else {
+            return;
+        };
+        let active_field = value.active_field();
+        let Some(field_ty) = field_tys.get(&active_field).copied() else {
+            self.push_const_type_mismatch(span, "union");
+            return;
+        };
+        match value.read(active_field) {
+            Ok(active_value) => self.validate_runtime_typed_value(span, &active_value, field_ty),
+            Err(message) => {
+                self.diagnostics
+                    .push(Diagnostic::user_error_at(codes::CONST, span, message))
+            }
         }
     }
 

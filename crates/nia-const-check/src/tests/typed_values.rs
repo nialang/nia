@@ -1,4 +1,6 @@
 use super::*;
+use nia_const_eval::ConstValue;
+use nia_ty::IntConst;
 
 #[test]
 fn records_explicit_types_for_const_bindings() {
@@ -189,4 +191,265 @@ const shiftOverflow: usize = 1usize << 32usize;
         "{:?}",
         fixture.checked.diagnostics
     );
+}
+
+#[test]
+fn evaluates_scalar_union_reinterpretation_and_field_switching() {
+    let fixture = check_source(
+        r#"
+union Bits {
+    integer: u32,
+    float: f32,
+}
+
+union SignedBits {
+    unsigned: u32,
+    signed: i32,
+}
+
+const fn floatBits() u32 {
+    let bits: Bits = { float: 1.0 };
+    bits.integer
+}
+
+const fn switchedBits() f32 {
+    let mut bits: Bits = { float: 0.0 };
+    bits.integer = 1065353216;
+    bits.float
+}
+
+const FLOAT_BITS: u32 = floatBits();
+const SWITCHED: f32 = switchedBits();
+const SIGNED_BITS: SignedBits = { unsigned: 4294967295 };
+const SIGNED: i32 = SIGNED_BITS.signed;
+"#,
+    );
+    assert!(
+        fixture.const_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.const_module.diagnostics
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "FLOAT_BITS"),
+        ConstValue::Int(IntConst::unsigned(1065353216))
+    );
+    assert_eq!(const_value(&fixture, "SWITCHED"), ConstValue::Float(1.0));
+    assert_eq!(
+        const_value(&fixture, "SIGNED"),
+        ConstValue::Int(IntConst::from_i128(-1))
+    );
+}
+
+#[test]
+fn scalar_union_reinterpretation_uses_artifact_endianness() {
+    let source = r#"
+union Narrow {
+    wide: u32,
+    narrow: u16,
+}
+
+const BITS: Narrow = { wide: 287454020 };
+const VALUE: u16 = BITS.narrow;
+"#;
+    let mut little_target = nia_target_config::TargetConfig::host();
+    little_target.endian = "little".to_string();
+    let little = check_source_for_target(source, little_target);
+    assert!(
+        little.checked.diagnostics.is_empty(),
+        "{:?}",
+        little.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&little, "VALUE"),
+        ConstValue::Int(IntConst::unsigned(13124))
+    );
+
+    let mut big_target = nia_target_config::TargetConfig::host();
+    big_target.endian = "big".to_string();
+    let big = check_source_for_target(source, big_target);
+    assert!(
+        big.checked.diagnostics.is_empty(),
+        "{:?}",
+        big.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&big, "VALUE"),
+        ConstValue::Int(IntConst::unsigned(4386))
+    );
+}
+
+#[test]
+fn scalar_union_rejects_reads_of_uninitialized_storage() {
+    let fixture = check_source(
+        r#"
+union Partial {
+    narrow: u16,
+    wide: u32,
+}
+
+const BITS: Partial = { narrow: 1 };
+const INVALID: u32 = BITS.wide;
+"#,
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("const union field reads uninitialized storage")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn evaluates_generic_scalar_union_after_substitution() {
+    let fixture = check_source(
+        r#"
+union Slot[T] {
+    value: T,
+    bits: u32,
+}
+
+const fn reinterpret[T](value: T) u32 {
+    let slot: Slot[T] = { value: value };
+    slot.bits
+}
+
+const BITS: u32 = reinterpret[u32](1065353216);
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "BITS"),
+        ConstValue::Int(IntConst::unsigned(1065353216))
+    );
+}
+
+#[test]
+fn evaluates_scalar_union_return_literal_with_result_context() {
+    let fixture = check_source(
+        r#"
+union Bits {
+    integer: u32,
+    float: f32,
+}
+
+const fn makeBits() Bits {
+    { float: 1.0 }
+}
+
+const BITS: Bits = makeBits();
+const VALUE: u32 = BITS.integer;
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "VALUE"),
+        ConstValue::Int(IntConst::unsigned(1065353216))
+    );
+}
+
+#[test]
+fn evaluates_scalar_union_literals_in_call_and_assignment_contexts() {
+    let fixture = check_source(
+        r#"
+union Bits {
+    integer: u32,
+    float: f32,
+}
+
+const fn readBits(bits: Bits) u32 {
+    bits.integer
+}
+
+const fn replaceBits() u32 {
+    let mut bits: Bits = { integer: 0 };
+    bits = { float: 1.0 };
+    bits.integer
+}
+
+const CALL_BITS: u32 = readBits({ float: 1.0 });
+const ASSIGN_BITS: u32 = replaceBits();
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    for name in ["CALL_BITS", "ASSIGN_BITS"] {
+        assert_eq!(
+            const_value(&fixture, name),
+            ConstValue::Int(IntConst::unsigned(1065353216))
+        );
+    }
+}
+
+#[test]
+fn scalar_union_rejects_invalid_scalar_representations() {
+    let fixture = check_source(
+        r#"
+union Tiny {
+    value: u8,
+    other: u8,
+}
+
+union BoolBits {
+    raw: u8,
+    flag: bool,
+}
+
+const OUT_OF_RANGE: Tiny = { value: 256 };
+const BOOL_BITS: BoolBits = { raw: 2 };
+const INVALID_BOOL: bool = BOOL_BITS.flag;
+"#,
+    );
+    for message in [
+        "const union integer field value is out of range",
+        "const union field has an invalid bool representation",
+    ] {
+        assert!(
+            fixture
+                .checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            fixture.checked.diagnostics
+        );
+    }
+}
+
+fn const_value(fixture: &CheckedFixture, name: &str) -> ConstValue {
+    let def_id = fixture
+        .defs
+        .module_scope
+        .values
+        .get(&sym(name))
+        .expect("const def");
+    fixture
+        .checked
+        .values
+        .get(&ConstKey::Global(GlobalDefId {
+            module_id: fixture.module_id,
+            def_id,
+        }))
+        .expect("const value")
+        .clone()
 }

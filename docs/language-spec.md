@@ -1683,7 +1683,8 @@ fn first_value() i32 {
 `const` may appear at module, associated-value, and local binding positions. A
 `const` binding must have an initializer. Its initializer must be evaluable
 with the current compile-time value evaluator. Current compile-time values cover
-integer, boolean, string, array, and struct literal values; struct field access;
+integer, boolean, string, array, struct, and ABI-scalar union literal values;
+struct and supported union field access;
 casts that preserve the underlying value; boolean `not`, `and`, and `or`;
 equality comparisons between matching primitive const value kinds; simple
 integer arithmetic and bit operations; and references to other visible
@@ -1715,6 +1716,20 @@ struct Point {
 const p: Point = Point{x: 2, y: 3};
 const width: usize = p.x + p.y;
 ```
+
+Const union values preserve target storage semantics rather than behaving like
+single-field structs. Integer, floating-point, `bool`, and `char` fields use the
+artifact target's widths and endianness, and reading another field decodes the
+same bytes as runtime union access. A write changes only the bytes occupied by
+the selected field. Bytes outside the field used for initial construction are
+uninitialized; a const read that requires any such byte is an error rather than
+implicitly reading zero.
+
+The current const ABI codec is deliberately limited to scalar fields. A union
+containing arrays, pointers, vectors, structs, unions, or other aggregate fields
+is rejected in a `const fn` declaration until const evaluation has an explicit
+padding, uninitialized-byte, and pointer-provenance model for that field kind.
+Ordinary runtime unions retain the full semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

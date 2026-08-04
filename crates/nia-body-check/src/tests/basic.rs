@@ -128,7 +128,7 @@ const fn first(iter: Counter) usize {
 }
 
 #[test]
-fn const_declaration_filter_rejects_union_value_operations() {
+fn const_declaration_filter_accepts_scalar_union_value_operations() {
     let checked = pipeline_const_declarations(
         r#"
 union Bits {
@@ -143,17 +143,29 @@ const fn inspect() usize {
 "#,
     );
 
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("union values are not available during const evaluation")),
-        "{:?}",
-        checked.diagnostics
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn const_declaration_filter_rejects_union_fields_without_a_const_abi_model() {
+    let checked = pipeline_const_declarations(
+        r#"
+union Payload {
+    bytes: [2]u8,
+    integer: u16,
+}
+
+const fn inspect() u16 {
+    let payload: Payload = { integer: 1 };
+    payload.integer
+}
+"#,
     );
+
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("union field access is not available during const evaluation")),
+            .contains("const union field `bytes` requires an ABI scalar type")),
         "{:?}",
         checked.diagnostics
     );

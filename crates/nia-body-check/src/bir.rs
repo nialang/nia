@@ -758,8 +758,8 @@ impl<'a> BodyChecker<'a> {
                 };
                 if self.is_union_def(def_id) {
                     let field = fields.first().map(|field| {
-                        let field_def = self.field_def_for_struct_ty(ty, &field.name);
-                        let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
+                        let field_def = self.field_def_for_aggregate_ty(ty, &field.name);
+                        let field_ty = self.field_ty_for_aggregate_ty(ty, &field.name);
                         TypedFieldInit {
                             field: field_def,
                             name: self.symbol_name(field.name),
@@ -786,8 +786,8 @@ impl<'a> BodyChecker<'a> {
                         fields: fields
                             .iter()
                             .map(|field| {
-                                let field_def = self.field_def_for_struct_ty(ty, &field.name);
-                                let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
+                                let field_def = self.field_def_for_aggregate_ty(ty, &field.name);
+                                let field_ty = self.field_ty_for_aggregate_ty(ty, &field.name);
                                 TypedFieldInit {
                                     field: field_def,
                                     name: self.symbol_name(field.name),
@@ -841,9 +841,9 @@ impl<'a> BodyChecker<'a> {
                         fields: fields
                             .iter()
                             .map(|field| {
-                                let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
+                                let field_ty = self.field_ty_for_aggregate_ty(ty, &field.name);
                                 TypedFieldInit {
-                                    field: self.field_def_for_struct_ty(ty, &field.name),
+                                    field: self.field_def_for_aggregate_ty(ty, &field.name),
                                     name: self.symbol_name(field.name),
                                     value: self.lower_expr_with_ty(&field.value, field_ty),
                                     span: field.span,
@@ -1560,6 +1560,27 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             TyKind::Array { .. } => self.materialize_const_array_expr(span, ty, value),
+            TyKind::Nominal { def_id, .. } if self.is_union_def(def_id) => {
+                let nia_const_check::ConstValue::Union(union) = value else {
+                    return None;
+                };
+                let name = union.active_field();
+                let field_ty = self.field_ty_for_aggregate_ty(ty, &name)?;
+                let field_value = union.read(name).ok()?;
+                Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::UnionLiteral {
+                        def_id,
+                        field: Box::new(TypedFieldInit {
+                            field: self.field_def_for_aggregate_ty(ty, &name),
+                            name: self.symbol_name(name),
+                            value: self.lower_const_value_expr(span, field_ty, Some(field_value)),
+                            span,
+                        }),
+                    },
+                })
+            }
             _ => None,
         }
     }
@@ -1688,7 +1709,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn field_def_for_struct_ty(
+    pub(crate) fn field_def_for_aggregate_ty(
         &self,
         ty: nia_ids::InternedTyId,
         name: &SymbolId,
@@ -1697,7 +1718,7 @@ impl<'a> BodyChecker<'a> {
         self.field_def_for_nominal(def_id, name)
     }
 
-    fn field_ty_for_struct_ty(
+    fn field_ty_for_aggregate_ty(
         &mut self,
         ty: nia_ids::InternedTyId,
         name: &SymbolId,
@@ -1711,14 +1732,14 @@ impl<'a> BodyChecker<'a> {
         else {
             return None;
         };
-        let resolved = self.resolved_struct_signature(def_id)?;
+        let fields = if self.is_union_def(def_id) {
+            self.resolved_union_signature(def_id)?.signature.fields
+        } else {
+            self.resolved_struct_signature(def_id)?.signature.fields
+        };
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
-        let field = resolved
-            .signature
-            .fields
-            .iter()
-            .find(|field| &field.name == name)?;
+        let field = fields.iter().find(|field| &field.name == name)?;
         let ty =
             self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions);
         Some(self.normalize_aliases_in_type(ty))
@@ -1734,13 +1755,42 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_field_access_expr(&mut self, lhs: &Expr, name: &SymbolId) -> Option<TypedExprKind> {
+        if let Some(kind) = self.lower_const_union_field_access(lhs, name) {
+            return Some(kind);
+        }
         let lhs_expr = self.lower_expr(lhs);
         let (lhs_expr, base_ty) = self.lower_field_lhs_to_value(lhs_expr)?;
-        let field = self.field_def_for_struct_ty(base_ty, name)?;
+        let field = self.field_def_for_aggregate_ty(base_ty, name)?;
         Some(TypedExprKind::Field {
             lhs: Box::new(lhs_expr),
             field,
         })
+    }
+
+    fn lower_const_union_field_access(
+        &mut self,
+        lhs: &Expr,
+        name: &SymbolId,
+    ) -> Option<TypedExprKind> {
+        let def_id = self.global_const_use(lhs).or_else(|| {
+            self.qualified_value(lhs).filter(|def_id| {
+                matches!(
+                    self.global_def_kind(*def_id),
+                    Some(nia_defs::DefKind::Const)
+                )
+            })
+        })?;
+        let nia_const_check::ConstValue::Union(union) = self.global_const_value(def_id)? else {
+            return None;
+        };
+        let fallback = self.expr_runtime_ty(lhs);
+        let base_ty = self.runtime_ty_for_global_const_use(def_id, fallback);
+        let field_ty = self.field_ty_for_aggregate_ty(base_ty, name)?;
+        let value = union.read(*name).ok()?;
+        Some(
+            self.lower_const_value_expr(lhs.span, field_ty, Some(value))
+                .kind,
+        )
     }
 
     fn lower_field_lhs_to_value(

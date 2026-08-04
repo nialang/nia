@@ -112,7 +112,7 @@ impl<'a> BodyChecker<'a> {
                     fields
                         .iter()
                         .map(|field| StaticFieldInit {
-                            field: self.field_def_for_struct_ty(ty, &field.name),
+                            field: self.field_def_for_aggregate_ty(ty, &field.name),
                             value: self
                                 .static_field_ty(ty, &field.name)
                                 .map(|field_ty| {

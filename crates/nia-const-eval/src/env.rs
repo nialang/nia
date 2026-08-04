@@ -12,6 +12,7 @@ use nia_ids::{
 use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_text_from_optional_resolver};
 use nia_ty::ConstGenericArg;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConstIntegerSemantics {
@@ -314,6 +315,46 @@ pub trait EarlyConstEnv: ConstCommonEnv {
 }
 
 pub trait ResolvedConstEnv: ConstCommonEnv {
+    fn prepare_resolved_binding(
+        &mut self,
+        _binding: &ResolvedConstBinding,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn prepare_resolved_function_result(
+        &mut self,
+        _expr: &ResolvedConstExpr,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn prepare_resolved_call_arguments(
+        &mut self,
+        _span: Span,
+        _callee: &ResolvedConstExpr,
+        _generic_args: &[ResolvedConstGenericArg],
+        _args: &[ResolvedConstExpr],
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn prepare_resolved_assignment(
+        &mut self,
+        _assign: &nia_const_ir::ResolvedConstAssign,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn build_resolved_aggregate(
+        &mut self,
+        _span: Span,
+        _ty: Option<InternedTyId>,
+        fields: BTreeMap<SymbolId, ConstValue>,
+    ) -> Result<ConstValue, ConstError> {
+        Ok(ConstValue::Struct(fields))
+    }
+
     fn resolved_integer_semantics(
         &mut self,
         _expr: &ResolvedConstExpr,

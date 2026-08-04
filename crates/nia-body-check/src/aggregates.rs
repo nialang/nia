@@ -377,10 +377,6 @@ impl<'a> BodyChecker<'a> {
         const_args: &[nia_ty::ConstGenericArg],
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
-        self.reject_const_operation(
-            span,
-            "union values are not available during const evaluation",
-        );
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -407,6 +403,12 @@ impl<'a> BodyChecker<'a> {
         let signature_fields = resolved.signature.fields.clone();
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+        self.check_const_union_representation(
+            span,
+            &signature_fields,
+            &substitutions,
+            &const_substitutions,
+        );
         let Some(signature_field) = signature_fields
             .iter()
             .find(|candidate| candidate.name == field.name)
@@ -550,10 +552,6 @@ impl<'a> BodyChecker<'a> {
         const_args: &[nia_ty::ConstGenericArg],
         name: &SymbolId,
     ) -> InternedTyId {
-        self.reject_const_operation(
-            span,
-            "union field access is not available during const evaluation",
-        );
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -574,7 +572,38 @@ impl<'a> BodyChecker<'a> {
         };
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+        self.check_const_union_representation(span, &fields, &substitutions, &const_substitutions);
         self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions)
+    }
+
+    fn check_const_union_representation(
+        &mut self,
+        span: Span,
+        fields: &[nia_item_signatures::FieldSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    ) {
+        for field in fields {
+            let ty =
+                self.substitute_generics_and_consts(field.ty, substitutions, const_substitutions);
+            let ty = self.normalize_aliases(ty);
+            if matches!(
+                self.expect_ty_kind(ty),
+                TyKind::Primitive(primitive)
+                    if !matches!(primitive, nia_ty::PrimitiveTy::Void | nia_ty::PrimitiveTy::Never)
+            ) || matches!(self.expect_ty_kind(ty), TyKind::GenericParam(_))
+            {
+                continue;
+            }
+            self.reject_const_operation(
+                span,
+                format!(
+                    "const union field `{}` requires an ABI scalar type",
+                    self.symbol_name(field.name)
+                ),
+            );
+            return;
+        }
     }
 
     pub(crate) fn qualified_global_type(&mut self, expr: &Expr) -> Option<InternedTyId> {

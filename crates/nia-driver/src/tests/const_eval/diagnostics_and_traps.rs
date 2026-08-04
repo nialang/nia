@@ -1725,8 +1725,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_union_value_operations_explicitly() {
-    let root = temp_dir("unused_const_function_rejects_union_value_operations_explicitly");
+fn unused_const_function_accepts_scalar_union_value_operations() {
+    let root = temp_dir("unused_const_function_accepts_scalar_union_value_operations");
     write(
         &root.join("main.nia"),
         r#"
@@ -1745,19 +1745,38 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    for message in [
-        "union values are not available during const evaluation",
-        "union field access is not available during const evaluation",
-    ] {
-        assert!(
-            program
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
-            "missing {message:?}: {:?}",
-            program.diagnostics
-        );
-    }
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn unused_const_function_rejects_union_fields_without_a_const_abi_model() {
+    let root = temp_dir("unused_const_function_rejects_union_fields_without_a_const_abi_model");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Payload {
+    bytes: [2]u8,
+    integer: u16,
+}
+
+const fn inspect() u16 {
+    let payload: Payload = { integer: 1 };
+    payload.integer
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const union field `bytes` requires an ABI scalar type")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

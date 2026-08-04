@@ -333,6 +333,11 @@ struct Counter {
     end: usize,
 }
 
+union Bits {
+    integer: u32,
+    float: f32,
+}
+
 extend Counter : Iterator {
     type Item = usize;
 
@@ -384,6 +389,20 @@ const fn iterationTotal(end: usize) usize {
     total
 }
 
+const fn oneBits() u32 {
+    let bits: Bits = { float: 1.0 };
+    bits.integer
+}
+
+const fn oneFromBits() f32 {
+    let bits: Bits = { integer: 1065353216 };
+    bits.float
+}
+
+const fn readBits(bits: Bits) u32 {
+    bits.integer
+}
+
 const fn pairTotal(values: pairs::Pair[usize]) usize {
     let mut total: usize = 0;
     for value in values {
@@ -398,6 +417,8 @@ const arrayLen: usize = double(2)
     + incrementedWidth()
     + iterationTotal(3)
     + pairTotal(pairs::pair(1, 2));
+const compileOneBits: u32 = readBits({ float: 1.0 });
+const compileUnion: Bits = { float: 1.0 };
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
@@ -408,6 +429,11 @@ fn runtimeChecks(value: usize) bool {
         and width.value == 8
         and iterationTotal(value) == 21
         and pairTotal(pairs::pair(value, value + 1)) == 15
+        and compileOneBits == 1065353216
+        and compileUnion.integer == compileOneBits
+        and oneBits() == compileOneBits
+        and oneFromBits() == 1.0
+        and readBits(compileUnion) == compileOneBits
         and values.len() == 23
 }
 
