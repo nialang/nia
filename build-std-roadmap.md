@@ -3018,6 +3018,16 @@ unresolved instead of being treated as definite pattern errors. Exhaustiveness
 and the shared ordinary/const pattern contract remain open, as do aggregate
 literal and indexing diagnostics.
 
+Dual-stage const hardening progress (2026-08-04, array literal declaration
+audit): unused const-capable definitions now diagnose known array element type
+mismatches, concrete list-length mismatches, non-integer repeat counts, untyped
+empty arrays, and array literals placed in a known non-array context. Array
+checking visits every element before failing, so an earlier mismatch cannot
+hide a later const-capability error. Contextual generic element types remain
+legal and have an unused-definition regression; unknown repeat values and
+generic lengths remain unresolved rather than being executed during declaration
+checking. Struct/enum aggregate fields and indexing remain open in Round 1.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
