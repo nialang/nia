@@ -29,6 +29,17 @@ impl TargetDataLayout {
         pointer_size: 8,
         pointer_align: 8,
     };
+
+    pub fn from_pointer_width(pointer_width: u32) -> Option<Self> {
+        if !pointer_width.is_multiple_of(8) {
+            return None;
+        }
+        let pointer_size = u64::from(pointer_width.checked_div(8)?);
+        matches!(pointer_size, 1 | 2 | 4 | 8 | 16).then_some(Self {
+            pointer_size,
+            pointer_align: pointer_size,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +82,34 @@ pub struct FieldLayout {
     pub def_id: DefId,
     pub offset: u64,
     pub layout: TypeLayout,
+}
+
+pub fn primitive_layout(primitive: PrimitiveTy, target: TargetDataLayout) -> TypeLayout {
+    let (size, align) = match primitive {
+        PrimitiveTy::I8 | PrimitiveTy::U8 | PrimitiveTy::Bool => (1, 1),
+        PrimitiveTy::I16 | PrimitiveTy::U16 => (2, 2),
+        PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::F32 | PrimitiveTy::Char => (4, 4),
+        PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::F64 => (8, 8),
+        PrimitiveTy::I128 | PrimitiveTy::U128 => (16, 16),
+        PrimitiveTy::Isize | PrimitiveTy::Usize => (target.pointer_size, target.pointer_align),
+        PrimitiveTy::Void | PrimitiveTy::Never => (0, 1),
+    };
+    TypeLayout { size, align }
+}
+
+pub fn union_layout_from_fields<'a>(
+    fields: impl IntoIterator<Item = &'a TypeLayout>,
+) -> TypeLayout {
+    let mut max_size = 0u64;
+    let mut max_align = 1u64;
+    for field in fields {
+        max_size = max_size.max(field.size);
+        max_align = max_align.max(field.align);
+    }
+    TypeLayout {
+        size: align_to(max_size, max_align),
+        align: max_align,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -734,18 +773,7 @@ impl<'a> LayoutComputer<'a> {
     }
 
     fn primitive_layout(&self, primitive: PrimitiveTy) -> Option<TypeLayout> {
-        let (size, align) = match primitive {
-            PrimitiveTy::I8 | PrimitiveTy::U8 | PrimitiveTy::Bool => (1, 1),
-            PrimitiveTy::I16 | PrimitiveTy::U16 => (2, 2),
-            PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::F32 | PrimitiveTy::Char => (4, 4),
-            PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::F64 => (8, 8),
-            PrimitiveTy::I128 | PrimitiveTy::U128 => (16, 16),
-            PrimitiveTy::Isize | PrimitiveTy::Usize => {
-                (self.target.pointer_size, self.target.pointer_align)
-            }
-            PrimitiveTy::Void | PrimitiveTy::Never => (0, 1),
-        };
-        Some(TypeLayout { size, align })
+        Some(primitive_layout(primitive, self.target))
     }
 
     fn vector_layout(&mut self, span: Span, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
@@ -1333,8 +1361,6 @@ impl<'a> LayoutComputer<'a> {
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
         let mut fields = Vec::new();
-        let mut max_size = 0u64;
-        let mut max_align = 1u64;
         for field in &signature.fields {
             let field_ty = self.normalize_ty(field.ty);
             let field_ty = substitute_generics(
@@ -1347,18 +1373,13 @@ impl<'a> LayoutComputer<'a> {
                 self.visiting_unions.remove(key);
                 return None;
             };
-            max_size = max_size.max(field_layout.size);
-            max_align = max_align.max(field_layout.align);
             fields.push(FieldLayout {
                 def_id: field.def_id,
                 offset: 0,
                 layout: field_layout,
             });
         }
-        let layout = TypeLayout {
-            size: align_to(max_size, max_align),
-            align: max_align,
-        };
+        let layout = union_layout_from_fields(fields.iter().map(|field| &field.layout));
         Some(StructLayout { layout, fields })
     }
 }
@@ -1633,6 +1654,15 @@ mod tests {
     use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types_with_symbols;
     use nia_value_resolve::resolve_module_values;
+
+    #[test]
+    fn target_data_layout_rejects_non_byte_pointer_widths() {
+        assert_eq!(TargetDataLayout::from_pointer_width(9), None);
+        assert_eq!(
+            TargetDataLayout::from_pointer_width(64),
+            Some(TargetDataLayout::LP64)
+        );
+    }
 
     include!("tests/layout/test_support.rs");
 

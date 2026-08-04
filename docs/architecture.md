@@ -1031,6 +1031,31 @@ struct signature with generic arguments substituted into the current execution
 module. Structural const data stays on the same typed expression path
 without forcing anonymous data into the runtime type interner.
 
+Const unions use a separate storage value, not `ConstValue::Struct` with one
+field. `ConstValue::Union` contains target-ordered bytes, one initialized bit per
+byte, a stable scalar ABI descriptor for every field, and the most recently
+written field identity. The identity supports diagnostics and runtime
+materialization; it does not restrict reads. Reads decode the requested field
+from the shared bytes, and writes replace only that field's byte range.
+
+`nia-layout` owns the primitive layouts and the union max-size/max-alignment
+formula used to size this storage. `nia-const-check` maps substituted semantic
+field types and the artifact `TargetConfig` to the stable scalar descriptors;
+`nia-const-eval` only executes the resulting value operations and does not
+inspect `TyKind`, signatures, or session-local type ids. Resolved aggregate
+construction is therefore a narrow environment operation. Before evaluating an
+aggregate literal in a typed binding, function result, call argument, or
+assignment RHS, the evaluator lets the typed environment prepare only that
+operation's existing expected type; it never scans all function bodies to
+recover context.
+
+When runtime code projects a field from a union `const`, body IR lowering reads
+that field from the same stored bytes and materializes the decoded scalar. When
+the whole supported union value must be materialized, the latest field becomes
+the ordinary runtime `UnionLiteral` initializer. Non-scalar fields remain a
+declaration-time const capability boundary until padding, provenance, and nested
+aggregate bytes have one explicit representation.
+
 Consumers outside `nia-const-check` should use the typed value surface's
 accessors for structural field and array element queries instead of duplicating
 shape matches. That keeps `nia-body-check` a consumer of typed const facts

@@ -3344,8 +3344,36 @@ at comptime, one at both stages, and one only at runtime. The initial backend
 plan contains only the two runtime `count` instances, and final backend closure
 contains exactly the corresponding two `count`, `iter`, and `next` instances;
 the const-only target does not become a backend root. Imported/generic
-iteration is therefore closed for the current Round 2 contract. Union shared
-representation and the remaining cross-stage aggregate boundaries stay open.
+iteration is therefore closed for the current Round 2 contract.
+
+Dual-stage const hardening progress (2026-08-04, scalar union representation):
+const union values no longer reuse the field-keyed struct representation. The
+shared value stores artifact-target-ordered bytes, per-byte initialization,
+stable scalar field ABI descriptors, and the latest written field identity.
+Reading another field decodes those same bytes; switching fields writes only
+the selected width. `nia-layout` now exposes the primitive-layout and union
+max-size/max-alignment facts used by the codec, so const evaluation does not
+invent a parallel ABI. Little- and big-endian tests fix different results for a
+wide-to-narrow read, signed and floating reinterpretation are covered, and a
+larger read after smaller-field construction diagnoses uninitialized storage
+instead of fabricating zero bytes. A generic `Slot[T]` regression proves that
+the ABI schema is created after concrete type substitution rather than from an
+open generic placeholder.
+
+The ordinary const declaration filter now accepts scalar unions even in unused
+`const fn` bodies and rejects unions containing fields without a const ABI model
+by naming the unsupported field. Typed aggregate preparation is bounded to the
+binding, result, call argument, or assignment RHS about to execute; an attempted
+whole-function recovery reopened the previous cross-function recursion and was
+removed. The maintained executable
+runs the same union functions at comptime and runtime and consumes a top-level
+union const field from runtime code.
+
+This closes scalar union Round 2a. Arrays, pointers, vectors, nested aggregates,
+padding propagation, and pointer provenance remain the next union rounds;
+imported generic differential coverage must accompany them before the general
+union shared-representation boundary is considered closed. The remaining
+cross-stage aggregate boundaries stay open.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
