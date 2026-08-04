@@ -419,10 +419,13 @@ const arrayLen: usize = double(2)
     + pairTotal(pairs::pair(1, 2));
 const compileOneBits: u32 = readBits({ float: 1.0 });
 const compileUnion: Bits = { float: 1.0 };
+const compileImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
+const compileImportedBits: u32 = pairs::readSlotBits[f32](compileImportedSlot);
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
     let mut width = Width::fromValue(value);
+    let runtimeImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
     double(value) == 14
         and width.doubled() == 14
         and width.increment() == 8
@@ -434,6 +437,9 @@ fn runtimeChecks(value: usize) bool {
         and oneBits() == compileOneBits
         and oneFromBits() == 1.0
         and readBits(compileUnion) == compileOneBits
+        and compileImportedBits == compileOneBits
+        and pairs::readSlotBits[f32](compileImportedSlot) == compileImportedBits
+        and pairs::readSlotBits[f32](runtimeImportedSlot) == compileImportedBits
         and values.len() == 23
 }
 
@@ -459,6 +465,11 @@ pub struct PairIter[T] {
     first: T,
     second: T,
     index: usize,
+}
+
+pub union ScalarSlot[T] {
+    value: T,
+    bits: u32,
 }
 
 extend[T] PairIter[T] : Iterator {
@@ -490,6 +501,14 @@ extend[T] Pair[T] : Iterable {
 
 pub const fn pair[T](first: T, second: T) Pair[T] {
     Pair[T] { first: first, second: second }
+}
+
+pub const fn scalarSlot[T](value: T) ScalarSlot[T] {
+    { value: value }
+}
+
+pub const fn readSlotBits[T](slot: ScalarSlot[T]) u32 {
+    slot.bits
 }
 "#,
     )

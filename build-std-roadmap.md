@@ -3375,6 +3375,21 @@ imported generic differential coverage must accompany them before the general
 union shared-representation boundary is considered closed. The remaining
 cross-stage aggregate boundaries stay open.
 
+Dual-stage const hardening progress (2026-08-04, imported generic scalar union
+differential): a public imported `ScalarSlot[T]` now crosses construction,
+whole-value return, whole-value argument, and reinterpreting field-read
+boundaries after substituting `T = f32`. Driver coverage checks the imported
+definition in both a comptime const and an ordinary runtime body. The maintained
+emitted executable evaluates the same imported generic functions at both
+stages, passes an imported generic union const into runtime code, independently
+constructs the runtime value, and observes the same `f32`/`u32` representation
+from both paths.
+
+This closes the imported/generic differential requirement for scalar union
+Round 2a. It does not widen the const ABI codec: each future aggregate, vector,
+or pointer field round must add its own imported generic differential together
+with its padding, initialization, or provenance rules.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
