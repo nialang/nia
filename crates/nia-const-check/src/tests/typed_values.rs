@@ -155,3 +155,26 @@ enum Packet {
         fixture.checked.diagnostics
     );
 }
+
+#[test]
+fn const_integer_operations_use_target_pointer_width() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.pointer_width = 32;
+    let fixture = check_source_for_target(
+        r#"
+const hiddenOverflow: usize = (4294967295usize + 1usize) - 1usize;
+"#,
+        target,
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("integer overflow in const addition")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}

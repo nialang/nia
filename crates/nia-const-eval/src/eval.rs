@@ -331,14 +331,10 @@ fn eval_resolved_const_expr_flow(
             op: ConstUnaryOp::Neg,
             expr: inner,
         } => match eval_resolved_value_or_return_flow!(inner, env) {
-            ConstValue::Int(value) => value
-                .as_i128()
-                .and_then(i128::checked_neg)
-                .map(|value| ConstValue::Int(IntConst::from_i128(value)))
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: "integer overflow in const negation".to_string(),
-                })?,
+            ConstValue::Int(value) => ConstValue::Int(
+                eval_typed_int_neg(value, env.resolved_integer_semantics(expr))
+                    .map_err(|message| ConstError { span, message })?,
+            ),
             ConstValue::Float(value) => ConstValue::Float(-value),
             _ => {
                 return Err(ConstError {
@@ -363,7 +359,10 @@ fn eval_resolved_const_expr_flow(
             op: ConstUnaryOp::BitNot,
             expr: inner,
         } => match eval_resolved_value_or_return_flow!(inner, env) {
-            ConstValue::Int(value) => ConstValue::Int(const_bit_not(value)),
+            ConstValue::Int(value) => ConstValue::Int(const_typed_bit_not(
+                value,
+                env.resolved_integer_semantics(expr),
+            )),
             _ => {
                 return Err(ConstError {
                     span,
@@ -400,7 +399,7 @@ fn eval_resolved_const_expr_flow(
             return eval_resolved_try_expr_flow(span, inner, env);
         }
         ResolvedConstExprKind::Binary { lhs, op, rhs } => {
-            return eval_resolved_binary_flow(span, lhs, *op, rhs, env);
+            return eval_resolved_binary_flow(expr, lhs, *op, rhs, env);
         }
         ResolvedConstExprKind::Assign(assign) => {
             return eval_resolved_assign_expr_flow(span, assign, env);
@@ -3195,6 +3194,32 @@ fn const_bit_not(value: IntConst) -> IntConst {
     }
 }
 
+fn const_typed_bit_not(
+    value: IntConst,
+    semantics: Option<crate::ConstIntegerSemantics>,
+) -> IntConst {
+    let Some(semantics) = semantics else {
+        return const_bit_not(value);
+    };
+    let mask = match semantics.bits {
+        1..=127 => (1u128 << semantics.bits) - 1,
+        128 => u128::MAX,
+        _ => return const_bit_not(value),
+    };
+    let bits = !value.bits() & mask;
+    if semantics.signed {
+        let sign_bit = 1u128 << (semantics.bits - 1);
+        let value = if bits & sign_bit == 0 || semantics.bits == 128 {
+            bits as i128
+        } else {
+            (bits as i128) - (1i128 << semantics.bits)
+        };
+        IntConst::from_i128(value)
+    } else {
+        IntConst::unsigned(bits)
+    }
+}
+
 fn int_to_array_len(span: Span, value: IntConst) -> Result<u64, ConstError> {
     let Some(value) = value.as_i128() else {
         return Err(ConstError {
@@ -3262,6 +3287,115 @@ fn eval_binary_int(lhs: IntConst, op: ConstBinaryOp, rhs: IntConst) -> Result<In
         }
     }
     .into())
+}
+
+fn eval_typed_binary_int(
+    lhs: IntConst,
+    op: ConstBinaryOp,
+    rhs: IntConst,
+    semantics: crate::ConstIntegerSemantics,
+) -> Result<IntConst, String> {
+    if !(1..=128).contains(&semantics.bits) {
+        return Err("invalid integer width in const operation semantics".to_string());
+    }
+    if semantics.signed {
+        let lhs = int_to_i128(lhs, "const operation")?;
+        let rhs = int_to_i128(rhs, "const operation")?;
+        let value = match op {
+            ConstBinaryOp::Mul => lhs.checked_mul(rhs),
+            ConstBinaryOp::Div if rhs == 0 => {
+                return Err("division by zero in const expression".to_string());
+            }
+            ConstBinaryOp::Div => lhs.checked_div(rhs),
+            ConstBinaryOp::Rem if rhs == 0 => {
+                return Err("remainder by zero in const expression".to_string());
+            }
+            ConstBinaryOp::Rem => lhs.checked_rem(rhs),
+            ConstBinaryOp::Add => lhs.checked_add(rhs),
+            ConstBinaryOp::Sub => lhs.checked_sub(rhs),
+            _ => return eval_binary_int(IntConst::from_i128(lhs), op, IntConst::from_i128(rhs)),
+        }
+        .filter(|value| signed_value_fits(*value, semantics.bits))
+        .ok_or_else(|| integer_overflow_message(op))?;
+        Ok(IntConst::from_i128(value))
+    } else {
+        let lhs = int_to_u128(lhs, "const operation")?;
+        let rhs = int_to_u128(rhs, "const operation")?;
+        let value = match op {
+            ConstBinaryOp::Mul => lhs.checked_mul(rhs),
+            ConstBinaryOp::Div if rhs == 0 => {
+                return Err("division by zero in const expression".to_string());
+            }
+            ConstBinaryOp::Div => Some(lhs / rhs),
+            ConstBinaryOp::Rem if rhs == 0 => {
+                return Err("remainder by zero in const expression".to_string());
+            }
+            ConstBinaryOp::Rem => Some(lhs % rhs),
+            ConstBinaryOp::Add => lhs.checked_add(rhs),
+            ConstBinaryOp::Sub => lhs.checked_sub(rhs),
+            _ => return eval_binary_uint(lhs, op, rhs).map(IntConst::unsigned),
+        }
+        .filter(|value| unsigned_value_fits(*value, semantics.bits))
+        .ok_or_else(|| integer_overflow_message(op))?;
+        Ok(IntConst::unsigned(value))
+    }
+}
+
+fn int_to_u128(value: IntConst, context: &str) -> Result<u128, String> {
+    if value.is_signed() {
+        return value
+            .as_i128()
+            .and_then(|value| u128::try_from(value).ok())
+            .ok_or_else(|| format!("integer value is negative in unsigned {context}"));
+    }
+    Ok(value.bits())
+}
+
+fn eval_typed_int_neg(
+    value: IntConst,
+    semantics: Option<crate::ConstIntegerSemantics>,
+) -> Result<IntConst, String> {
+    let value = value
+        .as_i128()
+        .and_then(i128::checked_neg)
+        .ok_or_else(|| "integer overflow in const negation".to_string())?;
+    if semantics
+        .is_some_and(|semantics| !semantics.signed || !signed_value_fits(value, semantics.bits))
+    {
+        return Err("integer overflow in const negation".to_string());
+    }
+    Ok(IntConst::from_i128(value))
+}
+
+fn signed_value_fits(value: i128, bits: u32) -> bool {
+    match bits {
+        1..=127 => {
+            let magnitude = 1i128 << (bits - 1);
+            value >= -magnitude && value < magnitude
+        }
+        128 => true,
+        _ => false,
+    }
+}
+
+fn unsigned_value_fits(value: u128, bits: u32) -> bool {
+    match bits {
+        1..=127 => value < (1u128 << bits),
+        128 => true,
+        _ => false,
+    }
+}
+
+fn integer_overflow_message(op: ConstBinaryOp) -> String {
+    let operation = match op {
+        ConstBinaryOp::Mul => "multiplication",
+        ConstBinaryOp::Div => "division",
+        ConstBinaryOp::Rem => "remainder",
+        ConstBinaryOp::Add => "addition",
+        ConstBinaryOp::Sub => "subtraction",
+        _ => "operation",
+    };
+    format!("integer overflow in const {operation}")
 }
 
 fn eval_binary_uint(lhs: u128, op: ConstBinaryOp, rhs: u128) -> Result<u128, String> {
@@ -3444,12 +3578,13 @@ fn eval_resolved_numeric_operand_flow(
 }
 
 fn eval_resolved_binary_flow(
-    span: Span,
+    expr: &ResolvedConstExpr,
     lhs: &ResolvedConstExpr,
     op: ConstBinaryOp,
     rhs: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
+    let span = expr.span();
     macro_rules! bool_operand {
         ($expr:expr) => {
             match eval_resolved_value_or_return_flow!($expr, env) {
@@ -3523,8 +3658,18 @@ fn eval_resolved_binary_flow(
                 Ok(value) => value,
                 Err(flow) => return Ok(flow),
             };
-            eval_numeric_binary_value(lhs, op, rhs)
-                .map_err(|message| ConstError { span, message })?
+            match (lhs, rhs) {
+                (ConstValue::Int(lhs), ConstValue::Int(rhs)) => {
+                    let value = match env.resolved_integer_semantics(expr) {
+                        Some(semantics) => eval_typed_binary_int(lhs, op, rhs, semantics),
+                        None => eval_binary_int(lhs, op, rhs),
+                    }
+                    .map_err(|message| ConstError { span, message })?;
+                    ConstValue::Int(value)
+                }
+                (lhs, rhs) => eval_numeric_binary_value(lhs, op, rhs)
+                    .map_err(|message| ConstError { span, message })?,
+            }
         }
     };
     Ok(ConstEvalFlow::Value(value))
@@ -3572,7 +3717,7 @@ fn eval_binary_float(lhs: f64, op: ConstBinaryOp, rhs: f64) -> Result<ConstValue
 
 fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
     match (lhs, rhs) {
-        (ConstValue::Int(lhs), ConstValue::Int(rhs)) => Some(lhs == rhs),
+        (ConstValue::Int(lhs), ConstValue::Int(rhs)) => Some(int_values_equal(*lhs, *rhs)),
         (ConstValue::Float(lhs), ConstValue::Float(rhs)) => Some(lhs == rhs),
         (ConstValue::Bool(lhs), ConstValue::Bool(rhs)) => Some(lhs == rhs),
         (ConstValue::String(lhs), ConstValue::String(rhs)) => Some(lhs == rhs),
@@ -3619,6 +3764,14 @@ fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
             _ => Some(false),
         },
         _ => None,
+    }
+}
+
+fn int_values_equal(lhs: IntConst, rhs: IntConst) -> bool {
+    match (lhs.as_i128(), rhs.as_i128()) {
+        (Some(lhs), Some(rhs)) => lhs == rhs,
+        (None, None) => lhs.bits() == rhs.bits(),
+        (Some(_), None) | (None, Some(_)) => false,
     }
 }
 

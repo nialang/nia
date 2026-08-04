@@ -295,6 +295,8 @@ pub(crate) struct Analyzer<'a> {
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
     resolved_call_instantiations: HashMap<Span, ConstGenericInstantiation>,
+    // Each active const root or function instance owns its transient expression facts.
+    resolved_expr_types: Vec<HashMap<Span, InternedTyId>>,
     const_eval_budget: nia_const_eval::ConstEvalBudget,
 }
 
@@ -351,6 +353,7 @@ impl Analyzer<'_> {
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_instantiations: HashMap::new(),
+            resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
         }
     }
@@ -395,6 +398,7 @@ impl Analyzer<'_> {
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_instantiations: HashMap::new(),
+            resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
         }
     }
@@ -523,7 +527,12 @@ impl Analyzer<'_> {
     }
 
     fn eval_resolved_array_len_expr(&mut self, expr: &ResolvedConstExpr) -> Option<u64> {
-        match nia_const_eval::eval_resolved_const_array_len_expr(expr, self) {
+        let usize_ty = self.current_runtime_primitive_type(PrimitiveTy::Usize);
+        self.resolved_expr_types.push(HashMap::new());
+        let _ = self.resolved_const_expr_type(expr, Some(usize_ty));
+        let result = nia_const_eval::eval_resolved_const_array_len_expr(expr, self);
+        self.resolved_expr_types.pop();
+        match result {
             Ok(value) => Some(value),
             Err(err) => {
                 self.push_engine_error(err);
@@ -548,8 +557,11 @@ impl Analyzer<'_> {
         let result = self.initializer_for_key(key).and_then(|expr| {
             self.with_execution_module(module_id, |this| {
                 let expected = this.explicit_type_for_key(key);
+                this.resolved_expr_types.push(HashMap::new());
                 let _ = this.resolved_const_expr_type(&expr, expected);
-                match nia_const_eval::eval_resolved_const_expr(&expr, this) {
+                let result = nia_const_eval::eval_resolved_const_expr(&expr, this);
+                this.resolved_expr_types.pop();
+                match result {
                     Ok(value) => Some(value),
                     Err(err) => {
                         this.push_engine_error(err);

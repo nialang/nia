@@ -3227,11 +3227,21 @@ const values retain integer magnitude and signedness, but const IR operations do
 not retain their concrete primitive width. Final-value range validation cannot
 detect an overflowing intermediate that later returns to range, and its generic
 128-bit shift limit cannot define `u8`, `i32`, or target-width semantics. The
-next numeric batch must consume ordinary semantic expression types as typed
-const-operation facts (including substituted generic and `usize`/`isize`
-widths) before aligning add/subtract/multiply/negate and shifts. Host-width
-checked arithmetic or evaluator-local suffix inspection must not become the
-language model.
+const evaluator now consumes ordinary semantic expression types through a
+narrow integer-operation fact (`bits` plus signedness). Facts are scoped to the
+active const root or function instance, so expected-context literals,
+substituted generic operators, imported function bodies, and target-dependent
+`usize`/`isize` widths do not share a stale global expression cache. Integer
+add/subtract/multiply/negate therefore diagnose an overflowing intermediate at
+the operation rather than relying on final-value validation; typed bitwise-not
+also uses the concrete width, and integer value equality is independent of the
+evaluator's internal signedness encoding. The evaluator neither inspects
+literal suffixes to recover types nor owns a second type system.
+
+The next numeric batch must use the same facts to replace the evaluator's
+generic 128-bit shift rule, then align runtime add/subtract/multiply/negate and
+shift traps. Host-width checked arithmetic must not become the language model,
+and integer-vector lanes remain a separate reduction/trap design item.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

@@ -212,11 +212,14 @@ impl ConstCommonEnv for Analyzer<'_> {
     fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
         self.const_eval_budget.enter_call(span)?;
         self.call_locals.push(ConstCallFrame::default());
+        self.resolved_expr_types
+            .push(std::collections::HashMap::new());
         Ok(())
     }
 
     fn pop_function_frame(&mut self) {
         self.call_locals.pop();
+        self.resolved_expr_types.pop();
         self.const_eval_budget.leave_call();
     }
 
@@ -244,6 +247,23 @@ impl ConstCommonEnv for Analyzer<'_> {
         frame
             .const_substitutions
             .extend(resolved_const_substitutions);
+        if let Some(function_id) = function_id {
+            let return_type = self
+                .signatures_for_module(function_id.module_id)
+                .and_then(|signatures| {
+                    signatures
+                        .as_ref()
+                        .functions
+                        .get(&function_id.def_id)
+                        .map(|signature| signature.return_type)
+                })
+                .map(|return_type| self.substitute_ty_generics(return_type));
+            if let Some(return_type) = return_type
+                && let Some(frame) = self.call_locals.last_mut()
+            {
+                frame.return_type = Some(return_type);
+            }
+        }
         Ok(())
     }
 }
@@ -260,6 +280,39 @@ pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
 }
 
 impl ResolvedConstEnv for Analyzer<'_> {
+    fn resolved_integer_semantics(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Option<nia_const_eval::ConstIntegerSemantics> {
+        let mut cached = self
+            .resolved_expr_types
+            .last()
+            .and_then(|types| types.get(&expr.span()).copied());
+        if cached.is_none()
+            && let Some(function_id) = self.current_execution_function_id()
+            && let Some(tail) = self
+                .const_function_body(function_id)
+                .and_then(|function| function.body().tail().cloned())
+            && tail.span().start <= expr.span().start
+            && tail.span().end >= expr.span().end
+        {
+            let expected = self
+                .active_execution_frames()
+                .find_map(|frame| frame.return_type);
+            let _ = self.resolved_const_expr_type(&tail, expected);
+            cached = self
+                .resolved_expr_types
+                .last()
+                .and_then(|types| types.get(&expr.span()).copied());
+        }
+        let ty = cached.or_else(|| self.resolved_const_expr_type(expr, None)?.runtime())?;
+        let TyKind::Primitive(primitive) = self.ty_kind(ty)? else {
+            return None;
+        };
+        let (bits, signed) = primitive_integer_layout(primitive, self.input.target.pointer_width)?;
+        Some(nia_const_eval::ConstIntegerSemantics { bits, signed })
+    }
+
     fn resolve_resolved_name(
         &mut self,
         span: Span,
@@ -606,8 +659,12 @@ impl Analyzer<'_> {
                 .explicit_type_for_key(key)
                 .map(|ty| this.substitute_ty_generics(ty));
             let expected = expected_ty.map(ConstValueType::Runtime);
+            this.resolved_expr_types
+                .push(std::collections::HashMap::new());
             let _ = this.resolved_const_expr_type(&expr, expected_ty);
-            let value = nia_const_eval::eval_resolved_const_expr(&expr, this)?;
+            let evaluated = nia_const_eval::eval_resolved_const_expr(&expr, this);
+            this.resolved_expr_types.pop();
+            let value = evaluated?;
             let value = if let Some(expected) = expected {
                 let value = this.normalize_typed_const_value(value, &expected);
                 this.validate_typed_value(span, &value, &expected);

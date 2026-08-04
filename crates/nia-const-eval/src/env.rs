@@ -13,6 +13,12 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_text_from_optional_resolver};
 use nia_ty::ConstGenericArg;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConstIntegerSemantics {
+    pub bits: u32,
+    pub signed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstError {
     pub span: Span,
@@ -308,6 +314,13 @@ pub trait EarlyConstEnv: ConstCommonEnv {
 }
 
 pub trait ResolvedConstEnv: ConstCommonEnv {
+    fn resolved_integer_semantics(
+        &mut self,
+        _expr: &ResolvedConstExpr,
+    ) -> Option<ConstIntegerSemantics> {
+        None
+    }
+
     fn resolve_resolved_name(
         &mut self,
         span: Span,
