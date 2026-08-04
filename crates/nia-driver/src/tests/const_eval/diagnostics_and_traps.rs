@@ -1430,6 +1430,42 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_union_value_operations_explicitly() {
+    let root = temp_dir("unused_const_function_rejects_union_value_operations_explicitly");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Bits {
+    integer: usize,
+    flag: bool,
+}
+
+const fn inspect() usize {
+    let bits: Bits = { integer: 1 };
+    bits.integer
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "union values are not available during const evaluation",
+        "union field access is not available during const evaluation",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
 fn unused_const_function_uses_shared_propagation_checks() {
     let root = temp_dir("unused_const_function_uses_shared_propagation_checks");
     write(

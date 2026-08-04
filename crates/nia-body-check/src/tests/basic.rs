@@ -60,6 +60,7 @@ const fn pointer(values: [2]usize) usize {
     let ptr = slice.ptr();
     0
 }
+
 "#,
     );
 
@@ -67,6 +68,38 @@ const fn pointer(values: [2]usize) usize {
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
             .contains("builtin method `ptr` is not available during const evaluation")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn const_declaration_filter_rejects_union_value_operations() {
+    let checked = pipeline_const_declarations(
+        r#"
+union Bits {
+    integer: usize,
+    flag: bool,
+}
+
+const fn inspect() usize {
+    let bits: Bits = { integer: 1 };
+    bits.integer
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("union values are not available during const evaluation")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("union field access is not available during const evaluation")),
         "{:?}",
         checked.diagnostics
     );

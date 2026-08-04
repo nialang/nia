@@ -377,6 +377,10 @@ impl<'a> BodyChecker<'a> {
         const_args: &[nia_ty::ConstGenericArg],
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
+        self.reject_const_operation(
+            span,
+            "union values are not available during const evaluation",
+        );
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -544,6 +548,10 @@ impl<'a> BodyChecker<'a> {
         const_args: &[nia_ty::ConstGenericArg],
         name: &SymbolId,
     ) -> InternedTyId {
+        self.reject_const_operation(
+            span,
+            "union field access is not available during const evaluation",
+        );
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
