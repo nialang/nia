@@ -1862,11 +1862,7 @@ impl Analyzer<'_> {
         else_branch: Option<&ResolvedConstExpr>,
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
-        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
-        let cond_ty = self.resolved_const_arg_runtime_type(cond, Some(bool_ty))?;
-        if cond_ty != bool_ty {
-            return None;
-        }
+        self.check_resolved_const_bool_condition(cond)?;
         let expected = expected.and_then(|expected| self.usable_const_expected_type(expected));
         let else_branch = else_branch?;
         if let Some(expected) = expected {
@@ -1877,11 +1873,38 @@ impl Analyzer<'_> {
                 .resolved_const_arg_runtime_type(else_branch, Some(expected))
                 .filter(|else_ty| *else_ty == then_ty)
                 .or_else(|| self.resolved_const_arg_runtime_type(else_branch, Some(then_ty)))?;
-            return (then_ty == else_ty).then_some(ConstValueType::Runtime(then_ty));
+            if then_ty != else_ty {
+                if self.const_runtime_type_is_known(then_ty)
+                    && self.const_runtime_type_is_known(else_ty)
+                {
+                    self.push_const_type_error(
+                        else_branch.span(),
+                        "const if branches have incompatible types",
+                    );
+                }
+                return None;
+            }
+            return Some(ConstValueType::Runtime(then_ty));
         }
         let then_ty = self.resolved_const_block_tail_type(then_branch, None)?;
         let else_ty = self.resolved_const_expr_type(else_branch, None)?;
-        (then_ty == else_ty).then_some(then_ty)
+        if then_ty != else_ty {
+            let known_mismatch = match (&then_ty, &else_ty) {
+                (ConstValueType::Runtime(then_ty), ConstValueType::Runtime(else_ty)) => {
+                    self.const_runtime_type_is_known(*then_ty)
+                        && self.const_runtime_type_is_known(*else_ty)
+                }
+                _ => true,
+            };
+            if known_mismatch {
+                self.push_const_type_error(
+                    else_branch.span(),
+                    "const if branches have incompatible types",
+                );
+            }
+            return None;
+        }
+        Some(then_ty)
     }
 
     pub(super) fn usable_const_expected_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
