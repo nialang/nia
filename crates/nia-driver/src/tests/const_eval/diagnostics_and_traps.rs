@@ -1023,6 +1023,84 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_audits_all_enum_payload_values() {
+    let root = temp_dir("unused_const_function_audits_all_enum_payload_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Event {
+    Closed,
+    Data(usize, usize),
+    Resize { width: usize, height: usize },
+}
+
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongEnums() usize {
+    Event::Data(true, runtimeOnly(), 3usize);
+    Event::Closed(runtimeOnly());
+    Event::Resize { width: true, extra: runtimeOnly() };
+    Event::Data { value: runtimeOnly() };
+    Event::Resize { width: 1usize, width: runtimeOnly(), height: 2usize };
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "const enum tuple payload length mismatch: expected 2, got 3",
+        "const enum payload value does not match its expected type",
+        "const enum variant does not have a tuple payload",
+        "unknown const enum field `extra`",
+        "missing const enum field `height`",
+        "const enum variant does not have a named payload",
+        "duplicate const enum field `width`",
+        "const expression can only call `const fn`",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_functions_accept_enum_payload_construction() {
+    let root = temp_dir("unused_const_functions_accept_enum_payload_construction");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Event {
+    Data(usize, usize),
+    Resize { width: usize, height: usize },
+}
+
+const fn data(value: usize) Event {
+    Event::Data(value, 2usize)
+}
+
+const fn resize(width: usize, height: usize) Event {
+    Event::Resize { width: width, height: height }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn recursive_const_evaluation_has_a_call_depth_limit() {
     let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
     write(

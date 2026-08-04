@@ -3056,6 +3056,17 @@ this stage; shared trait obligation, output-projection, and const-capability
 semantics remain a later Round 1 convergence task. Enum payload aggregates and
 union-specific semantics also remain open.
 
+Dual-stage const hardening progress (2026-08-04, enum payload declaration
+audit): unit, tuple, and named enum variant construction now participates in
+unused-definition checking without stopping at the first malformed payload.
+Tuple variants diagnose payload-shape and concrete arity/type mismatches while
+visiting every supplied value. Named variants diagnose wrong payload shape,
+duplicate, unknown, and missing fields plus known field type mismatches while
+also visiting every value, including duplicate and unknown fields. Valid
+parameter-dependent tuple and named construction remains accepted. Optional
+and error-union construction/propagation, shared trait/operator semantics, and
+the remaining control-flow declaration audit stay open in Round 1.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
