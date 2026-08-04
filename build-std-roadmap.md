@@ -3260,7 +3260,13 @@ declaration is `const fn`, const IR retains a distinct trap node, unselected
 branches remain valid, an evaluated comptime trap becomes a source diagnostic,
 and runtime reachability still lowers the same function body to `llvm.trap`.
 This remains separate from the message-bearing, const-only `error` builtin. The
-remaining numeric batch is the integer-vector arithmetic boundary.
+integer-vector boundary is now explicit for add/subtract/multiply/negate:
+boolean masks are no longer accidentally classified as numeric, while integer
+vectors use LLVM vector `with.overflow` intrinsics and reduce the returned lane
+mask to one any-lane trap condition. The reduction packs `<N x i1>` as `iN`, so
+it neither scalarizes the operation nor inherits the public 64-lane `bitmask`
+limit. Vector division/remainder and shift count/overflow semantics remain the
+next numeric batch.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

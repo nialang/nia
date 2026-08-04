@@ -161,6 +161,36 @@ fn compare(lhs: f32x4, rhs: f32x4) boolx4 {
 }
 
 #[test]
+fn rejects_boolean_vector_arithmetic() {
+    let checked = pipeline(
+        r#"
+fn add(lhs: boolx16, rhs: boolx16) boolx16 {
+    lhs + rhs
+}
+
+fn negate(value: boolx16) boolx16 {
+    -value
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("trait bound not satisfied: boolx16: Add[boolx16]")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("trait bound not satisfied: boolx16: Neg")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_unary_operators_without_builtin_trait_impls() {
     let checked = pipeline(
         r#"

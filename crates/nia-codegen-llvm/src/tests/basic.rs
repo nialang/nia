@@ -236,6 +236,18 @@ fn add_u8(lhs: u8x16, rhs: u8x16) u8x16 {
     lhs + rhs
 }
 
+fn sub_i8(lhs: i8x16, rhs: i8x16) i8x16 {
+    lhs - rhs
+}
+
+fn mul_u8(lhs: u8x16, rhs: u8x16) u8x16 {
+    lhs * rhs
+}
+
+fn neg_i8(value: i8x16) i8x16 {
+    -value
+}
+
 fn and_mask(lhs: boolx16, rhs: boolx16) boolx16 {
     lhs & rhs
 }
@@ -253,7 +265,24 @@ fn cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("add <16 x i8>"), "expected vector add:\n{ir}");
+    assert!(
+        ir.contains("llvm.uadd.with.overflow.v16i8"),
+        "expected checked vector add:\n{ir}"
+    );
+    assert!(
+        ir.contains("llvm.ssub.with.overflow.v16i8"),
+        "expected checked vector sub and negation:\n{ir}"
+    );
+    assert!(
+        ir.contains("llvm.umul.with.overflow.v16i8"),
+        "expected checked vector multiply:\n{ir}"
+    );
+    assert!(
+        ir.contains("bitcast <16 x i1>")
+            && ir.contains("arith.overflow.any")
+            && ir.contains("arith.trap"),
+        "expected any-lane overflow trap:\n{ir}"
+    );
     assert!(ir.contains("and <16 x i1>"), "expected vector and:\n{ir}");
     assert!(
         ir.contains("fcmp olt <4 x float>"),

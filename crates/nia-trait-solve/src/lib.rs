@@ -382,16 +382,14 @@ where
     }
 
     fn can_be_numeric(&self, ty: InternedTyId) -> bool {
-        self.can_be_integer(ty)
-            || matches!(
-                self.type_store.get(self.normalize(ty)),
-                Some(TyKind::GenericParam(_))
-                    | Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
-                    | Some(TyKind::Vector {
-                        elem: PrimitiveTy::F32 | PrimitiveTy::F64,
-                        ..
-                    })
-            )
+        match self.type_store.get(self.normalize(ty)) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Primitive(primitive))
+            | Some(TyKind::Vector {
+                elem: primitive, ..
+            }) => primitive.is_integer() || primitive.is_float(),
+            _ => false,
+        }
     }
 
     fn can_be_integer(&self, ty: InternedTyId) -> bool {
@@ -2942,15 +2940,13 @@ impl TraitSolver<'_> {
     }
 
     fn is_numeric(&self, ty: InternedTyId) -> bool {
-        self.is_integer(ty)
-            || matches!(
-                self.kind(ty),
-                Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
-                    | Some(TyKind::Vector {
-                        elem: PrimitiveTy::F32 | PrimitiveTy::F64,
-                        ..
-                    })
-            )
+        match self.kind(ty) {
+            Some(TyKind::Primitive(primitive))
+            | Some(TyKind::Vector {
+                elem: primitive, ..
+            }) => primitive.is_integer() || primitive.is_float(),
+            _ => false,
+        }
     }
 
     fn is_integer(&self, ty: InternedTyId) -> bool {
