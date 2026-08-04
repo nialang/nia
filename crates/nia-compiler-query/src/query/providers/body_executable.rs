@@ -1809,6 +1809,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             load_filtered_array_lengths(module_id)?
         };
         let signature_array_lengths = RefCell::new(HashMap::new());
+        let target = compiler_target_data_layout(db)?;
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             if id.module_id == module_id {
                 return local_array_lengths.values.get(&id).copied();
@@ -1865,7 +1866,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     root_types: &[],
                     normalized: &type_normalization.normalized,
                     array_lengths: &executable_array_lengths,
-                    target: nia_layout::TargetDataLayout::LP64,
+                    target,
                     program: nia_layout::ProgramLayoutContext {
                         symbols: Some(&symbols),
                         array_lengths: Some(&executable_array_lengths),
@@ -1986,6 +1987,7 @@ fn rooted_layouts_for_checked_module(
         });
     }
     let item_signatures = item_signatures_semantic(db, module.id)?;
+    let target = compiler_target_data_layout(db)?;
     let roots = checked_module_layout_roots(&db.context().type_store, module);
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
@@ -2015,7 +2017,7 @@ fn rooted_layouts_for_checked_module(
             root_types: &[],
             normalized: &module.type_normalization.normalized,
             array_lengths: &local_array_lengths,
-            target: nia_layout::TargetDataLayout::LP64,
+            target,
             program: nia_layout::ProgramLayoutContext {
                 symbols: Some(&symbols),
                 layouts: Some(&layout_query),

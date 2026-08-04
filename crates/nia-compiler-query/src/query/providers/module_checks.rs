@@ -11,6 +11,7 @@ pub(super) fn provide_layouts(
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
         let item_signatures = item_signatures_semantic(db, module_id)?;
         let array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
+        let target = compiler_target_data_layout(db)?;
         let symbols = db.context().symbols();
         let query_failure = RefCell::new(None);
         let mut root_types = item_signatures.type_roots();
@@ -34,7 +35,7 @@ pub(super) fn provide_layouts(
                 root_types: &root_types,
                 normalized: &type_normalization.normalized,
                 array_lengths: &local_array_lengths,
-                target: nia_layout::TargetDataLayout::LP64,
+                target,
                 program: nia_layout::ProgramLayoutContext {
                     symbols: Some(&symbols),
                     layouts: Some(&layout_query),

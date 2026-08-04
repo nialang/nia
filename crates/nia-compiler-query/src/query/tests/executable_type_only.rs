@@ -151,3 +151,95 @@ missing_symbol
         );
     }
 }
+
+#[test]
+fn executable_body_and_type_only_layouts_use_artifact_pointer_width() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+module types;
+using entry::types;
+
+fn main(value: types::Word) usize {
+value.value
+}
+"#,
+    );
+    let entry_id = fixture.entry_id();
+    let types_id = fixture.add_child(
+        entry_id,
+        "types",
+        "types.nia",
+        "pub struct Word { value: usize }",
+    );
+    let mut program = fixture.program();
+    program.runtime = RuntimeModel::FreestandingExecutable;
+    program.target.pointer_width = 32;
+    let db = query_db(program);
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let target = nia_layout::TargetDataLayout {
+        pointer_size: 4,
+        pointer_align: 4,
+    };
+    let entry_module = modules
+        .iter()
+        .find(|module| module.id == entry_id)
+        .expect("entry module");
+    assert!(!entry_module.executable_type_only);
+    assert_eq!(entry_module.layouts.target, target);
+
+    let type_module = modules
+        .iter()
+        .find(|module| module.id == types_id)
+        .expect("type owner module");
+    assert!(type_module.executable_type_only);
+    assert_eq!(type_module.layouts.target, target);
+    let word = type_module
+        .defs
+        .module_scope
+        .types
+        .get(&sym("Word"))
+        .expect("Word definition");
+    assert_eq!(
+        type_module
+            .layouts
+            .structs
+            .get(&word)
+            .expect("Word layout")
+            .layout,
+        nia_layout::TypeLayout { size: 4, align: 4 }
+    );
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+    for module_id in [entry_id, types_id] {
+        let module = backend
+            .semantic
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("backend module");
+        assert_eq!(module.layouts.target, target);
+    }
+    let word_id = GlobalDefId {
+        module_id: types_id,
+        def_id: word,
+    };
+    let backend_type_module = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == types_id)
+        .expect("backend type owner module");
+    assert!(
+        backend_type_module
+            .layouts
+            .structs
+            .iter()
+            .any(|(def_id, layout)| *def_id == word_id
+                && layout.layout == nia_layout::TypeLayout { size: 4, align: 4 })
+    );
+}
