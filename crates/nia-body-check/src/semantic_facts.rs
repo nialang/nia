@@ -65,6 +65,14 @@ impl<'a> BodyChecker<'a> {
                         builtin.name()
                     )
                 }
+                ResolvedCall::BuiltinMethod { method, .. } => format!(
+                    "builtin method `{}` is not available during const evaluation",
+                    method.name()
+                ),
+                ResolvedCall::BuiltinPlaceMethod { method, .. } => format!(
+                    "builtin method `{}` is not available during const evaluation",
+                    method.name()
+                ),
                 _ => "const expression can only call `const fn`".to_string(),
             };
             self.diagnostics
@@ -88,9 +96,13 @@ impl<'a> BodyChecker<'a> {
                 return false;
             }
             ResolvedCall::BuiltinFunction { builtin, .. } => return builtin.is_const_capable(),
-            ResolvedCall::BuiltinTraitMethod { .. }
-            | ResolvedCall::BuiltinMethod { .. }
-            | ResolvedCall::BuiltinPlaceMethod { .. } => return true,
+            ResolvedCall::BuiltinTraitMethod { op, .. } => {
+                return op.is_const_capable();
+            }
+            ResolvedCall::BuiltinMethod { method, .. } => return method.is_const_capable(),
+            ResolvedCall::BuiltinPlaceMethod { method, .. } => {
+                return method.is_const_capable();
+            }
         };
         self.resolved_function_signature(def_id)
             .is_some_and(|resolved| resolved.signature.is_const)

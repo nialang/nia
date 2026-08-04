@@ -957,10 +957,64 @@ pub enum BuiltinMethod {
     Iter,
 }
 
+impl BuiltinMethod {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Len => "len",
+            Self::Start => "start",
+            Self::End => "end",
+            Self::Iter => "iter",
+        }
+    }
+
+    /// Whether the const evaluator implements this compiler intrinsic method.
+    pub fn is_const_capable(self) -> bool {
+        matches!(self, Self::Len | Self::Start | Self::End)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinOperatorOp {
     Unary(UnaryOp),
     Binary(BinaryOp),
+}
+
+impl BuiltinOperatorOp {
+    /// Value operators are lowered directly by the const evaluator. Reference
+    /// and dereference operations are represented as ordinary unary AST forms,
+    /// not as this value-operator dispatch.
+    pub fn is_const_capable(self) -> bool {
+        match self {
+            Self::Unary(
+                UnaryOp::Neg
+                | UnaryOp::Not
+                | UnaryOp::BitNot
+                | UnaryOp::RefReadOnly
+                | UnaryOp::Ref
+                | UnaryOp::Deref,
+            )
+            | Self::Binary(
+                BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Rem
+                | BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::Lt
+                | BinaryOp::Le
+                | BinaryOp::Gt
+                | BinaryOp::Ge
+                | BinaryOp::Eq
+                | BinaryOp::Ne
+                | BinaryOp::BitAnd
+                | BinaryOp::BitXor
+                | BinaryOp::BitOr
+                | BinaryOp::And
+                | BinaryOp::Or,
+            ) => true,
+        }
+    }
 }
 
 impl BuiltinOperatorOp {

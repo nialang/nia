@@ -52,6 +52,27 @@ const fn callsRuntime() usize {
 }
 
 #[test]
+fn const_declaration_filter_rejects_runtime_only_builtin_methods() {
+    let checked = pipeline_const_declarations(
+        r#"
+const fn pointer(values: [2]usize) usize {
+    let mut slice = &values[..];
+    let ptr = slice.ptr();
+    0
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("builtin method `ptr` is not available during const evaluation")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_return_tail_and_local_binding_types() {
     let checked = pipeline(
         r#"

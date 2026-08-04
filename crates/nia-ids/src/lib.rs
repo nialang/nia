@@ -923,6 +923,45 @@ impl BuiltinTraitMethod {
     pub fn is_place_method(self) -> bool {
         self.descriptor().is_place_method
     }
+
+    /// Whether the const evaluator has a representation for this intrinsic.
+    ///
+    /// The ordinary body checker still owns the type and trait obligations;
+    /// this table only describes the second-stage operation capability.
+    pub fn is_const_capable(self) -> bool {
+        match self {
+            Self::Add
+            | Self::Sub
+            | Self::Mul
+            | Self::Div
+            | Self::Rem
+            | Self::Neg
+            | Self::Not
+            | Self::BitNot
+            | Self::BitAnd
+            | Self::BitOr
+            | Self::BitXor
+            | Self::Shl
+            | Self::Shr
+            | Self::Eq
+            | Self::Ne
+            | Self::Lt
+            | Self::Le
+            | Self::Gt
+            | Self::Ge
+            | Self::Deref
+            | Self::Index
+            | Self::IndexMut
+            | Self::Slice
+            | Self::SliceMut
+            | Self::Len
+            | Self::Start
+            | Self::End => true,
+            Self::DerefMut | Self::Ptr | Self::PtrMut | Self::IterableIter | Self::IteratorNext => {
+                false
+            }
+        }
+    }
 }
 
 impl BuiltinTraitMethodDescriptor {
