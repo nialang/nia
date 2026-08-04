@@ -3191,8 +3191,8 @@ field recovery is restricted to genuinely `ConstOnly` structural values. The
 matrix therefore reaches both associated and const-generic runtime instances
 without turning their comptime uses into backend roots. Round 2 remains open
 for `for` after shared iterator/place writeback exists,
-overflow/division/remainder/shift/trap boundaries, and the union-representation
-work already identified above.
+add/subtract/multiply/negate overflow, shift, explicit-trap and integer-vector
+lane boundaries, and the union-representation work already identified above.
 
 Dual-stage const hardening progress (2026-08-04, function-reference boundary):
 runtime code now also exercises a `const fn` through a function pointer in
@@ -3209,6 +3209,29 @@ specific staging diagnostics. Future comptime indirect calls require an
 explicit const-callable function type/effect or equivalent static data-flow
 proof; evaluator-local provenance guessing is not an acceptable substitute.
 Function references are closed for the current Round 2 contract.
+
+Dual-stage const hardening progress (2026-08-04, integer division/remainder
+boundary): scalar integer `/`, `%`, `/=`, and `%=` now branch around LLVM
+operations through one shared codegen helper. A zero divisor always reaches
+`llvm.trap`; signed `MIN / -1` and `MIN % -1` also trap before LLVM can create
+poison. Const evaluation already reports zero divisors at the active source
+expression, and the language contract now states that the corresponding runtime
+conditions are traps rather than backend-dependent behavior. Focused const
+diagnostics and LLVM IR regressions cover both signed and unsigned scalar paths.
+Integer-vector division remains a separate per-lane trap/reduction design item;
+this batch preserves its existing lowering rather than applying scalar checks
+to a vector value.
+
+This audit also exposed the prerequisite for the remaining integer boundaries:
+const values retain integer magnitude and signedness, but const IR operations do
+not retain their concrete primitive width. Final-value range validation cannot
+detect an overflowing intermediate that later returns to range, and its generic
+128-bit shift limit cannot define `u8`, `i32`, or target-width semantics. The
+next numeric batch must consume ordinary semantic expression types as typed
+const-operation facts (including substituted generic and `usize`/`isize`
+widths) before aligning add/subtract/multiply/negate and shifts. Host-width
+checked arithmetic or evaluator-local suffix inspection must not become the
+language model.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

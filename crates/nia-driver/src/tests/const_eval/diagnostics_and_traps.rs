@@ -1222,6 +1222,38 @@ fn main() i32 {
 }
 
 #[test]
+fn const_integer_division_and_remainder_reject_zero_divisors() {
+    let root = temp_dir("const_integer_division_and_remainder_reject_zero_divisors");
+    write(
+        &root.join("main.nia"),
+        r#"
+const divideByZero: i32 = 1 / 0;
+const remainderByZero: i32 = 1 % 0;
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("division by zero in const expression")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("remainder by zero in const expression")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_dependency_cycles_are_diagnosed() {
     let root = temp_dir("const_dependency_cycles_are_diagnosed");
     write(

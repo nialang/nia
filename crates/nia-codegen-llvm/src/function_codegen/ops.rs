@@ -240,7 +240,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     pub(super) fn emit_compound_assignment(
-        &self,
+        &mut self,
         span: Span,
         operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
@@ -254,7 +254,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     pub(super) fn emit_binary(
-        &self,
+        &mut self,
         span: Span,
         operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
@@ -265,10 +265,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return self.emit_float_binary(span, lhs, op, rhs);
         }
         let is_signed = self.is_signed_integer(operand_ty);
+        let is_vector = matches!(
+            self.module.ty_kind(operand_ty),
+            Some(nia_ty::TyKind::Vector { .. })
+        );
         let result = match op {
             BinaryOp::Add => self.builder.build_basic_int_add(lhs, rhs, "addtmp"),
             BinaryOp::Sub => self.builder.build_basic_int_sub(lhs, rhs, "subtmp"),
             BinaryOp::Mul => self.builder.build_basic_int_mul(lhs, rhs, "multmp"),
+            BinaryOp::Div | BinaryOp::Rem if !is_vector => {
+                return self.emit_checked_int_div_rem(span, lhs, op, rhs, is_signed);
+            }
             BinaryOp::Div if is_signed => {
                 self.builder.build_basic_int_signed_div(lhs, rhs, "divtmp")
             }
@@ -341,6 +348,88 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         };
         result.map_err(|_| self.error(span, "failed to build binary operation"))
+    }
+
+    fn emit_checked_int_div_rem(
+        &mut self,
+        span: Span,
+        lhs: BasicValueEnum<'ctx>,
+        op: BinaryOp,
+        rhs: BasicValueEnum<'ctx>,
+        is_signed: bool,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lhs_int = lhs.into_int_value()?;
+        let rhs_int = rhs.into_int_value()?;
+        let int_ty = lhs_int.get_type();
+        let rhs_is_zero = self
+            .builder
+            .build_int_compare(
+                IntPredicate::EQ,
+                rhs_int,
+                int_ty.const_zero(),
+                "divrem.zero",
+            )
+            .map_err(|_| self.error(span, "failed to check integer divisor"))?;
+        let must_trap = if is_signed {
+            let bits = int_ty.bit_width();
+            let min = int_ty.const_u128(1u128 << (bits - 1));
+            let negative_one = int_ty.const_u128(u128::MAX);
+            let lhs_is_min = self
+                .builder
+                .build_int_compare(IntPredicate::EQ, lhs_int, min, "divrem.min")
+                .map_err(|_| self.error(span, "failed to check signed division lhs"))?;
+            let rhs_is_negative_one = self
+                .builder
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    rhs_int,
+                    negative_one,
+                    "divrem.negative_one",
+                )
+                .map_err(|_| self.error(span, "failed to check signed division rhs"))?;
+            let signed_overflow = self
+                .builder
+                .build_basic_and(
+                    lhs_is_min.into(),
+                    rhs_is_negative_one.into(),
+                    "divrem.overflow",
+                )
+                .map_err(|_| self.error(span, "failed to combine signed division checks"))?;
+            self.builder
+                .build_basic_or(rhs_is_zero.into(), signed_overflow, "divrem.traps")
+                .map_err(|_| self.error(span, "failed to combine integer division checks"))?
+                .into_int_value()?
+        } else {
+            rhs_is_zero
+        };
+
+        let trap_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "divrem.trap")?;
+        let operation_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "divrem.operation")?;
+        self.builder
+            .build_conditional_branch(must_trap, trap_block, operation_block)
+            .map_err(|_| self.error(span, "failed to branch on integer division checks"))?;
+
+        self.builder.position_at_end(trap_block);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(operation_block);
+        let result = match (op, is_signed) {
+            (BinaryOp::Div, true) => self.builder.build_basic_int_signed_div(lhs, rhs, "divtmp"),
+            (BinaryOp::Div, false) => self
+                .builder
+                .build_basic_int_unsigned_div(lhs, rhs, "divtmp"),
+            (BinaryOp::Rem, true) => self.builder.build_basic_int_signed_rem(lhs, rhs, "remtmp"),
+            (BinaryOp::Rem, false) => self
+                .builder
+                .build_basic_int_unsigned_rem(lhs, rhs, "remtmp"),
+            _ => unreachable!("only integer division and remainder reach checked div/rem codegen"),
+        };
+        result.map_err(|_| self.error(span, "failed to build checked integer division operation"))
     }
 
     fn normalize_shift_rhs(
