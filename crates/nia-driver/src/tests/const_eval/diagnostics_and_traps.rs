@@ -1377,6 +1377,45 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn const_integer_shifts_use_concrete_operand_width() {
+    let root = temp_dir("const_integer_shifts_use_concrete_operand_width");
+    write(
+        &root.join("main.nia"),
+        r#"
+const countOverflow: u8 = 1u8 << 8u8;
+const valueOverflow: u8 = (128u8 << 1u8) >> 1u8;
+const signedOverflow: i8 = (64i8 << 1i8) >> 1i8;
+const contextualOverflow: u8 = (128 << 1) >> 1;
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("shift count is out of range in const expression")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("integer overflow in const left shift"))
+            .count(),
+        3,
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_dependency_cycles_are_diagnosed() {
     let root = temp_dir("const_dependency_cycles_are_diagnosed");
     write(

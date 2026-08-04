@@ -475,8 +475,11 @@ would return the final value to range. The concrete type comes from ordinary
 semantic inference, including expected types, instantiated generic parameters,
 the defining module of an imported `const fn`, and the target width of `usize`
 and `isize`; literal spelling and the compiler host integer width do not define
-these rules. Runtime overflow conformance and concrete-width shift rules remain
-under specification.
+these rules. A constant integer shift count must be non-negative and smaller
+than the concrete left operand width. Left shift additionally requires the
+mathematical result to remain representable; right shift is arithmetic for
+signed integers and logical for unsigned integers. Runtime overflow and shift
+conformance remain under specification.
 
 An expected optional or error-union type supplies context to its constructed
 payload. For example, `return ?0` in a function returning `?usize`, `!1` where
