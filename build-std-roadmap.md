@@ -3039,6 +3039,23 @@ const-capability errors. Known non-struct contexts are rejected; generic field
 types remain unresolved and have an unused-definition acceptance regression.
 Enum payload aggregates, union-specific semantics, and indexing remain open.
 
+Dual-stage const hardening progress (2026-08-04, indexing and slicing
+declaration audit): unused const-capable definitions now visit index operands
+and both slice bounds even when the target or an earlier bound remains
+unresolved, so nested const-capability failures cannot hide behind incomplete
+type information. Builtin arrays and slices diagnose known non-integer indexes
+or bounds, negative indexes or bounds, concrete out-of-bounds indexes,
+reversed/out-of-bounds ranges, inclusive-end overflow, and concrete contextual
+slice-length mismatches. Parameter-dependent indexes and ranges retain their
+element type with unknown bounds or result length and are checked when a call
+provides concrete values.
+
+This batch does not invent evaluator-only trait lookup. Nominal and constrained
+generic targets keep their ordinary `Index`/`Slice` operand types unresolved at
+this stage; shared trait obligation, output-projection, and const-capability
+semantics remain a later Round 1 convergence task. Enum payload aggregates and
+union-specific semantics also remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
