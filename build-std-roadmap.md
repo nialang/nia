@@ -3152,6 +3152,28 @@ rejection is a named Round 1 capability boundary, not a second union type
 checker; Round 2 must replace it with a shared const/runtime union
 representation and differential coverage.
 
+Dual-stage const hardening progress (2026-08-04, first cross-stage executable
+matrix): one maintained build-resource executable now calls the same
+const-capable definitions at comptime and runtime across arithmetic, numeric
+casts, fixed arrays/indexing, optional `if ... is`, error-union and payload-enum
+switches, `while`, receiver methods, generic functions, and public imported
+functions. It also evaluates a private imported helper only at comptime and
+proves that the helper does not become a backend root. Imported optional
+payload matching covers the cross-module evaluator path directly.
+
+Constructing that matrix exposed an evaluator type-recovery recursion when
+optional and error-union functions with nominal payloads were both evaluated:
+pattern-local recovery scanned every function body and re-entered an unrelated
+switch target. Local value/type/mutability lookup is now bounded by the current
+execution root, and pattern-local type recovery inspects only the active
+function body (including imported bodies). Module initializer recovery no
+longer scans function declarations. The differential executable and the
+original combined optional/error-union reproducer both complete without host
+stack growth. Round 2 remains open for `for` after shared iterator/place
+writeback exists, associated functions, const-generic instances, function
+references, overflow/division/remainder/shift/trap boundaries, and the
+union-representation work already identified above.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

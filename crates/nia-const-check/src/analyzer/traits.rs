@@ -329,7 +329,8 @@ impl Analyzer<'_> {
     fn current_substitution_maps(&self) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
         let mut type_substitutions = SymbolMap::default();
         let mut const_substitutions = SymbolMap::default();
-        for frame in &self.call_locals {
+        let frames = self.active_execution_frames().collect::<Vec<_>>();
+        for frame in frames.into_iter().rev() {
             type_substitutions.extend(frame.type_substitutions.clone());
             const_substitutions.extend(frame.const_substitutions.clone());
         }
@@ -367,16 +368,12 @@ impl Analyzer<'_> {
             return Vec::new();
         };
         let substitutions = self
-            .call_locals
-            .iter()
-            .rev()
+            .active_execution_frames()
             .find(|frame| frame.function_id == Some(function_id))
             .map(|frame| frame.type_substitutions.clone())
             .unwrap_or_default();
         let const_substitutions = self
-            .call_locals
-            .iter()
-            .rev()
+            .active_execution_frames()
             .find(|frame| frame.function_id == Some(function_id))
             .map(|frame| frame.const_substitutions.clone())
             .unwrap_or_default();

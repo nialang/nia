@@ -75,6 +75,15 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn find_local_binding_type(&mut self, local_id: LocalId) -> Option<InternedTyId> {
+        // Local ids are allocated per module, while a const call can execute a
+        // function from any module. Once a function frame is active, searching
+        // unrelated module functions can re-enter type inference through a
+        // different switch target (and can bind a payload local to the wrong
+        // function). Restrict the fallback to the active function body.
+        if let Some(function_id) = self.current_execution_function_id() {
+            let body = self.const_function_body(function_id)?.body().clone();
+            return self.find_local_binding_type_in_resolved_block(&body, local_id);
+        }
         if let Some(initializer) = self.input.module.local_initializers().get(&local_id)
             && initializer.explicit_type().is_some()
         {
@@ -101,18 +110,6 @@ impl Analyzer<'_> {
             .collect::<Vec<_>>();
         for expr in &local_initializers {
             if let Some(ty) = self.find_local_binding_type_in_resolved_expr(expr, local_id) {
-                return Some(ty);
-            }
-        }
-        let function_bodies = self
-            .input
-            .module
-            .functions()
-            .values()
-            .map(|function| function.body().clone())
-            .collect::<Vec<_>>();
-        for body in &function_bodies {
-            if let Some(ty) = self.find_local_binding_type_in_resolved_block(body, local_id) {
                 return Some(ty);
             }
         }
@@ -300,10 +297,23 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn call_local_value(&self, local_id: LocalId) -> Option<ConstValue> {
+        self.active_execution_frames()
+            .find_map(|frame| frame.locals.get(&local_id).cloned())
+    }
+
+    pub(super) fn active_execution_frames(&self) -> impl Iterator<Item = &ConstCallFrame> {
         self.call_locals
             .iter()
             .rev()
-            .find_map(|frame| frame.locals.get(&local_id).cloned())
+            .scan(true, |inside_execution, frame| {
+                if !*inside_execution {
+                    return None;
+                }
+                if frame.module_id.is_some() {
+                    *inside_execution = false;
+                }
+                Some(frame)
+            })
     }
 
     pub(super) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
@@ -486,9 +496,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn current_execution_function_id(&self) -> Option<GlobalDefId> {
-        self.call_locals
-            .iter()
-            .rev()
+        self.active_execution_frames()
             .find_map(|frame| frame.function_id)
     }
 

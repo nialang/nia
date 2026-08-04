@@ -303,9 +303,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 })
             }
             ConstNameResolution::GenericParam(name) => self
-                .call_locals
-                .iter()
-                .rev()
+                .active_execution_frames()
                 .find_map(|frame| frame.const_substitutions.get(&name))
                 .and_then(const_value_from_const_generic_arg)
                 .ok_or_else(|| ConstError {
@@ -629,9 +627,7 @@ impl Analyzer<'_> {
     ) -> nia_ty::ConstGenericArg {
         if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
             && let Some(resolved) = self
-                .call_locals
-                .iter()
-                .rev()
+                .active_execution_frames()
                 .find_map(|frame| frame.const_substitutions.get(name))
         {
             arg = resolved.clone();
@@ -844,7 +840,11 @@ impl Analyzer<'_> {
         value: ConstValue,
     ) -> Result<(), ConstError> {
         for index in (0..self.call_locals.len()).rev() {
+            let execution_boundary = self.call_locals[index].module_id.is_some();
             if !self.call_locals[index].locals.contains_key(&local_id) {
+                if execution_boundary {
+                    break;
+                }
                 continue;
             }
             if !self.call_locals[index].mutable_locals.contains(&local_id) {
