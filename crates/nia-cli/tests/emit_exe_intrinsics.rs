@@ -338,6 +338,11 @@ union Bits {
     float: f32,
 }
 
+union ByteBits {
+    bytes: [4]u8,
+    float: f32,
+}
+
 extend Counter : Iterator {
     type Item = usize;
 
@@ -403,6 +408,20 @@ const fn readBits(bits: Bits) u32 {
     bits.integer
 }
 
+const fn oneBytes() [4]u8 {
+    let bits: ByteBits = { float: 1.0 };
+    bits.bytes
+}
+
+const fn floatFromBytes(bytes: [4]u8) f32 {
+    let bits: ByteBits = { bytes: bytes };
+    bits.float
+}
+
+const fn readByteFloat(bits: ByteBits) f32 {
+    bits.float
+}
+
 const fn pairTotal(values: pairs::Pair[usize]) usize {
     let mut total: usize = 0;
     for value in values {
@@ -419,13 +438,21 @@ const arrayLen: usize = double(2)
     + pairTotal(pairs::pair(1, 2));
 const compileOneBits: u32 = readBits({ float: 1.0 });
 const compileUnion: Bits = { float: 1.0 };
+const compileOneBytes: [4]u8 = oneBytes();
+const compileOneFromBytes: f32 = floatFromBytes(compileOneBytes);
+const compileByteUnion: ByteBits = { bytes: compileOneBytes };
 const compileImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
 const compileImportedBits: u32 = pairs::readSlotBits[f32](compileImportedSlot);
+const compilePairBytes: [8]u8 = pairs::encodePair[u32]([2]u32[7, 8]);
+const compilePairValues: [2]u32 = pairs::decodePair[u32](compilePairBytes);
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
     let mut width = Width::fromValue(value);
     let runtimeImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
+    let runtimePairValues: [2]u32 = pairs::decodePair[u32](
+        pairs::encodePair[u32]([2]u32[value as u32, value as u32 + 1])
+    );
     double(value) == 14
         and width.doubled() == 14
         and width.increment() == 8
@@ -437,9 +464,17 @@ fn runtimeChecks(value: usize) bool {
         and oneBits() == compileOneBits
         and oneFromBits() == 1.0
         and readBits(compileUnion) == compileOneBits
+        and floatFromBytes(oneBytes()) == compileOneFromBytes
+        and floatFromBytes(compileOneBytes) == 1.0
+        and readByteFloat(compileByteUnion) == 1.0
         and compileImportedBits == compileOneBits
         and pairs::readSlotBits[f32](compileImportedSlot) == compileImportedBits
         and pairs::readSlotBits[f32](runtimeImportedSlot) == compileImportedBits
+        and compilePairValues[0] == 7
+        and compilePairValues[1] == 8
+        and pairs::decodePair[u32](compilePairBytes)[1] == compilePairValues[1]
+        and runtimePairValues[0] == 7
+        and runtimePairValues[1] == 8
         and values.len() == 23
 }
 
@@ -470,6 +505,11 @@ pub struct PairIter[T] {
 pub union ScalarSlot[T] {
     value: T,
     bits: u32,
+}
+
+pub union PairBytes[T] {
+    values: [2]T,
+    bytes: [8]u8,
 }
 
 extend[T] PairIter[T] : Iterator {
@@ -509,6 +549,16 @@ pub const fn scalarSlot[T](value: T) ScalarSlot[T] {
 
 pub const fn readSlotBits[T](slot: ScalarSlot[T]) u32 {
     slot.bits
+}
+
+pub const fn encodePair[T](values: [2]T) [8]u8 {
+    let slot: PairBytes[T] = { values: values };
+    slot.bytes
+}
+
+pub const fn decodePair[T](bytes: [8]u8) [2]T {
+    let slot: PairBytes[T] = { bytes: bytes };
+    slot.values
 }
 "#,
     )

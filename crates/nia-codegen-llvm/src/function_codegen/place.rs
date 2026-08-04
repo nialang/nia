@@ -129,7 +129,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let index_value = self.emit_usize_value(index)?;
         match self.module.ty_kind(lhs.ty) {
             Some(TyKind::Array { .. }) => {
-                let base_ptr = self.emit_addr_of(lhs)?;
+                let base_ptr = self.emit_array_base_addr(lhs)?;
                 let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
                 let zero = self.module.context.i64_type().const_int(0, false);
                 unsafe {

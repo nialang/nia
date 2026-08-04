@@ -1719,17 +1719,20 @@ const width: usize = p.x + p.y;
 
 Const union values preserve target storage semantics rather than behaving like
 single-field structs. Integer, floating-point, `bool`, and `char` fields use the
-artifact target's widths and endianness, and reading another field decodes the
-same bytes as runtime union access. A write changes only the bytes occupied by
-the selected field. Bytes outside the field used for initial construction are
-uninitialized; a const read that requires any such byte is an error rather than
-implicitly reading zero.
+artifact target's widths and endianness. Fixed arrays recursively composed from
+those scalar types encode each element in array order with the same target
+rules. Reading another field decodes the same bytes as runtime union access. A
+write changes only the bytes occupied by the selected field. Bytes outside the
+field used for initial construction are uninitialized; a const read that
+requires any such byte is an error rather than implicitly reading zero. Invalid
+`bool` or `char` representations inside an array are diagnosed per element.
 
-The current const ABI codec is deliberately limited to scalar fields. A union
-containing arrays, pointers, vectors, structs, unions, or other aggregate fields
-is rejected in a `const fn` declaration until const evaluation has an explicit
-padding, uninitialized-byte, and pointer-provenance model for that field kind.
-Ordinary runtime unions retain the full semantics described in section 4.6.
+The current const ABI codec is deliberately limited to scalars and fixed arrays
+recursively composed from scalars. A union containing pointers, vectors,
+structs, unions, or other aggregate fields is rejected in a `const fn`
+declaration until const evaluation has an explicit padding, uninitialized-byte,
+and pointer-provenance model for that field kind. Ordinary runtime unions retain
+the full semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

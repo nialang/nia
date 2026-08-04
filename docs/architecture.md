@@ -1033,10 +1033,12 @@ without forcing anonymous data into the runtime type interner.
 
 Const unions use a separate storage value, not `ConstValue::Struct` with one
 field. `ConstValue::Union` contains target-ordered bytes, one initialized bit per
-byte, a stable scalar ABI descriptor for every field, and the most recently
-written field identity. The identity supports diagnostics and runtime
-materialization; it does not restrict reads. Reads decode the requested field
-from the shared bytes, and writes replace only that field's byte range.
+byte, a stable const ABI descriptor for every supported field, and the most
+recently written field identity. A descriptor is either a scalar or a recursively
+nested fixed array of supported descriptors. The identity supports diagnostics
+and runtime materialization; it does not restrict reads. Reads decode the
+requested field from the shared bytes, and writes replace only that field's byte
+range.
 
 `nia-layout` owns the primitive layouts and the union max-size/max-alignment
 formula used to size this storage. `nia-const-check` maps substituted semantic
@@ -1049,12 +1051,16 @@ assignment RHS, the evaluator lets the typed environment prepare only that
 operation's existing expected type; it never scans all function bodies to
 recover context.
 
-When runtime code projects a field from a union `const`, body IR lowering reads
-that field from the same stored bytes and materializes the decoded scalar. When
-the whole supported union value must be materialized, the latest field becomes
-the ordinary runtime `UnionLiteral` initializer. Non-scalar fields remain a
-declaration-time const capability boundary until padding, provenance, and nested
-aggregate bytes have one explicit representation.
+Scalar arrays are encoded element by element with the artifact endianness. They
+reuse `nia-layout`'s checked array-size fact, including const and layout-builtin
+lengths evaluated for the artifact pointer width, and introduce neither
+inter-field padding nor pointer provenance. When runtime code projects a field
+from a union `const`, body IR lowering reads that field from the same stored
+bytes and materializes the decoded scalar or array. When the whole supported
+union value must be materialized, the most recently written field becomes the
+ordinary runtime `UnionLiteral` initializer. Structs, unions, pointers, and
+vectors remain a declaration-time const capability boundary until padding,
+provenance, or lane representation has one explicit model.
 
 Consumers outside `nia-const-check` should use the typed value surface's
 accessors for structural field and array element queries instead of duplicating

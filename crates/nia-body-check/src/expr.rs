@@ -267,7 +267,15 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Index { lhs, index } => {
+                let lhs_expected = match index {
+                    IndexArg::Expr(_) if self.expr_ty(lhs).is_none() => {
+                        self.index_lhs_expected_from_index_expected(expected)
+                    }
+                    IndexArg::Expr(_) | IndexArg::Range(_) => None,
+                };
+                let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
                 if let IndexArg::Expr(index) = index
+                    && matches!(self.interner.get(lhs_ty), Some(TyKind::ConstOnly))
                     && let Some(ty) = self.const_index_expr_runtime_type(lhs, index)
                 {
                     self.check_expr(index);
@@ -279,13 +287,6 @@ impl<'a> BodyChecker<'a> {
                 {
                     return ty;
                 }
-                let lhs_expected = match index {
-                    IndexArg::Expr(_) if self.expr_ty(lhs).is_none() => {
-                        self.index_lhs_expected_from_index_expected(expected)
-                    }
-                    IndexArg::Expr(_) | IndexArg::Range(_) => None,
-                };
-                self.check_expr_with_expected(lhs, lhs_expected);
                 let lhs_ty = self.expr_runtime_ty(lhs);
                 match index {
                     IndexArg::Expr(index) => {
@@ -1433,16 +1434,18 @@ impl<'a> BodyChecker<'a> {
             && let Some(index) = &arg.expr
         {
             self.record_bracket_suffix_node_resolution(expr, BracketSuffixResolution::Index);
-            if let Some(ty) = self.const_index_expr_runtime_type(callee, index) {
-                self.check_expr(index);
-                return ty;
-            }
             let lhs_expected = if self.expr_ty(callee).is_none() {
                 self.index_lhs_expected_from_index_expected(expected)
             } else {
                 None
             };
-            self.check_expr_with_expected(callee, lhs_expected);
+            let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
+            if matches!(self.interner.get(lhs_ty), Some(TyKind::ConstOnly))
+                && let Some(ty) = self.const_index_expr_runtime_type(callee, index)
+            {
+                self.check_expr(index);
+                return ty;
+            }
             let lhs_ty = self.expr_runtime_ty(callee);
             let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
             let index_ty = self.expr_ty(index).unwrap_or(index_ty);

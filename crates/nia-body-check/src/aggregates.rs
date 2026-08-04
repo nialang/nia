@@ -586,23 +586,30 @@ impl<'a> BodyChecker<'a> {
         for field in fields {
             let ty =
                 self.substitute_generics_and_consts(field.ty, substitutions, const_substitutions);
-            let ty = self.normalize_aliases(ty);
-            if matches!(
-                self.expect_ty_kind(ty),
-                TyKind::Primitive(primitive)
-                    if !matches!(primitive, nia_ty::PrimitiveTy::Void | nia_ty::PrimitiveTy::Never)
-            ) || matches!(self.expect_ty_kind(ty), TyKind::GenericParam(_))
-            {
+            if self.const_union_ty_has_abi_model(ty) {
                 continue;
             }
             self.reject_const_operation(
                 span,
                 format!(
-                    "const union field `{}` requires an ABI scalar type",
+                    "const union field `{}` requires a supported const ABI type",
                     self.symbol_name(field.name)
                 ),
             );
             return;
+        }
+    }
+
+    fn const_union_ty_has_abi_model(&mut self, ty: InternedTyId) -> bool {
+        let ty = self.normalize_aliases(ty);
+        match self.expect_ty_kind(ty).clone() {
+            TyKind::Primitive(primitive) => !matches!(
+                primitive,
+                nia_ty::PrimitiveTy::Void | nia_ty::PrimitiveTy::Never
+            ),
+            TyKind::Array { elem, .. } => self.const_union_ty_has_abi_model(elem),
+            TyKind::GenericParam(_) => true,
+            _ => false,
         }
     }
 

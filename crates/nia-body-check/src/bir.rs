@@ -1564,7 +1564,7 @@ impl<'a> BodyChecker<'a> {
                 let nia_const_check::ConstValue::Union(union) = value else {
                     return None;
                 };
-                let name = union.active_field();
+                let name = union.last_written_field();
                 let field_ty = self.field_ty_for_aggregate_ty(ty, &name)?;
                 let field_value = union.read(name).ok()?;
                 Some(TypedExpr {
@@ -1652,7 +1652,23 @@ impl<'a> BodyChecker<'a> {
                     None
                 }
             }
-            _ => None,
+            _ => {
+                let ConstArrayValues::Values(values) = values else {
+                    return None;
+                };
+                let elems = values
+                    .iter()
+                    .cloned()
+                    .map(|value| self.lower_const_value_expr(span, elem, Some(value)))
+                    .collect();
+                Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::ArrayLiteral {
+                        elems: TypedArrayElements::List(elems),
+                    },
+                })
+            }
         }
     }
 

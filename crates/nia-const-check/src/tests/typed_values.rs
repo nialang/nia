@@ -284,6 +284,192 @@ const VALUE: u16 = BITS.narrow;
 }
 
 #[test]
+fn scalar_array_union_reinterpretation_uses_artifact_endianness() {
+    let source = r#"
+const WIDTH: usize = 4;
+
+union Bytes {
+    word: u32,
+    bytes: [WIDTH]u8,
+}
+
+const DATA: Bytes = { word: 287454020 };
+const VALUE: [WIDTH]u8 = DATA.bytes;
+"#;
+    let mut little_target = nia_target_config::TargetConfig::host();
+    little_target.endian = "little".to_string();
+    let little = check_source_for_target(source, little_target);
+    assert!(
+        little.checked.diagnostics.is_empty(),
+        "{:?}",
+        little.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&little, "VALUE"),
+        ConstValue::Array(
+            [68, 51, 34, 17]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+
+    let mut big_target = nia_target_config::TargetConfig::host();
+    big_target.endian = "big".to_string();
+    let big = check_source_for_target(source, big_target);
+    assert!(
+        big.checked.diagnostics.is_empty(),
+        "{:?}",
+        big.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&big, "VALUE"),
+        ConstValue::Array(
+            [17, 34, 51, 68]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+}
+
+#[test]
+fn nested_scalar_array_union_fields_preserve_element_layout() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+union MatrixBytes {
+    matrix: [2][2]u16,
+    bytes: [8]u8,
+}
+
+const DATA: MatrixBytes = { matrix: [[4386, 13124], [21862, 30600]] };
+const BYTES: [8]u8 = DATA.bytes;
+"#,
+        target,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "BYTES"),
+        ConstValue::Array(
+            [34, 17, 68, 51, 102, 85, 136, 119]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+}
+
+#[test]
+fn scalar_array_union_layout_builtin_lengths_use_artifact_pointer_width() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.pointer_width = 32;
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+union WordBytes {
+    word: usize,
+    bytes: [std::builtin::size[usize]()]u8,
+}
+
+const DATA: WordBytes = { word: 16909060 };
+const BYTES: [std::builtin::size[usize]()]u8 = DATA.bytes;
+"#,
+        target,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "BYTES"),
+        ConstValue::Array(
+            [4, 3, 2, 1]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+}
+
+#[test]
+fn scalar_array_union_writes_round_trip_and_validate_elements() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+union Bytes {
+    word: u32,
+    bytes: [4]u8,
+}
+
+union Flags {
+    raw: [2]u8,
+    values: [2]bool,
+}
+
+const DATA: Bytes = { bytes: [4]u8[4, 3, 2, 1] };
+const WORD: u32 = DATA.word;
+const INVALID: Flags = { raw: [2]u8[0, 2] };
+const VALUES: [2]bool = INVALID.values;
+"#,
+        target,
+    );
+    assert_eq!(
+        const_value(&fixture, "WORD"),
+        ConstValue::Int(IntConst::unsigned(16909060))
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("const union field has an invalid bool representation")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn generic_scalar_array_union_is_encoded_after_element_substitution() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+union PairBytes[T] {
+    values: [2]T,
+    bytes: [8]u8,
+}
+
+const fn encode[T](values: [2]T) [8]u8 {
+    let pair: PairBytes[T] = { values: values };
+    pair.bytes
+}
+
+const BYTES: [8]u8 = encode[u32]([2]u32[287454020, 1432778632]);
+"#,
+        target,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "BYTES"),
+        ConstValue::Array(
+            [68, 51, 34, 17, 136, 119, 102, 85]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+}
+
+#[test]
 fn scalar_union_rejects_reads_of_uninitialized_storage() {
     let fixture = check_source(
         r#"
