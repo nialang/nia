@@ -16,6 +16,13 @@ impl ModuleDefs<'_> {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(super) fn reject_const_operation(&mut self, span: Span, summary: impl Into<String>) {
+        if self.body_filter.checks_const_declarations() {
+            self.diagnostics
+                .push(Diagnostic::user_error_at(codes::CONST, span, summary));
+        }
+    }
+
     pub(super) fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
         let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);

@@ -3142,6 +3142,16 @@ declaration semantics are therefore closed in Round 1. Cross-stage executable
 comparison remains a Round 2 matrix item; const `for`, place writeback, and
 union-specific representation remain open.
 
+Dual-stage const hardening progress (2026-08-04, union capability boundary):
+ordinary runtime union construction and field access remain fully supported,
+but the const declaration filter now rejects those operations explicitly until
+the evaluator has an ABI-backed active-field and reinterpreting-value model.
+This prevents an unused `const fn` from appearing valid and then failing later
+inside the const type layer with an unrelated structural-value error. The
+rejection is a named Round 1 capability boundary, not a second union type
+checker; Round 2 must replace it with a shared const/runtime union
+representation and differential coverage.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
