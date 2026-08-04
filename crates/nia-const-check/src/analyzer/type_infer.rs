@@ -376,7 +376,7 @@ impl Analyzer<'_> {
                 self.resolved_const_struct_literal_type(expr.span(), fields, expected)
             }
             ResolvedConstExprKind::EnumStructLiteral { variant, fields } => self
-                .resolved_const_named_enum_literal_type(variant, fields)
+                .resolved_const_named_enum_literal_type(expr.span(), variant, fields)
                 .map(ConstValueType::Runtime),
             ResolvedConstExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
@@ -481,7 +481,7 @@ impl Analyzer<'_> {
                 args,
             } => {
                 if self.resolved_const_enum_variant(callee).is_some() {
-                    self.resolved_const_tuple_enum_literal_type(callee, args)
+                    self.resolved_const_tuple_enum_literal_type(expr.span(), callee, args)
                         .map(ConstValueType::Runtime)
                 } else {
                     self.resolved_const_call_return_type(
@@ -709,36 +709,73 @@ impl Analyzer<'_> {
 
     fn resolved_const_tuple_enum_literal_type(
         &mut self,
+        span: Span,
         callee: &ResolvedConstExpr,
         args: &[ResolvedConstExpr],
     ) -> Option<InternedTyId> {
         let (enum_id, variant) = self.resolved_const_enum_variant(callee)?;
         let nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys) = variant.payload
         else {
+            for arg in args {
+                let _ = self.resolved_const_expr_type(arg, None);
+            }
+            self.push_const_type_error(span, "const enum variant does not have a tuple payload");
             return None;
         };
-        if field_tys.len() != args.len() {
-            return None;
+        let arity_matches = field_tys.len() == args.len();
+        if !arity_matches {
+            self.push_const_type_error(
+                span,
+                &format!(
+                    "const enum tuple payload length mismatch: expected {}, got {}",
+                    field_tys.len(),
+                    args.len()
+                ),
+            );
         }
         let current_module = self.current_execution_module_id();
-        for (arg, field_ty) in args.iter().zip(field_tys) {
-            let field_ty = self.type_for_module_or_none(field_ty, current_module)?;
-            let actual = self.resolved_const_arg_runtime_type(arg, Some(field_ty))?;
-            if actual != field_ty {
-                return None;
+        let mut types_match = true;
+        for (index, arg) in args.iter().enumerate() {
+            let Some(field_ty) = field_tys.get(index).copied() else {
+                let _ = self.resolved_const_expr_type(arg, None);
+                continue;
+            };
+            let Some(field_ty) = self.type_for_module_or_none(field_ty, current_module) else {
+                let _ = self.resolved_const_expr_type(arg, None);
+                continue;
+            };
+            let actual = self.resolved_const_contextual_value_type(arg, field_ty);
+            let Some(actual) = actual else {
+                continue;
+            };
+            if !self.const_function_types_match(field_ty, actual) {
+                if self.const_runtime_type_is_known(field_ty)
+                    && self.const_runtime_type_is_known(actual)
+                {
+                    self.push_const_type_error(
+                        arg.span(),
+                        "const enum payload value does not match its expected type",
+                    );
+                }
+                types_match = false;
             }
         }
-        Some(self.enum_ty_in_current_module(enum_id))
+        (arity_matches && types_match).then(|| self.enum_ty_in_current_module(enum_id))
     }
 
     fn resolved_const_named_enum_literal_type(
         &mut self,
+        span: Span,
         target: &ResolvedConstExpr,
         fields: &[ResolvedConstFieldInit],
     ) -> Option<InternedTyId> {
         let (enum_id, variant) = self.resolved_const_enum_variant(target)?;
         let nia_item_signatures::EnumVariantPayloadSignature::Named(expected) = variant.payload
         else {
+            for field in fields {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+            }
+            self.push_const_type_error(span, "const enum variant does not have a named payload");
             return None;
         };
         let field_set = check_required_field_set(
@@ -747,22 +784,51 @@ impl Analyzer<'_> {
                 .map(|field| NamedField::new(field.span(), *field.name_symbol())),
             expected.iter().map(|field| field.name),
         );
-        if !field_set.is_valid() {
-            return None;
+        let fields_are_valid = field_set.is_valid();
+        for field in &field_set.duplicate_fields {
+            let name = self.symbol_name(field.name);
+            self.push_const_type_error(field.span, &format!("duplicate const enum field `{name}`"));
+        }
+        for field in &field_set.unknown_fields {
+            let name = self.symbol_name(field.name);
+            self.push_const_type_error(field.span, &format!("unknown const enum field `{name}`"));
+        }
+        for name in &field_set.missing_fields {
+            let name = self.symbol_name(*name);
+            self.push_const_type_error(span, &format!("missing const enum field `{name}`"));
         }
         let current_module = self.current_execution_module_id();
+        let mut types_match = true;
         for field in fields {
-            let field_ty = expected
+            let Some(field_ty) = expected
                 .iter()
-                .find(|expected| expected.name == *field.name_symbol())?
-                .ty;
-            let field_ty = self.type_for_module_or_none(field_ty, current_module)?;
-            let actual = self.resolved_const_arg_runtime_type(field.value(), Some(field_ty))?;
-            if actual != field_ty {
-                return None;
+                .find(|expected| expected.name == *field.name_symbol())
+                .map(|field| field.ty)
+            else {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+                continue;
+            };
+            let Some(field_ty) = self.type_for_module_or_none(field_ty, current_module) else {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+                continue;
+            };
+            let actual = self.resolved_const_contextual_value_type(field.value(), field_ty);
+            let Some(actual) = actual else {
+                continue;
+            };
+            if !self.const_function_types_match(field_ty, actual) {
+                if self.const_runtime_type_is_known(field_ty)
+                    && self.const_runtime_type_is_known(actual)
+                {
+                    self.push_const_type_error(
+                        field.value().span(),
+                        "const enum payload value does not match its expected type",
+                    );
+                }
+                types_match = false;
             }
         }
-        Some(self.enum_ty_in_current_module(enum_id))
+        (fields_are_valid && types_match).then(|| self.enum_ty_in_current_module(enum_id))
     }
 
     fn resolved_const_enum_pattern_fields<'a>(
@@ -1652,7 +1718,7 @@ impl Analyzer<'_> {
             };
             let diagnostics_before_field = self.diagnostics.len();
             let actual_field =
-                self.resolved_const_struct_field_actual_type(field.value(), expected_field);
+                self.resolved_const_contextual_value_type(field.value(), expected_field);
             if let Some(actual_field) = actual_field {
                 let _ = self.probe_type_generic_inference(
                     span,
@@ -1751,7 +1817,7 @@ impl Analyzer<'_> {
             .copied()
     }
 
-    pub(super) fn resolved_const_struct_field_actual_type(
+    pub(super) fn resolved_const_contextual_value_type(
         &mut self,
         value: &ResolvedConstExpr,
         expected: InternedTyId,
