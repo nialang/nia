@@ -1,6 +1,6 @@
 use crate::{
     ConstKey, ConstValueType, TypedConstValue,
-    analyzer::{Analyzer, ConstCallFrame, ConstFunctionInstantiationInput},
+    analyzer::{Analyzer, ConstCallFrame, ConstFunctionInstantiationInput, ResolvedConstCallee},
     support::{
         cast_const_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
         is_float_primitive, primitive_integer_layout, validate_assignment_shape,
@@ -15,7 +15,7 @@ use nia_const_ir::{
 use nia_defs::DefKind;
 use nia_ids::{
     BuiltinConstValue, BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
-    ModuleId, ValueBuiltin,
+    ModuleId, TraitId, ValueBuiltin,
 };
 use nia_item_signatures::{FunctionAttribute, FunctionSignature};
 use nia_local_resolve::LocalKind;
@@ -558,6 +558,90 @@ impl ResolvedConstEnv for Analyzer<'_> {
         Ok(value)
     }
 
+    fn resolved_for_iterator(
+        &mut self,
+        span: Span,
+        iterable: &ResolvedConstExpr,
+        value: ConstValue,
+    ) -> Result<nia_const_eval::ResolvedConstIterator, ConstError> {
+        let iterable_ty = self
+            .resolved_const_expr_type(iterable, None)
+            .and_then(|ty| ty.runtime())
+            .ok_or_else(|| ConstError {
+                span,
+                message: "cannot resolve const Iterable type".to_string(),
+            })?;
+        if self.proves_trait_obligation(
+            iterable_ty,
+            TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            Vec::new(),
+        ) {
+            return Ok(nia_const_eval::ResolvedConstIterator {
+                ty: iterable_ty,
+                value,
+            });
+        }
+        let iterator_ty = self
+            .intern_current_ty(TyKind::Projection {
+                self_ty: iterable_ty,
+                trait_id: TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                name: nia_symbol::known::ITER,
+            })
+            .map(|ty| self.normalize_projection(ty))
+            .ok_or_else(|| ConstError {
+                span,
+                message: "cannot resolve const Iterable::Iter type".to_string(),
+            })?;
+        let callee = self
+            .resolved_const_builtin_trait_method(
+                span,
+                iterable_ty,
+                nia_ty::BuiltinTrait::Iterable,
+                nia_symbol::known::ITER_METHOD,
+            )
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const Iterable::iter requires a const trait implementation".to_string(),
+            })?;
+        let output = self.eval_selected_const_method(span, callee, vec![value])?;
+        Ok(nia_const_eval::ResolvedConstIterator {
+            ty: iterator_ty,
+            value: output.value,
+        })
+    }
+
+    fn resolved_iterator_next(
+        &mut self,
+        span: Span,
+        iterator: nia_const_eval::ResolvedConstIterator,
+    ) -> Result<(nia_const_eval::ResolvedConstIterator, ConstValue), ConstError> {
+        let callee = self
+            .resolved_const_builtin_trait_method(
+                span,
+                iterator.ty,
+                nia_ty::BuiltinTrait::Iterator,
+                nia_symbol::known::NEXT,
+            )
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const Iterator::next requires a const trait implementation".to_string(),
+            })?;
+        let output = self.eval_selected_const_method(span, callee, vec![iterator.value])?;
+        let value = output.mutable_receiver.ok_or_else(|| ConstError {
+            span,
+            message: "const Iterator::next must use a mutable receiver".to_string(),
+        })?;
+        Ok((
+            nia_const_eval::ResolvedConstIterator {
+                ty: iterator.ty,
+                value,
+            },
+            output.value,
+        ))
+    }
+
     fn bind_resolved_function_param(
         &mut self,
         span: Span,
@@ -622,6 +706,72 @@ impl ResolvedConstEnv for Analyzer<'_> {
         value: ConstValue,
     ) -> Result<(), ConstError> {
         self.assign_local_value(span, local_id, None, value)
+    }
+}
+
+impl Analyzer<'_> {
+    fn eval_selected_const_method(
+        &mut self,
+        span: Span,
+        callee: ResolvedConstCallee,
+        args: Vec<ConstValue>,
+    ) -> Result<nia_const_eval::ResolvedConstCallOutput, ConstError> {
+        let function_id = callee.function_id;
+        let signature = self
+            .signatures_for_module(function_id.module_id)
+            .and_then(|signatures| {
+                signatures
+                    .as_ref()
+                    .functions
+                    .get(&function_id.def_id)
+                    .cloned()
+            })
+            .ok_or_else(|| ConstError {
+                span,
+                message: "selected const trait method signature is unavailable".to_string(),
+            })?;
+        let function = self
+            .const_function_body(function_id)
+            .ok_or_else(|| ConstError {
+                span,
+                message: "selected const trait method body is unavailable".to_string(),
+            })?;
+        let type_substitutions = callee
+            .target_instantiation
+            .type_substitutions
+            .into_iter()
+            .collect::<Vec<_>>();
+        let const_substitutions = callee
+            .target_instantiation
+            .const_substitutions
+            .into_iter()
+            .collect::<Vec<_>>();
+        let mut output = nia_const_eval::eval_resolved_const_function_call(
+            nia_const_eval::ResolvedConstCallInput {
+                span,
+                function_id,
+                function_module_id: function_id.module_id,
+                function: &function,
+                type_substitutions: type_substitutions.clone(),
+                const_substitutions,
+                args,
+            },
+            self,
+        )?;
+        let return_ty = self
+            .substitute_ty_into_current_module(
+                function_id.module_id,
+                signature.return_type,
+                &type_substitutions.into_iter().collect(),
+            )
+            .ok_or_else(|| ConstError {
+                span,
+                message: "cannot resolve const trait method return type".to_string(),
+            })?;
+        let return_ty = ConstValueType::Runtime(return_ty);
+        output.value = self.normalize_typed_const_value(output.value, &return_ty);
+        self.validate_typed_value(span, &output.value, &return_ty);
+        Ok(output)
     }
 }
 

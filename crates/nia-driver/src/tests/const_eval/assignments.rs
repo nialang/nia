@@ -659,8 +659,8 @@ fn main() i32 {
 }
 
 #[test]
-fn const_function_for_in_iterator_execution_is_not_duck_typed() {
-    let root = temp_dir("const_function_for_in_iterator_execution_is_not_duck_typed");
+fn const_function_for_in_executes_iterator_trait() {
+    let root = temp_dir("const_function_for_in_executes_iterator_trait");
     write(
         &root.join("main.nia"),
         r#"
@@ -673,6 +673,18 @@ extend Counter : Iterator {
     type Item = usize;
 
     const fn next(&mut self) ?usize {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+extend Counter {
+    const fn next(&mut self) ?usize {
         null
     }
 }
@@ -681,6 +693,12 @@ const fn width() usize {
     let mut total: usize = 0;
     let mut iter = Counter{current: 0, end: 4};
     for value in iter {
+        if value == 1 {
+            continue;
+        }
+        if value == 3 {
+            break;
+        }
         total += value;
     }
     total
@@ -689,21 +707,82 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let values: [2]i32 = [0; n];
     values.len() as i32
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const for-in Iterator execution is not implemented yet")),
-        "{:?}",
-        program.diagnostics
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_function_for_in_executes_iterable_trait() {
+    let root = temp_dir("const_function_for_in_executes_iterable_trait");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    const fn next(&mut self) ?usize {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+struct Bounds {
+    start: usize,
+    end: usize,
+}
+
+extend Bounds : Iterable {
+    type Item = usize;
+    type Iter = Counter;
+
+    const fn iter(&self) Counter {
+        Counter { current: self.start, end: self.end }
+    }
+}
+
+const fn width() usize {
+    let mut total = 0usize;
+    let bounds = Bounds { start: 2, end: 5 };
+    let mut direct = bounds.iter();
+    switch direct.next() {
+        ?value => {
+            total += value;
+        },
+        null => {},
+    }
+    for value in bounds {
+        total += value;
+    }
+    total
+}
+
+const n: usize = width();
+
+fn main() i32 {
+    let values: [11]i32 = [0; n];
+    values.len() as i32
+}
+"#,
     );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
