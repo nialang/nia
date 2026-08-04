@@ -1,0 +1,18 @@
+pub const fn importedScore(value: i32) i32 {
+    value * 4
+}
+
+pub const fn importedOptionalScore(value: ?i32) i32 {
+    if value is ?payload {
+        payload + 2
+    } else {
+        -1
+    }
+}
+
+const fn constOnly(value: i32) i32 {
+    value + 9
+}
+
+pub const onlyExpected: i32 = constOnly(3);
+pub const importedOptionalExpected: i32 = importedOptionalScore(?8);

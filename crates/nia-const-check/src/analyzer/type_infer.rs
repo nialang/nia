@@ -18,8 +18,7 @@ impl Analyzer<'_> {
     pub(super) fn substitute_ty_generics(&mut self, ty: InternedTyId) -> InternedTyId {
         let module_id = self.current_execution_module_id();
         let substitutions = self
-            .call_locals
-            .iter()
+            .active_execution_frames()
             .flat_map(|frame| frame.type_substitutions.iter())
             .map(|(name, ty)| (*name, *ty))
             .collect::<SymbolMap<_>>();
@@ -311,9 +310,7 @@ impl Analyzer<'_> {
                 .associated_const_projection_type(&projection)
                 .map(ConstValueType::Runtime),
             ConstNameResolution::GenericParam(name) => self
-                .call_locals
-                .iter()
-                .rev()
+                .active_execution_frames()
                 .find_map(|frame| frame.const_substitutions.get(&name))
                 .map(|arg| ConstValueType::Runtime(arg.ty)),
         }
@@ -2601,19 +2598,15 @@ impl Analyzer<'_> {
             ResolvedConstStmtKind::Break | ResolvedConstStmtKind::Continue => Some(()),
             ResolvedConstStmtKind::Return(Some(expr)) => {
                 let return_type = self
-                    .call_locals
-                    .iter()
-                    .rev()
+                    .active_execution_frames()
                     .find_map(|frame| frame.return_type);
                 self.check_const_function_result(expr, return_type, "const return value")
             }
             ResolvedConstStmtKind::Return(None) => {
                 let return_type = self
-                    .call_locals
-                    .iter()
-                    .rev()
-                    .find_map(|frame| frame.return_type)
-                    .map(|ty| self.substitute_ty_generics(ty));
+                    .active_execution_frames()
+                    .find_map(|frame| frame.return_type);
+                let return_type = return_type.map(|ty| self.substitute_ty_generics(ty));
                 if return_type.is_some_and(|ty| {
                     !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Void)))
                 }) {

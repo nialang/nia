@@ -1,0 +1,126 @@
+using std::process;
+using helper;
+
+struct Pair {
+    left: i32,
+    right: i32,
+}
+
+enum Mode {
+    Plain(i32),
+    Scale(i32, i32),
+}
+
+extend Pair {
+    const fn sum(self) i32 {
+        self.left + self.right
+    }
+}
+
+const fn arithmetic(value: i32) i32 {
+    (value * 3 + 2) / 2
+}
+
+const fn castScore(value: u8) i32 {
+    (value as i32) * 2
+}
+
+const fn arrayScore(values: [3]i32) i32 {
+    values[0] + values[1] + values[2]
+}
+
+const fn optionalScore(value: ?Pair) i32 {
+    if value is ?pair {
+        pair.sum()
+    } else {
+        -1
+    }
+}
+
+const fn resultScore(value: i32!Pair) i32 {
+    switch value {
+        !pair => pair.sum(),
+        error! => error,
+    }
+}
+
+const fn switchScore(mode: Mode) i32 {
+    switch mode {
+        Mode::Plain(value) => value,
+        Mode::Scale(value, factor) => value * factor,
+    }
+}
+
+const fn loopScore(limit: i32) i32 {
+    let mut index: i32 = 0;
+    let mut total: i32 = 0;
+    while index < limit {
+        total += index;
+        index += 1;
+    }
+    total
+}
+
+const fn select[T](useValue: bool, value: T, fallback: T) T {
+    if useValue {
+        value
+    } else {
+        fallback
+    }
+}
+
+const arithmeticExpected: i32 = arithmetic(7);
+const castExpected: i32 = castScore(9);
+const arrayExpected: i32 = arrayScore([2, 3, 5]);
+const optionalExpected: i32 = optionalScore(?Pair{left: 4, right: 6});
+const optionalNullExpected: i32 = optionalScore(null);
+const resultExpected: i32 = resultScore(!Pair{left: 5, right: 7});
+const errorExpected: i32 = resultScore(9!);
+const switchExpected: i32 = switchScore(Mode::Scale(3, 4));
+const loopExpected: i32 = loopScore(5);
+const genericExpected: i32 = select[i32](true, 13, 2);
+const importedExpected: i32 = helper::importedScore(6);
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
+        return process::exit(10)!;
+    }
+    if castScore(9) != castExpected or castExpected != 18 {
+        return process::exit(11)!;
+    }
+    if arrayScore([2, 3, 5]) != arrayExpected or arrayExpected != 10 {
+        return process::exit(12)!;
+    }
+    if optionalScore(?Pair{left: 4, right: 6}) != optionalExpected or optionalExpected != 10 {
+        return process::exit(13)!;
+    }
+    if optionalScore(null) != optionalNullExpected or optionalNullExpected != -1 {
+        return process::exit(14)!;
+    }
+    if resultScore(!Pair{left: 5, right: 7}) != resultExpected or resultExpected != 12 {
+        return process::exit(15)!;
+    }
+    if resultScore(9!) != errorExpected or errorExpected != 9 {
+        return process::exit(16)!;
+    }
+    if switchScore(Mode::Scale(3, 4)) != switchExpected or switchExpected != 12 {
+        return process::exit(17)!;
+    }
+    if loopScore(5) != loopExpected or loopExpected != 10 {
+        return process::exit(18)!;
+    }
+    if select[i32](true, 13, 2) != genericExpected or genericExpected != 13 {
+        return process::exit(19)!;
+    }
+    if helper::importedScore(6) != importedExpected or importedExpected != 24 {
+        return process::exit(20)!;
+    }
+    if helper::onlyExpected != 12 {
+        return process::exit(21)!;
+    }
+    if helper::importedOptionalScore(?8) != helper::importedOptionalExpected or helper::importedOptionalExpected != 10 {
+        return process::exit(22)!;
+    }
+    !{}
+}

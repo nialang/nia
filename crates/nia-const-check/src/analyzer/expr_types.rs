@@ -40,7 +40,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn const_local_is_mutable(&self, local_id: LocalId) -> Option<bool> {
-        self.call_locals.iter().rev().find_map(|frame| {
+        self.active_execution_frames().find_map(|frame| {
             frame
                 .local_types
                 .contains_key(&local_id)
@@ -552,9 +552,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn call_local_type(&self, local_id: LocalId) -> Option<ConstValueType> {
-        self.call_locals
-            .iter()
-            .rev()
+        self.active_execution_frames()
             .find_map(|frame| frame.local_types.get(&local_id).cloned())
     }
 }

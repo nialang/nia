@@ -1139,9 +1139,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
                 })
             }
             ConstNameResolution::GenericParam(name) => self
-                .const_call_locals
-                .iter()
-                .rev()
+                .active_const_execution_frames()
                 .find_map(|frame| frame.const_substitutions.get(&name))
                 .and_then(const_value_from_const_generic_arg)
                 .ok_or_else(|| ConstError {
@@ -1312,9 +1310,7 @@ impl<'a> BodyChecker<'a> {
             match value_use {
                 SemanticValueUse::Local(local_id)
                     if self
-                        .const_call_locals
-                        .iter()
-                        .rev()
+                        .active_const_execution_frames()
                         .any(|frame| frame.locals.contains_key(local_id))
                         || self
                             .locals
@@ -1423,8 +1419,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn typed_const_frames(&self) -> Vec<nia_const_check::TypedConstFrame> {
-        self.const_call_locals
-            .iter()
+        let frames = self.active_const_execution_frames().collect::<Vec<_>>();
+        frames
+            .into_iter()
+            .rev()
             .map(|frame| nia_const_check::TypedConstFrame {
                 module_id: frame.module_id,
                 function_id: frame.function_id,
@@ -1510,15 +1508,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn substitute_current_const_generics(&mut self, ty: InternedTyId) -> InternedTyId {
+        let frames = self.active_const_execution_frames().collect::<Vec<_>>();
         let substitutions = self
-            .const_call_locals
-            .iter()
+            .active_const_execution_frames()
             .flat_map(|frame| frame.type_substitutions.iter())
             .map(|(name, ty)| (*name, *ty))
             .collect::<SymbolMap<_>>();
-        let const_substitutions = self
-            .const_call_locals
-            .iter()
+        let const_substitutions = frames
+            .into_iter()
+            .rev()
             .flat_map(|frame| frame.const_substitutions.iter())
             .map(|(name, arg)| (*name, arg.clone()))
             .collect::<SymbolMap<_>>();
@@ -1531,9 +1529,7 @@ impl<'a> BodyChecker<'a> {
     ) -> nia_ty::ConstGenericArg {
         if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
             && let Some(resolved) = self
-                .const_call_locals
-                .iter()
-                .rev()
+                .active_const_execution_frames()
                 .find_map(|frame| frame.const_substitutions.get(name))
         {
             arg = resolved.clone();
@@ -1660,10 +1656,23 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn const_call_local_value(&self, local_id: LocalId) -> Option<ConstValue> {
+        self.active_const_execution_frames()
+            .find_map(|frame| frame.locals.get(&local_id).cloned())
+    }
+
+    fn active_const_execution_frames(&self) -> impl Iterator<Item = &crate::ConstCallFrame> {
         self.const_call_locals
             .iter()
             .rev()
-            .find_map(|frame| frame.locals.get(&local_id).cloned())
+            .scan(true, |inside_execution, frame| {
+                if !*inside_execution {
+                    return None;
+                }
+                if frame.module_id.is_some() {
+                    *inside_execution = false;
+                }
+                Some(frame)
+            })
     }
 
     fn bind_const_call_local_value(
@@ -1708,6 +1717,9 @@ impl<'a> BodyChecker<'a> {
                 }
                 frame.locals.insert(local_id, value);
                 return Ok(());
+            }
+            if frame.module_id.is_some() {
+                break;
             }
         }
         Err(ConstError {
