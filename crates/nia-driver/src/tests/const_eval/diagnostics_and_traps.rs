@@ -46,11 +46,16 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const expression can only call `const fn`")),
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("const expression can only call `const fn`"))
+            .count(),
+        1,
         "{:?}",
         program.diagnostics
     );

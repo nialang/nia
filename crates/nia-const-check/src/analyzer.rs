@@ -19,9 +19,9 @@ use nia_const_ir::{
     ConstUnaryOp, ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssign,
     ResolvedConstAssignPathElemKind, ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget,
     ResolvedConstBlock, ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind,
-    ResolvedConstFieldInit, ResolvedConstFunction, ResolvedConstModule, ResolvedConstPattern,
-    ResolvedConstPatternKind, ResolvedConstStmtKind, ResolvedConstSwitch,
-    ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
+    ResolvedConstFieldInit, ResolvedConstModule, ResolvedConstPattern, ResolvedConstPatternKind,
+    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArmBody,
+    ResolvedConstSwitchArmBodyKind, ResolvedConstTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -248,7 +248,6 @@ pub fn compute_module_const_typed_facts(
     analyzer.values = Arc::unwrap_or_clone(values.values);
     analyzer.typed_values = Arc::unwrap_or_clone(values.typed_values);
     analyzer.diagnostics = values.diagnostics;
-    analyzer.analyze_functions();
     ConstTypedFacts {
         typed_values: Arc::new(analyzer.typed_values),
         diagnostics: analyzer.diagnostics,
@@ -425,13 +424,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn analyze_functions(&mut self) {
-        let functions = self.input.module.functions().clone();
-        for (function_id, function) in functions {
-            self.check_const_function_body(function_id, &function);
-        }
-    }
-
     fn analyze_values(&mut self) {
         let global_initializers = self
             .input
@@ -467,44 +459,6 @@ impl Analyzer<'_> {
                 .unwrap_or(Span::new(0, 0));
             let _ = self.eval_key(ConstKey::Local(local_id), span);
         }
-    }
-
-    fn check_const_function_body(
-        &mut self,
-        function_id: GlobalDefId,
-        function: &ResolvedConstFunction,
-    ) {
-        let diagnostics_start = self.diagnostics.len();
-        let return_type = self
-            .input
-            .signatures
-            .functions
-            .get(&function_id.def_id)
-            .map(|signature| signature.return_type);
-        let mut frame = ConstCallFrame {
-            module_id: Some(function_id.module_id),
-            function_id: Some(function_id),
-            return_type,
-            ..ConstCallFrame::default()
-        };
-        for param in function.params() {
-            if let Some(ty) = param.ty() {
-                frame
-                    .local_types
-                    .insert(param.local_id(), ConstValueType::Runtime(ty));
-            }
-        }
-        self.call_locals.push(frame);
-        let _ = self.with_execution_module(function_id.module_id, |this| {
-            this.check_resolved_const_function_block(function.body(), return_type)
-        });
-        self.call_locals.pop();
-        let declaration_diagnostics = self.diagnostics.split_off(diagnostics_start);
-        self.diagnostics.extend(
-            declaration_diagnostics
-                .into_iter()
-                .filter(|diagnostic| diagnostic.code != codes::TYPE_CHECK.into()),
-        );
     }
 
     fn eval_enum(&mut self, item_enum: &ResolvedConstEnum) {

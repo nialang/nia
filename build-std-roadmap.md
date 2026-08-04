@@ -3089,14 +3089,20 @@ coverage proves that ordinary functions are not declaration roots, referenced
 runtime callee bodies are not followed, and no typed function body is produced.
 
 The ordinary checker now owns declaration type diagnostics, including trait
-and output-projection validation for compound assignments. The existing const
-IR traversal temporarily remains only for const-capability diagnostics; its
-`TYPE_CHECK` diagnostics are discarded during this transition. Round 1 remains
-open until capability checking consumes shared typed facts and the duplicate
-`resolved_const_expr_type`/`const_function_types_match` inference paths are
-deleted. Diagnostic deduplication, optional/error-union construction,
-union-specific semantics, and the remaining capability/control-flow audit also
-remain open.
+and output-projection validation for compound assignments. Shared
+`ResolvedCall` facts and `FunctionSignature::is_const` also own the rule that a
+const-capable body may call only another `const fn`; free, generic, method,
+trait, associated, dynamic, and function-pointer calls use one resolved-call
+classification, and diagnostics are deduplicated by source node.
+
+`compute_module_const_typed_facts` no longer traverses every const function.
+The dead `analyze_functions`/`check_const_function_body` entry and its separate
+function-block type audit are deleted. Remaining
+`resolved_const_expr_type`/`const_function_types_match` use is demand-driven by
+actual const evaluation, local value typing, and result normalization rather
+than declaration validation. Round 1 remains open for const-only builtin and
+operation capability coverage, optional/error-union and union-specific
+semantics, and the remaining control-flow audit.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
