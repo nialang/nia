@@ -373,6 +373,72 @@ fn low(value: u128, count: u32) u128 {
 }
 
 #[test]
+fn integer_division_and_remainder_trap_before_llvm_undefined_behavior() {
+    let root = temp_dir("integer_division_and_remainder_trap_before_llvm_undefined_behavior");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn signedDiv(lhs: i32, rhs: i32) i32 {
+    lhs / rhs
+}
+
+fn signedRem(lhs: i32, rhs: i32) i32 {
+    lhs % rhs
+}
+
+fn unsignedDiv(lhs: u32, rhs: u32) u32 {
+    lhs / rhs
+}
+
+fn unsignedRem(lhs: u32, rhs: u32) u32 {
+    lhs % rhs
+}
+
+fn compoundDiv(lhs: i32, rhs: i32) i32 {
+    let mut value = lhs;
+    value /= rhs;
+    value
+}
+
+fn compoundRem(lhs: u32, rhs: u32) u32 {
+    let mut value = lhs;
+    value %= rhs;
+    value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("divrem.zero"), "expected zero checks:\n{ir}");
+    assert!(
+        ir.contains("divrem.min"),
+        "expected signed-min checks:\n{ir}"
+    );
+    assert!(
+        ir.contains("divrem.negative_one"),
+        "expected signed negative-one checks:\n{ir}"
+    );
+    assert!(
+        ir.contains("divrem.trap") && ir.contains("call void @llvm.trap()"),
+        "expected checked div/rem trap blocks:\n{ir}"
+    );
+    assert!(ir.contains("sdiv i32"), "expected signed division:\n{ir}");
+    assert!(ir.contains("srem i32"), "expected signed remainder:\n{ir}");
+    assert!(ir.contains("udiv i32"), "expected unsigned division:\n{ir}");
+    assert!(
+        ir.contains("urem i32"),
+        "expected unsigned remainder:\n{ir}"
+    );
+}
+
+#[test]
 fn emits_compiler_builtins_object_only_when_reachable_ir_needs_it() {
     let root = temp_dir("emits_compiler_builtins_object_only_when_reachable_ir_needs_it");
     let plain = root.join("plain.nia");

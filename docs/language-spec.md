@@ -460,6 +460,14 @@ for an unsuffixed numeric literal on either side. An explicit suffix is never
 overridden by the peer operand. Shift counts are checked independently and do
 not determine the type of the value being shifted.
 
+Scalar integer division and remainder trap when the divisor is zero. Signed
+scalar division and remainder also trap for `MIN / -1` and `MIN % -1`, since
+the mathematical quotient is not representable in the operand type. During
+constant evaluation these traps are source diagnostics; runtime lowering checks
+the same conditions before emitting the LLVM integer operation. Floating-point
+division and remainder follow their floating-point semantics and are not
+covered by this scalar integer trap rule.
+
 An expected optional or error-union type supplies context to its constructed
 payload. For example, `return ?0` in a function returning `?usize`, `!1` where
 `E!u8` is expected, and `2!` where `u8!i32` is expected infer `usize`, `u8`, and
