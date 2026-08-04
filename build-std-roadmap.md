@@ -3006,6 +3006,18 @@ operator output projections must converge with the ordinary body checker in a
 later shared-semantics batch. Round 1 remains open for that convergence and the
 remaining expression, pattern, aggregate, and control-flow audit.
 
+Dual-stage const hardening progress (2026-08-04, switch declaration audit):
+unused const-capable definitions now reject known-incompatible switch patterns
+and concrete arm result types. An invalid pattern no longer prevents its arm
+body or later arms from being declaration-checked, so a runtime-only call
+cannot hide behind a malformed or unselected pattern. Pattern compatibility is
+diagnosed once outside contextual arm-type retries. A pattern whose type is not
+yet available also leaves the switch result unresolved while its body is still
+audited. Targets containing generic, `Self`, or projection types remain
+unresolved instead of being treated as definite pattern errors. Exhaustiveness
+and the shared ordinary/const pattern contract remain open, as do aggregate
+literal and indexing diagnostics.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

@@ -1518,7 +1518,25 @@ impl Analyzer<'_> {
         let expected = expected.and_then(|expected| self.usable_const_expected_type(expected));
         let mut result_ty = expected.map(ConstValueType::Runtime);
         let mut saw_value_arm = false;
+        let mut all_arms_typed = true;
         for arm in switch.arms() {
+            if target_ty.is_some_and(|target_ty| {
+                self.const_runtime_type_is_known(target_ty)
+                    && self
+                        .resolved_const_patterns_have_definite_mismatch(arm.patterns(), target_ty)
+            }) {
+                self.push_const_type_error(
+                    arm.span(),
+                    "const switch pattern does not match the target type",
+                );
+                let _ = self.resolved_const_switch_arm_body_type(
+                    arm.body(),
+                    result_ty.as_ref().and_then(ConstValueType::runtime),
+                );
+                all_arms_typed = false;
+                continue;
+            }
+            let diagnostics_before_arm = self.diagnostics.len();
             let arm_ty = result_ty
                 .clone()
                 .and_then(|expected| {
@@ -1534,18 +1552,52 @@ impl Analyzer<'_> {
                         result_ty.as_ref()?.runtime(),
                     )
                 })
-                .or_else(|| self.resolved_const_switch_arm_type(arm, target_ty, None))?;
+                .or_else(|| self.resolved_const_switch_arm_type(arm, target_ty, None));
+            let Some(arm_ty) = arm_ty else {
+                if self.diagnostics.len() == diagnostics_before_arm {
+                    let _ = self.resolved_const_switch_arm_body_type(
+                        arm.body(),
+                        result_ty.as_ref().and_then(ConstValueType::runtime),
+                    );
+                }
+                all_arms_typed = false;
+                continue;
+            };
             let ConstArmType::Value(arm_ty) = arm_ty else {
                 continue;
             };
             saw_value_arm = true;
             match &result_ty {
-                Some(result_ty) if *result_ty != arm_ty => return None,
+                Some(result_ty) if *result_ty != arm_ty => {
+                    if self.const_value_types_have_known_mismatch(result_ty, &arm_ty) {
+                        self.push_const_type_error(
+                            arm.span(),
+                            "const switch arms have incompatible result types",
+                        );
+                    }
+                    all_arms_typed = false;
+                }
                 Some(_) => {}
                 None => result_ty = Some(arm_ty),
             }
         }
+        if !all_arms_typed {
+            return None;
+        }
         saw_value_arm.then_some(result_ty).flatten()
+    }
+
+    fn const_value_types_have_known_mismatch(
+        &self,
+        lhs: &ConstValueType,
+        rhs: &ConstValueType,
+    ) -> bool {
+        match (lhs, rhs) {
+            (ConstValueType::Runtime(lhs), ConstValueType::Runtime(rhs)) => {
+                self.const_runtime_type_is_known(*lhs) && self.const_runtime_type_is_known(*rhs)
+            }
+            _ => true,
+        }
     }
 
     pub(super) fn resolved_const_switch_arm_type(
@@ -1889,14 +1941,7 @@ impl Analyzer<'_> {
         let then_ty = self.resolved_const_block_tail_type(then_branch, None)?;
         let else_ty = self.resolved_const_expr_type(else_branch, None)?;
         if then_ty != else_ty {
-            let known_mismatch = match (&then_ty, &else_ty) {
-                (ConstValueType::Runtime(then_ty), ConstValueType::Runtime(else_ty)) => {
-                    self.const_runtime_type_is_known(*then_ty)
-                        && self.const_runtime_type_is_known(*else_ty)
-                }
-                _ => true,
-            };
-            if known_mismatch {
+            if self.const_value_types_have_known_mismatch(&then_ty, &else_ty) {
                 self.push_const_type_error(
                     else_branch.span(),
                     "const if branches have incompatible types",
