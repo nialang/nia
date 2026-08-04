@@ -718,6 +718,167 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_audits_typed_array_literal() {
+    let root = temp_dir("unused_const_function_audits_typed_array_literal");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongTypedArray() usize {
+    [2]usize[true, runtimeOnly(), 3usize];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "const array literal element does not match its expected type",
+        "const expression can only call `const fn`",
+        "const array literal length mismatch: expected 2, got 3",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_audits_all_nominal_struct_fields() {
+    let root = temp_dir("unused_const_function_audits_all_nominal_struct_fields");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+    y: usize,
+}
+
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongStruct() usize {
+    Point{x: true, z: runtimeOnly()};
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "unknown const struct field `z`",
+        "missing const struct field `y`",
+        "const struct literal field does not match its expected type",
+        "const expression can only call `const fn`",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_audits_duplicate_struct_field_value() {
+    let root = temp_dir("unused_const_function_audits_duplicate_struct_field_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongStruct() usize {
+    {value: 1usize, value: runtimeOnly()};
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "duplicate const struct field `value`",
+        "const expression can only call `const fn`",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_rejects_struct_literal_in_non_struct_context() {
+    let root = temp_dir("unused_const_function_rejects_struct_literal_in_non_struct_context");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongStructShape() usize {
+    let value: usize = {inner: 1usize};
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const struct literal expected type is not a struct")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_generic_const_function_accepts_contextual_struct_fields() {
+    let root = temp_dir("unused_generic_const_function_accepts_contextual_struct_fields");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+const fn wrap[T](value: T) Box[T] {
+    {value: value}
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn recursive_const_evaluation_has_a_call_depth_limit() {
     let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
     write(

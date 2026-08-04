@@ -354,10 +354,14 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::Bool(_) => Some(ConstValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),
-            ResolvedConstExprKind::ArrayLiteral { ty: Some(ty), .. }
-            | ResolvedConstExprKind::StructLiteral { ty: Some(ty), .. } => {
-                Some(ConstValueType::Runtime(*ty))
-            }
+            ResolvedConstExprKind::ArrayLiteral {
+                ty: Some(ty),
+                elems,
+            } => self.resolved_const_array_literal_type(expr.span(), elems, Some(*ty)),
+            ResolvedConstExprKind::StructLiteral {
+                ty: Some(ty),
+                fields,
+            } => self.resolved_const_struct_literal_type(expr.span(), fields, Some(*ty)),
             ResolvedConstExprKind::ArrayLiteral { ty: None, elems } => {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
             }
@@ -1182,7 +1186,7 @@ impl Analyzer<'_> {
                     types_match = false;
                 }
                 let actual_len = self.probe_resolved_const_array_len_expr(count);
-                let elem_ty = elem_ty?;
+                let elem_ty = elem_ty.or(expected_elem)?;
                 (elem_ty, actual_len)
             }
         };
@@ -1296,7 +1300,6 @@ impl Analyzer<'_> {
     ) -> InternedTyId {
         for elem in elems {
             let Some(actual) = self.resolved_const_arg_runtime_type(elem, Some(elem_ty)) else {
-                *types_match = false;
                 continue;
             };
             if !self.const_function_types_match(elem_ty, actual) {
@@ -1413,8 +1416,20 @@ impl Analyzer<'_> {
         let Some(expected) = expected else {
             return self.structural_resolved_const_struct_literal_type(fields);
         };
-        let (def_id, expected_args) = self.expected_nominal_parts(expected)?;
+        let Some((def_id, expected_args)) = self.expected_nominal_parts(expected) else {
+            let _ = self.structural_resolved_const_struct_literal_type(fields);
+            if self.const_runtime_type_is_known(expected)
+                && !matches!(self.ty_kind(expected), Some(TyKind::ConstOnly))
+            {
+                self.push_const_type_error(
+                    span,
+                    "const struct literal expected type is not a struct",
+                );
+            }
+            return None;
+        };
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
+            let _ = self.structural_resolved_const_struct_literal_type(fields);
             return None;
         }
         let signature = self.struct_signature_for(def_id)?;
@@ -1423,35 +1438,82 @@ impl Analyzer<'_> {
             fields
                 .iter()
                 .map(|field| NamedField::new(field.span(), *field.name_symbol())),
-            field_tys.keys().cloned(),
+            signature.fields.iter().map(|field| field.name),
         );
-        if !field_set.is_valid() {
-            return None;
+        let fields_are_valid = field_set.is_valid();
+        for field in &field_set.duplicate_fields {
+            let name = self.symbol_name(field.name);
+            self.push_const_type_error(
+                field.span,
+                &format!("duplicate const struct field `{name}`"),
+            );
+        }
+        for field in &field_set.unknown_fields {
+            let name = self.symbol_name(field.name);
+            self.push_const_type_error(field.span, &format!("unknown const struct field `{name}`"));
+        }
+        for name in &field_set.missing_fields {
+            let name = self.symbol_name(*name);
+            self.push_const_type_error(span, &format!("missing const struct field `{name}`"));
         }
         let mut substitutions = SymbolMap::default();
+        let mut actual_fields = Vec::with_capacity(fields.len());
         for field in fields {
-            let expected_field = *field_tys.get(field.name_symbol())?;
-            if let Some(actual_field) =
-                self.resolved_const_struct_field_actual_type(field.value(), expected_field)
-            {
-                self.probe_type_generic_inference(
+            let Some(expected_field) = field_tys.get(field.name_symbol()).copied() else {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+                actual_fields.push((None, false));
+                continue;
+            };
+            let diagnostics_before_field = self.diagnostics.len();
+            let actual_field =
+                self.resolved_const_struct_field_actual_type(field.value(), expected_field);
+            if let Some(actual_field) = actual_field {
+                let _ = self.probe_type_generic_inference(
                     span,
                     expected_field,
                     actual_field,
                     &mut substitutions,
-                )?;
+                );
+            }
+            actual_fields.push((
+                actual_field,
+                self.diagnostics.len() != diagnostics_before_field,
+            ));
+        }
+
+        let mut types_match = true;
+        for (field, (actual_field, field_has_diagnostic)) in fields.iter().zip(actual_fields) {
+            let Some(raw_expected_field) = field_tys.get(field.name_symbol()).copied() else {
+                continue;
+            };
+            let expected_field =
+                self.substitute_current_ty_generics(raw_expected_field, &substitutions)?;
+            let actual_field = actual_field
+                .filter(|actual| !self.type_contains_generic(*actual))
+                .or_else(|| {
+                    if field_has_diagnostic {
+                        None
+                    } else {
+                        self.resolved_const_arg_runtime_type(field.value(), Some(expected_field))
+                    }
+                });
+            let Some(actual_field) = actual_field else {
+                continue;
+            };
+            if !self.const_function_types_match(expected_field, actual_field) {
+                if self.const_runtime_type_is_known(expected_field)
+                    && self.const_runtime_type_is_known(actual_field)
+                {
+                    self.push_const_type_error(
+                        field.value().span(),
+                        "const struct literal field does not match its expected type",
+                    );
+                }
+                types_match = false;
             }
         }
-        for field in fields {
-            let expected_field = self.substitute_current_ty_generics(
-                *field_tys.get(field.name_symbol())?,
-                &substitutions,
-            )?;
-            let actual_field =
-                self.resolved_const_arg_runtime_type(field.value(), Some(expected_field))?;
-            if actual_field != expected_field {
-                return None;
-            }
+        if !fields_are_valid || !types_match {
+            return None;
         }
         self.substitute_nominal_args(def_id, expected_args, &substitutions)
             .map(ConstValueType::Runtime)
@@ -1463,16 +1525,29 @@ impl Analyzer<'_> {
     ) -> Option<ConstValueType> {
         let mut seen = HashSet::new();
         let mut typed_fields = Vec::with_capacity(fields.len());
+        let mut fields_are_valid = true;
         for field in fields {
-            if !seen.insert(field.name_symbol()) {
-                return None;
+            let is_first = seen.insert(*field.name_symbol());
+            if !is_first {
+                let name = self.symbol_name(*field.name_symbol());
+                self.push_const_type_error(
+                    field.span(),
+                    &format!("duplicate const struct field `{name}`"),
+                );
+                fields_are_valid = false;
             }
-            typed_fields.push(ConstValueFieldType {
-                name: *field.name_symbol(),
-                ty: self.resolved_const_expr_type(field.value(), None)?,
-            });
+            let Some(ty) = self.resolved_const_expr_type(field.value(), None) else {
+                fields_are_valid = false;
+                continue;
+            };
+            if is_first {
+                typed_fields.push(ConstValueFieldType {
+                    name: *field.name_symbol(),
+                    ty,
+                });
+            }
         }
-        Some(ConstValueType::Struct(typed_fields))
+        fields_are_valid.then_some(ConstValueType::Struct(typed_fields))
     }
 
     pub(super) fn const_nominal_struct_field_type(
