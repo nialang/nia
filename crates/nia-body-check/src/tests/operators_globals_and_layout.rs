@@ -191,6 +191,29 @@ fn negate(value: boolx16) boolx16 {
 }
 
 #[test]
+fn checks_vector_shift_operand_shapes() {
+    let checked = pipeline(
+        r#"
+fn valid(lhs: u8x16, rhs: u8x16) u8x16 { lhs << rhs }
+fn scalarCount(lhs: u8x16, rhs: u8) u8x16 { lhs << rhs }
+fn wrongLanes(lhs: u8x16, rhs: u8x8) u8x16 { lhs >> rhs }
+fn boolLanes(lhs: boolx16, rhs: boolx16) boolx16 { lhs << rhs }
+"#,
+    );
+
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("trait bound not satisfied"))
+            .count(),
+        3,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_unary_operators_without_builtin_trait_impls() {
     let checked = pipeline(
         r#"
@@ -460,7 +483,7 @@ fn main(flag: bool, wide: u128, count: u32) i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("trait bound not satisfied: bool: Shl[bool]")),
+            .contains("trait bound not satisfied: bool: Shl[i32]")),
         "{:?}",
         checked.diagnostics
     );

@@ -2370,8 +2370,13 @@ support arithmetic or negation; their bitwise operations remain available.
 Integer-vector division and remainder likewise trap the whole operation if any
 lane has a zero divisor, or if any signed lane evaluates `MIN / -1` or
 `MIN % -1`. Only after every lane passes these checks does the lane-wise LLVM
-operation execute. Integer-vector shifts remain a separately specified
-boundary.
+operation execute. Integer-vector shifts use a count vector of the same type
+and lane count as the left operand; a uniform count is expressed explicitly by
+splatting a scalar. Counts are checked per lane, and any negative signed count
+or count at least as wide as the lane type traps the whole operation. Left
+shift also traps when any lane's mathematical result is not representable.
+Right shift is arithmetic for signed lane types and logical for unsigned lane
+types. Boolean mask vectors do not support shifts.
 
 Bit-counting builtins operate on integer primitive types. `@ctz[T](value)`
 returns the number of trailing zero bits, `@clz[T](value)` returns the number

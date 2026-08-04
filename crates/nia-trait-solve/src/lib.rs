@@ -240,7 +240,20 @@ where
                 let Some(rhs_ty) = trait_args.first().copied() else {
                     return false;
                 };
-                self.can_be_integer(self_ty) && self.can_be_integer(rhs_ty)
+                match self.type_store.get(self.normalize(self_ty)) {
+                    Some(TyKind::GenericParam(_)) => self.can_be_integer(rhs_ty),
+                    Some(TyKind::Primitive(primitive)) if primitive.is_integer() => {
+                        match self.type_store.get(self.normalize(rhs_ty)) {
+                            Some(TyKind::GenericParam(_)) => true,
+                            Some(TyKind::Primitive(rhs)) => rhs.is_integer(),
+                            _ => false,
+                        }
+                    }
+                    Some(TyKind::Vector { elem, .. }) if elem.is_integer() => {
+                        self.patterns_can_match(self_ty, rhs_ty)
+                    }
+                    _ => false,
+                }
             }
             BuiltinTrait::Neg => self.can_be_numeric(self_ty),
             BuiltinTrait::BitNot => self.can_be_integer(self_ty),
@@ -878,7 +891,7 @@ impl TraitSolver<'_> {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
-                self.is_integer(self_ty) && self.is_integer(*rhs_ty)
+                self.intrinsic_shift_impl_exists(self_ty, *rhs_ty)
             }
             BuiltinTrait::Neg => goal.trait_args.is_empty() && self.is_numeric(self_ty),
             BuiltinTrait::BitNot => goal.trait_args.is_empty() && self.is_integer(self_ty),
@@ -1023,7 +1036,7 @@ impl TraitSolver<'_> {
                 let [rhs_ty] = trait_args else {
                     return None;
                 };
-                (self.is_integer(self_ty) && self.is_integer(*rhs_ty))
+                self.intrinsic_shift_impl_exists(self_ty, *rhs_ty)
                     .then_some(self.normalize(self_ty))
             }
             (BuiltinTrait::Neg, BuiltinAssociatedType::Output) => {
@@ -2945,6 +2958,18 @@ impl TraitSolver<'_> {
             | Some(TyKind::Vector {
                 elem: primitive, ..
             }) => primitive.is_integer() || primitive.is_float(),
+            _ => false,
+        }
+    }
+
+    fn intrinsic_shift_impl_exists(&mut self, self_ty: InternedTyId, rhs_ty: InternedTyId) -> bool {
+        match self.kind(self_ty) {
+            Some(TyKind::Primitive(primitive)) if primitive.is_integer() => {
+                matches!(self.kind(rhs_ty), Some(TyKind::Primitive(rhs)) if rhs.is_integer())
+            }
+            Some(TyKind::Vector { elem, .. }) if elem.is_integer() => {
+                self.types_equivalent(self_ty, rhs_ty)
+            }
             _ => false,
         }
     }

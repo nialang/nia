@@ -470,6 +470,63 @@ fn compoundRight(lhs: i8, count: i16) i8 {
 }
 
 #[test]
+fn vector_integer_shifts_trap_on_any_invalid_lane() {
+    let root = temp_dir("vector_integer_shifts_trap_on_any_invalid_lane");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn unsignedLeft(lhs: u8x16, rhs: u8x16) u8x16 { lhs << rhs }
+fn signedLeft(lhs: i8x16, rhs: i8x16) i8x16 { lhs << rhs }
+fn unsignedRight(lhs: u8x16, rhs: u8x16) u8x16 { lhs >> rhs }
+fn signedRight(lhs: i8x16, rhs: i8x16) i8x16 { lhs >> rhs }
+
+fn compoundLeft(lhs: u8x16, rhs: u8x16) u8x16 {
+    let mut value = lhs;
+    value <<= rhs;
+    value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("icmp uge <16 x i8>")
+            && ir.contains("shift.count.invalid.any")
+            && ir.contains("shift.count.trap"),
+        "expected any-lane vector count validation:\n{ir}"
+    );
+    assert!(
+        ir.contains("icmp slt <16 x i8>") && ir.contains("shift.count.negative"),
+        "expected signed vector count validation:\n{ir}"
+    );
+    assert!(
+        ir.contains("shl <16 x i16>")
+            && ir.contains("shift.result.overflow.any")
+            && ir.contains("shift.overflow.trap"),
+        "expected exact widened vector left shift:\n{ir}"
+    );
+    assert!(
+        ir.contains("ashr <16 x i8>"),
+        "expected arithmetic vector right shift:\n{ir}"
+    );
+    assert!(
+        ir.contains("lshr <16 x i8>"),
+        "expected logical vector right shift:\n{ir}"
+    );
+    assert!(
+        ir.matches("shift.result.overflow.any").count() >= 3,
+        "compound left shift must share vector checks:\n{ir}"
+    );
+}
+
+#[test]
 fn integer_division_and_remainder_trap_before_llvm_undefined_behavior() {
     let root = temp_dir("integer_division_and_remainder_trap_before_llvm_undefined_behavior");
     let main = root.join("main.nia");

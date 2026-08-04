@@ -26,10 +26,10 @@ use std::marker::PhantomData;
 
 use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, Context, DILocation,
-    FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue, InstructionValue,
-    IntPredicate, IntType, IntValue, LlvmResult, PhiValue, PointerType, PointerValue, StructValue,
-    VectorValue, to_c_string,
+    BasicMetadataValueEnum, BasicTypeEnum, BasicValue, BasicValueEnum, CallSiteValue, Context,
+    DILocation, FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue,
+    InstructionValue, IntPredicate, IntType, IntValue, LlvmResult, PhiValue, PointerType,
+    PointerValue, StructValue, VectorValue, to_c_string,
 };
 pub struct Builder<'ctx> {
     pub(super) raw: LLVMBuilderRef,
@@ -1093,6 +1093,33 @@ impl<'ctx> Builder<'ctx> {
         cast_int(self.raw, LLVMBuildTrunc, value, target, name)
     }
 
+    pub fn build_basic_int_z_extend(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        target: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        cast_basic(self.raw, LLVMBuildZExt, value, target, name)
+    }
+
+    pub fn build_basic_int_s_extend(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        target: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        cast_basic(self.raw, LLVMBuildSExt, value, target, name)
+    }
+
+    pub fn build_basic_int_truncate(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        target: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        cast_basic(self.raw, LLVMBuildTrunc, value, target, name)
+    }
+
     pub fn build_signed_int_to_float(
         &self,
         value: IntValue<'ctx>,
@@ -1215,6 +1242,24 @@ fn cast_int<'ctx>(
             name.as_ptr(),
         )
     }))
+}
+
+fn cast_basic<'ctx>(
+    builder: LLVMBuilderRef,
+    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
+    value: BasicValueEnum<'ctx>,
+    target: BasicTypeEnum<'ctx>,
+    name: &str,
+) -> LlvmResult<BasicValueEnum<'ctx>> {
+    let name = to_c_string(name)?;
+    BasicValueEnum::new(unsafe {
+        f(
+            builder,
+            value.as_value_ref(),
+            target.as_type_ref(),
+            name.as_ptr(),
+        )
+    })
 }
 
 fn cast_float<'ctx, V: AsValueRef>(

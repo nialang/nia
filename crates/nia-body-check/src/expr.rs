@@ -1141,10 +1141,22 @@ impl<'a> BodyChecker<'a> {
             self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
         }
         let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
-        if !self.current_context_proves_trait_obligation(
+        let rhs_actual = self.check_expr(rhs);
+        let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
+        let rhs_is_integer = self.is_integer(rhs_ty);
+        if !rhs_is_integer {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                rhs.span,
+                format!(
+                    "shift count must be an integer type, got {}",
+                    self.ty_name(rhs_ty)
+                ),
+            ));
+        } else if !self.current_context_proves_trait_obligation(
             lhs_ty,
             TraitId::Builtin(trait_id),
-            vec![lhs_ty],
+            vec![rhs_ty],
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -1152,20 +1164,7 @@ impl<'a> BodyChecker<'a> {
                 format!(
                     "trait bound not satisfied: {}: {}",
                     self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(trait_id, &[lhs_ty])
-                ),
-            ));
-        }
-
-        let rhs_actual = self.check_expr(rhs);
-        let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
-        if !self.is_integer(rhs_ty) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                rhs.span,
-                format!(
-                    "shift count must be an integer type, got {}",
-                    self.ty_name(rhs_ty)
+                    self.builtin_trait_ty_name(trait_id, &[rhs_ty])
                 ),
             ));
         }
