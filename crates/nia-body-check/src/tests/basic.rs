@@ -106,6 +106,47 @@ const fn inspect() usize {
 }
 
 #[test]
+fn const_declaration_filter_rejects_function_pointer_values_and_calls() {
+    let checked = pipeline_const_declarations(
+        r#"
+const fn increment(value: usize) usize {
+    value + 1
+}
+
+const fn storesFunctionPointer() usize {
+    let callback = & increment;
+    1
+}
+
+const fn callsFunctionPointer() usize {
+    let callback = & increment;
+    callback(1)
+}
+"#,
+    );
+
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("function pointer values are not available during const evaluation"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("indirect function calls are not available during const evaluation")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_return_tail_and_local_binding_types() {
     let checked = pipeline(
         r#"

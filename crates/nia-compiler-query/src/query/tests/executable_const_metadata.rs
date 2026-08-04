@@ -106,6 +106,63 @@ values.len() as i32
 }
 
 #[test]
+fn runtime_function_reference_roots_only_its_const_target() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+const fn referenced(value: i32) i32 {
+value * 2 + 1
+}
+
+const fn unused(value: i32) i32 {
+value - 100
+}
+
+fn main() i32 {
+let callback = & referenced;
+callback(12)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry module should be executable-reachable");
+    let function = |name| {
+        module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Function && def.name == sym(name))
+                    .then_some(GlobalDefId { module_id, def_id })
+            })
+            .unwrap_or_else(|| panic!("missing function `{name}`"))
+    };
+    let main = function("main");
+    let referenced = function("referenced");
+    let unused = function("unused");
+
+    assert!(
+        module.body_diagnostics.is_empty(),
+        "runtime function references should type-check: {:?}",
+        module.body_diagnostics
+    );
+    assert!(facts.runtime_functions.contains(&main));
+    assert!(facts.runtime_functions.contains(&referenced));
+    assert!(!facts.runtime_functions.contains(&unused));
+    assert!(module.body_ir.function_bodies.contains_key(&referenced));
+    assert!(!module.body_ir.function_bodies.contains_key(&unused));
+}
+
+#[test]
 fn executable_checked_modules_do_not_body_check_modules_for_generic_metadata_only() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
