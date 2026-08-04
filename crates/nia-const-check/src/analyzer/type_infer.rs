@@ -292,16 +292,33 @@ impl Analyzer<'_> {
         &mut self,
         expr: &ResolvedConstExpr,
     ) -> Option<i128> {
-        nia_const_eval::eval_resolved_const_int_expr(expr, self)
-            .ok()
-            .and_then(IntConst::as_i128)
+        self.probe_resolved_const_eval(|this| {
+            nia_const_eval::eval_resolved_const_int_expr(expr, this)
+        })
+        .and_then(IntConst::as_i128)
     }
 
     pub(super) fn probe_resolved_const_array_len_expr(
         &mut self,
         expr: &ResolvedConstExpr,
     ) -> Option<u64> {
-        nia_const_eval::eval_resolved_const_array_len_expr(expr, self).ok()
+        self.probe_resolved_const_eval(|this| {
+            nia_const_eval::eval_resolved_const_array_len_expr(expr, this)
+        })
+    }
+
+    fn probe_resolved_const_eval<T>(
+        &mut self,
+        evaluate: impl FnOnce(&mut Self) -> Result<T, nia_const_eval::ConstError>,
+    ) -> Option<T> {
+        let call_locals = self.call_locals.clone();
+        let budget = self.const_eval_budget.clone();
+        let diagnostic_len = self.diagnostics.len();
+        let result = evaluate(self).ok();
+        self.call_locals = call_locals;
+        self.const_eval_budget = budget;
+        self.diagnostics.truncate(diagnostic_len);
+        result
     }
 
     pub(super) fn probe_type_generic_inference(

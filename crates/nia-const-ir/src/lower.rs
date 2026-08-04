@@ -928,6 +928,19 @@ fn lower_assign_target_base_with_context(
             *name,
             lower_local_use(context, &expr.node_key, expr.span)?,
         )),
+        nia_ast::ExprKind::SelfValue => {
+            let Some(name) = context.intern_name("self", expr.span)? else {
+                return Err(ConstLowerError {
+                    span: expr.span,
+                    message: "const receiver lowering requires a symbol table".to_string(),
+                });
+            };
+            Ok((
+                expr.span,
+                name,
+                lower_local_use(context, &expr.node_key, expr.span)?,
+            ))
+        }
         nia_ast::ExprKind::Field { lhs, name } => {
             let base = lower_assign_target_base_with_context(lhs, context, path)?;
             path.push(EarlyConstAssignPathElem::Field {
@@ -1063,7 +1076,11 @@ fn resolve_const_param(param: EarlyConstParam) -> Result<ResolvedConstParam, Con
         .local_id
         .ok_or_else(|| unresolved_error(param.span, "const function parameter local"))?;
     Ok(ResolvedConstParam::new(
-        param.span, param.name, local_id, param.ty,
+        param.span,
+        param.name,
+        local_id,
+        param.ty,
+        param.receiver,
     ))
 }
 
@@ -1594,6 +1611,7 @@ fn lower_function_internal(
                     .map(|ty| lower_type_id(context, &ty.node_key, ty.span))
                     .transpose()?
                     .flatten(),
+                receiver: param.receiver,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;

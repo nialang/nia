@@ -707,6 +707,52 @@ fn main() i32 {
 }
 
 #[test]
+fn const_mutable_receiver_writes_back_nested_place_once() {
+    let root = temp_dir("const_mutable_receiver_writes_back_nested_place_once");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {
+    value: usize,
+}
+
+extend Counter {
+    const fn bump(&mut self) usize {
+        self.value += 1;
+        self.value
+    }
+}
+
+struct State {
+    counters: [2]Counter,
+}
+
+const fn width() usize {
+    let mut state = State {
+        counters: [Counter { value: 2 }, Counter { value: 5 }],
+    };
+    let mut index = 0usize;
+    let bumped = state.counters[{
+        index += 1;
+        0usize
+    }].bump();
+    state.counters[0].value * 1000 + state.counters[1].value * 100 + index * 10 + bumped
+}
+
+const n: usize = width();
+
+fn main() i32 {
+    let values: [3513]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_function_rejects_escaped_loop_control_flow() {
     let root = temp_dir("const_function_rejects_escaped_loop_control_flow");
     write(

@@ -3279,6 +3279,38 @@ assignment shares the same path. The scalar and vector contracts now avoid
 LLVM poison without introducing an evaluator-local or backend-local type
 system.
 
+Dual-stage const hardening progress (2026-08-04, mutable receiver place
+writeback foundation): const function parameters now retain their ordinary
+`ReceiverKind`, so evaluator frames no longer guess whether `self` is mutable
+from an erased or recovered type. A resolved method receiver is evaluated into
+one explicit const place rooted at a caller local. Field projections and array
+indices are captured before the call, and an index expression is therefore
+executed exactly once even when the callee mutates `&mut self`. Const function
+execution returns the updated mutable receiver beside its ordinary result; the
+caller then reconstructs the containing aggregate and writes it through the
+same checked local-frame ownership boundary used by assignment. `self` is also
+accepted as an ordinary const assignment root, closing the method-body gap
+that previously made mutable receiver declarations appear supported while
+their bodies could not be lowered. The indexed-place regression also exposed
+that const type/bounds probes were evaluating against the live execution frame:
+a side-effecting index was committed repeatedly while recovering its type and
+checking its bounds. Integer and array-length probes are now transactional;
+they restore call frames, diagnostics, and the evaluation budget after
+observation, so semantic probing cannot alter comptime state or steal resources
+from the real execution.
+
+This is the shared call/place prerequisite for const `for`, not a special
+iterator evaluator. A focused const regression mutates a nested struct in
+an indexed array place, uses a side effect in that index, and fixes the exact
+comptime result. The maintained dual-stage executable also calls one mutable
+receiver definition at comptime and runtime, checking both the returned value
+and the updated runtime owner. `Iterable::iter` and `Iterator::next` remain
+unavailable until the next batch routes their trait-selected bodies through
+this contract and keeps the iterator value as explicit loop state. General
+mutable pointer arguments and dereferenced-place aliasing remain a separate
+extension of the same place model; the current batch makes no snapshot-pointer
+claim for them.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

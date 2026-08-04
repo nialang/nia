@@ -1195,6 +1195,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
         callee: &ResolvedConstExpr,
         generic_args: &[nia_const_ir::ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
+        receiver_place: Option<&nia_const_eval::ResolvedConstPlace>,
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         let Some(function_id) = self.resolved_const_function(callee) else {
@@ -1225,7 +1226,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
                 message: "const expression can only call `const fn`".to_string(),
             });
         };
-        nia_const_eval::eval_resolved_const_function_call(
+        let output = nia_const_eval::eval_resolved_const_function_call(
             nia_const_eval::ResolvedConstCallInput {
                 span,
                 function_id,
@@ -1236,7 +1237,17 @@ impl ResolvedConstEnv for BodyChecker<'_> {
                 args,
             },
             self,
-        )
+        )?;
+        if let Some(receiver) = output.mutable_receiver {
+            let Some(receiver_place) = receiver_place else {
+                return Err(ConstError {
+                    span,
+                    message: "mutable const receiver requires a place".to_string(),
+                });
+            };
+            nia_const_eval::write_resolved_const_place(span, receiver_place, receiver, self)?;
+        }
+        Ok(output.value)
     }
 
     fn bind_resolved_function_param(
@@ -1248,7 +1259,13 @@ impl ResolvedConstEnv for BodyChecker<'_> {
         let ty = param.ty().map(|ty| {
             nia_const_check::ConstValueType::Runtime(self.substitute_current_const_generics(ty))
         });
-        self.bind_const_call_local_value(span, param.local_id(), false, value, ty)
+        self.bind_const_call_local_value(
+            span,
+            param.local_id(),
+            param.receiver() == Some(nia_ids::ReceiverKind::Ref),
+            value,
+            ty,
+        )
     }
 
     fn bind_resolved_function_local(
@@ -1289,9 +1306,18 @@ impl ResolvedConstEnv for BodyChecker<'_> {
     ) -> Result<(), ConstError> {
         match target.kind() {
             ResolvedConstAssignTargetKind::Local { name, local_id, .. } => {
-                self.assign_const_call_local_value(span, *local_id, name, value)
+                self.assign_const_call_local_value(span, *local_id, Some(name), value)
             }
         }
+    }
+
+    fn assign_resolved_place_local(
+        &mut self,
+        span: Span,
+        local_id: LocalId,
+        value: ConstValue,
+    ) -> Result<(), ConstError> {
+        self.assign_const_call_local_value(span, local_id, None, value)
     }
 }
 
@@ -1705,13 +1731,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         local_id: LocalId,
-        name: &SymbolId,
+        name: Option<&SymbolId>,
         value: ConstValue,
     ) -> Result<(), ConstError> {
         for frame in self.const_call_locals.iter_mut().rev() {
             if frame.locals.contains_key(&local_id) {
                 if !frame.mutable_locals.contains(&local_id) {
-                    let name = self.symbol_name(*name);
+                    let name = name
+                        .map(|name| self.symbol_name(*name))
+                        .unwrap_or_else(|| "receiver".to_string());
                     return Err(ConstError {
                         span,
                         message: format!("cannot assign to immutable const local `{name}`"),
@@ -1726,9 +1754,14 @@ impl<'a> BodyChecker<'a> {
         }
         Err(ConstError {
             span,
-            message: format!(
-                "unknown const assignment target `{}`",
-                self.symbol_name(*name)
+            message: name.map_or_else(
+                || "unknown const receiver writeback target".to_string(),
+                |name| {
+                    format!(
+                        "unknown const assignment target `{}`",
+                        self.symbol_name(*name)
+                    )
+                },
             ),
         })
     }

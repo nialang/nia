@@ -455,6 +455,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         callee: &ResolvedConstExpr,
         generic_args: &[ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
+        receiver_place: Option<&nia_const_eval::ResolvedConstPlace>,
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         let Some(resolved_callee) = self.resolved_const_callee(callee) else {
@@ -530,7 +531,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     .to_string(),
             });
         };
-        let value = nia_const_eval::eval_resolved_const_function_call(
+        let output = nia_const_eval::eval_resolved_const_function_call(
             nia_const_eval::ResolvedConstCallInput {
                 span,
                 function_id,
@@ -542,8 +543,17 @@ impl ResolvedConstEnv for Analyzer<'_> {
             },
             self,
         )?;
+        if let Some(receiver) = output.mutable_receiver {
+            let Some(receiver_place) = receiver_place else {
+                return Err(ConstError {
+                    span,
+                    message: "mutable const receiver requires a place".to_string(),
+                });
+            };
+            nia_const_eval::write_resolved_const_place(span, receiver_place, receiver, self)?;
+        }
         let return_ty = ConstValueType::Runtime(return_ty);
-        let value = self.normalize_typed_const_value(value, &return_ty);
+        let value = self.normalize_typed_const_value(output.value, &return_ty);
         self.validate_typed_value(span, &value, &return_ty);
         Ok(value)
     }
@@ -557,7 +567,13 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let ty = param
             .ty()
             .map(|ty| ConstValueType::Runtime(self.substitute_ty_generics(ty)));
-        self.bind_local_value(span, param.local_id(), false, value, ty)
+        self.bind_local_value(
+            span,
+            param.local_id(),
+            param.receiver() == Some(nia_ids::ReceiverKind::Ref),
+            value,
+            ty,
+        )
     }
 
     fn bind_resolved_function_local(
@@ -594,9 +610,18 @@ impl ResolvedConstEnv for Analyzer<'_> {
     ) -> Result<(), ConstError> {
         match target.kind() {
             ResolvedConstAssignTargetKind::Local { name, local_id, .. } => {
-                self.assign_local_value(span, *local_id, name, value)
+                self.assign_local_value(span, *local_id, Some(name), value)
             }
         }
+    }
+
+    fn assign_resolved_place_local(
+        &mut self,
+        span: Span,
+        local_id: LocalId,
+        value: ConstValue,
+    ) -> Result<(), ConstError> {
+        self.assign_local_value(span, local_id, None, value)
     }
 }
 
@@ -907,7 +932,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         local_id: LocalId,
-        name: &SymbolId,
+        name: Option<&SymbolId>,
         value: ConstValue,
     ) -> Result<(), ConstError> {
         for index in (0..self.call_locals.len()).rev() {
@@ -919,7 +944,9 @@ impl Analyzer<'_> {
                 continue;
             }
             if !self.call_locals[index].mutable_locals.contains(&local_id) {
-                let name = self.symbol_name(*name);
+                let name = name
+                    .map(|name| self.symbol_name(*name))
+                    .unwrap_or_else(|| "receiver".to_string());
                 return Err(ConstError {
                     span,
                     message: format!("cannot assign to immutable const local `{name}`"),
@@ -949,10 +976,17 @@ impl Analyzer<'_> {
             frame.locals.insert(local_id, value.clone());
             return Ok(());
         }
-        let name = self.symbol_name(*name);
         Err(ConstError {
             span,
-            message: format!("unknown const assignment target `{name}`"),
+            message: name.map_or_else(
+                || "unknown const receiver writeback target".to_string(),
+                |name| {
+                    format!(
+                        "unknown const assignment target `{}`",
+                        self.symbol_name(*name)
+                    )
+                },
+            ),
         })
     }
 }
