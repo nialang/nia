@@ -320,6 +320,8 @@ fn emit_exe_const_functions_run_at_comptime_and_runtime() {
     std::fs::write(
         &main,
         r#"
+module pairs;
+using entry::pairs;
 using std::process;
 
 struct Width {
@@ -382,11 +384,20 @@ const fn iterationTotal(end: usize) usize {
     total
 }
 
+const fn pairTotal(values: pairs::Pair[usize]) usize {
+    let mut total: usize = 0;
+    for value in values {
+        total += value;
+    }
+    total
+}
+
 const arrayLen: usize = double(2)
     + Width::fromValue(3).doubled()
     + compileOnlyWidth()
     + incrementedWidth()
-    + iterationTotal(3);
+    + iterationTotal(3)
+    + pairTotal(pairs::pair(1, 2));
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
@@ -396,7 +407,8 @@ fn runtimeChecks(value: usize) bool {
         and width.increment() == 8
         and width.value == 8
         and iterationTotal(value) == 21
-        and values.len() == 20
+        and pairTotal(pairs::pair(value, value + 1)) == 15
+        and values.len() == 23
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -409,6 +421,53 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     )
     .expect("write test source");
+    std::fs::write(
+        root.join("pairs.nia"),
+        r#"
+pub struct Pair[T] {
+    first: T,
+    second: T,
+}
+
+pub struct PairIter[T] {
+    first: T,
+    second: T,
+    index: usize,
+}
+
+extend[T] PairIter[T] : Iterator {
+    type Item = T;
+
+    pub const fn next(&mut self) ?T {
+        switch self.index {
+            0usize => {
+                self.index += 1;
+                ?self.first
+            },
+            1usize => {
+                self.index += 1;
+                ?self.second
+            },
+            _ => null,
+        }
+    }
+}
+
+extend[T] Pair[T] : Iterable {
+    type Item = T;
+    type Iter = PairIter[T];
+
+    pub const fn iter(&self) PairIter[T] {
+        PairIter[T] { first: self.first, second: self.second, index: 0 }
+    }
+}
+
+pub const fn pair[T](first: T, second: T) Pair[T] {
+    Pair[T] { first: first, second: second }
+}
+"#,
+    )
+    .expect("write imported generic iterator source");
 
     let output = support::nia_command()
         .arg("emit")

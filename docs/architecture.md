@@ -896,6 +896,15 @@ than the place where an annotation first becomes semantically meaningful.
 Runtime body checking stays reachability-driven, so eager const validation does
 not create function bodies, executable facts, or backend roots.
 
+Const iteration capability remains owned by ordinary semantic checking. For a
+`for-in` statement, the body checker resolves the visible builtin `Iterable`
+and `Iterator` obligations, identifies the selected user impl, and requires its
+exact `iter` or `next` witness signature to be const-capable. Intrinsic
+`Iterator: Iterable` adaptation requires no witness. Direct builtin iteration
+method calls use the same check. Const execution then consumes the visible
+extension and trait facts for the concrete generic instance; it does not treat
+an inherent method with the same name as iteration protocol evidence.
+
 Production const environments carry a per-outer-evaluation budget shared by
 nested calls and loops. The evaluator consumes steps at expression, statement,
 and loop boundaries and enters a bounded function frame before binding call

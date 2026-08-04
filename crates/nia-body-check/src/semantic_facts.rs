@@ -72,10 +72,20 @@ impl<'a> BodyChecker<'a> {
                         builtin.name()
                     )
                 }
+                ResolvedCall::BuiltinMethod {
+                    method: nia_sema_ir::BuiltinMethod::Iter,
+                    ..
+                } => "`Iterable::iter` trait witness used during const evaluation must be declared `const fn`"
+                    .to_string(),
                 ResolvedCall::BuiltinMethod { method, .. } => format!(
                     "builtin method `{}` is not available during const evaluation",
                     method.name()
                 ),
+                ResolvedCall::BuiltinPlaceMethod {
+                    method: BuiltinTraitMethod::IteratorNext,
+                    ..
+                } => "`Iterator::next` trait witness used during const evaluation must be declared `const fn`"
+                    .to_string(),
                 ResolvedCall::BuiltinPlaceMethod { method, .. } => format!(
                     "builtin method `{}` is not available during const evaluation",
                     method.name()
@@ -109,12 +119,57 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::BuiltinTraitMethod { op, .. } => {
                 return op.is_const_capable();
             }
-            ResolvedCall::BuiltinMethod { method, .. } => return method.is_const_capable(),
-            ResolvedCall::BuiltinPlaceMethod { method, .. } => {
-                return method.is_const_capable();
+            ResolvedCall::BuiltinMethod { method, self_ty } => {
+                return method.is_const_capable()
+                    && (!matches!(method, nia_sema_ir::BuiltinMethod::Iter)
+                        || self.builtin_trait_witness_is_const_capable(
+                            *self_ty,
+                            BuiltinTraitMethod::IterableIter,
+                        ));
+            }
+            ResolvedCall::BuiltinPlaceMethod {
+                method, self_ty, ..
+            } => {
+                return method.is_const_capable()
+                    && (!matches!(method, BuiltinTraitMethod::IteratorNext)
+                        || self.builtin_trait_witness_is_const_capable(*self_ty, *method));
             }
         };
         self.resolved_function_signature(def_id)
+            .is_some_and(|resolved| resolved.signature.is_const)
+    }
+
+    pub(super) fn builtin_trait_witness_is_const_capable(
+        &mut self,
+        self_ty: InternedTyId,
+        method: BuiltinTraitMethod,
+    ) -> bool {
+        let trait_id = nia_ty::TraitId::Builtin(method.trait_id());
+        let resolution =
+            self.current_context_resolve_trait_obligation(self_ty, trait_id, Vec::new());
+        let nia_trait_solve::TraitResolution::User(user_impl) = resolution else {
+            // Ordinary trait checking owns unsatisfied and ambiguous diagnostics.
+            // Intrinsic and assumed obligations have no concrete user witness.
+            return true;
+        };
+        let Some(impl_signature) = self.program_trait_impls.get(user_impl.impl_index) else {
+            return false;
+        };
+        let impl_module_id = impl_signature.module_id;
+        let impl_id = impl_signature.impl_id;
+        let method_id = self
+            .with_visible_extensions(|extensions| {
+                extensions.all_trait_witnesses_named(&method.symbol_id())
+            })
+            .into_iter()
+            .find_map(|(_, witness)| {
+                (witness.def_id.module_id == impl_module_id
+                    && witness.impl_id == impl_id
+                    && witness.trait_id == Some(trait_id))
+                .then_some(witness.def_id)
+            });
+        method_id
+            .and_then(|method_id| self.resolved_function_signature(method_id))
             .is_some_and(|resolved| resolved.signature.is_const)
     }
 

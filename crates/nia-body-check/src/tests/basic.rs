@@ -74,6 +74,60 @@ const fn pointer(values: [2]usize) usize {
 }
 
 #[test]
+fn const_declaration_filter_rejects_runtime_only_iteration_witnesses() {
+    let checked = pipeline_const_declarations(
+        r#"
+struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    fn next(&mut self) ?usize {
+        null
+    }
+}
+
+const fn total(iter: Counter) usize {
+    let mut result: usize = 0;
+    for value in iter {
+        result += value;
+    }
+    result
+}
+
+const fn first(iter: Counter) usize {
+    let mut values = iter;
+    switch values.next() {
+        ?value => value,
+        null => 0,
+    }
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains(
+                "`Iterator::next` trait witness used by const for-in must be declared `const fn`"
+            )),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn const_declaration_filter_rejects_union_value_operations() {
     let checked = pipeline_const_declarations(
         r#"

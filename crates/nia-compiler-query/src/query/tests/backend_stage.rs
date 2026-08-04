@@ -210,6 +210,124 @@ fn codegen_tracks_and_reuses_backend_stage_products() {
 }
 
 #[test]
+fn const_only_generic_iteration_instances_do_not_enter_backend_plan() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Pair[T] {
+first: T,
+second: T,
+}
+
+struct PairIter[T] {
+first: T,
+second: T,
+index: usize,
+}
+
+extend[T] PairIter[T] : Iterator {
+type Item = T;
+
+const fn next(&mut self) ?T {
+switch self.index {
+0usize => {
+self.index += 1;
+?self.first
+},
+1usize => {
+self.index += 1;
+?self.second
+},
+_ => null,
+}
+}
+}
+
+extend[T] Pair[T] : Iterable {
+type Item = T;
+type Iter = PairIter[T];
+
+const fn iter(&self) PairIter[T] {
+PairIter[T] { first: self.first, second: self.second, index: 0 }
+}
+}
+
+const fn count[T](values: Pair[T]) usize {
+let mut total: usize = 0;
+for _ in values {
+total += 1;
+}
+total
+}
+
+const compileCount: usize = count(Pair[u8] { first: 1u8, second: 2u8 });
+
+fn main() usize {
+let values: [compileCount]u8 = [0; compileCount];
+count(Pair[usize] { first: 1, second: 2 })
++ count(Pair[bool] { first: true, second: false })
++ values.len()
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let codegen = db.expect_get(CodegenProgramQuery);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry module should be executable-reachable");
+    let def_id = |name, kind| {
+        module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == kind && def.name == sym(name))
+                    .then_some(GlobalDefId { module_id, def_id })
+            })
+            .unwrap_or_else(|| panic!("missing {kind:?} `{name}`"))
+    };
+    let count = def_id("count", nia_defs::DefKind::Function);
+    let iter = def_id("iter", nia_defs::DefKind::Method);
+    let next = def_id("next", nia_defs::DefKind::Method);
+    let plan = db.expect_get(BackendModuleFunctionInstancePlanQuery(module_id));
+
+    assert_eq!(
+        plan.instances
+            .iter()
+            .filter(|instance| instance.def_id == count)
+            .count(),
+        2,
+        "const-only generic count instance leaked into backend plan: {:?}",
+        plan.instances
+    );
+    let lowered_instances = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.function_instances)
+        .collect::<Vec<_>>();
+    for generic_def in [count, iter, next] {
+        assert_eq!(
+            lowered_instances
+                .iter()
+                .filter(|instance| instance.def_id == generic_def)
+                .count(),
+            2,
+            "const-only generic iteration instance leaked into final backend program: {:?}",
+            lowered_instances
+        );
+    }
+}
+
+#[test]
 fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
