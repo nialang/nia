@@ -602,6 +602,122 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_audits_all_array_literal_elements_and_length() {
+    let root = temp_dir("unused_const_function_audits_all_array_literal_elements_and_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongArray() usize {
+    let values: [2]usize = [true, runtimeOnly(), 3usize];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const array literal element does not match its expected type")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const array literal length mismatch: expected 2, got 3")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_non_integer_array_repeat_count() {
+    let root = temp_dir("unused_const_function_rejects_non_integer_array_repeat_count");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongRepeat() usize {
+    let values: [2]usize = [1usize; true];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const array repeat count must have an integer type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_array_literal_in_non_array_context() {
+    let root = temp_dir("unused_const_function_rejects_array_literal_in_non_array_context");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongArrayShape() usize {
+    let value: usize = [1usize];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const array literal expected type is not an array")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_generic_const_function_accepts_contextual_array_elements() {
+    let root = temp_dir("unused_generic_const_function_accepts_contextual_array_elements");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn copy[T](values: [2]T) [2]T {
+    [values[0usize], values[1usize]]
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn recursive_const_evaluation_has_a_call_depth_limit() {
     let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
     write(
