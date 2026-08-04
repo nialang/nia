@@ -7,8 +7,13 @@ impl Analyzer<'_> {
         cond: &ResolvedConstExpr,
     ) -> Option<()> {
         let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
-        let cond_ty = self.resolved_const_arg_runtime_type(cond, Some(bool_ty))?;
-        (cond_ty == bool_ty).then_some(())
+        let Some(cond_ty) = self.resolved_const_arg_runtime_type(cond, Some(bool_ty)) else {
+            return Some(());
+        };
+        if cond_ty != bool_ty && self.const_runtime_type_is_known(cond_ty) {
+            self.push_const_type_error(cond.span(), "const condition must have type bool");
+        }
+        Some(())
     }
 
     pub(super) fn push_typed_const_scope(&mut self) {
@@ -52,17 +57,43 @@ impl Analyzer<'_> {
             ConstUnaryOp::Not => {
                 let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
                 let inner_ty = self.resolved_const_arg_runtime_type(inner, Some(bool_ty))?;
-                (inner_ty == bool_ty).then_some(ConstValueType::Runtime(bool_ty))
+                if inner_ty != bool_ty {
+                    if self.const_runtime_type_is_known_builtin_scalar(inner_ty) {
+                        self.push_const_type_error(
+                            inner.span(),
+                            "const logical not requires a bool operand",
+                        );
+                    }
+                    return None;
+                }
+                Some(ConstValueType::Runtime(bool_ty))
             }
             ConstUnaryOp::Neg => {
                 let inner_ty = self.resolved_const_arg_runtime_type(inner, None)?;
-                (self.is_integer_runtime_type(inner_ty) || self.is_float_runtime_type(inner_ty))
-                    .then_some(ConstValueType::Runtime(inner_ty))
+                if !self.is_integer_runtime_type(inner_ty) && !self.is_float_runtime_type(inner_ty)
+                {
+                    if self.const_runtime_type_is_known_builtin_scalar(inner_ty) {
+                        self.push_const_type_error(
+                            inner.span(),
+                            "const negation requires a numeric operand",
+                        );
+                    }
+                    return None;
+                }
+                Some(ConstValueType::Runtime(inner_ty))
             }
             ConstUnaryOp::BitNot => {
                 let inner_ty = self.resolved_const_arg_runtime_type(inner, None)?;
-                self.is_integer_runtime_type(inner_ty)
-                    .then_some(ConstValueType::Runtime(inner_ty))
+                if !self.is_integer_runtime_type(inner_ty) {
+                    if self.const_runtime_type_is_known_builtin_scalar(inner_ty) {
+                        self.push_const_type_error(
+                            inner.span(),
+                            "const bitwise not requires an integer operand",
+                        );
+                    }
+                    return None;
+                }
+                Some(ConstValueType::Runtime(inner_ty))
             }
             ConstUnaryOp::Deref => {
                 let inner_ty = self.resolved_const_arg_runtime_type(inner, None)?;
@@ -145,9 +176,14 @@ impl Analyzer<'_> {
             ConstBinaryOp::Lt | ConstBinaryOp::Le | ConstBinaryOp::Gt | ConstBinaryOp::Ge => {
                 let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
                 let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
-                (lhs_ty == rhs_ty
-                    && (self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty)))
-                .then_some(ConstValueType::Runtime(
+                if lhs_ty != rhs_ty
+                    || (!self.is_integer_runtime_type(lhs_ty)
+                        && !self.is_float_runtime_type(lhs_ty))
+                {
+                    self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
+                    return None;
+                }
+                Some(ConstValueType::Runtime(
                     self.current_runtime_primitive_type(PrimitiveTy::Bool),
                 ))
             }
@@ -171,7 +207,11 @@ impl Analyzer<'_> {
                     | ConstBinaryOp::BitOr => self.is_integer_runtime_type(lhs_ty),
                     _ => self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty),
                 };
-                (lhs_ty == rhs_ty && allowed).then_some(ConstValueType::Runtime(lhs_ty))
+                if lhs_ty != rhs_ty || !allowed {
+                    self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
+                    return None;
+                }
+                Some(ConstValueType::Runtime(lhs_ty))
             }
         }
     }
@@ -215,7 +255,11 @@ impl Analyzer<'_> {
         let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
         let lhs_ty = self.resolved_const_arg_runtime_type(lhs, Some(bool_ty))?;
         let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(bool_ty))?;
-        (lhs_ty == bool_ty && rhs_ty == bool_ty).then_some(ConstValueType::Runtime(bool_ty))
+        if lhs_ty != bool_ty || rhs_ty != bool_ty {
+            self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
+            return None;
+        }
+        Some(ConstValueType::Runtime(bool_ty))
     }
 
     pub(super) fn resolved_const_equality_expr_type(
@@ -227,9 +271,49 @@ impl Analyzer<'_> {
         let rhs_ty = self
             .resolved_const_expr_type(rhs, lhs_ty.runtime())
             .or_else(|| self.resolved_const_expr_type(rhs, None))?;
-        (lhs_ty == rhs_ty || self.const_equality_types_are_compatible(&lhs_ty, &rhs_ty)).then_some(
-            ConstValueType::Runtime(self.current_runtime_primitive_type(PrimitiveTy::Bool)),
-        )
+        if lhs_ty != rhs_ty && !self.const_equality_types_are_compatible(&lhs_ty, &rhs_ty) {
+            if let (Some(lhs_ty), Some(rhs_ty)) = (lhs_ty.runtime(), rhs_ty.runtime()) {
+                self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
+            }
+            return None;
+        }
+        Some(ConstValueType::Runtime(
+            self.current_runtime_primitive_type(PrimitiveTy::Bool),
+        ))
+    }
+
+    fn push_known_const_binary_type_error(
+        &mut self,
+        lhs_ty: InternedTyId,
+        rhs: &ResolvedConstExpr,
+        rhs_ty: InternedTyId,
+    ) {
+        if self.const_runtime_type_is_known_builtin_scalar(lhs_ty)
+            && self.const_runtime_type_is_known_builtin_scalar(rhs_ty)
+        {
+            self.push_const_type_error(rhs.span(), "const operator has incompatible operand types");
+        }
+    }
+
+    pub(super) fn const_runtime_type_is_known(&self, ty: InternedTyId) -> bool {
+        !self.type_contains_generic(ty)
+            && !matches!(
+                self.ty_kind(ty),
+                Some(TyKind::Error | TyKind::Projection { .. }) | None
+            )
+    }
+
+    fn const_runtime_type_is_known_builtin_scalar(&self, ty: InternedTyId) -> bool {
+        self.const_runtime_type_is_known(ty)
+            && matches!(self.ty_kind(ty), Some(TyKind::Primitive(_)))
+    }
+
+    pub(super) fn push_const_type_error(&mut self, span: Span, message: &str) {
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            span,
+            message.to_string(),
+        ));
     }
 
     pub(super) fn const_equality_types_are_compatible(

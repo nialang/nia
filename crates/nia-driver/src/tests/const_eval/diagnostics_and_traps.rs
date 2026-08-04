@@ -353,6 +353,156 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_non_bool_conditions() {
+    let root = temp_dir("unused_const_function_rejects_non_bool_conditions");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongCondition() usize {
+    if 1usize {
+        return runtimeOnly();
+    }
+    while 2usize {}
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("const condition must have type bool"))
+            .count()
+            >= 2,
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_invalid_builtin_unary_operand() {
+    let root = temp_dir("unused_const_function_rejects_invalid_builtin_unary_operand");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongNot() bool {
+    not 1usize
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const logical not requires a bool operand")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_invalid_builtin_binary_operands() {
+    let root = temp_dir("unused_const_function_rejects_invalid_builtin_binary_operands");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongAdd() usize {
+    true + false;
+    0
+}
+
+const fn wrongEquality() bool {
+    1usize == true
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("const operator has incompatible operand types"))
+            .count()
+            >= 2,
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_const_function_rejects_incompatible_if_branch_types() {
+    let root = temp_dir("unused_const_function_rejects_incompatible_if_branch_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongBranches() usize {
+    if true { 1usize } else { false }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const if branches have incompatible types")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn unused_generic_const_function_defers_constrained_operator_types() {
+    let root = temp_dir("unused_generic_const_function_defers_constrained_operator_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn add[T](lhs: T, rhs: T) T
+where T: Add[T, Output = T] {
+    lhs + rhs
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn recursive_const_evaluation_has_a_call_depth_limit() {
     let root = temp_dir("recursive_const_evaluation_has_a_call_depth_limit");
     write(

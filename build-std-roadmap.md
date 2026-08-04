@@ -2993,6 +2993,19 @@ values, shapes, and bounds. The shared generic-place/trait operator model and
 the rest of the declaration-depth audit remain open; this batch does not freeze
 a const-only indexing or operator type system.
 
+Dual-stage const hardening progress (2026-08-04, condition and builtin scalar
+operator audit): unused const-capable definitions now diagnose known non-bool
+`if`/`while` conditions, invalid primitive unary operands, incompatible
+primitive binary/equality operands, and incompatible concrete `if` branch
+types. Condition failure no longer stops declaration traversal before the
+corresponding branches or following statements. Generic, `Self`, projection,
+and non-primitive operator types remain unresolved here rather than being
+rejected by an evaluator-specific approximation; constrained generic operator
+bodies have an explicit acceptance regression. Their trait obligations and
+operator output projections must converge with the ordinary body checker in a
+later shared-semantics batch. Round 1 remains open for that convergence and the
+remaining expression, pattern, aggregate, and control-flow audit.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
