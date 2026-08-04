@@ -3245,9 +3245,17 @@ and signed versus unsigned right shift follows the concrete primitive. The
 host. Scalar runtime add/subtract/multiply/negate now use LLVM signed/unsigned
 `with.overflow` intrinsics and branch to `llvm.trap` on the returned flag;
 compound assignment shares that lowering, and integer negation is checked as
-zero minus the operand. The next numeric batch must align runtime shift traps.
-Host-width checked arithmetic must not become the language model, and
-integer-vector lanes remain a separate reduction/trap design item.
+zero minus the operand. Scalar runtime shifts now preserve the independently
+typed right operand through Function IR codegen. They reject negative signed
+counts and counts at least as wide as the left operand before any narrowing or
+LLVM shift can occur. Left shift computes in twice the left width and compares
+the exact result with a signed- or zero-extended round trip, trapping when the
+mathematical value is not representable; signed and unsigned right shift lower
+to arithmetic and logical shift respectively. Ordinary operators, builtin
+operator calls, and compound assignment share this path. Host-width checked
+arithmetic must not become the language model, and integer-vector lanes remain
+a separate reduction/trap design item. The next numeric batch should specify
+explicit traps and integer-vector arithmetic boundaries.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

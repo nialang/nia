@@ -1324,8 +1324,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     }
                     return Ok(());
                 }
+                let rhs_ty = rhs.ty;
                 let value = self.emit_expr(rhs)?;
-                self.emit_assign(expr.span, place, *op, value)
+                self.emit_assign(expr.span, place, *op, rhs_ty, value)
             }
             FunctionExprKind::Discard(inner) => self.emit_effect_expr(inner),
             FunctionExprKind::Call { callee, args } => {

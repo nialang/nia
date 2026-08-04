@@ -369,7 +369,75 @@ fn low(value: u128, count: u32) u128 {
         ir.contains("lshr i128"),
         "expected logical right shift:\n{ir}"
     );
-    assert!(ir.contains("shl i128"), "expected left shift:\n{ir}");
+    assert!(
+        ir.contains("shl i256"),
+        "expected checked wide left shift:\n{ir}"
+    );
+}
+
+#[test]
+fn scalar_integer_shifts_validate_counts_and_left_overflow() {
+    let root = temp_dir("scalar_integer_shifts_validate_counts_and_left_overflow");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn unsignedLeft(lhs: u8, count: u128) u8 { lhs << count }
+fn signedLeft(lhs: i8, count: i16) i8 { lhs << count }
+fn signedRight(lhs: i8, count: i16) i8 { lhs >> count }
+fn unsignedRight(lhs: u8, count: u16) u8 { lhs >> count }
+
+fn compoundLeft(lhs: u8, count: u16) u8 {
+    let mut value = lhs;
+    value <<= count;
+    value
+}
+
+fn compoundRight(lhs: i8, count: i16) i8 {
+    let mut value = lhs;
+    value >>= count;
+    value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("icmp uge i128") && ir.contains(", 8"),
+        "wide counts must be checked before truncation:\n{ir}"
+    );
+    assert!(
+        ir.contains("icmp slt i16") && ir.contains("shift.count.negative"),
+        "signed negative counts must trap:\n{ir}"
+    );
+    assert!(
+        ir.contains("shift.count.trap") && ir.contains("call void @llvm.trap()"),
+        "invalid counts must reach a trap block:\n{ir}"
+    );
+    assert!(
+        ir.contains("shl i16")
+            && ir.contains("shift.result.overflow")
+            && ir.contains("shift.overflow.trap"),
+        "left shifts must check an exact widened result:\n{ir}"
+    );
+    assert!(
+        ir.contains("ashr i8"),
+        "expected arithmetic right shift:\n{ir}"
+    );
+    assert!(
+        ir.contains("lshr i8"),
+        "expected logical right shift:\n{ir}"
+    );
+    assert!(
+        ir.matches("shift.count.out_of_range").count() >= 6,
+        "ordinary and compound shifts must share count validation:\n{ir}"
+    );
 }
 
 #[test]

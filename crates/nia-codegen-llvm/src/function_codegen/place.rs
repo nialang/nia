@@ -390,6 +390,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         place: &FunctionPlace,
         op: AssignOp,
+        rhs_ty: InternedTyId,
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
         if matches!(place.base, FunctionPlaceBase::Error) {
@@ -404,7 +405,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let current = self
                 .build_place_load(ty, ptr, "loadtmp", is_volatile)
                 .map_err(|_| self.error(span, "failed to load assignment target"))?;
-            self.emit_compound_assignment(span, place.ty, current, op, value)?
+            self.emit_compound_assignment(span, place.ty, current, op, rhs_ty, value)?
         };
         self.build_place_store(ptr, stored, is_volatile)
             .map_err(|_| self.error(span, "failed to store assignment"))?;

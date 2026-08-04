@@ -478,11 +478,15 @@ generic parameters, the defining module of an imported `const fn`, and the
 target width of `usize` and `isize`; literal spelling and the compiler host
 integer width do not define
 these rules. A constant integer shift count must be non-negative and smaller
-than the concrete left operand width. Left shift additionally requires the
-mathematical result to remain representable; right shift is arithmetic for
-signed integers and logical for unsigned integers. Runtime shift conformance
-remains under specification. Integer-vector overflow and shift behavior remains
-a separate lane-wise design boundary.
+than the concrete left operand width. The same count rule applies to scalar
+runtime shifts: a negative signed count or a count greater than or equal to the
+concrete left operand width traps before the shift executes. Left shift
+additionally requires the mathematical result to remain representable in the
+left operand type, diagnosing during constant evaluation and trapping at
+runtime. Right shift is arithmetic for signed left operands and logical for
+unsigned left operands. The count's integer type does not change either the
+result type or the right-shift mode. Integer-vector overflow and shift behavior
+remains a separate lane-wise design boundary.
 
 An expected optional or error-union type supplies context to its constructed
 payload. For example, `return ?0` in a function returning `?usize`, `!1` where

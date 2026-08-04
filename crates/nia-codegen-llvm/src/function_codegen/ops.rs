@@ -258,12 +258,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: AssignOp,
+        rhs_ty: InternedTyId,
         rhs: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(op) = assign_to_binary_op(op) else {
             return Ok(rhs);
         };
-        self.emit_binary(span, operand_ty, lhs, op, rhs)
+        self.emit_binary(span, operand_ty, lhs, op, rhs_ty, rhs)
     }
 
     pub(super) fn emit_binary(
@@ -272,6 +273,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: BinaryOp,
+        rhs_ty: InternedTyId,
         rhs: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         if self.is_float(operand_ty) {
@@ -307,6 +309,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             BinaryOp::BitAnd => self.builder.build_basic_and(lhs, rhs, "andtmp"),
             BinaryOp::BitOr => self.builder.build_basic_or(lhs, rhs, "ortmp"),
             BinaryOp::BitXor => self.builder.build_basic_xor(lhs, rhs, "xortmp"),
+            BinaryOp::Shl if !is_vector => {
+                return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
+            }
+            BinaryOp::Shr if !is_vector => {
+                return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
+            }
             BinaryOp::Shl => {
                 let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
                 self.builder.build_basic_shl(lhs, rhs, "shltmp")
@@ -364,6 +372,141 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         };
         result.map_err(|_| self.error(span, "failed to build binary operation"))
+    }
+
+    fn emit_checked_int_shift(
+        &mut self,
+        span: Span,
+        lhs: BasicValueEnum<'ctx>,
+        op: BinaryOp,
+        rhs_ty: InternedTyId,
+        rhs: BasicValueEnum<'ctx>,
+        lhs_is_signed: bool,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lhs = lhs.into_int_value()?;
+        let rhs = rhs.into_int_value()?;
+        let lhs_ty = lhs.get_type();
+        let lhs_bits = lhs_ty.bit_width();
+        let rhs_bits = rhs.get_type().bit_width();
+        let check_ty = self.module.context.custom_width_int_type(rhs_bits.max(8));
+        let checked_rhs = if rhs_bits == check_ty.bit_width() {
+            rhs
+        } else {
+            self.builder
+                .build_int_z_extend(rhs, check_ty, "shift.count.check")
+                .map_err(|_| self.error(span, "failed to extend shift count for validation"))?
+        };
+        let count_out_of_range = self
+            .builder
+            .build_int_compare(
+                IntPredicate::UGE,
+                checked_rhs,
+                check_ty.const_int(u64::from(lhs_bits), false),
+                "shift.count.out_of_range",
+            )
+            .map_err(|_| self.error(span, "failed to validate shift count range"))?;
+        let invalid_count = if self.is_signed_integer(rhs_ty) {
+            let count_is_negative = self
+                .builder
+                .build_int_compare(
+                    IntPredicate::SLT,
+                    rhs,
+                    rhs.get_type().const_zero(),
+                    "shift.count.negative",
+                )
+                .map_err(|_| self.error(span, "failed to validate signed shift count"))?;
+            self.builder
+                .build_basic_or(
+                    count_is_negative.into(),
+                    count_out_of_range.into(),
+                    "shift.count.invalid",
+                )
+                .map_err(|_| self.error(span, "failed to combine shift count checks"))?
+                .into_int_value()?
+        } else {
+            count_out_of_range
+        };
+
+        let count_trap = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.count.trap")?;
+        let operation = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.operation")?;
+        self.builder
+            .build_conditional_branch(invalid_count, count_trap, operation)
+            .map_err(|_| self.error(span, "failed to branch on shift count validation"))?;
+        self.builder.position_at_end(count_trap);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(operation);
+
+        let rhs = self.normalize_shift_rhs(span, lhs.into(), rhs.into())?;
+        if op == BinaryOp::Shr {
+            let result = if lhs_is_signed {
+                self.builder.build_basic_ashr(lhs.into(), rhs, "shrtmp")
+            } else {
+                self.builder.build_basic_lshr(lhs.into(), rhs, "shrtmp")
+            };
+            return result.map_err(|_| self.error(span, "failed to build checked right shift"));
+        }
+
+        let wide_ty = self.module.context.custom_width_int_type(lhs_bits * 2);
+        let wide_lhs = if lhs_is_signed {
+            self.builder
+                .build_int_s_extend(lhs, wide_ty, "shift.lhs.wide")
+        } else {
+            self.builder
+                .build_int_z_extend(lhs, wide_ty, "shift.lhs.wide")
+        }
+        .map_err(|_| self.error(span, "failed to extend left shift operand"))?;
+        let rhs = rhs.into_int_value()?;
+        let wide_rhs = self
+            .builder
+            .build_int_z_extend(rhs, wide_ty, "shift.count.wide")
+            .map_err(|_| self.error(span, "failed to extend left shift count"))?;
+        let wide_result = self
+            .builder
+            .build_basic_shl(wide_lhs.into(), wide_rhs.into(), "shift.result.wide")
+            .map_err(|_| self.error(span, "failed to build wide left shift"))?
+            .into_int_value()?;
+        let result = self
+            .builder
+            .build_int_truncate(wide_result, lhs_ty, "shltmp")
+            .map_err(|_| self.error(span, "failed to truncate left shift result"))?;
+        let restored = if lhs_is_signed {
+            self.builder
+                .build_int_s_extend(result, wide_ty, "shift.result.restored")
+        } else {
+            self.builder
+                .build_int_z_extend(result, wide_ty, "shift.result.restored")
+        }
+        .map_err(|_| self.error(span, "failed to validate left shift result"))?;
+        let overflow = self
+            .builder
+            .build_int_compare(
+                IntPredicate::NE,
+                wide_result,
+                restored,
+                "shift.result.overflow",
+            )
+            .map_err(|_| self.error(span, "failed to compare left shift result"))?;
+        let overflow_trap = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.overflow.trap")?;
+        let r#continue = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "shift.continue")?;
+        self.builder
+            .build_conditional_branch(overflow, overflow_trap, r#continue)
+            .map_err(|_| self.error(span, "failed to branch on left shift overflow"))?;
+        self.builder.position_at_end(overflow_trap);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(r#continue);
+        Ok(result.into())
     }
 
     fn emit_checked_int_div_rem(
