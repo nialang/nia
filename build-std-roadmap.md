@@ -3390,6 +3390,45 @@ Round 2a. It does not widen the const ABI codec: each future aggregate, vector,
 or pointer field round must add its own imported generic differential together
 with its padding, initialization, or provenance rules.
 
+Dual-stage const hardening progress (2026-08-04, scalar-array union
+representation): union field schemas are now recursive `ConstAbiType` values.
+Fixed arrays of scalars, including nested arrays, const-expression lengths, and
+layout-builtin lengths, encode and decode element by element using artifact
+endianness. Const layout queries now consume the artifact pointer width instead
+of assuming LP64. `nia-layout` owns the checked array-size rule as well as
+primitive and union layout; overflow is rejected instead of saturating into a
+fabricated layout. Per-byte
+initialization still applies to the resulting field range, and invalid `bool`
+or `char` representations are diagnosed while decoding individual elements.
+
+The declaration capability accepts recursively scalar arrays while continuing
+to reject structs, unions, pointers, and vectors with a supported-const-ABI
+diagnostic. Runtime const materialization now builds ordinary array literals for
+all supported scalar and nested-array values rather than only byte and character
+strings. This exposed two independent runtime ownership gaps: index checking
+performed const recovery before recording the ordinary call lhs, and LLVM array
+indexing required an rvalue to already be a place despite an existing array
+temporary helper. Ordinary lhs checking now runs first and const structural
+element recovery is limited to a genuine `ConstOnly` lhs; comptime range slicing
+retains its ordinary const-array result after that lhs check. Rvalue array
+indexing uses the same temporary-address path already used by slicing.
+
+Focused little-/big-endian, 32-bit pointer-width, nested-array, generic
+substitution, invalid-element, and layout-overflow tests fix the representation
+contract. The maintained
+executable imports a generic `PairBytes[T]`, evaluates its encode/decode
+functions at comptime and runtime, passes const arrays across the runtime
+boundary, and indexes both call results and materialized const arrays. This
+closes scalar-array union Round 2b. Nominal aggregate padding, nested union
+storage, vectors, and pointer provenance remain open and require separate
+representation rounds.
+
+The broader runtime layout query graph still has LP64 defaults outside const
+checking. Cross-target union differential is therefore not closed merely by the
+32-bit const regression. Artifact `TargetDataLayout` must be threaded through
+ordinary, signature, and executable layout queries as a separate architecture
+batch before pointer/provenance work or a general cross-target claim.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

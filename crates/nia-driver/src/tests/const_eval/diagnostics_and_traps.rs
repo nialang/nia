@@ -1749,8 +1749,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_union_fields_without_a_const_abi_model() {
-    let root = temp_dir("unused_const_function_rejects_union_fields_without_a_const_abi_model");
+fn unused_const_function_accepts_scalar_array_union_fields() {
+    let root = temp_dir("unused_const_function_accepts_scalar_array_union_fields");
     write(
         &root.join("main.nia"),
         r#"
@@ -1769,11 +1769,39 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn unused_const_function_rejects_union_fields_without_a_const_abi_model() {
+    let root = temp_dir("unused_const_function_rejects_union_fields_without_a_const_abi_model");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Header {
+    value: u16,
+}
+
+union Payload {
+    header: Header,
+    integer: u16,
+}
+
+const fn inspect() u16 {
+    let payload: Payload = { integer: 1 };
+    payload.integer
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const union field `bytes` requires an ABI scalar type")),
+            .contains("const union field `header` requires a supported const ABI type")),
         "{:?}",
         program.diagnostics
     );

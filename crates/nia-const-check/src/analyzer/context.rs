@@ -708,6 +708,13 @@ impl Analyzer<'_> {
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
+        let target =
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: "cannot compute layout for unsupported target pointer width"
+                        .to_string(),
+                })?;
         let layouts =
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
@@ -716,7 +723,7 @@ impl Analyzer<'_> {
                 root_types: &root_types,
                 normalized: &normalization.as_ref().normalized,
                 array_lengths: &array_lengths,
-                target: nia_layout::TargetDataLayout::LP64,
+                target,
                 program: nia_layout::ProgramLayoutContext {
                     symbols: Some(self.input.symbols),
                     layouts: Some(&layout_query),
@@ -809,6 +816,13 @@ impl Analyzer<'_> {
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
+        let target =
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: "cannot compute field offset for unsupported target pointer width"
+                        .to_string(),
+                })?;
         let layouts =
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
@@ -817,7 +831,7 @@ impl Analyzer<'_> {
                 root_types: &root_types,
                 normalized: &normalization.as_ref().normalized,
                 array_lengths: &array_lengths,
-                target: nia_layout::TargetDataLayout::LP64,
+                target,
                 program: nia_layout::ProgramLayoutContext {
                     symbols: Some(self.input.symbols),
                     layouts: Some(&layout_query),
@@ -1070,6 +1084,8 @@ impl Analyzer<'_> {
         module_id: ModuleId,
         array_lengths: &HashMap<GlobalConstExprId, u64>,
     ) -> Option<Arc<nia_layout::Layouts>> {
+        let target =
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)?;
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();
@@ -1084,7 +1100,7 @@ impl Analyzer<'_> {
                 root_types: &root_types,
                 normalized: &normalization.as_ref().normalized,
                 array_lengths: &array_lengths_for_layout,
-                target: nia_layout::TargetDataLayout::LP64,
+                target,
                 program: nia_layout::ProgramLayoutContext {
                     symbols: Some(self.input.symbols),
                     layouts: Some(&layout_query),

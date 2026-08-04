@@ -7,8 +7,8 @@ use crate::{
     },
 };
 use nia_const_eval::{
-    ConstCommonEnv, ConstEndianness, ConstError, ConstScalarType, ConstUnionValue, ConstValue,
-    ResolvedConstEnv,
+    ConstAbiType, ConstCommonEnv, ConstEndianness, ConstError, ConstScalarType, ConstUnionValue,
+    ConstValue, ResolvedConstEnv,
 };
 use nia_const_ir::{
     ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
@@ -403,29 +403,20 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     message: "const union evaluation requires a supported target pointer width"
                         .to_string(),
                 })?;
-        let mut scalar_fields = BTreeMap::new();
+        let mut abi_fields = BTreeMap::new();
         let mut field_layouts = Vec::with_capacity(field_tys.len());
         for (name, field_ty) in field_tys {
-            let normalized = self.normalized_ty(field_ty);
-            let TyKind::Primitive(primitive) = self.active_ty_kind(normalized) else {
-                return Err(ConstError {
-                    span,
-                    message: format!(
-                        "const union field `{}` requires an ABI scalar type",
-                        self.symbol_name(name)
-                    ),
-                });
-            };
-            let scalar = const_union_scalar_type(primitive, self.input.target.pointer_width)
+            let (abi, layout) = self
+                .const_union_abi_type(span, field_ty, target)
                 .ok_or_else(|| ConstError {
                     span,
                     message: format!(
-                        "const union field `{}` has an unsupported scalar type",
+                        "const union field `{}` requires a supported const ABI type",
                         self.symbol_name(name)
                     ),
                 })?;
-            scalar_fields.insert(name, scalar);
-            field_layouts.push(nia_layout::primitive_layout(primitive, target));
+            abi_fields.insert(name, abi);
+            field_layouts.push(layout);
         }
         let layout = nia_layout::union_layout_from_fields(field_layouts.iter());
         let endianness =
@@ -436,12 +427,12 @@ impl ResolvedConstEnv for Analyzer<'_> {
                         .to_string(),
                 }
             })?;
-        let (active_field, value) = fields.pop_first().expect("one const union field");
+        let (initial_field, value) = fields.pop_first().expect("one const union field");
         let storage_size = usize::try_from(layout.size).map_err(|_| ConstError {
             span,
             message: "const union storage size is not representable".to_string(),
         })?;
-        ConstUnionValue::new(scalar_fields, storage_size, active_field, value, endianness)
+        ConstUnionValue::new(abi_fields, storage_size, initial_field, value, endianness)
             .map(ConstValue::Union)
             .map_err(|message| ConstError { span, message })
     }
@@ -888,6 +879,51 @@ fn const_union_scalar_type(primitive: PrimitiveTy, pointer_width: u32) -> Option
 }
 
 impl Analyzer<'_> {
+    fn const_union_abi_type(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        target: nia_layout::TargetDataLayout,
+    ) -> Option<(ConstAbiType, nia_layout::TypeLayout)> {
+        let ty = self.substitute_ty_generics(ty);
+        let ty = self.normalized_ty(ty);
+        match self.active_ty_kind(ty) {
+            TyKind::Primitive(primitive) => {
+                let scalar = const_union_scalar_type(primitive, self.input.target.pointer_width)?;
+                Some((
+                    ConstAbiType::Scalar(scalar),
+                    nia_layout::primitive_layout(primitive, target),
+                ))
+            }
+            TyKind::Array { len, elem } => {
+                let len = match len {
+                    nia_ty::ArrayLenTy::Builtin { builtin, ty } => {
+                        let ty = self.substitute_ty_generics(ty);
+                        let ConstValue::Int(value) =
+                            self.resolve_layout_builtin_for_ty(span, builtin, ty).ok()?
+                        else {
+                            return None;
+                        };
+                        u64::try_from(value.bits()).ok()?
+                    }
+                    len => self.array_len_const_value(len)?,
+                };
+                let value_len = usize::try_from(len).ok()?;
+                let (element, element_layout) = self.const_union_abi_type(span, elem, target)?;
+                let layout = nia_layout::array_layout(&element_layout, len)?;
+                let _ = element.byte_len()?.checked_mul(value_len)?;
+                Some((
+                    ConstAbiType::Array {
+                        element: Box::new(element),
+                        len: value_len,
+                    },
+                    layout,
+                ))
+            }
+            _ => None,
+        }
+    }
+
     fn eval_selected_const_method(
         &mut self,
         span: Span,

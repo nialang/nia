@@ -280,6 +280,32 @@ fn main() i32 {
 }
 
 #[test]
+fn records_runtime_generic_const_call_before_indexing_its_result() {
+    let checked = pipeline(
+        r#"
+const fn pair[T](first: T, second: T) [2]T {
+    [2]T[first, second]
+}
+
+fn main() u32 {
+    pair[u32](1, 2)[1]
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(
+        checked
+            .facts
+            .iter_node_resolved_calls()
+            .filter(|(_, call)| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. }))
+            .count(),
+        1,
+        "{:?}",
+        checked.facts.iter_node_resolved_calls().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn checks_simd_lane_builtins() {
     let checked = pipeline(
         r#"

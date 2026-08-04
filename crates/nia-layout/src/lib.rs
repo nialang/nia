@@ -97,6 +97,13 @@ pub fn primitive_layout(primitive: PrimitiveTy, target: TargetDataLayout) -> Typ
     TypeLayout { size, align }
 }
 
+pub fn array_layout(element: &TypeLayout, len: u64) -> Option<TypeLayout> {
+    Some(TypeLayout {
+        size: element.size.checked_mul(len)?,
+        align: element.align,
+    })
+}
+
 pub fn union_layout_from_fields<'a>(
     fields: impl IntoIterator<Item = &'a TypeLayout>,
 ) -> TypeLayout {
@@ -851,10 +858,15 @@ impl<'a> LayoutComputer<'a> {
                 layout.builtin_value(builtin)
             }
         };
-        Some(TypeLayout {
-            size: elem_layout.size.saturating_mul(len),
-            align: elem_layout.align,
-        })
+        let Some(layout) = crate::array_layout(&elem_layout, len) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                span,
+                "array layout size overflowed",
+            ));
+            return None;
+        };
+        Some(layout)
     }
 
     fn range_layout(
@@ -1661,6 +1673,19 @@ mod tests {
         assert_eq!(
             TargetDataLayout::from_pointer_width(64),
             Some(TargetDataLayout::LP64)
+        );
+    }
+
+    #[test]
+    fn array_layout_rejects_size_overflow() {
+        let element = TypeLayout {
+            size: u64::MAX,
+            align: 8,
+        };
+        assert_eq!(array_layout(&element, 2), None);
+        assert_eq!(
+            array_layout(&TypeLayout { size: 4, align: 4 }, 3),
+            Some(TypeLayout { size: 12, align: 4 })
         );
     }
 

@@ -147,7 +147,7 @@ const fn inspect() usize {
 }
 
 #[test]
-fn const_declaration_filter_rejects_union_fields_without_a_const_abi_model() {
+fn const_declaration_filter_accepts_scalar_array_union_fields() {
     let checked = pipeline_const_declarations(
         r#"
 union Payload {
@@ -162,10 +162,33 @@ const fn inspect() u16 {
 "#,
     );
 
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn const_declaration_filter_rejects_union_fields_without_a_const_abi_model() {
+    let checked = pipeline_const_declarations(
+        r#"
+struct Header {
+    value: u16,
+}
+
+union Payload {
+    header: Header,
+    integer: u16,
+}
+
+const fn inspect() u16 {
+    let payload: Payload = { integer: 1 };
+    payload.integer
+}
+"#,
+    );
+
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("const union field `bytes` requires an ABI scalar type")),
+            .contains("const union field `header` requires a supported const ABI type")),
         "{:?}",
         checked.diagnostics
     );

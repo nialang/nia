@@ -925,13 +925,15 @@ impl Analyzer<'_> {
         let Some(field_tys) = self.const_union_field_types(&signature, &args) else {
             return;
         };
-        let active_field = value.active_field();
-        let Some(field_ty) = field_tys.get(&active_field).copied() else {
+        let last_written_field = value.last_written_field();
+        let Some(field_ty) = field_tys.get(&last_written_field).copied() else {
             self.push_const_type_mismatch(span, "union");
             return;
         };
-        match value.read(active_field) {
-            Ok(active_value) => self.validate_runtime_typed_value(span, &active_value, field_ty),
+        match value.read(last_written_field) {
+            Ok(last_written_value) => {
+                self.validate_runtime_typed_value(span, &last_written_value, field_ty)
+            }
             Err(message) => {
                 self.diagnostics
                     .push(Diagnostic::user_error_at(codes::CONST, span, message))
