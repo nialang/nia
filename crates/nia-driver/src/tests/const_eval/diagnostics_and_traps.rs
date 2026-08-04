@@ -62,6 +62,31 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_runtime_only_builtin() {
+    let root = temp_dir("unused_const_function_rejects_runtime_only_builtin");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn wrongBuiltin() u32 {
+    std::builtin::popcount[u32](1u32)
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("builtin `popcount` is not available during const evaluation")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn unused_const_function_rejects_runtime_call_in_unselected_branch() {
     let root = temp_dir("unused_const_function_rejects_runtime_call_in_unselected_branch");
     write(

@@ -446,6 +446,36 @@ impl BuiltinFunction {
             Self::CharFromU32 => "charFromU32",
         }
     }
+
+    pub const fn is_const_capable(self) -> bool {
+        match self {
+            Self::ConstError
+            | Self::SizeOf
+            | Self::AlignOf
+            | Self::Offset
+            | Self::Embed
+            | Self::CharFromU32 => true,
+            Self::Trap
+            | Self::Asm
+            | Self::MemCopy
+            | Self::MemMove
+            | Self::MemSet
+            | Self::LoadUnaligned
+            | Self::Splat
+            | Self::Extract
+            | Self::Insert
+            | Self::Bitmask
+            | Self::Ctz
+            | Self::Clz
+            | Self::Popcount
+            | Self::AtomicLoad
+            | Self::AtomicStore
+            | Self::AtomicRmw
+            | Self::CmpxchgStrong
+            | Self::CmpxchgWeak
+            | Self::Fence => false,
+        }
+    }
 }
 
 impl ValueBuiltin {

@@ -58,11 +58,17 @@ impl<'a> BodyChecker<'a> {
             && !self.node_resolved_calls.contains_key(key)
             && !self.resolved_call_is_const_capable(&call)
         {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::CONST,
-                span,
-                "const expression can only call `const fn`",
-            ));
+            let summary = match &call {
+                ResolvedCall::BuiltinFunction { builtin, .. } => {
+                    format!(
+                        "builtin `{}` is not available during const evaluation",
+                        builtin.name()
+                    )
+                }
+                _ => "const expression can only call `const fn`".to_string(),
+            };
+            self.diagnostics
+                .push(Diagnostic::user_error_at(codes::CONST, span, summary));
         }
         self.enqueue_same_module_resolved_call(&call);
         self.node_resolved_calls.insert(key.clone(), call.clone());
@@ -81,8 +87,8 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::DynamicTraitMethod { .. } | ResolvedCall::FunctionPointer => {
                 return false;
             }
-            ResolvedCall::BuiltinFunction { .. }
-            | ResolvedCall::BuiltinTraitMethod { .. }
+            ResolvedCall::BuiltinFunction { builtin, .. } => return builtin.is_const_capable(),
+            ResolvedCall::BuiltinTraitMethod { .. }
             | ResolvedCall::BuiltinMethod { .. }
             | ResolvedCall::BuiltinPlaceMethod { .. } => return true,
         };
