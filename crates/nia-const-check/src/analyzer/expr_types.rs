@@ -19,11 +19,28 @@ impl Analyzer<'_> {
         self.call_locals.pop();
     }
 
-    pub(super) fn bind_const_local_type(&mut self, local_id: LocalId, ty: ConstValueType) {
+    pub(super) fn bind_const_local_type(
+        &mut self,
+        local_id: LocalId,
+        ty: ConstValueType,
+        is_mutable: bool,
+    ) {
         let Some(frame) = self.call_locals.last_mut() else {
             return;
         };
         frame.local_types.insert(local_id, ty);
+        if is_mutable {
+            frame.mutable_locals.insert(local_id);
+        }
+    }
+
+    pub(super) fn const_local_is_mutable(&self, local_id: LocalId) -> Option<bool> {
+        self.call_locals.iter().rev().find_map(|frame| {
+            frame
+                .local_types
+                .contains_key(&local_id)
+                .then(|| frame.mutable_locals.contains(&local_id))
+        })
     }
 
     pub(super) fn resolved_const_unary_expr_type(

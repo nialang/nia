@@ -2980,6 +2980,19 @@ compiler-query tests pass. The remaining declaration-depth audit, cross-stage
 differential matrix, and incremental/stress rounds stay explicitly open under
 the new track.
 
+Dual-stage const hardening progress (2026-08-04, assignment declaration audit):
+the typed declaration frame now records local mutability as well as type, and
+assignment checking resolves local, field, and array paths without executing
+parameter-dependent indexes. Unused `const fn` definitions therefore reject
+immutable writes, known-invalid target paths, RHS type mismatches, non-numeric
+compound assignments, readonly slice element writes, and assignment tails that
+cannot satisfy a value return. Plain generic assignment and parameter-indexed
+array mutation remain valid when their declaration is not yet instantiated.
+Existing execution-time assignment validation remains responsible for concrete
+values, shapes, and bounds. The shared generic-place/trait operator model and
+the rest of the declaration-depth audit remain open; this batch does not freeze
+a const-only indexing or operator type system.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

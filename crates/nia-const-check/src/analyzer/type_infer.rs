@@ -475,16 +475,183 @@ impl Analyzer<'_> {
             | ResolvedConstExprKind::AssociatedFunction { .. }
             | ResolvedConstExprKind::Null => None,
             ResolvedConstExprKind::Assign(assign) => {
-                let ResolvedConstAssignTargetKind::Local { path, .. } = assign.lhs().kind();
-                for element in path {
-                    if let ResolvedConstAssignPathElemKind::Index { index, .. } = element.kind() {
+                self.check_resolved_const_assignment(expr.span(), assign);
+                Some(ConstValueType::Runtime(
+                    self.current_runtime_primitive_type(PrimitiveTy::Void),
+                ))
+            }
+        }
+    }
+
+    fn check_resolved_const_assignment(&mut self, span: Span, assign: &ResolvedConstAssign) {
+        let ResolvedConstAssignTargetKind::Local {
+            name,
+            local_id,
+            path,
+            ..
+        } = assign.lhs().kind();
+        let Some(mut target_ty) = self.call_local_type(*local_id) else {
+            let _ = self.resolved_const_expr_type(assign.rhs(), None);
+            return;
+        };
+
+        if self.const_local_is_mutable(*local_id) == Some(false) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "cannot assign to immutable const local `{}`",
+                    self.symbol_name(*name)
+                ),
+            ));
+        }
+
+        for (element_index, element) in path.iter().enumerate() {
+            if self.const_assignment_target_type_is_unresolved(&target_ty) {
+                for remaining in &path[element_index..] {
+                    if let ResolvedConstAssignPathElemKind::Index { index, .. } = remaining.kind() {
                         let _ = self.resolved_const_expr_type(index, None);
                     }
                 }
                 let _ = self.resolved_const_expr_type(assign.rhs(), None);
-                None
+                return;
+            }
+            target_ty = match element.kind() {
+                ResolvedConstAssignPathElemKind::Field {
+                    span: field_span,
+                    name,
+                } => match self.const_field_type(target_ty, name) {
+                    Some(field_ty) => field_ty,
+                    None => {
+                        self.push_invalid_const_assignment_target(*field_span);
+                        let _ = self.resolved_const_expr_type(assign.rhs(), None);
+                        return;
+                    }
+                },
+                ResolvedConstAssignPathElemKind::Index {
+                    span: index_span,
+                    index,
+                } => {
+                    let _ = self.resolved_const_expr_type(index, None);
+                    match self.const_assignment_index_elem_type(&target_ty) {
+                        Some(elem_ty) => elem_ty,
+                        None => {
+                            self.push_invalid_const_assignment_target(*index_span);
+                            let _ = self.resolved_const_expr_type(assign.rhs(), None);
+                            return;
+                        }
+                    }
+                }
+            };
+        }
+
+        let expected = target_ty.runtime();
+        let actual = self.resolved_const_expr_type(assign.rhs(), expected);
+        if !matches!(assign.op(), ConstAssignOp::Assign)
+            && !self.const_compound_assignment_type_is_supported(assign.op(), &target_ty)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "const compound assignment requires compatible numeric operands".to_string(),
+            ));
+        }
+        if let Some(actual) = actual
+            && !self.const_assignment_types_match(&target_ty, &actual)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                assign.rhs().span(),
+                "const assignment value does not match the target type".to_string(),
+            ));
+        }
+    }
+
+    fn const_assignment_target_type_is_unresolved(&self, target: &ConstValueType) -> bool {
+        let ConstValueType::Runtime(target) = target else {
+            return false;
+        };
+        matches!(
+            self.ty_kind(*target),
+            Some(
+                TyKind::GenericParam(_)
+                    | TyKind::SelfParam
+                    | TyKind::Projection { .. }
+                    | TyKind::Error
+            )
+        )
+    }
+
+    fn const_assignment_index_elem_type(
+        &mut self,
+        target: &ConstValueType,
+    ) -> Option<ConstValueType> {
+        match target {
+            ConstValueType::Array { elem, .. } => Some((**elem).clone()),
+            ConstValueType::Runtime(ty) => match self.ty_kind(*ty)? {
+                TyKind::Array { elem, .. }
+                | TyKind::Slice {
+                    is_readonly: false,
+                    elem,
+                } => self
+                    .type_for_module_or_none(elem, self.current_execution_module_id())
+                    .map(ConstValueType::Runtime),
+                _ => None,
+            },
+            ConstValueType::Struct(_)
+            | ConstValueType::Int
+            | ConstValueType::Bool
+            | ConstValueType::String => None,
+        }
+    }
+
+    fn const_compound_assignment_type_is_supported(
+        &self,
+        op: ConstAssignOp,
+        target: &ConstValueType,
+    ) -> bool {
+        let ConstValueType::Runtime(target) = target else {
+            return false;
+        };
+        if matches!(self.ty_kind(*target), Some(TyKind::GenericParam(_))) {
+            return true;
+        }
+        match op {
+            ConstAssignOp::Assign => true,
+            ConstAssignOp::Shl
+            | ConstAssignOp::Shr
+            | ConstAssignOp::BitAnd
+            | ConstAssignOp::BitXor
+            | ConstAssignOp::BitOr => self.is_integer_runtime_type(*target),
+            ConstAssignOp::Add
+            | ConstAssignOp::Sub
+            | ConstAssignOp::Mul
+            | ConstAssignOp::Div
+            | ConstAssignOp::Rem => {
+                self.is_integer_runtime_type(*target) || self.is_float_runtime_type(*target)
             }
         }
+    }
+
+    fn const_assignment_types_match(
+        &mut self,
+        expected: &ConstValueType,
+        actual: &ConstValueType,
+    ) -> bool {
+        match (expected, actual) {
+            (ConstValueType::Runtime(expected), ConstValueType::Runtime(actual)) => {
+                self.const_function_types_match(*expected, *actual)
+            }
+            _ => expected == actual,
+        }
+    }
+
+    fn push_invalid_const_assignment_target(&mut self, span: Span) {
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            span,
+            "invalid const assignment target path".to_string(),
+        ));
     }
 
     pub(super) fn find_resolved_pattern_local_type(
@@ -1597,7 +1764,7 @@ impl Analyzer<'_> {
     ) -> Option<()> {
         match pattern.kind() {
             ResolvedConstPatternKind::Bind { local_id, .. } => {
-                self.bind_const_local_type(*local_id, ConstValueType::Runtime(target_ty));
+                self.bind_const_local_type(*local_id, ConstValueType::Runtime(target_ty), false);
             }
             ResolvedConstPatternKind::Pointer { pattern, .. }
             | ResolvedConstPatternKind::MutPointer { pattern, .. } => {
@@ -1772,7 +1939,7 @@ impl Analyzer<'_> {
                     );
                 }
                 let ty = explicit.map(ConstValueType::Runtime).or(inferred)?;
-                self.bind_const_local_type(binding.local_id(), ty);
+                self.bind_const_local_type(binding.local_id(), ty, binding.is_mutable());
                 Some(())
             }
             ResolvedConstStmtKind::Expr(expr) => {
