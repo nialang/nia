@@ -3028,6 +3028,17 @@ legal and have an unused-definition regression; unknown repeat values and
 generic lengths remain unresolved rather than being executed during declaration
 checking. Struct/enum aggregate fields and indexing remain open in Round 1.
 
+Dual-stage const hardening progress (2026-08-04, typed aggregate and struct
+literal declaration audit): explicit typed arrays now pass through the same
+element/count/length audit as contextual arrays instead of returning their
+annotation without visiting children. Contextual and explicitly typed nominal
+struct literals now diagnose duplicate, unknown, and missing fields plus known
+field type mismatches, while visiting values for every supplied field. Untyped
+structural literals also reject duplicates without hiding the duplicate value's
+const-capability errors. Known non-struct contexts are rejected; generic field
+types remain unresolved and have an unused-definition acceptance regression.
+Enum payload aggregates, union-specific semantics, and indexing remain open.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
