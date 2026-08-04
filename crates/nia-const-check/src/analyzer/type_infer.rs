@@ -2464,25 +2464,6 @@ impl Analyzer<'_> {
         result
     }
 
-    pub(super) fn check_resolved_const_function_block(
-        &mut self,
-        block: &ResolvedConstBlock,
-        return_type: Option<InternedTyId>,
-    ) -> Option<()> {
-        self.push_typed_const_scope();
-        let result = (|| {
-            for stmt in block.stmts() {
-                self.check_resolved_const_stmt(stmt)?;
-            }
-            if let Some(tail) = block.tail() {
-                self.check_const_function_result(tail, return_type, "const function body")?;
-            }
-            Some(())
-        })();
-        self.pop_typed_const_scope();
-        result
-    }
-
     fn check_const_function_result(
         &mut self,
         expr: &ResolvedConstExpr,

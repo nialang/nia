@@ -47,18 +47,47 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn record_resolved_node_call(
         &mut self,
-        _span: Span,
+        span: Span,
         key: &VersionedNodeKey,
         call: ResolvedCall,
     ) {
         if self.in_const_context() {
             return;
         }
+        if self.body_filter.checks_const_declarations()
+            && !self.node_resolved_calls.contains_key(key)
+            && !self.resolved_call_is_const_capable(&call)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::CONST,
+                span,
+                "const expression can only call `const fn`",
+            ));
+        }
         self.enqueue_same_module_resolved_call(&call);
         self.node_resolved_calls.insert(key.clone(), call.clone());
         if let Some(facts) = self.current_function_facts() {
             facts.node_resolved_calls.insert(key.clone(), call);
         }
+    }
+
+    fn resolved_call_is_const_capable(&mut self, call: &ResolvedCall) -> bool {
+        let def_id = match call {
+            ResolvedCall::Function(def_id)
+            | ResolvedCall::FunctionInstance { def_id, .. }
+            | ResolvedCall::Method { def_id, .. } => *def_id,
+            ResolvedCall::TraitMethod { method_id, .. }
+            | ResolvedCall::TraitAssociatedFunction { method_id, .. } => *method_id,
+            ResolvedCall::DynamicTraitMethod { .. } | ResolvedCall::FunctionPointer => {
+                return false;
+            }
+            ResolvedCall::BuiltinFunction { .. }
+            | ResolvedCall::BuiltinTraitMethod { .. }
+            | ResolvedCall::BuiltinMethod { .. }
+            | ResolvedCall::BuiltinPlaceMethod { .. } => return true,
+        };
+        self.resolved_function_signature(def_id)
+            .is_some_and(|resolved| resolved.signature.is_const)
     }
 
     pub(super) fn record_trait_method_ref(&mut self, reference: SemanticTraitMethodRef) {

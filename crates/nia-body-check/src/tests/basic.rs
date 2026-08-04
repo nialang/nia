@@ -37,6 +37,18 @@ const fn callsRuntime() usize {
         "{:?}",
         checked.diagnostics
     );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("const expression can only call `const fn`"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
