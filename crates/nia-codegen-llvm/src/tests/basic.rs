@@ -125,7 +125,7 @@ fn main() i32 {
     assert!(ir.contains("define i32 @"));
     assert!(ir.contains("alloca i32"));
     assert!(ir.contains("store i32 40"));
-    assert!(ir.contains("add i32"));
+    assert!(ir.contains("llvm.sadd.with.overflow.i32"));
     assert!(ir.contains("ret i32"));
 }
 
@@ -435,6 +435,71 @@ fn compoundRem(lhs: u32, rhs: u32) u32 {
     assert!(
         ir.contains("urem i32"),
         "expected unsigned remainder:\n{ir}"
+    );
+}
+
+#[test]
+fn scalar_integer_arithmetic_traps_on_overflow() {
+    let root = temp_dir("scalar_integer_arithmetic_traps_on_overflow");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn signedAdd(lhs: i8, rhs: i8) i8 { lhs + rhs }
+fn unsignedAdd(lhs: u8, rhs: u8) u8 { lhs + rhs }
+fn signedSub(lhs: i8, rhs: i8) i8 { lhs - rhs }
+fn unsignedSub(lhs: u8, rhs: u8) u8 { lhs - rhs }
+fn signedMul(lhs: i8, rhs: i8) i8 { lhs * rhs }
+fn unsignedMul(lhs: u8, rhs: u8) u8 { lhs * rhs }
+fn signedNeg(value: i8) i8 { -value }
+
+fn compoundAdd(lhs: u8, rhs: u8) u8 {
+    let mut value = lhs;
+    value += rhs;
+    value
+}
+
+fn main() i32 {
+    signedAdd(1i8, 2i8) as i32
+        + unsignedAdd(1u8, 2u8) as i32
+        + signedSub(3i8, 1i8) as i32
+        + unsignedSub(3u8, 1u8) as i32
+        + signedMul(2i8, 3i8) as i32
+        + unsignedMul(2u8, 3u8) as i32
+        + signedNeg(1i8) as i32
+        + compoundAdd(1u8, 2u8) as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<String>();
+    for intrinsic in [
+        "llvm.sadd.with.overflow.i8",
+        "llvm.uadd.with.overflow.i8",
+        "llvm.ssub.with.overflow.i8",
+        "llvm.usub.with.overflow.i8",
+        "llvm.smul.with.overflow.i8",
+        "llvm.umul.with.overflow.i8",
+    ] {
+        assert!(ir.contains(intrinsic), "missing {intrinsic}:\n{ir}");
+    }
+    assert!(
+        ir.contains("arith.trap") && ir.contains("call void @llvm.trap()"),
+        "expected checked arithmetic trap blocks:\n{ir}"
+    );
+    assert!(
+        !ir.contains("sub i8 0"),
+        "integer negation must use checked subtraction:\n{ir}"
     );
 }
 

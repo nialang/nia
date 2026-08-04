@@ -469,17 +469,20 @@ division and remainder follow their floating-point semantics and are not
 covered by this scalar integer trap rule.
 
 During constant evaluation, integer addition, subtraction, multiplication, and
-negation are checked at every operation against the concrete operand type. An
-overflowing intermediate is a source diagnostic even when a later operation
-would return the final value to range. The concrete type comes from ordinary
-semantic inference, including expected types, instantiated generic parameters,
-the defining module of an imported `const fn`, and the target width of `usize`
-and `isize`; literal spelling and the compiler host integer width do not define
+negation are checked at every operation against the concrete operand type. The
+same scalar runtime operations trap on overflow before an LLVM operation can
+produce poison. An overflowing const intermediate is a source diagnostic even
+when a later operation would return the final value to range. The concrete type
+comes from ordinary semantic inference, including expected types, instantiated
+generic parameters, the defining module of an imported `const fn`, and the
+target width of `usize` and `isize`; literal spelling and the compiler host
+integer width do not define
 these rules. A constant integer shift count must be non-negative and smaller
 than the concrete left operand width. Left shift additionally requires the
 mathematical result to remain representable; right shift is arithmetic for
-signed integers and logical for unsigned integers. Runtime overflow and shift
-conformance remain under specification.
+signed integers and logical for unsigned integers. Runtime shift conformance
+remains under specification. Integer-vector overflow and shift behavior remains
+a separate lane-wise design boundary.
 
 An expected optional or error-union type supplies context to its constructed
 payload. For example, `return ?0` in a function returning `?usize`, `!1` where
