@@ -9,7 +9,8 @@ use crate::{
 use nia_const_eval::{ConstCommonEnv, ConstError, ConstValue, ResolvedConstEnv};
 use nia_const_ir::{
     ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
-    ResolvedConstBinding, ResolvedConstExpr, ResolvedConstParam, ResolvedConstTypeArg,
+    ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg, ResolvedConstParam,
+    ResolvedConstTypeArg,
 };
 use nia_defs::DefKind;
 use nia_ids::{
@@ -399,7 +400,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         callee: &ResolvedConstExpr,
-        type_args: &[ResolvedConstTypeArg],
+        generic_args: &[ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
@@ -447,7 +448,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     ConstFunctionInstantiationInput {
                         signature_module_id: function_id.module_id,
                         signature: &signature,
-                        type_args,
+                        generic_args,
                         arg_exprs: &call_arg_exprs,
                         expected_return: None,
                         initial: resolved_callee.target_instantiation,
@@ -455,7 +456,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 )?
             };
         if let Some(value) =
-            self.try_call_builtin_function(span, &signature, type_args, &call_arg_exprs, &args)?
+            self.try_call_builtin_function(span, &signature, generic_args, &call_arg_exprs, &args)?
         {
             return Ok(value);
         }
@@ -641,13 +642,26 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         signature: &FunctionSignature,
-        type_args: &[ResolvedConstTypeArg],
+        generic_args: &[ResolvedConstGenericArg],
         _arg_exprs: &[ResolvedConstExpr],
         args: &[ConstValue],
     ) -> Result<Option<ConstValue>, ConstError> {
         let Some(builtin) = builtin_function(signature) else {
             return Ok(None);
         };
+        let type_args = generic_args
+            .iter()
+            .map(|arg| match arg {
+                ResolvedConstGenericArg::Type(arg) => Ok(arg),
+                ResolvedConstGenericArg::Const(expr) => Err(ConstError {
+                    span: expr.span(),
+                    message: format!(
+                        "builtin `{}` expects type generic arguments",
+                        builtin.name()
+                    ),
+                }),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         match builtin {
             BuiltinFunction::ConstError => {
                 if !type_args.is_empty() || args.len() != 1 {
@@ -694,7 +708,7 @@ impl Analyzer<'_> {
                     BuiltinFunction::AlignOf => LayoutBuiltin::Align,
                     _ => unreachable!(),
                 };
-                self.resolve_resolved_layout_builtin(span, layout_builtin, &type_args[0])
+                self.resolve_resolved_layout_builtin(span, layout_builtin, type_args[0])
                     .map(Some)
             }
             BuiltinFunction::Offset => {
@@ -711,7 +725,7 @@ impl Analyzer<'_> {
                         message: "builtin `offset` requires a const string field name".to_string(),
                     });
                 };
-                self.resolve_resolved_field_offset_builtin(span, &type_args[0], &field)
+                self.resolve_resolved_field_offset_builtin(span, type_args[0], &field)
                     .map(Some)
             }
             BuiltinFunction::CharFromU32 => {

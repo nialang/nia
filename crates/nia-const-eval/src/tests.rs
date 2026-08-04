@@ -5,7 +5,8 @@ use crate::{
 };
 use nia_const_ir::{
     ConstAssignOp, ConstNameResolution, EarlyConstAssign, EarlyConstAssignTarget, EarlyConstExpr,
-    EarlyConstExprKind, EarlyConstName, EarlyConstTypeArg, ResolvedConstExpr, ResolvedConstTypeArg,
+    EarlyConstExprKind, EarlyConstName, EarlyConstTypeArg, ResolvedConstExpr,
+    ResolvedConstGenericArg, ResolvedConstTypeArg,
 };
 use nia_ids::{LayoutBuiltin, ModuleId, ModuleIdAllocator, ValueBuiltin};
 use nia_span::Span;

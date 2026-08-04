@@ -282,7 +282,7 @@ fn eval_resolved_const_expr_flow(
         }
         ResolvedConstExprKind::Call {
             callee,
-            type_args,
+            generic_args,
             args,
         } => {
             if let ResolvedConstExprKind::BuiltinValue(builtin) = callee.kind() {
@@ -323,7 +323,7 @@ fn eval_resolved_const_expr_flow(
                         payload: ConstEnumPayload::Tuple(values),
                     }
                 } else {
-                    env.call_resolved_function(span, callee, type_args, args, values)?
+                    env.call_resolved_function(span, callee, generic_args, args, values)?
                 }
             }
         }
@@ -559,7 +559,7 @@ fn eval_const_expr_flow(
         }
         EarlyConstExprKind::Call {
             callee,
-            type_args,
+            generic_args,
             args,
         } => {
             if let EarlyConstExprKind::BuiltinValue(builtin) = &callee.kind {
@@ -595,7 +595,7 @@ fn eval_const_expr_flow(
                         payload: ConstEnumPayload::Tuple(values),
                     }
                 } else {
-                    env.call_function(expr.span, callee, type_args, args, values)?
+                    env.call_function(expr.span, callee, generic_args, args, values)?
                 }
             }
         }

@@ -61,6 +61,8 @@ impl<'a> ResolvedConstLowerInputs<'a> {
 }
 
 pub(crate) trait ConstLowerContext {
+    fn has_semantic_facts(&self) -> bool;
+
     fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution>;
 
     fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
@@ -99,6 +101,10 @@ pub(crate) trait ConstLowerContext {
 }
 
 impl ConstLowerContext for EarlyConstLowerInputs<'_> {
+    fn has_semantic_facts(&self) -> bool {
+        self.semantic_uses.is_some()
+    }
+
     fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution> {
         self.semantic_uses.and_then(|semantic_uses| {
             semantic_uses
@@ -192,6 +198,10 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
 }
 
 impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
+    fn has_semantic_facts(&self) -> bool {
+        true
+    }
+
     fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution> {
         self.semantic_uses
             .node_associated_const_projection(key)
@@ -635,19 +645,19 @@ fn lower_call_with_context(
             });
         }
     }
-    let (callee, type_args) = match &callee.kind {
+    let (callee, generic_args) = match &callee.kind {
         nia_ast::ExprKind::BracketSuffix {
             callee: generic_callee,
             args: bracket_args,
-        } if bracket_args.iter().all(|arg| arg.ty.is_some()) => (
+        } => (
             generic_callee.as_ref(),
-            lower_type_args_with_context(bracket_args, context)?,
+            lower_generic_args_with_context(bracket_args, context)?,
         ),
         _ => (callee, Vec::new()),
     };
     if let nia_ast::ExprKind::Field { lhs, name } = &callee.kind {
         if args.is_empty()
-            && type_args.is_empty()
+            && generic_args.is_empty()
             && let Some(method) = const_builtin_method_name(*name)
         {
             return Ok(EarlyConstExprKind::BuiltinMethod {
@@ -663,7 +673,7 @@ fn lower_call_with_context(
                     name: *name,
                 },
             }),
-            type_args,
+            generic_args,
             args: args
                 .iter()
                 .map(|arg| lower_expr_internal(arg, context))
@@ -710,7 +720,7 @@ fn lower_call_with_context(
         let Some(target) = target else {
             return Ok(EarlyConstExprKind::Call {
                 callee: Box::new(lower_expr_internal(callee, context)?),
-                type_args,
+                generic_args,
                 args: args
                     .iter()
                     .map(|arg| lower_expr_internal(arg, context))
@@ -725,7 +735,7 @@ fn lower_call_with_context(
                     name: *name,
                 },
             }),
-            type_args,
+            generic_args,
             args: args
                 .iter()
                 .map(|arg| lower_expr_internal(arg, context))
@@ -734,7 +744,7 @@ fn lower_call_with_context(
     }
     Ok(EarlyConstExprKind::Call {
         callee: Box::new(lower_expr_internal(callee, context)?),
-        type_args,
+        generic_args,
         args: args
             .iter()
             .map(|arg| lower_expr_internal(arg, context))
@@ -839,6 +849,41 @@ fn lower_type_args_with_context(
                 ty_span: ty.span,
                 ty: lower_type_id(context, &ty.node_key, ty.span)?,
             })
+        })
+        .collect()
+}
+
+fn lower_generic_args_with_context(
+    args: &[nia_ast::BracketArg],
+    context: &dyn ConstLowerContext,
+) -> Result<Vec<EarlyConstGenericArg>, ConstLowerError> {
+    args.iter()
+        .map(|arg| {
+            if let Some(ty) = &arg.ty
+                && (context.probe_type_id(&ty.node_key).is_some()
+                    || !context.has_semantic_facts()
+                    || arg.expr.is_none())
+            {
+                return Ok(EarlyConstGenericArg::Type(EarlyConstTypeArg {
+                    span: arg.span,
+                    ty_span: ty.span,
+                    ty: lower_type_id(context, &ty.node_key, ty.span)?,
+                }));
+            }
+            if let Some(expr) = &arg.expr {
+                return lower_expr_internal(expr, context).map(EarlyConstGenericArg::Const);
+            }
+            let Some(ty) = &arg.ty else {
+                return Err(ConstLowerError {
+                    span: arg.span,
+                    message: "generic argument must be a type or const value".to_string(),
+                });
+            };
+            Ok(EarlyConstGenericArg::Type(EarlyConstTypeArg {
+                span: arg.span,
+                ty_span: ty.span,
+                ty: lower_type_id(context, &ty.node_key, ty.span)?,
+            }))
         })
         .collect()
 }
@@ -1173,13 +1218,20 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
         EarlyConstExprKind::Embed { path } => ResolvedConstExprKind::Embed { path },
         EarlyConstExprKind::Call {
             callee,
-            type_args,
+            generic_args,
             args,
         } => ResolvedConstExprKind::Call {
             callee: Box::new(resolve_expr(*callee)?),
-            type_args: type_args
+            generic_args: generic_args
                 .into_iter()
-                .map(resolve_type_arg)
+                .map(|arg| match arg {
+                    EarlyConstGenericArg::Type(arg) => {
+                        resolve_type_arg(arg).map(ResolvedConstGenericArg::Type)
+                    }
+                    EarlyConstGenericArg::Const(expr) => {
+                        resolve_expr(expr).map(ResolvedConstGenericArg::Const)
+                    }
+                })
                 .collect::<Result<Vec<_>, _>>()?,
             args: args
                 .into_iter()

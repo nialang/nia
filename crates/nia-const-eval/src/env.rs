@@ -1,9 +1,10 @@
 use crate::ConstValue;
 
 use nia_const_ir::{
-    ConstNameResolution, EarlyConstAssignTarget, EarlyConstBinding, EarlyConstExpr, EarlyConstName,
-    EarlyConstParam, EarlyConstTypeArg, ResolvedConstAssignTarget, ResolvedConstBinding,
-    ResolvedConstExpr, ResolvedConstParam, ResolvedConstTypeArg,
+    ConstNameResolution, EarlyConstAssignTarget, EarlyConstBinding, EarlyConstExpr,
+    EarlyConstGenericArg, EarlyConstName, EarlyConstParam, EarlyConstTypeArg,
+    ResolvedConstAssignTarget, ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg,
+    ResolvedConstParam, ResolvedConstTypeArg,
 };
 use nia_ids::{
     BuiltinConstValue, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin,
@@ -225,12 +226,12 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         &mut self,
         span: Span,
         callee: &EarlyConstExpr,
-        type_args: &[EarlyConstTypeArg],
+        generic_args: &[EarlyConstGenericArg],
         arg_exprs: &[EarlyConstExpr],
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         let _ = callee;
-        let _ = type_args;
+        let _ = generic_args;
         let _ = arg_exprs;
         let _ = args;
         Err(ConstError {
@@ -338,12 +339,12 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         &mut self,
         span: Span,
         callee: &ResolvedConstExpr,
-        type_args: &[ResolvedConstTypeArg],
+        generic_args: &[ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         let _ = callee;
-        let _ = type_args;
+        let _ = generic_args;
         let _ = arg_exprs;
         let _ = args;
         Err(ConstError {

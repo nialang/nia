@@ -6,6 +6,10 @@ struct Pair {
     right: i32,
 }
 
+struct Width {
+    value: i32,
+}
+
 enum Mode {
     Plain(i32),
     Scale(i32, i32),
@@ -14,6 +18,12 @@ enum Mode {
 extend Pair {
     const fn sum(self) i32 {
         self.left + self.right
+    }
+}
+
+extend Width {
+    const fn fromValue(value: i32) Width {
+        { value: value }
     }
 }
 
@@ -69,6 +79,10 @@ const fn select[T](useValue: bool, value: T, fallback: T) T {
     }
 }
 
+const fn constGenericScore[N: usize](value: i32) i32 {
+    value + N as i32
+}
+
 const arithmeticExpected: i32 = arithmetic(7);
 const castExpected: i32 = castScore(9);
 const arrayExpected: i32 = arrayScore([2, 3, 5]);
@@ -80,9 +94,12 @@ const switchExpected: i32 = switchScore(Mode::Scale(3, 4));
 const loopExpected: i32 = loopScore(5);
 const genericExpected: i32 = select[i32](true, 13, 2);
 const importedExpected: i32 = helper::importedScore(6);
+const associatedExpected: i32 = Width::fromValue(14).value;
+const constGenericExpected: i32 = constGenericScore[4](11);
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
+    let runtimeWidth = Width::fromValue(14);
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -121,6 +138,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if helper::importedOptionalScore(?8) != helper::importedOptionalExpected or helper::importedOptionalExpected != 10 {
         return process::exit(22)!;
+    }
+    if runtimeWidth.value != associatedExpected or associatedExpected != 14 {
+        return process::exit(23)!;
+    }
+    if constGenericScore[4](11) != constGenericExpected or constGenericExpected != 15 {
+        return process::exit(24)!;
     }
     !{}
 }

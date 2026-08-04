@@ -437,9 +437,6 @@ impl<'a> BodyChecker<'a> {
         name: &SymbolId,
     ) -> InternedTyId {
         let span = expr.span;
-        if let Some(ty) = self.const_field_expr_runtime_type(lhs, name) {
-            return ty;
-        }
         if matches!(
             self.semantic_uses.node_value_use(&expr.node_key),
             Some(SemanticValueUse::Global(_))
@@ -452,6 +449,11 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
         let lhs_ty = self.check_expr(lhs);
+        if matches!(self.interner.get(lhs_ty), Some(TyKind::ConstOnly))
+            && let Some(ty) = self.const_field_expr_runtime_type(lhs, name)
+        {
+            return ty;
+        }
         self.field_access_type_from_lhs_ty(span, lhs_ty, name)
     }
 
@@ -1191,7 +1193,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
         &mut self,
         span: Span,
         callee: &ResolvedConstExpr,
-        type_args: &[ResolvedConstTypeArg],
+        generic_args: &[nia_const_ir::ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
@@ -1214,7 +1216,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
             span,
             function_id,
             &signature,
-            type_args,
+            generic_args,
             arg_exprs,
         )?;
         let Some(function) = self.const_function_body(function_id) else {
@@ -1371,7 +1373,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         function_id: GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
-        type_args: &[ResolvedConstTypeArg],
+        generic_args: &[nia_const_ir::ResolvedConstGenericArg],
         arg_exprs: &[ResolvedConstExpr],
     ) -> Result<nia_const_check::ConstGenericInstantiation, ConstError> {
         let frames = self.typed_const_frames();
@@ -1412,7 +1414,7 @@ impl<'a> BodyChecker<'a> {
             span,
             function_id.module_id,
             signature,
-            type_args,
+            generic_args,
             arg_exprs,
             None,
         )

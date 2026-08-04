@@ -141,3 +141,81 @@ fn resolved_lowering_requires_type_ids() {
         .expect_err("resolved lowering must reject unresolved types");
     assert_eq!(err.message, "failed to resolve const type");
 }
+
+#[test]
+fn generic_call_lowering_uses_semantic_facts_to_distinguish_type_and_const_args() {
+    let generic_name = sym("N");
+    let function_key = expr_key(10);
+    let arg_expr_key = expr_key(11);
+    let arg_type_key = type_key(10);
+    let call = nia_ast::Expr {
+        span: Span::new(0, 8),
+        node_key: expr_key(12),
+        kind: nia_ast::ExprKind::Call {
+            callee: Box::new(nia_ast::Expr {
+                span: Span::new(0, 6),
+                node_key: expr_key(13),
+                kind: nia_ast::ExprKind::BracketSuffix {
+                    callee: Box::new(nia_ast::Expr {
+                        span: span(),
+                        node_key: function_key.clone(),
+                        kind: nia_ast::ExprKind::Ident(sym("select")),
+                    }),
+                    args: vec![nia_ast::BracketArg {
+                        span: other_span(),
+                        expr: Some(nia_ast::Expr {
+                            span: other_span(),
+                            node_key: arg_expr_key.clone(),
+                            kind: nia_ast::ExprKind::Ident(generic_name),
+                        }),
+                        ty: Some(nia_ast::TypeRef {
+                            span: other_span(),
+                            node_key: arg_type_key,
+                            text: "N".to_string(),
+                            kind: nia_ast::TypeKind::Path {
+                                segments: vec![nia_ast::TypePathSegment {
+                                    kind: nia_ast::PathSegmentKind::Name(generic_name),
+                                    args: Vec::new(),
+                                }],
+                            },
+                        }),
+                    }],
+                },
+            }),
+            args: Vec::new(),
+        },
+    };
+
+    let early = lower_expr_early(&call)
+        .expect("early lowering without semantic facts should retain type candidates");
+    let EarlyConstExprKind::Call { generic_args, .. } = early.kind else {
+        panic!("expression should lower to a call");
+    };
+    assert!(matches!(
+        generic_args.as_slice(),
+        [EarlyConstGenericArg::Type(_)]
+    ));
+
+    let module_id = ModuleIdAllocator::new().allocate();
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_global_value_use(
+        function_key,
+        GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+    );
+    semantic_uses.insert_node_const_generic_use(arg_expr_key, generic_name);
+    let semantic_uses = semantic_uses.finish();
+    let context = ResolvedConstLowerInputs::new(&semantic_uses);
+    let resolved = lower_expr_resolved_with_context(&call, &context)
+        .expect("resolved lowering should use const-generic value facts");
+    let ResolvedConstExprKind::Call { generic_args, .. } = resolved.kind() else {
+        panic!("expression should lower to a resolved call");
+    };
+    assert!(matches!(
+        generic_args.as_slice(),
+        [ResolvedConstGenericArg::Const(expr)]
+            if expr.name_resolution() == Some(ConstNameResolution::GenericParam(generic_name))
+    ));
+}
