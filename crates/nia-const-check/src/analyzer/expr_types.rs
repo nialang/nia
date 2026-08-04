@@ -52,6 +52,7 @@ impl Analyzer<'_> {
         &mut self,
         op: ConstUnaryOp,
         inner: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         match op {
             ConstUnaryOp::Not => {
@@ -69,7 +70,7 @@ impl Analyzer<'_> {
                 Some(ConstValueType::Runtime(bool_ty))
             }
             ConstUnaryOp::Neg => {
-                let inner_ty = self.resolved_const_arg_runtime_type(inner, None)?;
+                let inner_ty = self.resolved_const_arg_runtime_type(inner, expected)?;
                 if !self.is_integer_runtime_type(inner_ty) && !self.is_float_runtime_type(inner_ty)
                 {
                     if self.const_runtime_type_is_known_builtin_scalar(inner_ty) {
@@ -83,7 +84,7 @@ impl Analyzer<'_> {
                 Some(ConstValueType::Runtime(inner_ty))
             }
             ConstUnaryOp::BitNot => {
-                let inner_ty = self.resolved_const_arg_runtime_type(inner, None)?;
+                let inner_ty = self.resolved_const_arg_runtime_type(inner, expected)?;
                 if !self.is_integer_runtime_type(inner_ty) {
                     if self.const_runtime_type_is_known_builtin_scalar(inner_ty) {
                         self.push_const_type_error(
@@ -165,6 +166,7 @@ impl Analyzer<'_> {
         lhs: &ResolvedConstExpr,
         op: ConstBinaryOp,
         rhs: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         match op {
             ConstBinaryOp::And | ConstBinaryOp::Or => {
@@ -197,7 +199,7 @@ impl Analyzer<'_> {
             | ConstBinaryOp::BitAnd
             | ConstBinaryOp::BitXor
             | ConstBinaryOp::BitOr => {
-                let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
+                let lhs_ty = self.resolved_const_arg_runtime_type(lhs, expected)?;
                 let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
                 let allowed = match op {
                     ConstBinaryOp::Shl

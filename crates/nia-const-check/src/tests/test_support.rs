@@ -14,6 +14,13 @@ pub(super) struct CheckedFixture {
 }
 
 pub(super) fn check_source(source: &str) -> CheckedFixture {
+    check_source_for_target(source, nia_target_config::TargetConfig::host())
+}
+
+pub(super) fn check_source_for_target(
+    source: &str,
+    target: nia_target_config::TargetConfig,
+) -> CheckedFixture {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let symbols = SymbolTable::new();
@@ -42,7 +49,6 @@ pub(super) fn check_source(source: &str) -> CheckedFixture {
         ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
     let semantic_uses =
         semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
-    let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-const-check-test/main.nia");
     let const_module = lower_module_const(ConstModuleInput {
         active_item_tree: &active_item_tree,

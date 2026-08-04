@@ -1254,6 +1254,129 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn const_integer_arithmetic_rejects_narrow_intermediate_overflow() {
+    let root = temp_dir("const_integer_arithmetic_rejects_narrow_intermediate_overflow");
+    write(
+        &root.join("main.nia"),
+        r#"
+const hiddenAddOverflow: u8 = (255u8 + 1u8) - 1u8;
+const hiddenMulOverflow: i32 = (2147483647i32 * 2i32) / 2i32;
+const contextualOverflow: u8 = (255 + 1) - 1;
+
+const fn overflowInReturnContext() u8 {
+    (255 + 1) - 1
+}
+
+const contextualFunctionOverflow: u8 = overflowInReturnContext();
+const negationOverflow: i8 = -(-128i8);
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("integer overflow in const addition")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("integer overflow in const multiplication")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("integer overflow in const addition"))
+            .count()
+            >= 3,
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("integer overflow in const negation")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn generic_const_integer_arithmetic_uses_substituted_width() {
+    let root = temp_dir("generic_const_integer_arithmetic_uses_substituted_width");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn add[T](lhs: T, rhs: T) T
+where T: Add[T, Output = T] {
+    lhs + rhs
+}
+
+const overflow: u8 = add[u8](255u8, 1u8);
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("integer overflow in const addition")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn imported_const_integer_arithmetic_uses_definition_module_types() {
+    let root = temp_dir("imported_const_integer_arithmetic_uses_definition_module_types");
+    write(
+        &root.join("math.nia"),
+        r#"
+pub const fn add(lhs: u8, rhs: u8) u8 {
+    lhs + rhs
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module math;
+using entry::math;
+
+const overflow: u8 = math::add(255u8, 1u8);
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("integer overflow in const addition")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_dependency_cycles_are_diagnosed() {
     let root = temp_dir("const_dependency_cycles_are_diagnosed");
     write(

@@ -468,6 +468,16 @@ the same conditions before emitting the LLVM integer operation. Floating-point
 division and remainder follow their floating-point semantics and are not
 covered by this scalar integer trap rule.
 
+During constant evaluation, integer addition, subtraction, multiplication, and
+negation are checked at every operation against the concrete operand type. An
+overflowing intermediate is a source diagnostic even when a later operation
+would return the final value to range. The concrete type comes from ordinary
+semantic inference, including expected types, instantiated generic parameters,
+the defining module of an imported `const fn`, and the target width of `usize`
+and `isize`; literal spelling and the compiler host integer width do not define
+these rules. Runtime overflow conformance and concrete-width shift rules remain
+under specification.
+
 An expected optional or error-union type supplies context to its constructed
 payload. For example, `return ?0` in a function returning `?usize`, `!1` where
 `E!u8` is expected, and `2!` where `u8!i32` is expected infer `usize`, `u8`, and

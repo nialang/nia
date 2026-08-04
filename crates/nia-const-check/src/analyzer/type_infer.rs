@@ -373,14 +373,34 @@ impl Analyzer<'_> {
         expr: &ResolvedConstExpr,
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
+        let inferred = self.resolved_const_expr_type_inner(expr, expected);
+        if let Some(ConstValueType::Runtime(ty)) = inferred
+            && let Some(types) = self.resolved_expr_types.last_mut()
+        {
+            types.insert(expr.span(), ty);
+        }
+        inferred
+    }
+
+    fn resolved_const_expr_type_inner(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<ConstValueType> {
         match expr.kind() {
             ResolvedConstExprKind::Name(resolution) => self
                 .resolved_const_enum_variant_value_type(expr)
                 .or_else(|| self.const_name_resolution_type(resolution.clone())),
             ResolvedConstExprKind::Integer(text) => {
-                integer_literal_suffix_ty(text).map(|primitive| {
-                    ConstValueType::Runtime(self.current_runtime_primitive_type(primitive))
-                })
+                if let Some(primitive) = integer_literal_suffix_ty(text) {
+                    Some(ConstValueType::Runtime(
+                        self.current_runtime_primitive_type(primitive),
+                    ))
+                } else {
+                    expected
+                        .filter(|ty| self.is_integer_runtime_type(*ty))
+                        .map(ConstValueType::Runtime)
+                }
             }
             ResolvedConstExprKind::Float(text) => {
                 let primitive = float_literal_suffix_ty(text).unwrap_or(PrimitiveTy::F64);
@@ -497,10 +517,10 @@ impl Analyzer<'_> {
             }
             ResolvedConstExprKind::Range(range) => self.resolved_const_range_type(range, expected),
             ResolvedConstExprKind::Binary { lhs, op, rhs } => {
-                self.resolved_const_binary_expr_type(lhs, *op, rhs)
+                self.resolved_const_binary_expr_type(lhs, *op, rhs, expected)
             }
             ResolvedConstExprKind::Unary { op, expr: inner } => {
-                self.resolved_const_unary_expr_type(*op, inner)
+                self.resolved_const_unary_expr_type(*op, inner, expected)
             }
             ResolvedConstExprKind::If {
                 cond,
