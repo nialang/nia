@@ -718,6 +718,150 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_invalid_array_indexes() {
+    let root = temp_dir("unused_const_function_rejects_invalid_array_indexes");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongIndexes() usize {
+    let values: [2]usize = [1usize, 2usize];
+    values[true];
+    values[3usize];
+    values[-1];
+    0usize[runtimeOnly()];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "const array index must have an integer type",
+        "const array index 3 is out of bounds",
+        "const array index must be a non-negative array length",
+        "const index target is not an array or slice",
+        "const expression can only call `const fn`",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_rejects_invalid_array_slices() {
+    let root = temp_dir("unused_const_function_rejects_invalid_array_slices");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn runtimeOnly() usize {
+    1
+}
+
+const fn wrongSlices(start: usize) usize {
+    let values: [2]usize = [1usize, 2usize];
+    values[true..runtimeOnly()];
+    values[-1..1];
+    values[0..-1];
+    values[start..-1];
+    values[2usize..1usize];
+    values[1usize..3usize];
+    values[0usize..=18446744073709551615usize];
+    0usize[0usize..1usize];
+    let narrow: [1]usize = values[0usize..2usize];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for message in [
+        "const slice range start must have an integer type",
+        "const expression can only call `const fn`",
+        "const slice range start must be a non-negative array length",
+        "const slice range end must be a non-negative array length",
+        "const slice range 2..1 is out of bounds",
+        "const slice range 1..3 is out of bounds",
+        "const slice inclusive end is too large",
+        "const slice target is not an array or slice",
+        "const slice length mismatch: expected 1, got 2",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+            "missing {message:?}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn unused_const_function_accepts_parameter_dependent_index_and_slice() {
+    let root = temp_dir("unused_const_function_accepts_parameter_dependent_index_and_slice");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn inspect(
+    values: [4]usize,
+    index: usize,
+    start: usize,
+    end: usize,
+) usize {
+    values[index];
+    values[start..end];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn unused_generic_const_function_defers_trait_based_index_and_slice_types() {
+    let root = temp_dir("unused_generic_const_function_defers_trait_based_index_and_slice_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn inspectIndex[T](value: T) usize
+where T: Index[bool] {
+    value[true];
+    0
+}
+
+const fn inspectSlice[T](value: T) usize
+where T: Slice[i32..i32] {
+    value[0i32..1i32];
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn unused_const_function_audits_typed_array_literal() {
     let root = temp_dir("unused_const_function_audits_typed_array_literal");
     write(
