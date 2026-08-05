@@ -255,6 +255,7 @@ pub struct ParamSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructSignature {
     pub generics: Vec<SymbolId>,
+    pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
@@ -264,6 +265,7 @@ pub struct StructSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionSignature {
     pub generics: Vec<SymbolId>,
+    pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
@@ -493,6 +495,7 @@ impl UnionSignature {
     pub fn as_struct_like(&self) -> StructSignature {
         StructSignature {
             generics: self.generics.clone(),
+            generic_params: self.generic_params.clone(),
             where_predicates: self.where_predicates.clone(),
             fields: self.fields.clone(),
             is_extern: self.is_extern,
@@ -755,6 +758,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             StructSignature {
                 generics: generic_signature_names(&item_struct.generics),
+                generic_params: self.generic_param_signatures(&item_struct.generics),
                 where_predicates: self.where_predicate_signatures(&item_struct.where_clause),
                 fields,
                 is_extern: item_struct.is_extern,
@@ -790,6 +794,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             UnionSignature {
                 generics: generic_signature_names(&item_union.generics),
+                generic_params: self.generic_param_signatures(&item_union.generics),
                 where_predicates: self.where_predicate_signatures(&item_union.where_clause),
                 fields,
                 is_extern: item_union.is_extern,

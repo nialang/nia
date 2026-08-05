@@ -938,8 +938,9 @@ impl Analyzer<'_> {
         target_ty: InternedTyId,
     ) -> Option<Vec<(&'a ResolvedConstPattern, InternedTyId)>> {
         let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
-        let (target_enum, target_args) = self.expected_nominal_parts(target_ty)?;
-        if target_enum != enum_id || !target_args.is_empty() {
+        let (target_enum, target_args, target_const_args) =
+            self.expected_nominal_parts(target_ty)?;
+        if target_enum != enum_id || !target_args.is_empty() || !target_const_args.is_empty() {
             return None;
         }
         let current_module = self.current_execution_module_id();
@@ -1768,7 +1769,9 @@ impl Analyzer<'_> {
         let Some(expected) = expected else {
             return self.structural_resolved_const_struct_literal_type(fields);
         };
-        let Some((def_id, expected_args)) = self.expected_nominal_parts(expected) else {
+        let Some((def_id, expected_args, expected_const_args)) =
+            self.expected_nominal_parts(expected)
+        else {
             let _ = self.structural_resolved_const_struct_literal_type(fields);
             if self.const_runtime_type_is_known(expected)
                 && !matches!(self.ty_kind(expected), Some(TyKind::ConstOnly))
@@ -1787,6 +1790,7 @@ impl Analyzer<'_> {
                 expected,
                 def_id,
                 &expected_args,
+                &expected_const_args,
             );
         }
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
@@ -1794,7 +1798,8 @@ impl Analyzer<'_> {
             return None;
         }
         let signature = self.struct_signature_for(def_id)?;
-        let field_tys = self.const_struct_field_types(&signature, &expected_args)?;
+        let field_tys =
+            self.const_struct_field_types(&signature, &expected_args, &expected_const_args)?;
         let field_set = check_required_field_set(
             fields
                 .iter()
@@ -1876,7 +1881,7 @@ impl Analyzer<'_> {
         if !fields_are_valid || !types_match {
             return None;
         }
-        self.substitute_nominal_args(def_id, expected_args, &substitutions)
+        self.substitute_nominal_args(def_id, expected_args, expected_const_args, &substitutions)
             .map(ConstValueType::Runtime)
     }
 
@@ -1887,9 +1892,11 @@ impl Analyzer<'_> {
         expected: InternedTyId,
         def_id: GlobalDefId,
         expected_args: &[InternedTyId],
+        expected_const_args: &[ConstGenericArg],
     ) -> Option<ConstValueType> {
         let signature = self.union_signature_for(def_id)?;
-        let field_tys = self.const_union_field_types(&signature, expected_args)?;
+        let field_tys =
+            self.const_union_field_types(&signature, expected_args, expected_const_args)?;
         if fields.len() != 1 {
             for field in fields {
                 let _ = self.resolved_const_expr_type(field.value(), None);
@@ -1962,16 +1969,18 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         name: &SymbolId,
     ) -> Option<InternedTyId> {
-        let (def_id, args) = self.expected_nominal_parts(ty)?;
+        let (def_id, args, const_args) = self.expected_nominal_parts(ty)?;
         match self.def_kind_of(def_id)? {
             DefKind::Struct => self
                 .struct_signature_for(def_id)
-                .and_then(|signature| self.const_struct_field_types(&signature, &args))?
+                .and_then(|signature| {
+                    self.const_struct_field_types(&signature, &args, &const_args)
+                })?
                 .get(name)
                 .copied(),
             DefKind::Union => self
                 .union_signature_for(def_id)
-                .and_then(|signature| self.const_union_field_types(&signature, &args))?
+                .and_then(|signature| self.const_union_field_types(&signature, &args, &const_args))?
                 .get(name)
                 .copied(),
             _ => None,
@@ -2003,9 +2012,13 @@ impl Analyzer<'_> {
     pub(super) fn expected_nominal_parts(
         &self,
         ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         match self.ty_kind(ty)? {
-            TyKind::Nominal { def_id, args, .. } => Some((def_id, args)),
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => Some((def_id, args, const_args)),
             _ => None,
         }
     }
@@ -2036,46 +2049,84 @@ impl Analyzer<'_> {
         &mut self,
         signature: &nia_item_signatures::UnionSignature,
         expected_args: &[InternedTyId],
+        expected_const_args: &[ConstGenericArg],
     ) -> Option<SymbolMap<InternedTyId>> {
-        self.const_aggregate_field_types(&signature.generics, &signature.fields, expected_args)
+        self.const_aggregate_field_types(
+            &signature.generic_params,
+            &signature.fields,
+            expected_args,
+            expected_const_args,
+        )
     }
 
     pub(super) fn const_struct_field_types(
         &mut self,
         signature: &nia_item_signatures::StructSignature,
         expected_args: &[InternedTyId],
+        expected_const_args: &[ConstGenericArg],
     ) -> Option<SymbolMap<InternedTyId>> {
-        self.const_aggregate_field_types(&signature.generics, &signature.fields, expected_args)
+        self.const_aggregate_field_types(
+            &signature.generic_params,
+            &signature.fields,
+            expected_args,
+            expected_const_args,
+        )
     }
 
     fn const_aggregate_field_types(
         &mut self,
-        generics: &[SymbolId],
+        generic_params: &[nia_item_signatures::GenericParamSignature],
         signature_fields: &[nia_item_signatures::FieldSignature],
         expected_args: &[InternedTyId],
+        expected_const_args: &[ConstGenericArg],
     ) -> Option<SymbolMap<InternedTyId>> {
-        if generics.len() != expected_args.len() {
-            return None;
-        }
         let current_module = self.current_execution_module_id();
         let expected_args = expected_args
             .iter()
             .copied()
             .map(|arg| self.type_for_module_or_none(arg, current_module))
             .collect::<Option<Vec<_>>>()?;
-        let substitutions = generics
+        let expected_const_args = expected_const_args
             .iter()
             .cloned()
-            .zip(expected_args)
-            .collect::<SymbolMap<_>>();
+            .map(|mut arg| {
+                arg.ty = self.type_for_module_or_none(arg.ty, current_module)?;
+                Some(arg)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let mut type_index = 0;
+        let mut const_index = 0;
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
+        for param in generic_params {
+            match param.kind {
+                GenericParamSignatureKind::Type => {
+                    substitutions.insert(param.name, *expected_args.get(type_index)?);
+                    type_index += 1;
+                }
+                GenericParamSignatureKind::Const { .. } => {
+                    const_substitutions
+                        .insert(param.name, expected_const_args.get(const_index)?.clone());
+                    const_index += 1;
+                }
+            }
+        }
+        if type_index != expected_args.len() || const_index != expected_const_args.len() {
+            return None;
+        }
         let mut fields = SymbolMap::default();
         for field in signature_fields {
             let canonical = self.type_for_module_or_none(field.ty, current_module)?;
             let ty = {
                 let types = self.type_contexts.get(&current_module)?;
-                substitute_ty_generics(types, canonical, &|generic| {
-                    substitutions.get(generic).copied()
-                })
+                nia_ty::substitute_ty(
+                    types.store,
+                    &types.append,
+                    canonical,
+                    &|generic| substitutions.get(generic).copied(),
+                    &|generic| const_substitutions.get(generic).cloned(),
+                    None,
+                )
             };
             fields.insert(field.name, ty);
         }
@@ -2086,6 +2137,7 @@ impl Analyzer<'_> {
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
@@ -2103,7 +2155,7 @@ impl Analyzer<'_> {
             types.intern(TyKind::Nominal {
                 def_id,
                 args,
-                const_args: Vec::new(),
+                const_args,
             })
         })
     }
@@ -2768,8 +2820,96 @@ impl Analyzer<'_> {
                 self.const_function_types_match(expected_error, actual_error)
                     && self.const_function_types_match(expected_value, actual_value)
             }
+            (
+                Some(TyKind::Nominal {
+                    def_id: expected_def,
+                    args: expected_args,
+                    const_args: expected_const_args,
+                }),
+                Some(TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                    const_args: actual_const_args,
+                }),
+            ) => {
+                expected_def == actual_def
+                    && expected_args.len() == actual_args.len()
+                    && expected_args
+                        .into_iter()
+                        .zip(actual_args)
+                        .all(|(expected, actual)| self.const_function_types_match(expected, actual))
+                    && self.const_generic_arg_slices_match_for_execution(
+                        &expected_const_args,
+                        &actual_const_args,
+                    )
+            }
             _ => false,
         }
+    }
+
+    fn const_generic_arg_slices_match_for_execution(
+        &mut self,
+        expected: &[ConstGenericArg],
+        actual: &[ConstGenericArg],
+    ) -> bool {
+        expected.len() == actual.len()
+            && expected.iter().zip(actual).all(|(expected, actual)| {
+                self.const_function_types_match(expected.ty, actual.ty)
+                    && self.const_generic_values_match_for_execution(expected, actual)
+            })
+    }
+
+    fn const_generic_values_match_for_execution(
+        &mut self,
+        expected: &ConstGenericArg,
+        actual: &ConstGenericArg,
+    ) -> bool {
+        if expected.value == actual.value {
+            return true;
+        }
+        match (
+            self.resolve_const_generic_arg_for_execution(expected),
+            self.resolve_const_generic_arg_for_execution(actual),
+        ) {
+            (Some(ConstGenericValue::Int(expected)), Some(ConstGenericValue::Int(actual))) => {
+                expected.bits() == actual.bits()
+            }
+            (Some(expected), Some(actual)) => expected == actual,
+            _ => false,
+        }
+    }
+
+    fn resolve_const_generic_arg_for_execution(
+        &mut self,
+        arg: &ConstGenericArg,
+    ) -> Option<ConstGenericValue> {
+        let ConstGenericValue::ConstExpr(id) = arg.value else {
+            return (!matches!(arg.value, ConstGenericValue::GenericParam(_)))
+                .then(|| arg.value.clone());
+        };
+        if matches!(
+            self.ty_kind(arg.ty),
+            Some(TyKind::Primitive(PrimitiveTy::Usize))
+        ) && let Some(value) = self
+            .array_lengths
+            .get(&id)
+            .copied()
+            .or_else(|| self.eval_array_len_const_expr_id(id))
+        {
+            return Some(ConstGenericValue::Int(IntConst::unsigned(value.into())));
+        }
+        let expr = if id.module_id == self.input.defs.module_id {
+            self.input.module.const_exprs().get(&id)?.clone()
+        } else {
+            (self.input.program.module?)(id.module_id)?
+                .const_exprs()
+                .get(&id)?
+                .clone()
+        };
+        self.with_execution_module(id.module_id, |this| {
+            this.const_generic_arg_from_resolved_expr(&expr, arg.ty, id.module_id)
+                .ok()
+        })
     }
 
     pub(super) fn check_resolved_const_stmt(

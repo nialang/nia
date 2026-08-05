@@ -43,7 +43,7 @@ mod storage;
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
-const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
+const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI003";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
@@ -817,17 +817,7 @@ fn write_function_signature(
 ) -> io::Result<()> {
     graph.write_symbol(encoded, signature.name)?;
     write_symbols(encoded, &signature.generics, graph)?;
-    write_u64(encoded, signature.generic_params.len() as u64);
-    for param in &signature.generic_params {
-        graph.write_symbol(encoded, param.name)?;
-        match &param.kind {
-            item_signatures::GenericParamSignatureKind::Type => encoded.push(0),
-            item_signatures::GenericParamSignatureKind::Const { ty } => {
-                encoded.push(1);
-                write_type_index(encoded, graph.intern(*ty)?);
-            }
-        }
-    }
+    write_generic_params(encoded, &signature.generic_params, graph)?;
     write_where_predicates(encoded, &signature.where_predicates, graph)?;
     write_u64(encoded, signature.params.len() as u64);
     for param in &signature.params {
@@ -863,19 +853,7 @@ fn read_function_signature(
 ) -> Option<item_signatures::FunctionSignature> {
     let function_name = read_symbol(cursor, symbols)?;
     let generics = read_symbols(cursor, symbols)?;
-    let generic_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
-    let mut generic_params = Vec::with_capacity(generic_len);
-    for _ in 0..generic_len {
-        let name = read_symbol(cursor, symbols)?;
-        let kind = match read_u8(cursor)? {
-            0 => item_signatures::GenericParamSignatureKind::Type,
-            1 => item_signatures::GenericParamSignatureKind::Const {
-                ty: read_type_index(cursor, types)?,
-            },
-            _ => return None,
-        };
-        generic_params.push(item_signatures::GenericParamSignature { name, kind });
-    }
+    let generic_params = read_generic_params(cursor, types, symbols)?;
     let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
     let param_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
     let mut params = Vec::with_capacity(param_len);
@@ -916,12 +894,53 @@ fn read_function_signature(
     })
 }
 
+fn write_generic_params(
+    encoded: &mut Vec<u8>,
+    params: &[item_signatures::GenericParamSignature],
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, params.len() as u64);
+    for param in params {
+        graph.write_symbol(encoded, param.name)?;
+        match &param.kind {
+            item_signatures::GenericParamSignatureKind::Type => encoded.push(0),
+            item_signatures::GenericParamSignatureKind::Const { ty } => {
+                encoded.push(1);
+                write_type_index(encoded, graph.intern(*ty)?);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_generic_params(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+) -> Option<Vec<item_signatures::GenericParamSignature>> {
+    let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut params = Vec::with_capacity(len);
+    for _ in 0..len {
+        let name = read_symbol(cursor, symbols)?;
+        let kind = match read_u8(cursor)? {
+            0 => item_signatures::GenericParamSignatureKind::Type,
+            1 => item_signatures::GenericParamSignatureKind::Const {
+                ty: read_type_index(cursor, types)?,
+            },
+            _ => return None,
+        };
+        params.push(item_signatures::GenericParamSignature { name, kind });
+    }
+    Some(params)
+}
+
 fn write_struct_signature(
     encoded: &mut Vec<u8>,
     signature: &item_signatures::StructSignature,
     graph: &mut TypeGraphEncoder<'_>,
 ) -> io::Result<()> {
     write_symbols(encoded, &signature.generics, graph)?;
+    write_generic_params(encoded, &signature.generic_params, graph)?;
     write_where_predicates(encoded, &signature.where_predicates, graph)?;
     write_fields(encoded, &signature.fields, graph)?;
     write_bool(encoded, signature.is_extern);
@@ -937,6 +956,7 @@ fn read_struct_signature(
 ) -> Option<item_signatures::StructSignature> {
     Some(item_signatures::StructSignature {
         generics: read_symbols(cursor, symbols)?,
+        generic_params: read_generic_params(cursor, types, symbols)?,
         where_predicates: read_where_predicates(cursor, types, symbols, source_len)?,
         fields: read_fields(cursor, types, symbols, source_len)?,
         is_extern: read_bool(cursor)?,
@@ -950,6 +970,7 @@ fn write_union_signature(
     graph: &mut TypeGraphEncoder<'_>,
 ) -> io::Result<()> {
     write_symbols(encoded, &signature.generics, graph)?;
+    write_generic_params(encoded, &signature.generic_params, graph)?;
     write_where_predicates(encoded, &signature.where_predicates, graph)?;
     write_fields(encoded, &signature.fields, graph)?;
     write_bool(encoded, signature.is_extern);
@@ -965,6 +986,7 @@ fn read_union_signature(
 ) -> Option<item_signatures::UnionSignature> {
     Some(item_signatures::UnionSignature {
         generics: read_symbols(cursor, symbols)?,
+        generic_params: read_generic_params(cursor, types, symbols)?,
         where_predicates: read_where_predicates(cursor, types, symbols, source_len)?,
         fields: read_fields(cursor, types, symbols, source_len)?,
         is_extern: read_bool(cursor)?,

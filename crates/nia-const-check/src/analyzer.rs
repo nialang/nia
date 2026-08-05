@@ -45,8 +45,8 @@ use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{
-    ArrayLenTy, ConstGenericArg, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyKind,
-    TypeStoreAppend,
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, RangeTyKind, TraitId,
+    TyKind, TypeStoreAppend,
 };
 use nia_value_resolve::ValueResolution;
 
@@ -782,7 +782,7 @@ impl Analyzer<'_> {
         let ConstValue::Struct(mut values) = value else {
             return value;
         };
-        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+        let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return ConstValue::Struct(values);
         };
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
@@ -791,7 +791,7 @@ impl Analyzer<'_> {
         let Some(signature) = self.struct_signature_for(def_id) else {
             return ConstValue::Struct(values);
         };
-        let Some(field_tys) = self.const_struct_field_types(&signature, &args) else {
+        let Some(field_tys) = self.const_struct_field_types(&signature, &args, &const_args) else {
             return ConstValue::Struct(values);
         };
         for (name, ty) in field_tys {
@@ -884,7 +884,7 @@ impl Analyzer<'_> {
             self.push_const_type_mismatch(span, "struct");
             return;
         };
-        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+        let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return;
         };
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
@@ -893,7 +893,7 @@ impl Analyzer<'_> {
         let Some(signature) = self.struct_signature_for(def_id) else {
             return;
         };
-        let Some(field_tys) = self.const_struct_field_types(&signature, &args) else {
+        let Some(field_tys) = self.const_struct_field_types(&signature, &args, &const_args) else {
             return;
         };
         let field_set: FieldSetCheck<SymbolId> =
@@ -916,13 +916,13 @@ impl Analyzer<'_> {
             self.push_const_type_mismatch(span, "union");
             return;
         };
-        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+        let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return;
         };
         let Some(signature) = self.union_signature_for(def_id) else {
             return;
         };
-        let Some(field_tys) = self.const_union_field_types(&signature, &args) else {
+        let Some(field_tys) = self.const_union_field_types(&signature, &args, &const_args) else {
             return;
         };
         let last_written_field = value.last_written_field();

@@ -493,6 +493,17 @@ const INVALID_PADDING_READ: [8]u8 = DATA.bytes;
 "#,
         target,
     );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic
+                .summary
+                .contains("const union field reads uninitialized storage")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
     assert_eq!(
         const_value(&fixture, "PREFIX"),
         ConstValue::Array(
@@ -571,6 +582,94 @@ const FLAGS: Flags = INVALID.flags;
             .any(|diagnostic| diagnostic
                 .summary
                 .contains("const union field has an invalid bool representation")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_nominal_struct_union_fields_use_concrete_array_layout() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+struct Packet[T, N: usize, U] {
+    marker: T,
+    values: [N]U,
+}
+
+struct Flagged[Enabled: bool] {
+    value: u8,
+}
+
+union PacketBytes[T, N: usize, U] {
+    value: Packet[T, N, U],
+    prefix: [5]u8,
+    all: [6]u8,
+}
+
+const WIDTH: usize = 2;
+const ENABLED: bool = true;
+const DATA: PacketBytes[u8, WIDTH, u16] = {
+    value: { marker: 170, values: [2]u16[4386, 13124] },
+};
+const PREFIX: [5]u8 = DATA.prefix;
+const ROUND_TRIP: Packet[u8, 2, u16] = DATA.value;
+const FLAGGED: Flagged[ENABLED] = { value: 7 };
+const FLAGGED_LITERAL: Flagged[true] = FLAGGED;
+const INVALID_PADDING_READ: [6]u8 = DATA.all;
+"#,
+        target,
+    );
+    assert!(
+        fixture.const_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.const_module.diagnostics
+    );
+    assert!(
+        fixture
+            .checked
+            .array_lengths
+            .values()
+            .any(|value| *value == 2),
+        "{:?}",
+        fixture.checked.array_lengths
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic
+                .summary
+                .contains("const union field reads uninitialized storage")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "PREFIX"),
+        ConstValue::Array(
+            [0x22, 0x11, 0x44, 0x33, 0xaa]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+    assert!(matches!(
+        const_value(&fixture, "ROUND_TRIP"),
+        ConstValue::Struct(_)
+    ));
+    assert!(matches!(
+        const_value(&fixture, "FLAGGED_LITERAL"),
+        ConstValue::Struct(_)
+    ));
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("const union field reads uninitialized storage")),
         "{:?}",
         fixture.checked.diagnostics
     );

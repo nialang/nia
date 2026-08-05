@@ -1735,12 +1735,14 @@ zero. Invalid `bool` or `char` representations inside an array or struct are
 diagnosed at the containing element or field.
 
 The current const ABI codec is deliberately limited to scalars, fixed arrays,
-and non-const-generic nominal structs recursively composed from those types. A
-union containing pointers, vectors, nested unions, const-generic nominal
-structs, or other aggregate fields is rejected in a `const fn` declaration
-until const evaluation has an explicit substitution, storage, or
-pointer-provenance model for that field kind. Ordinary runtime unions retain the
-full semantics described in section 4.6.
+and nominal structs recursively composed from those types. Nominal struct type
+and const arguments are substituted by declaration parameter kind and order;
+semantically equal const expressions and literal arguments identify the same
+concrete field type. A union containing pointers, vectors, nested unions, or
+other unsupported aggregate fields is rejected in a `const fn` declaration
+until const evaluation has an explicit storage or pointer-provenance model for
+that field kind. Ordinary runtime unions retain the full semantics described in
+section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

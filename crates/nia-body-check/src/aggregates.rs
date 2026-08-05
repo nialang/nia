@@ -623,7 +623,7 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 args,
                 const_args,
-            } if const_args.is_empty() => {
+            } => {
                 let Some(resolved) = self.resolved_struct_signature(def_id) else {
                     visiting.remove(&ty);
                     return false;

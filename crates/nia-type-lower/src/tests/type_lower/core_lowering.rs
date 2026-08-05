@@ -116,6 +116,82 @@ fn use_buffer(buf: Buffer[u8, 4]) void {}
 }
 
 #[test]
+fn lowers_external_const_generic_parameter_types_in_their_defining_module() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let defining_module_id = module_ids.allocate();
+    let consuming_module_id = module_ids.allocate();
+    let (defining_module, defining_errors) = parse_module(
+        r#"
+pub struct Packet[T, N: usize, U] {
+    marker: T,
+    values: [N]U,
+}
+"#,
+    );
+    assert!(defining_errors.is_empty(), "{defining_errors:?}");
+    let defining_defs = collect_module_defs(defining_module_id, &defining_module);
+    let packet_id = defining_defs
+        .module_scope
+        .types
+        .get(&sym("Packet"))
+        .expect("Packet definition");
+
+    let (consuming_module, consuming_errors) = parse_module(
+        r#"
+fn consume(packet: Packet[u8, 2, u16]) void {}
+"#,
+    );
+    assert!(consuming_errors.is_empty(), "{consuming_errors:?}");
+    let consuming_defs = collect_module_defs(consuming_module_id, &consuming_module);
+    let mut resolved = resolve_module_types(&consuming_module, &consuming_defs);
+    let ItemKind::Function(function) = &consuming_module.items[0].kind else {
+        panic!("expected function");
+    };
+    let packet_ty = function.params[0]
+        .ty
+        .as_ref()
+        .expect("packet parameter type");
+    resolved.node_type_names.insert(
+        packet_ty.node_key.site().clone(),
+        TypeNameResolution::External(GlobalDefId {
+            module_id: defining_module_id,
+            def_id: packet_id,
+        }),
+    );
+
+    let program_defs = HashMap::from([
+        (defining_module_id, Arc::new(defining_defs)),
+        (consuming_module_id, Arc::new(consuming_defs.clone())),
+    ]);
+    let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
+    let type_store = nia_ty::TypeStore::new();
+    let lowered = lower_module_types_with_context(
+        consuming_module_id,
+        &consuming_module,
+        &resolved,
+        TypeLoweringContext::from_program_defs(
+            &type_store,
+            ProgramDefsContext {
+                defs: Some(&program_defs_by_module),
+            },
+        ),
+    );
+    let lowered_packet = lowered
+        .ty_for_key(&packet_ty.node_key)
+        .expect("lowered Packet type");
+    let Some(TyKind::Nominal { const_args, .. }) = type_store.get(lowered_packet) else {
+        panic!("expected nominal Packet type");
+    };
+    let [const_arg] = const_args.as_slice() else {
+        panic!("expected one const argument");
+    };
+    assert_eq!(
+        type_store.get(const_arg.ty),
+        Some(&TyKind::Primitive(PrimitiveTy::Usize))
+    );
+}
+
+#[test]
 fn lowers_trait_associated_type_shorthand_to_projection() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

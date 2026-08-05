@@ -3,7 +3,9 @@ use crate::{
     ConstValueType, check_module_const, lower_module_const,
 };
 use nia_const_ir::{EarlyConstExpr, EarlyConstExprKind, EarlyConstTypeArg};
-use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
+use nia_defs::{
+    DefCollection, DefKind, ModuleId, ModuleUsingScope, PublicSurfaces, collect_module_defs,
+};
 use nia_ids::{GlobalDefId, ModuleIdAllocator};
 use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
@@ -16,12 +18,14 @@ use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
 use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 use nia_type_lower::{
-    TypeLowering, TypeLoweringContext, lower_module_types_from_item_tree_with_context,
-    lower_module_types_with_context,
+    ProgramDefsContext, TypeLowering, TypeLoweringContext,
+    lower_module_types_from_item_tree_with_context, lower_module_types_with_context,
 };
 use nia_type_resolve::resolve_module_types_with_symbols;
-use nia_value_resolve::resolve_module_values;
-use std::collections::HashMap;
+use nia_value_resolve::{
+    resolve_module_values, resolve_module_values_from_exprs_with_associated_values_and_symbols,
+};
+use std::{collections::HashMap, sync::Arc};
 
 #[path = "tests/resolution_contracts.rs"]
 mod resolution_contracts;

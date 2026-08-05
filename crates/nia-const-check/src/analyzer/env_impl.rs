@@ -371,7 +371,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 message: "const aggregate execution module type context is unavailable".to_string(),
             })?;
         let ty = self.substitute_ty_generics(ty);
-        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+        let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return Ok(ConstValue::Struct(fields));
         };
         if self.def_kind_of(def_id) != Some(DefKind::Union) {
@@ -382,7 +382,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
             message: "const union signature is unavailable".to_string(),
         })?;
         let field_tys = self
-            .const_union_field_types(&signature, &args)
+            .const_union_field_types(&signature, &args, &const_args)
             .ok_or_else(|| ConstError {
                 span,
                 message: "const union field types are unavailable".to_string(),
@@ -924,9 +924,9 @@ impl Analyzer<'_> {
                 def_id,
                 args,
                 const_args,
-            } if self.def_kind_of(def_id) == Some(DefKind::Struct) && const_args.is_empty() => {
+            } if self.def_kind_of(def_id) == Some(DefKind::Struct) => {
                 let signature = self.struct_signature_for(def_id)?;
-                let field_tys = self.const_struct_field_types(&signature, &args)?;
+                let field_tys = self.const_struct_field_types(&signature, &args, &const_args)?;
                 let struct_layout =
                     self.const_struct_instance_layout(ty, def_id, &args, &const_args, target)?;
                 let size = usize::try_from(struct_layout.layout.size).ok()?;
