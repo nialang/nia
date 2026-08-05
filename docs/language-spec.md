@@ -962,10 +962,13 @@ unsuffixed integer literals in slice bounds are inferred as `usize`. Omitted
 slice bounds are interpreted by the slice operation, not by rewriting the range
 value to `0` or `usize::MAX`.
 
-Bounded range values expose their present bounds through the builtin `Start`
-and `End` traits. `a..b` and `a..=b` implement both `Start` and `End`;
-`a..` implements only `Start`; `..b` and `..=b` implement only `End`; `..`
-implements neither. Range values do not implement `Len`.
+Bounded range values expose their present bounds through inherent compiler-backed
+methods. `a..b` and `a..=b` provide both `start()` and `end()`; `a..` provides
+only `start()`; `..b` and `..=b` provide only `end()`; `..` provides neither.
+Each method returns the range's bound type. These accessors have no public trait
+identity or associated-type projection. An ordinary visible extension method
+with the same name takes priority over the compiler fallback. Range values do
+not implement `Len`.
 
 Nia does not provide built-in runtime bounds checks. The programmer is
 responsible for ensuring that the selected memory range is valid.
@@ -2414,9 +2417,11 @@ representation intrinsic to read runtime slice metadata. The compiler does not
 assign `Len` a builtin trait identity. User types implement the same trait with
 `const fn len(&self) usize`, usable from both const and runtime calls.
 
-`range.start()` and `range.end()` call the built-in `Start` and `End` trait
-methods. They are available only for range shapes that carry the requested
-bound and return that bound's integer type.
+`range.start()` and `range.end()` are inherent compiler-backed operations on
+structural range types. They are available only for range shapes that carry the
+requested bound and return that bound's integer type. They do not introduce a
+trait obligation or an associated `Output` type; ordinary visible extensions
+remain higher-priority method candidates.
 
 `slice.ptr()` and `slice.ptr_mut()` call the built-in `Ptr`
 and `PtrMut` trait methods. `&[T]` and `&mut [T]` have compiler-proven
@@ -2854,9 +2859,9 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 `shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
-`Sized`, `Deref`, `DerefMut`, `Index`, `IndexMut`, `Slice`, `SliceMut`,
-`Start`, `End`, `Ptr`, and `PtrMut` are also builtin capability traits. Their
-names and required members are fixed by the language:
+`Sized`, `Deref`, `DerefMut`, `Index`, `IndexMut`, `Slice`, `SliceMut`, `Ptr`,
+and `PtrMut` are also builtin capability traits. Their names and required
+members are fixed by the language:
 
 ```nia
 trait Sized {}
@@ -2891,16 +2896,6 @@ trait SliceMut[R] : Slice[R] {
     fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
-trait Start {
-    type Output;
-    fn start(&self) [Self as Start]::Output;
-}
-
-trait End {
-    type Output;
-    fn end(&self) [Self as End]::Output;
-}
-
 trait Ptr {
     type Target;
     fn ptr(&self) &[Self as Ptr]::Target;
@@ -2919,8 +2914,10 @@ to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
 container may implement `Slice[..]`, but `[N]T` may not provide a manual
 `Slice[..]` implementation because array slicing is already
-compiler-proven. Custom range-like types may implement `Start` and `End`,
-while compiler-proven structural range implementations cannot be overlapped.
+compiler-proven. Range bound access is instead an inherent operation limited to
+the structural range shapes described above. Range-like user types expose
+their own ordinary inherent or trait methods without claiming a language-owned
+`Start` or `End` capability.
 
 Index expressions lower through `Index` or `IndexMut`; slice expressions
 lower through `Slice` or `SliceMut`. Native array, pointer, and slice

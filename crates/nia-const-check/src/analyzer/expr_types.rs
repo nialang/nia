@@ -439,13 +439,29 @@ impl Analyzer<'_> {
         {
             return None;
         }
-        let Some(resolved_callee) = self.resolved_const_callee(callee) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::CONST,
-                span,
-                "const expression can only call `const fn`".to_string(),
-            ));
-            return None;
+        let resolved_callee = match self.resolved_const_callee(callee) {
+            ResolvedConstCalleeSelection::Unique(callee) => callee,
+            ResolvedConstCalleeSelection::NoMatch => {
+                if let Some((_, bound)) =
+                    self.resolved_const_range_method(callee, generic_args, args)
+                {
+                    return bound.or(expected);
+                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::CONST,
+                    span,
+                    "const expression can only call `const fn`".to_string(),
+                ));
+                return None;
+            }
+            ResolvedConstCalleeSelection::Ambiguous => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::CONST,
+                    span,
+                    "ambiguous const method call",
+                ));
+                return None;
+            }
         };
         let function_id = resolved_callee.function_id;
         let signature = self

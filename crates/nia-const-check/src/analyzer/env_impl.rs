@@ -1,6 +1,9 @@
 use crate::{
     ConstKey, ConstValueType, TypedConstValue,
-    analyzer::{Analyzer, ConstCallFrame, ConstFunctionInstantiationInput, ResolvedConstCallee},
+    analyzer::{
+        Analyzer, ConstCallFrame, ConstFunctionInstantiationInput, ResolvedConstCallee,
+        ResolvedConstCalleeSelection,
+    },
     support::{
         cast_const_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
         is_float_primitive, primitive_integer_layout, validate_assignment_shape,
@@ -760,11 +763,35 @@ impl ResolvedConstEnv for Analyzer<'_> {
         receiver_place: Option<&nia_const_eval::ResolvedConstPlace>,
         args: Vec<ConstValue>,
     ) -> Result<ConstValue, ConstError> {
-        let Some(resolved_callee) = self.resolved_const_callee(callee) else {
-            return Err(ConstError {
-                span,
-                message: "const expression can only call `const fn`".to_string(),
-            });
+        let resolved_callee = match self.resolved_const_callee(callee) {
+            ResolvedConstCalleeSelection::Unique(callee) => callee,
+            ResolvedConstCalleeSelection::NoMatch => {
+                if let Some((want_start, _)) =
+                    self.resolved_const_range_method(callee, generic_args, arg_exprs)
+                {
+                    let [receiver] = args.as_slice() else {
+                        return Err(ConstError {
+                            span,
+                            message: "const range method requires one receiver".to_string(),
+                        });
+                    };
+                    return nia_const_eval::eval_const_range_bound_value(
+                        span,
+                        receiver.clone(),
+                        want_start,
+                    );
+                }
+                return Err(ConstError {
+                    span,
+                    message: "const expression can only call `const fn`".to_string(),
+                });
+            }
+            ResolvedConstCalleeSelection::Ambiguous => {
+                return Err(ConstError {
+                    span,
+                    message: "ambiguous const method call".to_string(),
+                });
+            }
         };
         let function_id = resolved_callee.function_id;
         let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {

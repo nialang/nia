@@ -1,6 +1,6 @@
 use crate::*;
 
-use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ids::{InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
@@ -671,15 +671,6 @@ fn lower_call_with_context(
         _ => (callee, Vec::new()),
     };
     if let nia_ast::ExprKind::Field { lhs, name } = &callee.kind {
-        if args.is_empty()
-            && generic_args.is_empty()
-            && let Some(method) = const_builtin_method_name(*name)
-        {
-            return Ok(EarlyConstExprKind::BuiltinMethod {
-                method,
-                lhs: Box::new(lower_expr_internal(lhs, context)?),
-            });
-        }
         return Ok(EarlyConstExprKind::Call {
             callee: Box::new(EarlyConstExpr {
                 span: callee.span,
@@ -803,14 +794,6 @@ fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(SymbolId, Option<&nia_ast
         None,
         callee.span,
     ))
-}
-
-fn const_builtin_method_name(name: SymbolId) -> Option<BuiltinTraitMethod> {
-    match name {
-        known::START => Some(BuiltinTraitMethod::Start),
-        known::END => Some(BuiltinTraitMethod::End),
-        _ => None,
-    }
 }
 
 fn lower_const_range_with_context(
@@ -1195,10 +1178,6 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                 name,
             }
         }
-        EarlyConstExprKind::BuiltinMethod { method, lhs } => ResolvedConstExprKind::BuiltinMethod {
-            method,
-            lhs: Box::new(resolve_expr(*lhs)?),
-        },
         EarlyConstExprKind::Index { lhs, index } => ResolvedConstExprKind::Index {
             lhs: Box::new(resolve_expr(*lhs)?),
             index: Box::new(resolve_expr(*index)?),

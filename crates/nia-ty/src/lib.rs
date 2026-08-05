@@ -370,6 +370,19 @@ pub enum RangeTyKind {
     Full,
 }
 
+impl RangeTyKind {
+    pub const fn has_start_bound(self) -> bool {
+        matches!(self, Self::Exclusive | Self::Inclusive | Self::From)
+    }
+
+    pub const fn has_end_bound(self) -> bool {
+        matches!(
+            self,
+            Self::Exclusive | Self::Inclusive | Self::To | Self::ToInclusive
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveTy {
     I8,

@@ -566,10 +566,6 @@ impl Analyzer<'_> {
                 let lhs_ty = self.resolved_const_expr_type(lhs, None)?;
                 self.const_field_type(lhs_ty, name)
             }
-            ResolvedConstExprKind::BuiltinMethod { method, lhs } => {
-                let lhs_ty = self.resolved_const_expr_type(lhs, None)?;
-                self.const_builtin_method_type(*method, lhs_ty)
-            }
             ResolvedConstExprKind::Cast { expr: inner, ty } => {
                 self.resolved_const_cast_type(inner, *ty)
             }
@@ -1110,40 +1106,6 @@ impl Analyzer<'_> {
             | ConstValueType::Int
             | ConstValueType::Bool
             | ConstValueType::String => None,
-        }
-    }
-
-    pub(super) fn const_builtin_method_type(
-        &mut self,
-        method: BuiltinTraitMethod,
-        lhs: ConstValueType,
-    ) -> Option<ConstValueType> {
-        let receiver_ty = match lhs {
-            ConstValueType::Runtime(ty) => ty,
-            ConstValueType::Array { .. }
-            | ConstValueType::Struct(_)
-            | ConstValueType::Int
-            | ConstValueType::Bool
-            | ConstValueType::String => return None,
-        };
-        let trait_id = method.trait_id();
-        if !matches!(method, BuiltinTraitMethod::Start | BuiltinTraitMethod::End)
-            || !self.proves_trait_obligation(receiver_ty, TraitId::Builtin(trait_id), Vec::new())
-        {
-            return None;
-        }
-        match method {
-            BuiltinTraitMethod::Start | BuiltinTraitMethod::End => self
-                .resolve_associated_type_projection(
-                    receiver_ty,
-                    TraitId::Builtin(trait_id),
-                    &[],
-                    &[],
-                    &nia_symbol::known::OUTPUT,
-                )
-                .and_then(|ty| self.type_for_module_or_none(ty, self.current_execution_module_id()))
-                .map(ConstValueType::Runtime),
-            _ => None,
         }
     }
 

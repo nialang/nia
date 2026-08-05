@@ -308,8 +308,6 @@ where
             }
             BuiltinTrait::Ptr => self.can_be_slice(self_ty, false),
             BuiltinTrait::PtrMut => self.can_be_slice(self_ty, true),
-            BuiltinTrait::Start => self.can_have_range_start(self_ty),
-            BuiltinTrait::End => self.can_have_range_end(self_ty),
             BuiltinTrait::Iterable => false,
             BuiltinTrait::Iterator => false,
             BuiltinTrait::Simd => self.can_be_simd(self_ty),
@@ -548,37 +546,6 @@ where
                 self.type_store.get(self.normalize(*bound)),
                 Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Usize))
             ),
-            _ => false,
-        }
-    }
-
-    fn can_have_range_start(&self, ty: InternedTyId) -> bool {
-        match self.type_store.get(self.normalize(ty)) {
-            Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Range { kind, bound }) => {
-                bound.is_some()
-                    && matches!(
-                        kind,
-                        RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From
-                    )
-            }
-            _ => false,
-        }
-    }
-
-    fn can_have_range_end(&self, ty: InternedTyId) -> bool {
-        match self.type_store.get(self.normalize(ty)) {
-            Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Range { kind, bound }) => {
-                bound.is_some()
-                    && matches!(
-                        kind,
-                        RangeTyKind::Exclusive
-                            | RangeTyKind::Inclusive
-                            | RangeTyKind::To
-                            | RangeTyKind::ToInclusive
-                    )
-            }
             _ => false,
         }
     }
@@ -955,13 +922,6 @@ impl TraitSolver<'_> {
             BuiltinTrait::PtrMut => {
                 goal.trait_args.is_empty() && self.intrinsic_ptr_target_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::Start => {
-                goal.trait_args.is_empty()
-                    && self.intrinsic_range_start_output_ty(self_ty).is_some()
-            }
-            BuiltinTrait::End => {
-                goal.trait_args.is_empty() && self.intrinsic_range_end_output_ty(self_ty).is_some()
-            }
             BuiltinTrait::Iterable => {
                 goal.trait_args.is_empty()
                     && !matches!(
@@ -1077,14 +1037,6 @@ impl TraitSolver<'_> {
             (BuiltinTrait::PtrMut, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_ptr_target_ty(self_ty, true)
-            }
-            (BuiltinTrait::Start, BuiltinAssociatedType::Output) => {
-                trait_args.is_empty().then_some(())?;
-                self.intrinsic_range_start_output_ty(self_ty)
-            }
-            (BuiltinTrait::End, BuiltinAssociatedType::Output) => {
-                trait_args.is_empty().then_some(())?;
-                self.intrinsic_range_end_output_ty(self_ty)
             }
             (BuiltinTrait::Iterable, BuiltinAssociatedType::Item) => {
                 trait_args.is_empty().then_some(())?;
@@ -1259,33 +1211,6 @@ impl TraitSolver<'_> {
                 is_readonly: true,
                 elem,
             }) if !require_mutable => Some(*elem),
-            _ => None,
-        }
-    }
-
-    pub fn intrinsic_range_start_output_ty(
-        &mut self,
-        self_ty: InternedTyId,
-    ) -> Option<InternedTyId> {
-        match self.kind(self_ty) {
-            Some(TyKind::Range {
-                kind: RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From,
-                bound: Some(bound),
-            }) => Some(*bound),
-            _ => None,
-        }
-    }
-
-    pub fn intrinsic_range_end_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
-        match self.kind(self_ty) {
-            Some(TyKind::Range {
-                kind:
-                    RangeTyKind::Exclusive
-                    | RangeTyKind::Inclusive
-                    | RangeTyKind::To
-                    | RangeTyKind::ToInclusive,
-                bound: Some(bound),
-            }) => Some(*bound),
             _ => None,
         }
     }

@@ -23,7 +23,7 @@ use nia_const_ir::{
     ResolvedConstSliceRange, ResolvedConstStmt, ResolvedConstStmtKind, ResolvedConstSwitch,
     ResolvedConstSwitchArm, ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind,
 };
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -251,9 +251,6 @@ fn eval_resolved_const_expr_flow(
                     });
                 }
             }
-        }
-        ResolvedConstExprKind::BuiltinMethod { method, lhs } => {
-            eval_builtin_method_value(span, *method, eval_resolved_value_or_return_flow!(lhs, env))?
         }
         ResolvedConstExprKind::Index { lhs, index } => {
             return eval_resolved_array_index_flow(span, lhs, index, env);
@@ -559,9 +556,6 @@ fn eval_const_expr_flow(
                 });
             }
         },
-        EarlyConstExprKind::BuiltinMethod { method, lhs } => {
-            eval_builtin_method_value(expr.span, *method, eval_value_or_return_flow!(lhs, env))?
-        }
         EarlyConstExprKind::Index { lhs, index } => {
             return eval_array_index_flow(expr.span, lhs, index, env);
         }
@@ -890,24 +884,6 @@ fn eval_resolved_call_receiver(
     }
 }
 
-fn eval_builtin_method_value(
-    span: Span,
-    method: BuiltinTraitMethod,
-    value: ConstValue,
-) -> Result<ConstValue, ConstError> {
-    match method {
-        BuiltinTraitMethod::Start => eval_builtin_range_bound_value(span, value, true),
-        BuiltinTraitMethod::End => eval_builtin_range_bound_value(span, value, false),
-        _ => Err(ConstError {
-            span,
-            message: format!(
-                "unsupported builtin trait method in const expression: {}",
-                method.name()
-            ),
-        }),
-    }
-}
-
 fn const_error_message_from_value(
     span: Span,
     value: &ConstValue,
@@ -920,7 +896,7 @@ fn const_error_message_from_value(
     Ok(const_error_message(value))
 }
 
-fn eval_builtin_range_bound_value(
+pub fn eval_const_range_bound_value(
     span: Span,
     value: ConstValue,
     want_start: bool,

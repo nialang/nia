@@ -1,8 +1,8 @@
 use crate::lower::{ConstLowerContext, lower_type_id, unresolved_error};
 use crate::*;
 use nia_ids::{
-    BuiltinConstValue, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
-    LayoutBuiltin, LocalId, ValueBuiltin,
+    BuiltinConstValue, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
+    ValueBuiltin,
 };
 use nia_sema_ir::{AssociatedConstProjection, BuiltinAssociatedValue, SemanticValueUse};
 use nia_span::Span;
@@ -875,10 +875,6 @@ pub enum ResolvedConstExprKind {
         target: ResolvedConstAssociatedTarget,
         name: SymbolId,
     },
-    BuiltinMethod {
-        method: BuiltinTraitMethod,
-        lhs: Box<ResolvedConstExpr>,
-    },
     Index {
         lhs: Box<ResolvedConstExpr>,
         index: Box<ResolvedConstExpr>,
@@ -1383,10 +1379,6 @@ pub enum EarlyConstExprKind {
     AssociatedFunction {
         target: EarlyConstAssociatedTarget,
         name: SymbolId,
-    },
-    BuiltinMethod {
-        method: BuiltinTraitMethod,
-        lhs: Box<EarlyConstExpr>,
     },
     Index {
         lhs: Box<EarlyConstExpr>,

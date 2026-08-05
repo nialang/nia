@@ -1119,10 +1119,6 @@ fn builtin_trait_method_signature_matches(
         (BuiltinTrait::Iterator, BuiltinTraitMethod::IteratorNext) => {
             builtin_iterator_method_signature_matches(module, impl_signature, actual)
         }
-        (BuiltinTrait::Start, BuiltinTraitMethod::Start)
-        | (BuiltinTrait::End, BuiltinTraitMethod::End) => {
-            builtin_bound_method_signature_matches(module, impl_signature, actual)
-        }
         (BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter) => {
             builtin_iterable_method_signature_matches(module, impl_signature, actual)
         }
@@ -1234,27 +1230,6 @@ fn builtin_iterable_method_signature_matches(
         return false;
     };
     types_equivalent(module.type_store, module.lowering, actual.return_type, iter)
-}
-
-fn builtin_bound_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    actual: &FunctionSignature,
-) -> bool {
-    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
-        return false;
-    }
-    let Some(output) =
-        associated_type_ty(impl_signature, BuiltinAssociatedType::Output.symbol_id())
-    else {
-        return false;
-    };
-    types_equivalent(
-        module.type_store,
-        module.lowering,
-        actual.return_type,
-        output,
-    )
 }
 
 fn builtin_impl_trait_args(

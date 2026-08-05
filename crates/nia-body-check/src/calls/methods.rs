@@ -286,6 +286,11 @@ impl<'a> BodyChecker<'a> {
             });
         }
         if viable_candidates.is_empty()
+            && let Some(return_ty) = self.check_builtin_range_method(&call, receiver_ty)
+        {
+            return Some(return_ty);
+        }
+        if viable_candidates.is_empty()
             && let Some(return_ty) = self
                 .profile_stage("body_check.profile.method.builtin_trait_call", |this| {
                     this.check_builtin_trait_method_call_with_receiver_ty(&call)
@@ -509,6 +514,67 @@ impl<'a> BodyChecker<'a> {
             let return_type = this.normalize_projection(return_type);
             Some(this.normalize_aliases_in_type(return_type))
         })
+    }
+
+    fn check_builtin_range_method(
+        &mut self,
+        call: &MethodCall<'_>,
+        receiver_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let method = match *call.name {
+            known::START => BuiltinMethod::Start,
+            known::END => BuiltinMethod::End,
+            _ => return None,
+        };
+        let mut self_ty = self.normalization.normalize(receiver_ty);
+        let (kind, bound) = loop {
+            match self.interner.get(self_ty).cloned()? {
+                TyKind::Range {
+                    kind,
+                    bound: Some(bound),
+                } => break (kind, bound),
+                TyKind::Pointer { elem, .. } => {
+                    self_ty = self.normalization.normalize(elem);
+                }
+                _ => return None,
+            }
+        };
+        let has_bound = match method {
+            BuiltinMethod::Start => kind.has_start_bound(),
+            BuiltinMethod::End => kind.has_end_bound(),
+            BuiltinMethod::SliceLen | BuiltinMethod::Iter => false,
+        };
+        if !has_bound {
+            return None;
+        }
+        if call.type_args.is_some_and(|args| !args.is_empty()) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call.span,
+                format!(
+                    "range method `{}` does not accept generic arguments",
+                    self.symbol_name(*call.name)
+                ),
+            ));
+        }
+        self.check_call_arg_count(call.span, call.args.len(), 0, false);
+        for arg in call.args {
+            self.check_expr(arg);
+        }
+        self.check_receiver_match(
+            call.receiver,
+            call.actual_receiver_ty,
+            ReceiverKind::RefReadOnly,
+        );
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, bound, "range method call");
+        }
+        self.record_resolved_node_call(
+            call.span,
+            call.node_key,
+            ResolvedCall::BuiltinMethod { method, self_ty },
+        );
+        Some(bound)
     }
 
     fn dynamic_trait_object_receiver_ty(

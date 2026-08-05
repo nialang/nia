@@ -60,20 +60,6 @@ pub trait Len {
     const fn len(&self) usize;
 }
 
-@[builtin("Start")]
-pub trait Start {
-    type Output;
-
-    fn start(&self) [Self as Start]::Output;
-}
-
-@[builtin("End")]
-pub trait End {
-    type Output;
-
-    fn end(&self) [Self as End]::Output;
-}
-
 extend[T, N: usize] [N]T : Len {
     const fn len(&self) usize {
         N
@@ -101,53 +87,4 @@ extend[T] [T] : PtrMut {
     type Target = T;
 
     fn ptr_mut(&mut self) &mut T;
-}
-
-@[builtin("range.Start")]
-extend[T] T..T : Start {
-    type Output = T;
-
-    fn start(&self) T;
-}
-
-@[builtin("range.End")]
-extend[T] T..T : End {
-    type Output = T;
-
-    fn end(&self) T;
-}
-
-@[builtin("range_inclusive.Start")]
-extend[T] T..=T : Start {
-    type Output = T;
-
-    fn start(&self) T;
-}
-
-@[builtin("range_inclusive.End")]
-extend[T] T..=T : End {
-    type Output = T;
-
-    fn end(&self) T;
-}
-
-@[builtin("range_from.Start")]
-extend[T] T.. : Start {
-    type Output = T;
-
-    fn start(&self) T;
-}
-
-@[builtin("range_to.End")]
-extend[T] ..T : End {
-    type Output = T;
-
-    fn end(&self) T;
-}
-
-@[builtin("range_to_inclusive.End")]
-extend[T] ..=T : End {
-    type Output = T;
-
-    fn end(&self) T;
 }

@@ -93,8 +93,6 @@ pub(crate) fn builtin_trait_method_symbol(name: SymbolId) -> Option<BuiltinTrait
         known::SLICE_MUT => Some(BuiltinTraitMethod::SliceMut),
         known::PTR => Some(BuiltinTraitMethod::Ptr),
         known::PTR_MUT => Some(BuiltinTraitMethod::PtrMut),
-        known::START => Some(BuiltinTraitMethod::Start),
-        known::END => Some(BuiltinTraitMethod::End),
         known::ITER_METHOD => Some(BuiltinTraitMethod::IterableIter),
         known::NEXT => Some(BuiltinTraitMethod::IteratorNext),
         _ => None,

@@ -346,36 +346,49 @@ impl Analyzer<'_> {
     pub(super) fn resolved_const_callee(
         &mut self,
         callee: &ResolvedConstExpr,
-    ) -> Option<ResolvedConstCallee> {
+    ) -> ResolvedConstCalleeSelection {
         if let Some(ConstNameResolution::Global(global_id)) = callee.name_resolution()
             && self.def_kind_of(global_id) == Some(DefKind::Function)
         {
-            return Some(ResolvedConstCallee {
+            return ResolvedConstCalleeSelection::Unique(ResolvedConstCallee {
                 function_id: global_id,
                 receiver: None,
                 target_instantiation: ConstGenericInstantiation::default(),
             });
         }
         let (target_ty, name, receiver) = match callee.kind() {
-            ResolvedConstExprKind::Method { receiver, name } => (
-                self.resolved_const_arg_runtime_type(receiver, None)?,
-                *name,
-                Some(receiver.as_ref().clone()),
-            ),
+            ResolvedConstExprKind::Method { receiver, name } => {
+                let Some(target_ty) = self.resolved_const_arg_runtime_type(receiver, None) else {
+                    return ResolvedConstCalleeSelection::NoMatch;
+                };
+                (target_ty, *name, Some(receiver.as_ref().clone()))
+            }
             ResolvedConstExprKind::AssociatedFunction { target, name } => {
                 let module_id = self.current_execution_module_id();
                 let target_ty = match target {
                     ResolvedConstAssociatedTarget::Type(target) => {
                         let target_ty = self.substitute_ty_generics(target.ty());
-                        self.type_for_module_or_none(target_ty, module_id)?
+                        let Some(target_ty) = self.type_for_module_or_none(target_ty, module_id)
+                        else {
+                            return ResolvedConstCalleeSelection::NoMatch;
+                        };
+                        target_ty
                     }
                     ResolvedConstAssociatedTarget::Nominal { def_id, args } => {
-                        self.ensure_type_context(module_id)?;
-                        let args = args
+                        if self.ensure_type_context(module_id).is_none() {
+                            return ResolvedConstCalleeSelection::NoMatch;
+                        }
+                        let Some(args) = args
                             .iter()
                             .map(|arg| self.type_for_module_or_none(arg.ty(), module_id))
-                            .collect::<Option<Vec<_>>>()?;
-                        self.type_contexts.get(&module_id)?.intern(TyKind::Nominal {
+                            .collect::<Option<Vec<_>>>()
+                        else {
+                            return ResolvedConstCalleeSelection::NoMatch;
+                        };
+                        let Some(context) = self.type_contexts.get(&module_id) else {
+                            return ResolvedConstCalleeSelection::NoMatch;
+                        };
+                        context.intern(TyKind::Nominal {
                             def_id: *def_id,
                             args,
                             const_args: Vec::new(),
@@ -384,14 +397,22 @@ impl Analyzer<'_> {
                 };
                 (target_ty, *name, None)
             }
-            _ => return None,
+            _ => return ResolvedConstCalleeSelection::NoMatch,
         };
-        let visible_extensions =
-            (self.input.program.visible_extensions?)(self.current_execution_module_id())?;
-        let actual_receiver_ty = self
-            .type_normalization_for_module(self.current_execution_module_id())?
-            .as_ref()
-            .normalize(target_ty);
+        let Some(visible_extensions) = self
+            .input
+            .program
+            .visible_extensions
+            .and_then(|query| query(self.current_execution_module_id()))
+        else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        let Some(normalization) =
+            self.type_normalization_for_module(self.current_execution_module_id())
+        else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        let actual_receiver_ty = normalization.as_ref().normalize(target_ty);
         let actual_target_tys = if receiver.is_some() {
             self.const_method_target_tys(actual_receiver_ty)
         } else {
@@ -415,12 +436,11 @@ impl Analyzer<'_> {
                             .cloned()
                     })
                     .filter(|signature| {
-                        signature.is_const
-                            && signature
-                                .params
-                                .first()
-                                .is_some_and(|param| param.receiver.is_some())
-                                == receiver.is_some()
+                        signature
+                            .params
+                            .first()
+                            .is_some_and(|param| param.receiver.is_some())
+                            == receiver.is_some()
                     })?;
                 actual_target_tys
                     .iter()
@@ -460,7 +480,43 @@ impl Analyzer<'_> {
                 candidates.retain(|(is_exact, _)| *is_exact);
             }
         }
-        (candidates.len() == 1).then(|| candidates.remove(0).1)
+        match candidates.len() {
+            0 => ResolvedConstCalleeSelection::NoMatch,
+            1 => ResolvedConstCalleeSelection::Unique(candidates.remove(0).1),
+            _ => ResolvedConstCalleeSelection::Ambiguous,
+        }
+    }
+
+    pub(super) fn resolved_const_range_method(
+        &mut self,
+        callee: &ResolvedConstExpr,
+        generic_args: &[ResolvedConstGenericArg],
+        args: &[ResolvedConstExpr],
+    ) -> Option<(bool, Option<InternedTyId>)> {
+        if !generic_args.is_empty() || !args.is_empty() {
+            return None;
+        }
+        let ResolvedConstExprKind::Method { receiver, name } = callee.kind() else {
+            return None;
+        };
+        let want_start = match *name {
+            nia_symbol::known::START => true,
+            nia_symbol::known::END => false,
+            _ => return None,
+        };
+        let receiver_ty = self.resolved_const_arg_runtime_type(receiver, None)?;
+        let TyKind::Range { kind, bound } = self.ty_kind(receiver_ty)? else {
+            return None;
+        };
+        let has_bound = if want_start {
+            kind.has_start_bound()
+        } else {
+            kind.has_end_bound()
+        };
+        let bound = has_bound.then_some(bound).flatten().and_then(|bound| {
+            self.type_for_module_or_none(bound, self.current_execution_module_id())
+        });
+        Some((want_start, bound))
     }
 
     fn const_method_target_tys(&self, receiver_ty: InternedTyId) -> Vec<InternedTyId> {

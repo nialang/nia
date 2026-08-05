@@ -64,7 +64,6 @@ pub using ops::{
 pub using place::{
     Deref,
     DerefMut,
-    End,
     Index,
     IndexMut,
     Len,
@@ -72,7 +71,6 @@ pub using place::{
     PtrMut,
     Slice,
     SliceMut,
-    Start,
 };
 pub using primitive::charFromU32;
 pub using simd::{bitmask, extract, insert, splat};

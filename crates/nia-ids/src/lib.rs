@@ -303,8 +303,6 @@ pub enum BuiltinTrait {
     SliceMut,
     Ptr,
     PtrMut,
-    Start,
-    End,
     Iterable,
     Iterator,
     Simd,
@@ -598,8 +596,6 @@ pub enum BuiltinTraitMethod {
     SliceMut,
     Ptr,
     PtrMut,
-    Start,
-    End,
     IterableIter,
     IteratorNext,
 }
@@ -839,24 +835,6 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
-            Self::Start,
-            BuiltinTraitMethodDescriptor::method(
-                "start",
-                BuiltinTrait::Start,
-                1,
-                ReceiverKind::RefReadOnly,
-            ),
-        ),
-        (
-            Self::End,
-            BuiltinTraitMethodDescriptor::method(
-                "end",
-                BuiltinTrait::End,
-                1,
-                ReceiverKind::RefReadOnly,
-            ),
-        ),
-        (
             Self::IterableIter,
             BuiltinTraitMethodDescriptor::method(
                 "iter",
@@ -948,8 +926,6 @@ impl BuiltinTraitMethod {
             | Self::IndexMut
             | Self::Slice
             | Self::SliceMut
-            | Self::Start
-            | Self::End
             | Self::IterableIter
             | Self::IteratorNext => true,
             Self::DerefMut | Self::Ptr | Self::PtrMut => false,
@@ -1047,8 +1023,6 @@ impl BuiltinTrait {
     const SLICE_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceMut];
     const PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Ptr];
     const PTR_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::PtrMut];
-    const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
-    const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
     const ITERABLE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IterableIter];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
@@ -1082,7 +1056,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 29] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -1108,8 +1082,6 @@ impl BuiltinTrait {
         Self::SliceMut,
         Self::Ptr,
         Self::PtrMut,
-        Self::Start,
-        Self::End,
         Self::Iterable,
         Self::Iterator,
         Self::Simd,
@@ -1316,22 +1288,6 @@ impl BuiltinTrait {
             &Self::TARGET_ASSOC_TYPES,
             &Self::PTR_MUT_METHODS,
             &Self::PTR_MUT_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::Start,
-            "Start",
-            0,
-            &Self::OUTPUT_ASSOC_TYPES,
-            &Self::START_METHODS,
-            &Self::NO_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::End,
-            "End",
-            0,
-            &Self::OUTPUT_ASSOC_TYPES,
-            &Self::END_METHODS,
-            &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Iterable,

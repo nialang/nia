@@ -835,6 +835,58 @@ fn main() i32 {
 }
 
 #[test]
+fn const_extension_takes_priority_over_builtin_range_method() {
+    let root = temp_dir("const_extension_takes_priority_over_builtin_range_method");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend[T] T..T {
+    const fn start(&self) T {
+        self.end()
+    }
+}
+
+const n: usize = (1usize..2usize).start();
+
+fn main() i32 {
+    let mut values: [n]i32 = [0, 0];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn runtime_extension_blocks_builtin_range_fallback_at_const() {
+    let root = temp_dir("runtime_extension_blocks_builtin_range_fallback_at_const");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend usize..usize {
+    fn start(&self) usize {
+        2usize
+    }
+}
+
+const n: usize = (1usize..2usize).start();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_range_start_and_end_require_present_bounds() {
     let root = temp_dir("const_range_start_and_end_require_present_bounds");
     write(
