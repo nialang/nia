@@ -3778,6 +3778,32 @@ together with legacy `StaticArrayPointer` unification and zero-sized identity.
 Round 2g3c still owns the imported/generic differential after those local
 representation boundaries close.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3b2 nested promoted
+relocations): promoted union pointees and aggregate pointees containing nested
+relocations now use one byte-exact artifact-storage representation. LLVM
+codegen divides union storage into initialized byte arrays, `undef` byte arrays,
+and pointer-valued relocation fields, then combines them in a packed constant
+whose global retains the original Nia ABI alignment. Pointer fields therefore
+remain object relocations; no host address or pointer-to-integer constant enters
+artifact bytes. Codegen rechecks relocation ordering, bounds, and artifact
+pointer width at this final boundary.
+
+The same storage composer propagates recursively through fixed arrays and
+physical struct layout. Struct inter-field and trailing padding is explicit
+`undef`, array element stride remains the Nia element size, and a
+relocation-free aggregate continues using its ordinary nominal LLVM constant.
+Opaque LLVM pointers allow the byte-exact global to be viewed through the Nia
+pointee type while its storage size, offsets, and explicit global alignment
+remain authoritative. Low-level regressions cover a union pointee, a struct and
+an array containing pointer-bearing unions, and initialized versus
+uninitialized union bytes. The maintained native executable dereferences all
+four forms after object emission and linking.
+
+Union pointees and nested relocations are therefore no longer part of the
+2g3b2 materialization gap. Legacy `StaticArrayPointer` identity unification and
+zero-sized identity-bearing storage remain before the local 2g3b boundary is
+closed; Round 2g3c still owns the imported/generic differential.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

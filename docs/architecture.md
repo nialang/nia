@@ -1146,14 +1146,25 @@ lane lists for `LLVMConstVector`. Structs reuse the runtime layout's physical
 field order and named LLVM struct type. This path never constructs a global
 initializer from an `alloca`, load, or other runtime instruction.
 
-Union pointees and aggregate pointees containing nested relocations remain the
-next boundary and diagnose. Their relocation-aware LLVM constant representation
-must also replace the legacy per-use static-array promotion path rather than
-preserving two allocation identities. Zero-sized promoted allocations require
-explicit identity-bearing storage so distinct source allocations cannot
-collapse to one address. Mutable pointer write-through likewise waits for a
-shared alias-aware place operation instead of reusing mutable-receiver
-copy/writeback.
+When a promoted union or aggregate contains relocations, LLVM codegen switches
+from the nominal constant to byte-exact artifact storage. A packed constant
+contains initialized byte segments, `undef` segments for union or struct
+padding, and pointer-valued fields at relocation offsets. The global keeps the
+Nia pointee ABI alignment. LLVM opaque pointers allow later code to view that
+storage through the nominal pointee type, while the packed initializer keeps
+object relocations as pointers rather than encoding them as integer bytes.
+Codegen rechecks relocation ordering, bounds, and pointer width before building
+the initializer.
+
+The artifact-storage composer recurses through fixed arrays and physical struct
+layout, so union pointees, structs containing pointer-bearing unions, and arrays
+of them do not require separate representation models. Relocation-free values
+continue to use ordinary LLVM constants. The remaining local promotion
+boundaries are replacement of the legacy per-use static-array path and
+identity-bearing storage for zero-sized promoted allocations, where distinct
+source allocations must not collapse to one address. Mutable pointer
+write-through likewise waits for a shared alias-aware place operation instead
+of reusing mutable-receiver copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each
