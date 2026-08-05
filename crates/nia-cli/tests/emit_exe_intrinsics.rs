@@ -447,6 +447,13 @@ const compilePairBytes: [8]u8 = pairs::encodePair[u32]([2]u32[7, 8]);
 const compilePairValues: [2]u32 = pairs::decodePair[u32](compilePairBytes);
 const compileStructBytes: [5]u8 = pairs::encodeStruct[u32]({ marker: 170, value: 287454020 });
 const compileStruct: pairs::Padded[u32] = pairs::decodeStruct[u32](compileStructBytes);
+const packetWidth: usize = 2;
+const compilePacketValue: pairs::Packet[u8, packetWidth, u16] = {
+    marker: 170,
+    values: [2]u16[4386, 13124],
+};
+const compilePacketBytes: [5]u8 = pairs::encodePacket(compilePacketValue);
+const compilePacket: pairs::Packet[u8, 2, u16] = pairs::decodePacket(compilePacketBytes);
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
@@ -457,6 +464,11 @@ fn runtimeChecks(value: usize) bool {
     );
     let runtimeStructBytes = pairs::encodeStruct[u32]({ marker: 170, value: 287454020 });
     let runtimeStruct = pairs::decodeStruct[u32](runtimeStructBytes);
+    let runtimePacketBytes = pairs::encodePacket({
+        marker: 170,
+        values: [2]u16[4386, 13124],
+    });
+    let runtimePacket = pairs::decodePacket(runtimePacketBytes);
     double(value) == 14
         and width.doubled() == 14
         and width.increment() == 8
@@ -484,6 +496,11 @@ fn runtimeChecks(value: usize) bool {
         and compileStruct.value == 287454020
         and runtimeStructBytes[4] == compileStructBytes[4]
         and runtimeStruct.value == compileStruct.value
+        and compilePacketBytes[0] == 34
+        and compilePacketBytes[4] == 170
+        and compilePacket.values[1] == 13124
+        and runtimePacketBytes[4] == compilePacketBytes[4]
+        and runtimePacket.values[0] == compilePacket.values[0]
         and values.len() == 23
 }
 
@@ -516,6 +533,11 @@ pub struct Padded[T] {
     value: T,
 }
 
+pub struct Packet[T, N: usize, U] {
+    marker: T,
+    values: [N]U,
+}
+
 pub union ScalarSlot[T] {
     value: T,
     bits: u32,
@@ -528,6 +550,11 @@ pub union PairBytes[T] {
 
 pub union PaddedBytes[T] {
     value: Padded[T],
+    prefix: [5]u8,
+}
+
+pub union PacketBytes[T, N: usize, U] {
+    value: Packet[T, N, U],
     prefix: [5]u8,
 }
 
@@ -587,6 +614,16 @@ pub const fn encodeStruct[T](value: Padded[T]) [5]u8 {
 
 pub const fn decodeStruct[T](bytes: [5]u8) Padded[T] {
     let slot: PaddedBytes[T] = { prefix: bytes };
+    slot.value
+}
+
+pub const fn encodePacket(value: Packet[u8, 2, u16]) [5]u8 {
+    let slot: PacketBytes[u8, 2, u16] = { value: value };
+    slot.prefix
+}
+
+pub const fn decodePacket(bytes: [5]u8) Packet[u8, 2, u16] {
+    let slot: PacketBytes[u8, 2, u16] = { prefix: bytes };
     slot.value
 }
 "#,

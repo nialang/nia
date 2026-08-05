@@ -8,6 +8,10 @@ use nia_span::Span;
 use nia_symbol::SymbolId;
 use std::sync::{Arc, Mutex, OnceLock};
 
+mod substitution;
+
+pub use substitution::substitute_ty;
+
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
 
 type TypeKindLeaf = [OnceLock<Arc<TyKind>>; TYPE_KIND_ARENA_FANOUT];
@@ -784,6 +788,30 @@ impl PrimitiveTy {
         })
     }
 
+    pub fn from_known_symbol(name: SymbolId) -> Option<Self> {
+        Some(match name {
+            nia_symbol::known::I8 => Self::I8,
+            nia_symbol::known::I16 => Self::I16,
+            nia_symbol::known::I32 => Self::I32,
+            nia_symbol::known::I64 => Self::I64,
+            nia_symbol::known::I128 => Self::I128,
+            nia_symbol::known::ISIZE => Self::Isize,
+            nia_symbol::known::U8 => Self::U8,
+            nia_symbol::known::U16 => Self::U16,
+            nia_symbol::known::U32 => Self::U32,
+            nia_symbol::known::U64 => Self::U64,
+            nia_symbol::known::U128 => Self::U128,
+            nia_symbol::known::USIZE => Self::Usize,
+            nia_symbol::known::F32 => Self::F32,
+            nia_symbol::known::F64 => Self::F64,
+            nia_symbol::known::BOOL => Self::Bool,
+            nia_symbol::known::CHAR => Self::Char,
+            nia_symbol::known::VOID => Self::Void,
+            nia_symbol::known::NEVER => Self::Never,
+            _ => return None,
+        })
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::I8 => "i8",
@@ -1076,5 +1104,10 @@ mod tests {
         assert_eq!(PrimitiveTypeSpelling::from_name("charx4"), None);
         assert_eq!(PrimitiveTypeSpelling::from_name("voidx4"), None);
         assert_eq!(PrimitiveTypeSpelling::from_name("!x4"), None);
+        assert_eq!(
+            PrimitiveTy::from_known_symbol(nia_symbol::known::USIZE),
+            Some(PrimitiveTy::Usize)
+        );
+        assert_eq!(PrimitiveTy::from_known_symbol(nia_symbol::known::LEN), None);
     }
 }

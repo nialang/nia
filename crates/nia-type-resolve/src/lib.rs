@@ -1551,28 +1551,7 @@ fn type_segment_name(segment: &TypePathSegment) -> Option<&SymbolId> {
 }
 
 fn primitive_type_spelling_for_known_symbol(name: &SymbolId) -> Option<PrimitiveTypeSpelling> {
-    let scalar = match *name {
-        known::I8 => PrimitiveTy::I8,
-        known::I16 => PrimitiveTy::I16,
-        known::I32 => PrimitiveTy::I32,
-        known::I64 => PrimitiveTy::I64,
-        known::I128 => PrimitiveTy::I128,
-        known::ISIZE => PrimitiveTy::Isize,
-        known::U8 => PrimitiveTy::U8,
-        known::U16 => PrimitiveTy::U16,
-        known::U32 => PrimitiveTy::U32,
-        known::U64 => PrimitiveTy::U64,
-        known::U128 => PrimitiveTy::U128,
-        known::USIZE => PrimitiveTy::Usize,
-        known::F32 => PrimitiveTy::F32,
-        known::F64 => PrimitiveTy::F64,
-        known::BOOL => PrimitiveTy::Bool,
-        known::CHAR => PrimitiveTy::Char,
-        known::VOID => PrimitiveTy::Void,
-        known::NEVER => PrimitiveTy::Never,
-        _ => return None,
-    };
-    Some(PrimitiveTypeSpelling::Scalar(scalar))
+    PrimitiveTy::from_known_symbol(*name).map(PrimitiveTypeSpelling::Scalar)
 }
 
 fn builtin_trait_for_symbol(name: &SymbolId) -> Option<BuiltinTrait> {

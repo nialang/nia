@@ -30,11 +30,17 @@ pub(super) fn check_source_for_target(
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
+    let program_defs = |requested| (requested == module_id).then(|| Arc::new(defs.clone()));
     let lowered = lower_module_types_from_item_tree_with_context(
         module_id,
         &item_tree,
         &type_names,
-        TypeLoweringContext::empty(&type_store),
+        TypeLoweringContext::from_program_defs(
+            &type_store,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        ),
     );
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
@@ -45,6 +51,23 @@ pub(super) fn check_source_for_target(
     });
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
+    let public_surfaces = PublicSurfaces::new();
+    let using_scope = ModuleUsingScope::default();
+    let const_expr_values = resolve_module_values_from_exprs_with_associated_values_and_symbols(
+        lowered.const_exprs.values().cloned(),
+        &defs,
+        nia_value_resolve::ProgramDefsContext::empty(),
+        &public_surfaces,
+        &using_scope,
+        None,
+        Some(&symbols),
+    );
+    assert!(
+        const_expr_values.diagnostics.is_empty(),
+        "{:?}",
+        const_expr_values.diagnostics
+    );
+    let values = values.extend(const_expr_values);
     let active_item_tree =
         ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
     let semantic_uses =

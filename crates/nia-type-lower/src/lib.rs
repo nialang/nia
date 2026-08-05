@@ -1144,7 +1144,7 @@ impl<'a> TypeLowerer<'a, '_> {
                                 positional_index += 1;
                                 continue;
                             };
-                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            let ty = self.lower_generic_param_type(def_id.module_id, ty);
                             const_args.push(ConstGenericArg { ty, value });
                         }
                         _ => args.push(self.lower_type_or_const_type_arg(arg_ty)),
@@ -1166,7 +1166,7 @@ impl<'a> TypeLowerer<'a, '_> {
                                 positional_index += 1;
                                 continue;
                             };
-                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            let ty = self.lower_generic_param_type(def_id.module_id, ty);
                             const_args.push(ConstGenericArg { ty, value });
                         }
                         _ => {
@@ -1201,7 +1201,7 @@ impl<'a> TypeLowerer<'a, '_> {
                                 positional_index += 1;
                                 continue;
                             };
-                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            let ty = self.lower_generic_param_type(def_id.module_id, ty);
                             const_args.push(ConstGenericArg { ty, value });
                         }
                         _ => args.push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
@@ -1387,6 +1387,10 @@ impl<'a> TypeLowerer<'a, '_> {
             TraitId::Source(def_id) => self.generic_params_for_def(def_id).unwrap_or_default(),
             TraitId::Builtin(_) => Vec::new(),
         };
+        let generic_owner_module_id = match trait_id {
+            TraitId::Source(def_id) => def_id.module_id,
+            TraitId::Builtin(_) => self.module_id,
+        };
         let mut positional_index = 0usize;
         for arg in &segment.args {
             match arg {
@@ -1413,7 +1417,7 @@ impl<'a> TypeLowerer<'a, '_> {
                                 positional_index += 1;
                                 continue;
                             };
-                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            let ty = self.lower_generic_param_type(generic_owner_module_id, ty);
                             object_args
                                 .trait_const_args
                                 .push(ConstGenericArg { ty, value });
@@ -1439,7 +1443,7 @@ impl<'a> TypeLowerer<'a, '_> {
                                 positional_index += 1;
                                 continue;
                             };
-                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            let ty = self.lower_generic_param_type(generic_owner_module_id, ty);
                             object_args
                                 .trait_const_args
                                 .push(ConstGenericArg { ty, value });
@@ -1476,7 +1480,7 @@ impl<'a> TypeLowerer<'a, '_> {
                                 positional_index += 1;
                                 continue;
                             };
-                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            let ty = self.lower_generic_param_type(generic_owner_module_id, ty);
                             object_args
                                 .trait_const_args
                                 .push(ConstGenericArg { ty, value });
@@ -1832,6 +1836,31 @@ impl<'a> TypeLowerer<'a, '_> {
                 .get(def_id.def_id)
                 .map(|def| def.generic_params.clone())
         })
+    }
+
+    fn lower_generic_param_type(
+        &mut self,
+        owner_module_id: ModuleId,
+        ty: &TypeRef,
+    ) -> InternedTyId {
+        if owner_module_id == self.module_id {
+            return self.lower_type_in_context(ty, TypeContext::Value);
+        }
+        let TypeKind::Path { segments } = &ty.kind else {
+            return self.append.intern(TyKind::Error);
+        };
+        let [segment] = segments.as_slice() else {
+            return self.append.intern(TyKind::Error);
+        };
+        if !segment.args.is_empty() {
+            return self.append.intern(TyKind::Error);
+        }
+        let Some(name) = type_path_segment_name(segment) else {
+            return self.append.intern(TyKind::Error);
+        };
+        PrimitiveTy::from_known_symbol(*name)
+            .map(|primitive| self.append.intern(TyKind::Primitive(primitive)))
+            .unwrap_or_else(|| self.append.intern(TyKind::Error))
     }
 
     fn const_generic_value_from_type_ref(&self, ty: &TypeRef) -> Option<ConstGenericValue> {

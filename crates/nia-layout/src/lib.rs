@@ -8,9 +8,9 @@ use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
-    EnumSignature, EnumVariantPayloadSignature, ItemSignatures, ProgramEnumSignature,
-    ProgramStructSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
-    TypeAliasSignature, UnionSignature,
+    EnumSignature, EnumVariantPayloadSignature, GenericParamSignature, GenericParamSignatureKind,
+    ItemSignatures, ProgramEnumSignature, ProgramStructSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature, StructSignature, TypeAliasSignature, UnionSignature,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
@@ -375,7 +375,7 @@ pub fn compute_struct_instance_layout_with_program_context(
 ) -> Option<StructLayout> {
     let local_module_id = input.defs.module_id;
     let mut computer = LayoutComputer::new(input.reborrow());
-    computer.nominal_layout(
+    computer.detailed_struct_layout(
         Span::default(),
         request.def_id,
         request.args,
@@ -407,7 +407,7 @@ pub fn compute_union_instance_layout_with_program_context(
 ) -> Option<StructLayout> {
     let local_module_id = input.defs.module_id;
     let mut computer = LayoutComputer::new(input.reborrow());
-    computer.nominal_layout(
+    computer.detailed_union_layout(
         Span::default(),
         request.def_id,
         request.args,
@@ -441,10 +441,6 @@ struct LayoutTypeCx<'a> {
 impl LayoutTypeCx<'_> {
     fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.store.get(ty)
-    }
-
-    fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
     }
 }
 
@@ -931,6 +927,46 @@ impl<'a> LayoutComputer<'a> {
         None
     }
 
+    fn detailed_struct_layout(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<TypeLayout> {
+        if def_id.module_id == self.module_id {
+            let signature = self.signatures.structs.get(&def_id.def_id)?.clone();
+            return self.struct_layout(span, def_id.def_id, &signature, args, const_args);
+        }
+        let signature = self
+            .program
+            .structs
+            .and_then(|signatures| signatures.get(&def_id).cloned())
+            .or_else(|| self.program.struct_.and_then(|query| query(def_id)))?
+            .signature;
+        self.external_struct_layout(span, def_id, &signature, args, const_args)
+    }
+
+    fn detailed_union_layout(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<TypeLayout> {
+        if def_id.module_id == self.module_id {
+            let signature = self.signatures.unions.get(&def_id.def_id)?.clone();
+            return self.union_layout(span, def_id.def_id, &signature, args, const_args);
+        }
+        let signature = self
+            .program
+            .unions
+            .and_then(|signatures| signatures.get(&def_id).cloned())
+            .or_else(|| self.program.union.and_then(|query| query(def_id)))?
+            .signature;
+        self.external_union_layout(span, def_id, &signature, args, const_args)
+    }
+
     fn external_nominal_layout(
         &mut self,
         span: Span,
@@ -1013,7 +1049,7 @@ impl<'a> LayoutComputer<'a> {
             .cloned()
             .zip(args.iter().copied())
             .collect();
-        let target = substitute_generics(
+        let target = substitute_layout_ty(
             &self.type_context,
             signature.target,
             &substitutions,
@@ -1038,16 +1074,8 @@ impl<'a> LayoutComputer<'a> {
         if let Some(existing) = self.external_struct_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() + const_args.len() {
-            return None;
-        }
-        let substitutions: SymbolMap<InternedTyId> = signature
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect();
-        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
+        let (substitutions, const_substitutions) =
+            aggregate_substitutions(&signature.generic_params, args, const_args)?;
         let local_key = StructLayoutKey {
             def_id: def_id.def_id,
             args: args.to_vec(),
@@ -1079,9 +1107,8 @@ impl<'a> LayoutComputer<'a> {
         if let Some(existing) = self.external_union_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() + const_args.len() {
-            return None;
-        }
+        let (substitutions, const_substitutions) =
+            aggregate_substitutions(&signature.generic_params, args, const_args)?;
         if signature.fields.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -1090,13 +1117,6 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: SymbolMap<InternedTyId> = signature
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect();
-        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
         let local_key = StructLayoutKey {
             def_id: def_id.def_id,
             args: args.to_vec(),
@@ -1199,9 +1219,8 @@ impl<'a> LayoutComputer<'a> {
         if let Some(existing) = self.struct_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() + const_args.len() {
-            return None;
-        }
+        let (substitutions, const_substitutions) =
+            aggregate_substitutions(&signature.generic_params, args, const_args)?;
         if !self.visiting_structs.insert(key.clone()) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -1210,13 +1229,6 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: SymbolMap<InternedTyId> = signature
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect();
-        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
         let struct_layout = if signature.is_extern {
             self.c_struct_layout(&key, signature, &substitutions, &const_substitutions)?
         } else {
@@ -1247,9 +1259,8 @@ impl<'a> LayoutComputer<'a> {
         if let Some(existing) = self.union_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() + const_args.len() {
-            return None;
-        }
+        let (substitutions, const_substitutions) =
+            aggregate_substitutions(&signature.generic_params, args, const_args)?;
         if signature.fields.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -1266,13 +1277,6 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: SymbolMap<InternedTyId> = signature
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect();
-        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
         let union_layout =
             self.union_field_layout(&key, signature, &substitutions, &const_substitutions)?;
         let layout = union_layout.layout.clone();
@@ -1346,7 +1350,7 @@ impl<'a> LayoutComputer<'a> {
         let mut layouts = Vec::new();
         for (source_index, field) in fields.iter().enumerate() {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_generics(
+            let field_ty = substitute_layout_ty(
                 &self.type_context,
                 field_ty,
                 substitutions,
@@ -1375,7 +1379,7 @@ impl<'a> LayoutComputer<'a> {
         let mut fields = Vec::new();
         for field in &signature.fields {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_generics(
+            let field_ty = substitute_layout_ty(
                 &self.type_context,
                 field_ty,
                 substitutions,
@@ -1462,159 +1466,45 @@ impl LayoutComputer<'_> {
     }
 }
 
-fn substitute_generics(
+fn substitute_layout_ty(
     types: &LayoutTypeCx<'_>,
     ty: InternedTyId,
     substitutions: &SymbolMap<InternedTyId>,
     const_substitutions: &SymbolMap<ConstGenericArg>,
 ) -> InternedTyId {
-    match types.get(ty).cloned() {
-        Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
-        Some(TyKind::Pointer { is_readonly, elem }) => {
-            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
-            types.intern(TyKind::Pointer { is_readonly, elem })
-        }
-        Some(TyKind::Slice { is_readonly, elem }) => {
-            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
-            types.intern(TyKind::Slice { is_readonly, elem })
-        }
-        Some(TyKind::Array { len, elem }) => {
-            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
-            let len = substitute_array_len_generics(types, len, substitutions, const_substitutions);
-            types.intern(TyKind::Array { len, elem })
-        }
-        Some(TyKind::FunctionPointer {
-            params,
-            return_type,
-            is_variadic,
-        }) => {
-            let params = params
-                .into_iter()
-                .map(|param| substitute_generics(types, param, substitutions, const_substitutions))
-                .collect();
-            let return_type =
-                substitute_generics(types, return_type, substitutions, const_substitutions);
-            types.intern(TyKind::FunctionPointer {
-                params,
-                return_type,
-                is_variadic,
-            })
-        }
-        Some(TyKind::Optional { elem }) => {
-            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
-            types.intern(TyKind::Optional { elem })
-        }
-        Some(TyKind::ErrorUnion { error, value }) => {
-            let error = substitute_generics(types, error, substitutions, const_substitutions);
-            let value = substitute_generics(types, value, substitutions, const_substitutions);
-            types.intern(TyKind::ErrorUnion { error, value })
-        }
-        Some(TyKind::Nominal {
-            def_id,
-            args,
-            const_args,
-        }) => {
-            let args = args
-                .into_iter()
-                .map(|arg| substitute_generics(types, arg, substitutions, const_substitutions))
-                .collect();
-            let const_args = const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_generics(types, arg.ty, substitutions, const_substitutions);
-                    arg
-                })
-                .collect();
-            types.intern(TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            })
-        }
-        Some(TyKind::BuiltinTrait { trait_id, args }) => {
-            let args = args
-                .into_iter()
-                .map(|arg| substitute_generics(types, arg, substitutions, const_substitutions))
-                .collect();
-            types.intern(TyKind::BuiltinTrait { trait_id, args })
-        }
-        Some(TyKind::Projection {
-            self_ty,
-            trait_id,
-            trait_args,
-            trait_const_args,
-            name,
-        }) => {
-            let self_ty = substitute_generics(types, self_ty, substitutions, const_substitutions);
-            let trait_args = trait_args
-                .into_iter()
-                .map(|arg| substitute_generics(types, arg, substitutions, const_substitutions))
-                .collect();
-            let trait_const_args = trait_const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_generics(types, arg.ty, substitutions, const_substitutions);
-                    if let ConstGenericValue::GenericParam(name) = &arg.value
-                        && let Some(replacement) = const_substitutions.get(name)
-                    {
-                        arg = replacement.clone();
-                    }
-                    arg
-                })
-                .collect();
-            types.intern(TyKind::Projection {
-                self_ty,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                name,
-            })
-        }
-        _ => ty,
-    }
+    nia_ty::substitute_ty(
+        types.store,
+        &types.append,
+        ty,
+        &|name| substitutions.get(name).copied(),
+        &|name| const_substitutions.get(name).cloned(),
+        None,
+    )
 }
 
-fn substitute_array_len_generics(
-    types: &LayoutTypeCx<'_>,
-    len: ArrayLenTy,
-    substitutions: &SymbolMap<InternedTyId>,
-    const_substitutions: &SymbolMap<ConstGenericArg>,
-) -> ArrayLenTy {
-    match len {
-        ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
-            builtin,
-            ty: substitute_generics(types, ty, substitutions, const_substitutions),
-        },
-        ArrayLenTy::GenericParam(name) => const_substitutions
-            .get(&name)
-            .and_then(array_len_from_const_arg)
-            .unwrap_or(ArrayLenTy::GenericParam(name)),
-        ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
-    }
-}
-
-fn const_substitutions(
-    generics: &[SymbolId],
-    type_arg_count: usize,
+fn aggregate_substitutions(
+    params: &[GenericParamSignature],
+    args: &[InternedTyId],
     const_args: &[ConstGenericArg],
-) -> SymbolMap<ConstGenericArg> {
-    generics
-        .iter()
-        .skip(type_arg_count)
-        .cloned()
-        .zip(const_args.iter().cloned())
-        .collect()
-}
-
-fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
-    match &arg.value {
-        ConstGenericValue::Int(value) => {
-            u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
+) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
+    let mut type_index = 0;
+    let mut const_index = 0;
+    let mut substitutions = SymbolMap::default();
+    let mut const_substitutions = SymbolMap::default();
+    for param in params {
+        match param.kind {
+            GenericParamSignatureKind::Type => {
+                substitutions.insert(param.name, *args.get(type_index)?);
+                type_index += 1;
+            }
+            GenericParamSignatureKind::Const { .. } => {
+                const_substitutions.insert(param.name, const_args.get(const_index)?.clone());
+                const_index += 1;
+            }
         }
-        ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
-        ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
-        ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
     }
+    (type_index == args.len() && const_index == const_args.len())
+        .then_some((substitutions, const_substitutions))
 }
 
 fn align_to(value: u64, align: u64) -> u64 {

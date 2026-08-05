@@ -1170,6 +1170,25 @@ mutable interner or snapshot field. Compiler query providers and standalone
 callers use the same API, and the result remains a layout fact table rather than
 a second type view.
 
+Struct and union signatures retain each generic parameter's declared kind and
+order. Layout binds the nominal type-argument and const-argument vectors by
+walking that ordered signature, so interleaved parameters do not imply a
+types-first storage convention. Field instantiation uses the shared
+`nia_ty::substitute_ty` traversal; layout does not maintain a smaller recursive
+type substitution model.
+
+Const-generic parameter types on imported nominal types are interpreted from
+the defining declaration rather than by looking up that declaration's AST node
+in the consuming module's `TypeResolution`. The currently supported scalar
+const parameter types use `nia_ty::PrimitiveTy::from_known_symbol` as the shared
+resolution-independent spelling owner.
+
+The instance-detail layout APIs have a stronger contract than ordinary nominal
+layout lookup: they return field layouts and offsets, not only aggregate
+size/alignment. They therefore resolve the requested program struct or union
+signature and compute its detailed instance directly. A hit in the ordinary
+program layout cache cannot short-circuit detail materialization.
+
 ### 8.7 `nia-abi-check`
 
 Checks C ABI boundaries for `extern` functions, globals, and structs. It rejects

@@ -97,6 +97,10 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             DefId(2),
             item_signatures::StructSignature {
                 generics: vec![generic_name],
+                generic_params: vec![item_signatures::GenericParamSignature {
+                    name: generic_name,
+                    kind: item_signatures::GenericParamSignatureKind::Type,
+                }],
                 where_predicates: where_predicates.clone(),
                 fields: vec![field.clone()],
                 is_extern: false,
@@ -106,7 +110,11 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         unions: HashMap::from([(
             DefId(3),
             item_signatures::UnionSignature {
-                generics: Vec::new(),
+                generics: vec![generic_name],
+                generic_params: vec![item_signatures::GenericParamSignature {
+                    name: generic_name,
+                    kind: item_signatures::GenericParamSignatureKind::Const { ty: primitive },
+                }],
                 where_predicates: Vec::new(),
                 fields: vec![field],
                 is_extern: true,

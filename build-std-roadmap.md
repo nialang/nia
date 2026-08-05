@@ -3485,6 +3485,34 @@ with primitive/custom-error and process-argument emitted executables. Workspace
 check, strict all-target Clippy, formatting, old-surface search, and diff
 whitespace audit also pass.
 
+Dual-stage const hardening progress (2026-08-05, const-generic nominal struct
+union representation): aggregate signatures now retain ordered generic
+parameter kinds in addition to their declaration names, including through the
+signature cache and cross-module program signatures. `nia-layout` consumes one
+kind-aware binding path for local and imported struct/union instances, so type
+and const parameters may be interleaved instead of relying on an implicit
+"types first, consts last" split. Layout field instantiation now uses the shared
+`nia_ty::substitute_ty` traversal rather than a smaller layout-local copy.
+
+Const aggregate field typing uses the same parameter-kind binding and shared
+substitution contract. Demand-driven const type comparison now handles nominal
+types recursively and resolves const-expression arguments through the ordinary
+const evaluator, so a named integer or boolean const is semantically equal to
+its literal value rather than being compared by expression identity. The
+standalone const-check fixture now includes the same value-resolution pass for
+type-lowering const expressions that compiler-query already uses in production.
+Focused regressions cover interleaved `T, N: usize, U` struct/union layout,
+little-endian padded union reinterpretation, named-versus-literal array lengths,
+and named-versus-literal boolean nominal arguments. The production executable
+matrix also exercises an imported const-generic struct through both compile-time
+and runtime `const fn` calls. That regression closes two cross-module contract
+gaps: type lowering interprets an imported const parameter type in its defining
+module instead of reusing the caller's node resolution, and detailed
+struct/union instance layout bypasses a size/align-only program cache hit so it
+always returns field offsets. Const-generic nominal structs are therefore
+closed for union Round 2d; nested union storage, vectors, and pointer provenance
+remain open representation rounds.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
