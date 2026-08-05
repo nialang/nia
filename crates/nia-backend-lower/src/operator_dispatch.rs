@@ -318,12 +318,15 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Atomic(atomic) => {
                     FunctionExprKind::Atomic(self.resolve_builtin_operator_calls_in_atomic(atomic))
                 }
-                FunctionExprKind::StaticArrayPointer { array, is_readonly } => {
-                    FunctionExprKind::StaticArrayPointer {
-                        array: Box::new(self.resolve_builtin_operator_calls_in_expr(*array)),
-                        is_readonly,
-                    }
-                }
+                FunctionExprKind::StaticArrayPointer {
+                    allocation,
+                    array,
+                    is_readonly,
+                } => FunctionExprKind::StaticArrayPointer {
+                    allocation,
+                    array: Box::new(self.resolve_builtin_operator_calls_in_expr(*array)),
+                    is_readonly,
+                },
                 FunctionExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                     elems: self.resolve_builtin_operator_calls_in_array_elements(elems),
                 },

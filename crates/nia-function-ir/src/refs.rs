@@ -258,8 +258,13 @@ fn collect_function_refs_from_expr(
             });
             collect_function_refs_from_expr(inner, types, refs);
         }
-        FunctionExprKind::StaticArrayPointer { array, .. }
-        | FunctionExprKind::RangeBound { range: array, .. }
+        FunctionExprKind::StaticArrayPointer {
+            allocation, array, ..
+        } => {
+            refs.modules.insert(allocation.module_id());
+            collect_function_refs_from_expr(array, types, refs);
+        }
+        FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
         | FunctionExprKind::OptionalSome { expr: array }
         | FunctionExprKind::ErrorOk { expr: array }

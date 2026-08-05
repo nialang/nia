@@ -372,8 +372,20 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionExprKind::Local(local_id) => {
                 self.require_local(*local_id, expr.span, "local expression")?
             }
-            FunctionExprKind::StaticArrayPointer { array: inner, .. }
-            | FunctionExprKind::Unary { expr: inner, .. }
+            FunctionExprKind::StaticArrayPointer {
+                array: inner,
+                is_readonly,
+                ..
+            } => {
+                if !is_readonly {
+                    return Err(FunctionIrError::new(
+                        expr.span,
+                        "static array pointer must be readonly",
+                    ));
+                }
+                self.validate_value_expr(inner)?;
+            }
+            FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::OptionalSome { expr: inner }
             | FunctionExprKind::ErrorOk { expr: inner }
             | FunctionExprKind::ErrorErr { expr: inner }

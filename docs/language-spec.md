@@ -1764,11 +1764,13 @@ retain their values, while union and struct padding remains uninitialized; no
 host address is serialized into constant storage. Zero-sized promoted
 allocations retain the same source-origin pointer identity even though their
 pointee type has no value bytes; this does not change the pointee's size or
-alignment. The legacy runtime static-array promotion path remains unavailable
-for this identity model until all of its sources retain their definition
-origin. Other unsupported field kinds are still rejected in a `const fn`
-declaration. Ordinary runtime unions retain the full semantics described in
-section 4.6.
+alignment. Readonly const array, string, and slice storage uses the same rule:
+frozen pointers retain their expression origin, while compiler-provided string
+constants use their defining const item. Repeated runtime uses therefore share
+one allocation, and equal contents from distinct definitions do not imply
+pointer equality. Other unsupported field kinds are still rejected in a
+`const fn` declaration. Ordinary runtime unions retain the full semantics
+described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

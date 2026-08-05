@@ -21,7 +21,7 @@ use nia_llvm::{
     Context, LlvmError,
     module::Linkage,
     target::TargetMachine,
-    types::{BasicTypeEnum, FunctionType, StructType},
+    types::{FunctionType, StructType},
     values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
 use nia_mangle::{
@@ -115,7 +115,6 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
     promoted_allocations: RefCell<HashMap<PromotedAllocationId, InternedTyId>>,
-    static_array_counter: RefCell<usize>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
@@ -162,7 +161,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             globals: HashMap::new(),
             global_instances: HashMap::new(),
             promoted_allocations: RefCell::new(HashMap::new()),
-            static_array_counter: RefCell::new(0),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
             mangled_types: RefCell::new(HashMap::new()),
@@ -184,49 +182,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .ir_string()
                 .map_err(Self::diagnostic_from_llvm_error)
         })
-    }
-
-    pub(super) fn next_static_array_name(&self) -> String {
-        let mut counter = self.static_array_counter.borrow_mut();
-        let id = *counter;
-        *counter += 1;
-        format!(".nia.static.array.{id}")
-    }
-
-    pub(super) fn materialize_static_array_pointer(
-        &self,
-        array_ty: BasicTypeEnum<'ctx>,
-        value: BasicValueEnum<'ctx>,
-        span: Span,
-    ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        if matches!(value, BasicValueEnum::PointerValue(_)) {
-            return Err(self.error(
-                span,
-                "static array pointer source emitted a pointer instead of an array",
-            ));
-        }
-        let value_ty = value.get_type().map_err(|err| {
-            self.error(
-                span,
-                format!("failed to inspect static array value: {err:?}"),
-            )
-        })?;
-        if value_ty != array_ty {
-            return Err(self.error(
-                span,
-                format!(
-                    "static array pointer source type does not match array type: expected {array_ty:?}, got {value_ty:?}"
-                ),
-            ));
-        }
-        let global = self
-            .module
-            .add_global(array_ty, None, &self.next_static_array_name())
-            .map_err(Self::diagnostic_from_llvm_error)?;
-        global.set_linkage(Linkage::Internal);
-        global.set_constant(true);
-        global.set_initializer(&value);
-        Ok(global.as_pointer_value())
     }
 
     pub(super) fn materialize_promoted_allocation(

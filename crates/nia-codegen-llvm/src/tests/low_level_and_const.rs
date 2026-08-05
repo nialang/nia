@@ -194,6 +194,109 @@ fn main() usize {
 }
 
 #[test]
+fn static_array_pointers_use_promoted_source_identity() {
+    let root = temp_dir("static_array_pointers_use_promoted_source_identity");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+const left: &[3]u8 = &[3]u8[1, 2, 3];
+const right: &[3]u8 = &[3]u8[1, 2, 3];
+
+fn main() usize {
+    const local: &[3]u8 = &[3]u8[7, 8, 9];
+    left.*[0] as usize
+        + left.*[1] as usize
+        + right.*[2] as usize
+        + local.*[0] as usize
+        + local.*[2] as usize
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert_eq!(
+        ir.matches("linkonce_odr constant [3 x i8] c\"\\01\\02\\03\"")
+            .count(),
+        2,
+        "{ir}"
+    );
+    assert_eq!(
+        ir.matches("linkonce_odr constant [3 x i8]").count(),
+        3,
+        "{ir}"
+    );
+    assert!(!ir.contains(".nia.static.array"), "{ir}");
+}
+
+#[test]
+fn imported_static_array_pointer_uses_defining_module_identity() {
+    let root = temp_dir("imported_static_array_pointer_uses_defining_module_identity");
+    let main = root.join("main.nia");
+    std::fs::write(
+        root.join("defs.nia"),
+        r#"
+pub const values: &[3]u8 = &[3]u8[4, 5, 6];
+"#,
+    )
+    .expect("write defs source");
+    std::fs::write(
+        &main,
+        r#"
+module defs;
+using entry::defs;
+
+fn main() usize {
+    defs::values.*[0] as usize + defs::values.*[2] as usize
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert_eq!(
+        ir.matches("linkonce_odr constant [3 x i8]").count(),
+        1,
+        "{ir}"
+    );
+    assert!(ir.contains("@nia__promoted__"), "{ir}");
+}
+
+#[test]
+fn builtin_string_consts_use_definition_identity() {
+    let root = temp_dir("builtin_string_consts_use_definition_identity");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin::target;
+
+fn main() usize {
+    target::os.len() + target::os.len() + target::arch.len()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert_eq!(ir.matches("linkonce_odr constant [").count(), 2, "{ir}");
+    assert!(!ir.contains(".nia.static.array"), "{ir}");
+}
+
+#[test]
 fn emits_identity_storage_for_zero_sized_promoted_allocations() {
     let root = temp_dir("emits_identity_storage_for_zero_sized_promoted_allocations");
     let main = root.join("main.nia");

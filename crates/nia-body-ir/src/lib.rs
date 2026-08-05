@@ -234,6 +234,7 @@ pub enum TypedExprKind {
         value: Box<TypedExpr>,
     },
     StaticArrayPointer {
+        allocation: PromotedAllocationId,
         array: Box<TypedExpr>,
         is_readonly: bool,
     },

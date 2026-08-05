@@ -601,7 +601,12 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_else(|| self.error());
         if let Some(def_id) = self.global_const_use(expr) {
             let ty = forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
-            return self.lower_const_value_expr(expr.span, ty, self.global_const_value(def_id));
+            return self.lower_const_value_expr_with_origin(
+                expr.span,
+                ty,
+                self.global_const_value(def_id),
+                self.global_const_allocation(def_id, expr.span),
+            );
         }
         if let Some(variant_id) = self.qualified_enum_variant(expr) {
             return TypedExpr {
@@ -622,10 +627,11 @@ impl<'a> BodyChecker<'a> {
                 Some(nia_defs::DefKind::Const) => {
                     let ty = forced_ty
                         .unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
-                    return self.lower_const_value_expr(
+                    return self.lower_const_value_expr_with_origin(
                         expr.span,
                         ty,
                         self.global_const_value(def_id),
+                        self.global_const_allocation(def_id, expr.span),
                     );
                 }
                 _ => TypedExprKind::Error,
@@ -669,13 +675,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_const_use(expr) {
-                    return self.lower_const_value_expr(
+                    return self.lower_const_value_expr_with_origin(
                         expr.span,
                         ty,
                         self.const_eval
                             .values
                             .get(&nia_const_check::ConstKey::Local(local_id))
                             .cloned(),
+                        self.local_const_allocation(local_id, expr.span),
                     );
                 }
                 self.lower_ident_expr(expr)
@@ -1443,6 +1450,21 @@ impl<'a> BodyChecker<'a> {
         ty: nia_ids::InternedTyId,
         value: Option<nia_const_check::ConstValue>,
     ) -> TypedExpr {
+        self.lower_const_value_expr_with_origin(
+            span,
+            ty,
+            value,
+            nia_body_ir::PromotedAllocationId::new(self.defs.module_id, span),
+        )
+    }
+
+    fn lower_const_value_expr_with_origin(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        value: Option<nia_const_check::ConstValue>,
+        allocation: nia_body_ir::PromotedAllocationId,
+    ) -> TypedExpr {
         if ty == self.error() {
             return TypedExpr {
                 span,
@@ -1467,7 +1489,8 @@ impl<'a> BodyChecker<'a> {
                 kind: TypedExprKind::Bool(value),
             },
             Some(value) => {
-                if let Some(expr) = self.materialize_const_value_expr(span, ty, &value) {
+                if let Some(expr) = self.materialize_const_value_expr(span, ty, &value, allocation)
+                {
                     return expr;
                 }
                 self.diagnostics
@@ -1503,6 +1526,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         ty: nia_ids::InternedTyId,
         value: &nia_const_check::ConstValue,
+        fallback_allocation: nia_body_ir::PromotedAllocationId,
     ) -> Option<TypedExpr> {
         let normalized_ty = self.normalization.normalize(ty);
         match self.interner.get(normalized_ty).cloned()? {
@@ -1510,8 +1534,12 @@ impl<'a> BodyChecker<'a> {
                 if !is_readonly {
                     return None;
                 }
-                let array =
-                    self.materialize_const_array_expr(span, elem, pointer_pointee(value)?)?;
+                let array = self.materialize_const_array_expr(
+                    span,
+                    elem,
+                    pointer_pointee(value)?,
+                    fallback_allocation,
+                )?;
                 let ty = if array.ty == elem {
                     ty
                 } else {
@@ -1524,6 +1552,7 @@ impl<'a> BodyChecker<'a> {
                     span,
                     ty,
                     kind: TypedExprKind::StaticArrayPointer {
+                        allocation: const_pointer_allocation(value).unwrap_or(fallback_allocation),
                         array: Box::new(array),
                         is_readonly: true,
                     },
@@ -1534,7 +1563,8 @@ impl<'a> BodyChecker<'a> {
                     return None;
                 }
                 let array_ty = self.const_array_ty_for_slice_value(elem, value)?;
-                let array = self.materialize_const_array_expr(span, array_ty, value)?;
+                let array =
+                    self.materialize_const_array_expr(span, array_ty, value, fallback_allocation)?;
                 let pointer = TypedExpr {
                     span,
                     ty: self.interner.intern(TyKind::Pointer {
@@ -1542,6 +1572,7 @@ impl<'a> BodyChecker<'a> {
                         elem: array.ty,
                     }),
                     kind: TypedExprKind::StaticArrayPointer {
+                        allocation: const_pointer_allocation(value).unwrap_or(fallback_allocation),
                         array: Box::new(array),
                         is_readonly: true,
                     },
@@ -1560,7 +1591,9 @@ impl<'a> BodyChecker<'a> {
                     },
                 })
             }
-            TyKind::Array { .. } => self.materialize_const_array_expr(span, ty, value),
+            TyKind::Array { .. } => {
+                self.materialize_const_array_expr(span, ty, value, fallback_allocation)
+            }
             TyKind::Vector { elem, lanes } => {
                 let nia_const_check::ConstValue::Vector(values) = value else {
                     return None;
@@ -1574,7 +1607,12 @@ impl<'a> BodyChecker<'a> {
                     span,
                     ty,
                     kind: TypedExprKind::Splat {
-                        value: Box::new(self.lower_const_value_expr(span, lane_ty, Some(first))),
+                        value: Box::new(self.lower_const_value_expr_with_origin(
+                            span,
+                            lane_ty,
+                            Some(first),
+                            fallback_allocation,
+                        )),
                     },
                 };
                 let usize_ty = self.primitive(nia_ty::PrimitiveTy::Usize);
@@ -1591,10 +1629,11 @@ impl<'a> BodyChecker<'a> {
                                     nia_ty::IntConst::unsigned(index as u128),
                                 )),
                             }),
-                            value: Box::new(self.lower_const_value_expr(
+                            value: Box::new(self.lower_const_value_expr_with_origin(
                                 span,
                                 lane_ty,
                                 Some(value.clone()),
+                                fallback_allocation,
                             )),
                         },
                     };
@@ -1615,7 +1654,12 @@ impl<'a> BodyChecker<'a> {
                         Some(TypedFieldInit {
                             field: self.field_def_for_aggregate_ty(ty, name),
                             name: self.symbol_name(*name),
-                            value: self.lower_const_value_expr(span, field_ty, Some(value.clone())),
+                            value: self.lower_const_value_expr_with_origin(
+                                span,
+                                field_ty,
+                                Some(value.clone()),
+                                fallback_allocation,
+                            ),
                             span,
                         })
                     })
@@ -1650,10 +1694,11 @@ impl<'a> BodyChecker<'a> {
                                 module_id,
                                 origin.span(),
                             ),
-                            pointee: Box::new(self.lower_const_value_expr(
+                            pointee: Box::new(self.lower_const_value_expr_with_origin(
                                 origin.span(),
                                 relocation.pointee(),
                                 Some((**pointee).clone()),
+                                nia_body_ir::PromotedAllocationId::new(module_id, origin.span()),
                             )),
                         })
                     })
@@ -1693,6 +1738,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         ty: nia_ids::InternedTyId,
         value: &nia_const_check::ConstValue,
+        fallback_allocation: nia_body_ir::PromotedAllocationId,
     ) -> Option<TypedExpr> {
         let normalized_ty = self.normalization.normalize(ty);
         let TyKind::Array { len, elem } = self.interner.get(normalized_ty).cloned()? else {
@@ -1750,7 +1796,14 @@ impl<'a> BodyChecker<'a> {
                 let elems = values
                     .iter()
                     .cloned()
-                    .map(|value| self.lower_const_value_expr(span, elem, Some(value)))
+                    .map(|value| {
+                        self.lower_const_value_expr_with_origin(
+                            span,
+                            elem,
+                            Some(value),
+                            fallback_allocation,
+                        )
+                    })
                     .collect();
                 Some(TypedExpr {
                     span,
@@ -1768,6 +1821,32 @@ impl<'a> BodyChecker<'a> {
         def_id: nia_ids::GlobalDefId,
     ) -> Option<nia_const_check::ConstValue> {
         self.global_const_value_for_env(def_id)
+    }
+
+    fn global_const_allocation(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        fallback_span: Span,
+    ) -> nia_body_ir::PromotedAllocationId {
+        let span = self
+            .defs_for_module(def_id.module_id)
+            .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.span))
+            .unwrap_or(fallback_span);
+        nia_body_ir::PromotedAllocationId::new(def_id.module_id, span)
+    }
+
+    fn local_const_allocation(
+        &self,
+        local_id: nia_ids::LocalId,
+        fallback_span: Span,
+    ) -> nia_body_ir::PromotedAllocationId {
+        let span = self
+            .locals
+            .locals
+            .get(local_id)
+            .map(|local| local.span)
+            .unwrap_or(fallback_span);
+        nia_body_ir::PromotedAllocationId::new(self.defs.module_id, span)
     }
 
     fn global_const_value_for_env(
@@ -3320,6 +3399,23 @@ fn pointer_pointee(value: &nia_const_check::ConstValue) -> Option<&nia_const_che
         nia_const_check::ConstValue::String(_) => Some(value),
         _ => None,
     }
+}
+
+fn const_pointer_allocation(
+    value: &nia_const_check::ConstValue,
+) -> Option<nia_body_ir::PromotedAllocationId> {
+    let nia_const_check::ConstValue::Pointer(nia_const_check::ConstPointerValue::Frozen {
+        origin,
+        is_readonly: true,
+        ..
+    }) = value
+    else {
+        return None;
+    };
+    Some(nia_body_ir::PromotedAllocationId::new(
+        origin.module_id()?,
+        origin.span(),
+    ))
 }
 
 enum ConstArrayValues<'a> {

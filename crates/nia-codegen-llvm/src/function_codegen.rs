@@ -407,9 +407,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_bit_intrinsic(expr, *op, value)
             }
             FunctionExprKind::CharFromU32 { value } => self.emit_char_from_u32(expr, value),
-            FunctionExprKind::StaticArrayPointer { array, .. } => {
-                self.emit_static_array_pointer(expr.span, array)
-            }
+            FunctionExprKind::StaticArrayPointer {
+                allocation, array, ..
+            } => self.emit_static_array_pointer(expr.span, *allocation, array),
             FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
             FunctionExprKind::StructLiteral { def_id, fields } => {
                 self.emit_struct_literal(expr, *def_id, fields)

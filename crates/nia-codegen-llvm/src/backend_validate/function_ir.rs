@@ -197,7 +197,18 @@ impl BackendValidator<'_> {
                 }
             }
             FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic),
-            FunctionExprKind::StaticArrayPointer { array, .. } => self.validate_expr(array),
+            FunctionExprKind::StaticArrayPointer {
+                allocation, array, ..
+            } => {
+                if self.index.module(allocation.module_id()).is_none() {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        "backend IR static array pointer references a missing origin module",
+                    ));
+                }
+                self.validate_expr(array);
+            }
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {

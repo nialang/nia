@@ -284,6 +284,7 @@ pub enum FunctionExprKind {
         value: Box<FunctionExpr>,
     },
     StaticArrayPointer {
+        allocation: PromotedAllocationId,
         array: Box<FunctionExpr>,
         is_readonly: bool,
     },

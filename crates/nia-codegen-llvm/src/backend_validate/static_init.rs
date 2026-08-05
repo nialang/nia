@@ -84,19 +84,6 @@ impl BackendValidator<'_> {
                     );
                 }
             }
-            StaticInit::StaticArrayPointer {
-                array_ty,
-                array_init,
-            } => {
-                if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Pointer { .. })) {
-                    self.diagnostics.push(Diagnostic::internal_error_at(
-                        nia_diagnostic::codes::INVALID_BACKEND_IR,
-                        span,
-                        "backend IR static array pointer initializer target is not pointer",
-                    ));
-                }
-                self.validate_static_init(*array_ty, array_init, span);
-            }
         }
     }
 
