@@ -1150,13 +1150,6 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, *arg);
                 }
             }
-            nia_static_ir::StaticInit::StaticArrayPointer {
-                array_ty,
-                array_init,
-            } => {
-                self.add_ty(lowerer, *array_ty);
-                self.add_static_init(lowerer, array_init);
-            }
             nia_static_ir::StaticInit::Zero
             | nia_static_ir::StaticInit::Int(_)
             | nia_static_ir::StaticInit::Float(_)
@@ -2474,13 +2467,6 @@ impl<'a> ModuleLowerer<'a> {
                         .collect(),
                 }
             }
-            nia_static_ir::StaticInit::StaticArrayPointer {
-                array_ty,
-                array_init,
-            } => nia_static_ir::StaticInit::StaticArrayPointer {
-                array_ty: self.instantiate_ty_with_id(array_ty, substitutions),
-                array_init: Box::new(self.instantiate_static_init(*array_init, substitutions)),
-            },
             nia_static_ir::StaticInit::Zero
             | nia_static_ir::StaticInit::Int(_)
             | nia_static_ir::StaticInit::Float(_)

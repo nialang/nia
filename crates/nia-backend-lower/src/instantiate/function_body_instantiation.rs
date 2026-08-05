@@ -338,12 +338,15 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Atomic(atomic) => {
                     FunctionExprKind::Atomic(self.instantiate_atomic(atomic, substitutions))
                 }
-                FunctionExprKind::StaticArrayPointer { array, is_readonly } => {
-                    FunctionExprKind::StaticArrayPointer {
-                        array: Box::new(self.instantiate_expr(*array, substitutions)),
-                        is_readonly,
-                    }
-                }
+                FunctionExprKind::StaticArrayPointer {
+                    allocation,
+                    array,
+                    is_readonly,
+                } => FunctionExprKind::StaticArrayPointer {
+                    allocation,
+                    array: Box::new(self.instantiate_expr(*array, substitutions)),
+                    is_readonly,
+                },
                 FunctionExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                     elems: self.instantiate_array_elements(elems, substitutions),
                 },

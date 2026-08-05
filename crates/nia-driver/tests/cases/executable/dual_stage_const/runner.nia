@@ -189,6 +189,8 @@ const byteUnionPointerSlot: ByteUnionPointerSlot = {
 };
 const firstEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
 const secondEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
+const directArrayPointer: &[3]u8 = &[3]u8[6, 7, 8];
+const secondDirectArrayPointer: &[3]u8 = &[3]u8[6, 7, 8];
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -207,6 +209,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let firstEmptyPointer: EmptyPointerSlot = firstEmptyPointerSlot;
     let sameEmptyPointer: EmptyPointerSlot = firstEmptyPointerSlot;
     let secondEmptyPointer: EmptyPointerSlot = secondEmptyPointerSlot;
+    let directArrayFirst: ArrayPointerSlot = { pointer: directArrayPointer };
+    let directArraySame: ArrayPointerSlot = { pointer: directArrayPointer };
+    let directArraySecond: ArrayPointerSlot = { pointer: secondDirectArrayPointer };
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -287,6 +292,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if firstEmptyPointer.pointer != sameEmptyPointer.pointer
         or firstEmptyPointer.pointer == secondEmptyPointer.pointer {
         return process::exit(35)!;
+    }
+    if directArrayFirst.integer != directArraySame.integer
+        or directArrayFirst.integer == directArraySecond.integer
+        or directArrayPointer.*[2] != 8 {
+        return process::exit(36)!;
     }
     !{}
 }

@@ -917,8 +917,15 @@ impl<'a> Encoder<'a> {
                 self.tag(28);
                 self.expr(value);
             }
-            FunctionExprKind::StaticArrayPointer { array, is_readonly } => {
+            FunctionExprKind::StaticArrayPointer {
+                allocation,
+                array,
+                is_readonly,
+            } => {
                 self.tag(29);
+                self.module_id(allocation.module_id());
+                self.usize(allocation.span().start);
+                self.usize(allocation.span().end);
                 self.expr(array);
                 self.bool(*is_readonly);
             }
@@ -1697,14 +1704,6 @@ impl<'a> Encoder<'a> {
                 self.tag(13);
                 self.global_def(*function);
                 self.types(args);
-            }
-            StaticInit::StaticArrayPointer {
-                array_ty,
-                array_init,
-            } => {
-                self.tag(14);
-                self.ty(*array_ty);
-                self.static_init(array_init);
             }
         }
     }

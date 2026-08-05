@@ -30,8 +30,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             | FunctionExprKind::Field { .. }
             | FunctionExprKind::Index { .. } => self.emit_place_addr(expr.span, expr),
-            FunctionExprKind::StaticArrayPointer { array, .. } => self
-                .emit_static_array_pointer(expr.span, array)?
+            FunctionExprKind::StaticArrayPointer {
+                allocation, array, ..
+            } => self
+                .emit_static_array_pointer(expr.span, *allocation, array)?
                 .into_pointer_value()
                 .map_err(|_| self.error(expr.span, "static array pointer value is not a pointer")),
             _ => Err(self.error(expr.span, "expression is not a place")),
@@ -270,28 +272,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_static_array_pointer(
         &mut self,
         span: Span,
+        allocation: nia_function_ir::PromotedAllocationId,
         array: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        if let FunctionExprKind::StaticArrayPointer { array, .. } = &array.kind {
-            return self.emit_static_array_pointer(span, array);
-        }
-        let Some(TyKind::Array { .. }) = self.module.ty_kind(array.ty) else {
-            return Err(self.error(span, "string literal pointer source is not an array"));
-        };
-        let array_ty = self.module.llvm_basic_type(array.ty, span)?;
-        let value = match &array.kind {
-            FunctionExprKind::String(scalars) => {
-                self.emit_string_literal(array.ty, array.span, scalars)?
-            }
-            FunctionExprKind::ByteString(bytes) => {
-                self.emit_byte_string_literal(array.ty, array.span, bytes)?
-            }
-            _ => self.emit_expr(array)?,
-        };
-        let ptr = self
-            .module
-            .materialize_static_array_pointer(array_ty, value, span)?;
-        Ok(ptr.into())
+        self.emit_promoted_array_allocation(allocation, array, span)
+            .map(Into::into)
     }
 
     fn emit_range_start(

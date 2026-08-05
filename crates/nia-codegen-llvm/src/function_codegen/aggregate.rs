@@ -274,6 +274,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         )
     }
 
+    pub(super) fn emit_promoted_array_allocation(
+        &mut self,
+        allocation: nia_function_ir::PromotedAllocationId,
+        array: &FunctionExpr,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        if let FunctionExprKind::StaticArrayPointer {
+            allocation, array, ..
+        } = &array.kind
+        {
+            return self.emit_promoted_array_allocation(*allocation, array, span);
+        }
+        let Some(TyKind::Array { .. }) = self.module.ty_kind(array.ty) else {
+            return Err(self.error(span, "static array pointer source is not an array"));
+        };
+        let value = self.emit_promoted_const_value(array)?;
+        self.module.materialize_promoted_allocation(
+            allocation,
+            array.ty,
+            value.into_initializer(),
+            span,
+        )
+    }
+
     fn emit_promoted_const_value(
         &mut self,
         value: &FunctionExpr,

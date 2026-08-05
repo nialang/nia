@@ -471,19 +471,6 @@ fn simplify_static_init(init: StaticInit) -> (StaticInit, bool) {
                 (StaticInit::Struct(fields), changed)
             }
         }
-        StaticInit::StaticArrayPointer {
-            array_ty,
-            array_init,
-        } => {
-            let (array_init, changed) = simplify_static_init(*array_init);
-            (
-                StaticInit::StaticArrayPointer {
-                    array_ty,
-                    array_init: Box::new(array_init),
-                },
-                changed,
-            )
-        }
         StaticInit::Chars(scalars) if scalars.iter().all(|scalar| *scalar == 0) => {
             (StaticInit::Zero, true)
         }
@@ -526,8 +513,7 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         | StaticInit::Char(_)
         | StaticInit::Byte(_)
         | StaticInit::AddrOfGlobal { .. }
-        | StaticInit::AddrOfFunction { .. }
-        | StaticInit::StaticArrayPointer { .. } => false,
+        | StaticInit::AddrOfFunction { .. } => false,
     }
 }
 

@@ -66,10 +66,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::AddrOfFunction { function, args } => {
                 self.static_addr_of_function_value(ty, *function, args, span)
             }
-            StaticInit::StaticArrayPointer {
-                array_ty,
-                array_init,
-            } => self.static_array_pointer_value(ty, *array_ty, array_init, span),
         }
     }
 
@@ -124,20 +120,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 ptr = ptr.const_in_bounds_gep(pointee_ty, &indices);
             }
         }
-        let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
-        Ok(ptr.const_bitcast(target_ptr_ty).into())
-    }
-
-    fn static_array_pointer_value(
-        &self,
-        ty: InternedTyId,
-        array_ty: InternedTyId,
-        array_init: &StaticInit,
-        span: Span,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let llvm_array_ty = self.llvm_basic_type_in(array_ty, span)?;
-        let value = self.static_init_value_in(array_ty, array_init, span)?;
-        let ptr = self.materialize_static_array_pointer(llvm_array_ty, value, span)?;
         let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
         Ok(ptr.const_bitcast(target_ptr_ty).into())
     }
@@ -406,8 +388,6 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
-        StaticInit::AddrOfGlobal { .. }
-        | StaticInit::AddrOfFunction { .. }
-        | StaticInit::StaticArrayPointer { .. } => false,
+        StaticInit::AddrOfGlobal { .. } | StaticInit::AddrOfFunction { .. } => false,
     }
 }

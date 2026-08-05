@@ -1168,13 +1168,22 @@ address is observable must have runtime identity. The link-once global is not
 `unnamed_addr`, so LLVM cannot infer that equal contents permit address folding.
 Same-origin uses still deduplicate, while distinct origins use distinct symbols.
 
-The remaining local promotion boundary is replacement of the legacy per-use
-static-array path. Its typed IR currently combines frozen pointer values, which
-already carry allocation origins, with const string and slice materialization,
-which has lost the definition origin; source identity must be restored before
-the counter can be removed. Mutable pointer write-through likewise waits for a
-shared alias-aware place operation instead of reusing mutable-receiver
-copy/writeback.
+Readonly array, string, and slice const materialization uses the same promoted
+allocation path. Typed and function `StaticArrayPointer` nodes carry a
+`PromotedAllocationId`: frozen pointers use their evaluator origin, while a
+const string without frozen provenance uses its defining global item or local
+binding rather than its use site. Recursive lowering preserves that fallback,
+function-body references include imported origin modules, and fingerprints use
+the normalized module source identity plus span. LLVM therefore emits the same
+stable link-once global as every other promotion. The former module-local
+counter and `.nia.static.array.N` symbols no longer exist.
+
+Static initializer IR has no static-array-pointer variant. It had no compiler
+producer and keeping it would have retained a dormant second promotion model.
+All address-bearing readonly const arrays now cross typed/function IR with
+explicit source identity. Mutable pointer write-through remains separate and
+waits for a shared alias-aware place operation instead of reusing
+mutable-receiver copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

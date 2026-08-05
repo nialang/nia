@@ -3823,6 +3823,34 @@ with const string/slice materialization that has already lost the definition
 origin, so that work must restore source identity before removing the counter
 rather than rename a use-site allocation.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3b2 promotion identity
+unification): `StaticArrayPointer` in typed and function IR now carries a
+`PromotedAllocationId`. Frozen readonly pointers retain the evaluator's exact
+module and source origin. Const strings and slices that do not carry frozen
+pointer provenance use the defining global-const item or local-const binding as
+their allocation origin, never the consumer use site. Recursive const-value
+materialization propagates that definition origin, and imported origin modules
+are explicit function-body dependencies. Fingerprints encode the origin through
+the normalized module source identity and span.
+
+LLVM static-array lowering now calls the same promoted constant emitter and
+stable link-once allocation registry used by union relocations. The
+`.nia.static.array.N` counter, internal per-occurrence globals, and their
+materializer have been deleted. `StaticInit::StaticArrayPointer` was also
+removed: repository-wide analysis found no producer, only maintenance matches
+and an artificial unit test, so retaining it would preserve a second dormant
+promotion model. Function IR rejects writable static-array promotions, backend
+validation requires a published origin module, and every transform preserves
+the allocation identity.
+
+Low-level regressions prove same-origin reuse, distinct equal-valued origins,
+local const origins, imported defining-module identity, and definition identity
+for `target::os`/`target::arch` builtin strings. The maintained native
+executable observes same-origin equality and distinct-origin inequality after
+linking. With scalar, aggregate, vector, nested-relocation, ZST, and direct
+array/string promotions all using one identity model, Round 2g3b is closed.
+Round 2g3c remains the imported/generic differential closeout.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

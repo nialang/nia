@@ -85,12 +85,15 @@ impl FunctionLowerer<'_> {
             TypedExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
             },
-            TypedExprKind::StaticArrayPointer { array, is_readonly } => {
-                FunctionExprKind::StaticArrayPointer {
-                    array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
-                    is_readonly: *is_readonly,
-                }
-            }
+            TypedExprKind::StaticArrayPointer {
+                allocation,
+                array,
+                is_readonly,
+            } => FunctionExprKind::StaticArrayPointer {
+                allocation: *allocation,
+                array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
+                is_readonly: *is_readonly,
+            },
             TypedExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, scope, current, ops, blocks),
             },
