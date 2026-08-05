@@ -3652,6 +3652,33 @@ write-through, union relocations, artifact materialization, and the imported
 differential remain the explicit Round 2g2/2g3 work above; pointer-containing
 const unions are still rejected rather than accepted through snapshot fallback.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g2 typed union
+relocations): `ConstAbiType` now has an artifact-width pointer representation,
+and `ConstUnionValue` owns relocations alongside bytes and initialization state.
+Each relocation records its storage offset, pointer width, and typed
+`ConstPointerValue`; its byte range is initialized placeholder storage, never a
+host address or fabricated integer. Array and nominal-struct encoding shifts
+nested relocation offsets, nested-union encoding preserves them wholesale, and
+field writes invalidate every relocation whose storage they overlap. Any
+unwritten fragment of an invalidated relocation becomes uninitialized rather
+than turning placeholder zeroes into integer bytes; genuinely disjoint union
+tail storage remains intact.
+
+Decoding a pointer requires one exact relocation covering that pointer field.
+Raw integer bytes cannot manufacture one. Conversely, scalar and vector views
+reject relocation-bearing storage, and aggregate subdivision rejects fields
+that would read only part of a relocation. Relocation bounds, overlap, and
+initialization metadata are validated with the union ABI. Pointer-width
+regressions exercise both 32-bit and 64-bit artifact layouts. Function/root
+escape validation now traverses relocation targets, so hiding a callee-local
+pointer inside a union cannot bypass Round 2g1.
+
+This closes evaluator/storage Round 2g2. Runtime lowering deliberately rejects
+a relocation-bearing `UnionStorageLiteral`: body IR, function IR, backend
+validation, LLVM global allocation/deduplication, and imported-module
+differentials remain Round 2g3. Mutable pointer write-through remains a separate
+alias-aware place-operation task and is not implied by union relocation support.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

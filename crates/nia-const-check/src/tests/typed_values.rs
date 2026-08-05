@@ -194,6 +194,45 @@ const shiftOverflow: usize = 1usize << 32usize;
 }
 
 #[test]
+fn pointer_union_relocations_follow_artifact_pointer_width() {
+    for pointer_width in [32, 64] {
+        let mut target = nia_target_config::TargetConfig::host();
+        target.pointer_width = pointer_width;
+        let fixture = check_source_for_target(
+            r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const fn roundTrip() usize {
+    let value: usize = 21;
+    let slot: Slot = { pointer: &value };
+    slot.pointer.*
+}
+
+const RESULT: usize = roundTrip();
+"#,
+            target,
+        );
+        assert!(
+            fixture.const_module.diagnostics.is_empty(),
+            "pointer width {pointer_width}: {:?}",
+            fixture.const_module.diagnostics
+        );
+        assert!(
+            fixture.checked.diagnostics.is_empty(),
+            "pointer width {pointer_width}: {:?}",
+            fixture.checked.diagnostics
+        );
+        assert!(matches!(
+            const_value(&fixture, "RESULT"),
+            ConstValue::Int(value) if value.bits() == 21
+        ));
+    }
+}
+
+#[test]
 fn evaluates_scalar_union_reinterpretation_and_field_switching() {
     let fixture = check_source(
         r#"

@@ -1740,15 +1740,23 @@ field used for initial construction are uninitialized rather than implicitly
 zero. Invalid `bool` or `char` representations inside an array or struct are
 diagnosed at the containing element or field.
 
-The current const ABI codec supports scalars, fixed arrays, SIMD vectors,
-nominal structs, and untagged unions recursively composed from those types.
+The current const ABI codec supports scalars, pointers, fixed arrays, SIMD
+vectors, nominal structs, and untagged unions recursively composed from those
+types.
 Nominal type and const arguments are substituted by declaration parameter kind
 and order; semantically equal const expressions and literal arguments identify
-the same concrete field type. A union containing pointers or another
-unsupported field kind is rejected in a `const fn` declaration until const
-evaluation has an explicit representation or provenance model for that field
-kind. Ordinary runtime unions retain the full semantics described in section
-4.6.
+the same concrete field type. Pointer storage is represented by a typed
+artifact-width relocation, never by encoding a host address into the byte
+buffer. Reading a pointer field requires one exact relocation; integer bytes
+cannot fabricate a pointer, and reading relocation-bearing storage through a
+scalar or vector field is rejected. Relocations survive recursive aggregate and
+nested-union copies and participate in pointer lifetime validation. Partially
+overwriting a relocation leaves its unwritten fragment uninitialized; it does
+not expose placeholder bytes as an integer representation. Runtime
+materialization of a relocation-bearing const union is not available until the
+backend relocation model is complete. Other unsupported field kinds are still
+rejected in a `const fn` declaration. Ordinary runtime unions retain the full
+semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.
@@ -1807,9 +1815,10 @@ are stored in arrays, structs, optionals, error unions, or enum payloads.
 Mutable write-through remains outside the current const pointer capability;
 mutable receiver writeback is a separate call contract.
 
-Pointer-containing untagged unions are not const-capable yet. Their eventual
-representation requires artifact relocations; a pointer is never converted to
-host address bytes or a fabricated compile-time integer.
+Pointer-containing untagged unions are const-capable through typed relocations.
+A pointer is never converted to host address bytes or a fabricated compile-time
+integer. Relocation-bearing union values cannot yet cross into runtime code;
+that boundary requires IR and backend relocation materialization.
 
 Calls are staged by their use site:
 

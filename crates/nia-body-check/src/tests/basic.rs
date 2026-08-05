@@ -178,7 +178,7 @@ const fn inspect() u16 {
 }
 
 #[test]
-fn const_declaration_filter_rejects_nested_fields_without_a_const_abi_model() {
+fn const_declaration_filter_accepts_nested_pointer_fields_with_relocations() {
     let checked = pipeline_const_declarations(
         r#"
 struct Header {
@@ -197,13 +197,7 @@ const fn inspect() u16 {
 "#,
     );
 
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("const union field `header` requires a supported const ABI type")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]

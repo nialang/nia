@@ -255,3 +255,218 @@ const values: &mut [2]usize = &mut [2]usize[5, 9];
         program.diagnostics
     );
 }
+
+#[test]
+fn const_union_pointer_field_round_trips_provenance() {
+    let root = temp_dir("const_union_pointer_field_round_trips_provenance");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const fn read() usize {
+    let value: usize = 21;
+    let pointer = &value;
+    let slot: Slot = { pointer: pointer };
+    if slot.pointer == pointer { slot.pointer.* } else { 0 }
+}
+
+const width: usize = read();
+
+fn main() usize {
+    let values: [width]u8 = [0; width];
+    values.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn top_level_const_union_preserves_frozen_pointer_relocation() {
+    let root = temp_dir("top_level_const_union_preserves_frozen_pointer_relocation");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const slot: Slot = { pointer: &34usize };
+const width: usize = slot.pointer.*;
+
+fn main() usize {
+    let values: [width]u8 = [0; width];
+    values.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_union_rejects_pointer_relocation_as_integer_bytes() {
+    let root = temp_dir("const_union_rejects_pointer_relocation_as_integer_bytes");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const fn bits() usize {
+    let value: usize = 21;
+    let slot: Slot = { pointer: &value };
+    slot.integer
+}
+
+const value: usize = bits();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("scalar field reinterprets pointer relocation storage")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_union_rejects_integer_bytes_as_pointer() {
+    let root = temp_dir("const_union_rejects_integer_bytes_as_pointer");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const fn pointer() &usize {
+    let slot: Slot = { integer: 0 };
+    slot.pointer
+}
+
+const value: &usize = pointer();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("pointer field requires one exact pointer relocation")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_union_partial_pointer_overwrite_marks_unwritten_bytes_uninitialized() {
+    let root =
+        temp_dir("const_union_partial_pointer_overwrite_marks_unwritten_bytes_uninitialized");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    byte: u8,
+    integer: usize,
+}
+
+const fn bits() usize {
+    let value: usize = 21;
+    let mut slot: Slot = { pointer: &value };
+    slot.byte = 0;
+    slot.integer
+}
+
+const value: usize = bits();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const union field reads uninitialized storage")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_union_relocation_cannot_hide_a_local_pointer_escape() {
+    let root = temp_dir("const_union_relocation_cannot_hide_a_local_pointer_escape");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const fn dangling() Slot {
+    let value: usize = 21;
+    { pointer: &value }
+}
+
+const slot: Slot = dangling();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("cannot retain a pointer to storage whose lifetime ends here")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn runtime_union_materialization_waits_for_relocation_lowering() {
+    let root = temp_dir("runtime_union_materialization_waits_for_relocation_lowering");
+    write(
+        &root.join("main.nia"),
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const slot: Slot = { pointer: &34usize };
+
+fn main() Slot {
+    slot
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("runtime expression cannot use this const value")),
+        "{:?}",
+        program.diagnostics
+    );
+}
