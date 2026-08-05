@@ -191,6 +191,21 @@ const firstEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
 const secondEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
 const directArrayPointer: &[3]u8 = &[3]u8[6, 7, 8];
 const secondDirectArrayPointer: &[3]u8 = &[3]u8[6, 7, 8];
+const importedGenericPointer: helper::PointerSlot[usize] =
+    helper::passPointer[usize](helper::firstPointerSlot);
+const importedGenericPointerValue: usize =
+    helper::readPointer[usize](importedGenericPointer);
+const importedGenericSamePointer: bool = helper::samePointer[usize](
+    importedGenericPointer,
+    helper::firstPointerSlot,
+);
+const importedGenericDistinctPointer: bool = helper::samePointer[usize](
+    importedGenericPointer,
+    helper::secondPointerSlot,
+);
+const importedGenericConstOnlyValue: u32 = helper::readPointer[u32](
+    helper::passPointer[u32](helper::constOnlyPointerSlot),
+);
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -212,6 +227,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let directArrayFirst: ArrayPointerSlot = { pointer: directArrayPointer };
     let directArraySame: ArrayPointerSlot = { pointer: directArrayPointer };
     let directArraySecond: ArrayPointerSlot = { pointer: secondDirectArrayPointer };
+    let runtimeImportedGenericPointer =
+        helper::passPointer[usize](helper::firstPointerSlot);
+    let runtimeOnlyImportedGenericPointer =
+        helper::passPointer[u64](helper::runtimeOnlyPointerSlot);
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -297,6 +316,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
         or directArrayFirst.integer == directArraySecond.integer
         or directArrayPointer.*[2] != 8 {
         return process::exit(36)!;
+    }
+    if importedGenericPointerValue != 55
+        or importedGenericConstOnlyValue != 89
+        or not importedGenericSamePointer
+        or importedGenericDistinctPointer
+        or helper::readPointer[usize](runtimeImportedGenericPointer) != importedGenericPointerValue
+        or helper::readPointer[u64](runtimeOnlyImportedGenericPointer) != 144
+        or not helper::samePointer[usize](
+            runtimeImportedGenericPointer,
+            importedGenericPointer,
+        )
+        or helper::samePointer[usize](
+            runtimeImportedGenericPointer,
+            helper::secondPointerSlot,
+        )
+        or runtimeImportedGenericPointer.pointer == &helper::globalPointerValue {
+        return process::exit(37)!;
     }
     !{}
 }

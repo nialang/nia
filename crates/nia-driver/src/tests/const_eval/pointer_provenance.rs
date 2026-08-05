@@ -505,3 +505,96 @@ fn main() Slot {
         )
     ));
 }
+
+#[test]
+fn imported_generic_pointer_union_is_shared_across_const_and_runtime_calls() {
+    let root = temp_dir("imported_generic_pointer_union_is_shared_across_const_and_runtime_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+module pointers;
+using entry::pointers;
+
+const compileSlot: pointers::PointerSlot[usize] =
+    pointers::pass[usize](pointers::firstSlot);
+const compileValue: usize = pointers::read[usize](compileSlot);
+const compileSame: bool = pointers::same[usize](compileSlot, pointers::firstSlot);
+const compileDistinct: bool = pointers::same[usize](compileSlot, pointers::secondSlot);
+const constOnlyValue: u32 = pointers::read[u32](
+    pointers::pass[u32](pointers::constOnlySlot),
+);
+
+fn main() usize {
+    let runtimeSlot = pointers::pass[usize](pointers::firstSlot);
+    let runtimeOnlySlot = pointers::pass[u64](pointers::runtimeOnlySlot);
+    if compileValue == 41
+        and constOnlyValue == 89
+        and compileSame
+        and not compileDistinct
+        and pointers::read[usize](runtimeSlot) == compileValue
+        and pointers::read[u64](runtimeOnlySlot) == 144
+        and pointers::same[usize](runtimeSlot, compileSlot)
+        and not pointers::same[usize](runtimeSlot, pointers::secondSlot) {
+        0
+    } else {
+        1
+    }
+}
+"#,
+    );
+    write(
+        &root.join("pointers.nia"),
+        r#"
+pub union PointerSlot[T] {
+    pointer: &T,
+    integer: usize,
+}
+
+pub const firstSlot: PointerSlot[usize] = { pointer: &41usize };
+pub const secondSlot: PointerSlot[usize] = { pointer: &41usize };
+pub const constOnlySlot: PointerSlot[u32] = { pointer: &89u32 };
+pub const runtimeOnlySlot: PointerSlot[u64] = { pointer: &144u64 };
+
+pub const fn pass[T](slot: PointerSlot[T]) PointerSlot[T] {
+    slot
+}
+
+pub const fn read[T](slot: PointerSlot[T]) T {
+    slot.pointer.*
+}
+
+pub const fn same[T](left: PointerSlot[T], right: PointerSlot[T]) bool {
+    left.pointer == right.pointer
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    let pointers_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("pointers.nia"))
+        .expect("pointers module");
+    let types = program.type_store.append_for_module(pointers_module.id);
+    let u32_ty = types.primitive(nia_ty::PrimitiveTy::U32);
+    let u64_ty = types.primitive(nia_ty::PrimitiveTy::U64);
+    let usize_ty = types.primitive(nia_ty::PrimitiveTy::Usize);
+    let has_instance = |name, arg| {
+        pointers_module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == name && instance.args == [arg])
+    };
+
+    assert!(!has_instance(sym("pass"), u32_ty));
+    assert!(!has_instance(sym("read"), u32_ty));
+    assert!(has_instance(sym("pass"), u64_ty));
+    assert!(has_instance(sym("read"), u64_ty));
+    assert!(has_instance(sym("pass"), usize_ty));
+    assert!(has_instance(sym("read"), usize_ty));
+    assert!(has_instance(sym("same"), usize_ty));
+}

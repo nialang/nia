@@ -1185,6 +1185,15 @@ explicit source identity. Mutable pointer write-through remains separate and
 waits for a shared alias-aware place operation instead of reusing
 mutable-receiver copy/writeback.
 
+Imported generic pointer-bearing unions use this same path after concrete type
+substitution. Whole-union arguments and returns do not replace the allocation
+identity with a generic-instance or caller identity. Executable reachability
+keeps runtime generic instances and excludes comptime-only instances exactly as
+for pointer-free values. Static/global addresses remain represented by
+`StaticInit::AddrOfGlobal`; they are not entered in the promoted-allocation
+registry, so equal contents and a shared defining module cannot merge static
+storage with readonly const promotion storage.
+
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each
 `SignatureItemSet` independently, so function-call resolution must use the

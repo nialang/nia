@@ -16,3 +16,26 @@ const fn constOnly(value: i32) i32 {
 
 pub const onlyExpected: i32 = constOnly(3);
 pub const importedOptionalExpected: i32 = importedOptionalScore(?8);
+
+pub union PointerSlot[T] {
+    pointer: &T,
+    integer: usize,
+}
+
+pub const firstPointerSlot: PointerSlot[usize] = { pointer: &55usize };
+pub const secondPointerSlot: PointerSlot[usize] = { pointer: &55usize };
+pub const constOnlyPointerSlot: PointerSlot[u32] = { pointer: &89u32 };
+pub const runtimeOnlyPointerSlot: PointerSlot[u64] = { pointer: &144u64 };
+pub static globalPointerValue: usize = 55;
+
+pub const fn passPointer[T](slot: PointerSlot[T]) PointerSlot[T] {
+    slot
+}
+
+pub const fn readPointer[T](slot: PointerSlot[T]) T {
+    slot.pointer.*
+}
+
+pub const fn samePointer[T](left: PointerSlot[T], right: PointerSlot[T]) bool {
+    left.pointer == right.pointer
+}
