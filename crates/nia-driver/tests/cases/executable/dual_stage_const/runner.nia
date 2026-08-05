@@ -30,6 +30,11 @@ union PairPointerSlot {
     integer: usize,
 }
 
+union VectorPointerSlot {
+    pointer: &u16x2,
+    integer: usize,
+}
+
 extend Pair {
     const fn sum(self) i32 {
         self.left + self.right
@@ -123,6 +128,13 @@ const firstPointerSlot: PointerSlot = { pointer: &34usize };
 const secondPointerSlot: PointerSlot = { pointer: &34usize };
 const arrayPointerSlot: ArrayPointerSlot = { pointer: &[3]u8[2, 4, 8] };
 const pairPointerSlot: PairPointerSlot = { pointer: &Pair{left: 5, right: 7} };
+const vectorPointerSlot: VectorPointerSlot = {
+    pointer: &std::builtin::insert(
+        std::builtin::splat[u16x2](4386),
+        1,
+        13124,
+    ),
+};
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -133,6 +145,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let secondPointer: PointerSlot = secondPointerSlot;
     let arrayPointer: ArrayPointerSlot = arrayPointerSlot;
     let pairPointer: PairPointerSlot = pairPointerSlot;
+    let vectorPointer: VectorPointerSlot = vectorPointerSlot;
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -192,6 +205,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if pairPointer.pointer.*.sum() != 12 {
         return process::exit(29)!;
+    }
+    if std::builtin::extract(vectorPointer.pointer.*, 0) != 4386
+        or std::builtin::extract(vectorPointer.pointer.*, 1) != 13124 {
+        return process::exit(30)!;
     }
     !{}
 }

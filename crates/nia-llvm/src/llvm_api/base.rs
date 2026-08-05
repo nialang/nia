@@ -16,15 +16,15 @@ use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstBitCast,
     LLVMConstGEP2, LLVMConstInBoundsGEP2, LLVMConstInt, LLVMConstIntOfArbitraryPrecision,
     LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal,
-    LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType,
-    LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
+    LLVMConstVector, LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType,
+    LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
     LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
     LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
     LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
-    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
-    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
-    LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
-    LLVMVectorType,
+    LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct,
+    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
+    LLVMSetSection, LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
+    LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -569,6 +569,42 @@ impl<'ctx> ArrayType<'ctx> {
 }
 
 impl<'ctx> VectorType<'ctx> {
+    pub fn len(self) -> u32 {
+        unsafe { LLVMGetVectorSize(self.as_type_ref()) }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn get_element_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
+        BasicTypeEnum::new(unsafe { LLVMGetElementType(self.as_type_ref()) })
+    }
+
+    pub fn const_vector(self, values: &[BasicValueEnum<'ctx>]) -> LlvmResult<VectorValue<'ctx>> {
+        if values.len() != self.len() as usize {
+            return Err(LlvmError::ice(
+                "constant vector lane count does not match type",
+            ));
+        }
+        let elem_ty = self.get_element_type()?;
+        if values
+            .iter()
+            .any(|value| !value.get_type().is_ok_and(|ty| ty == elem_ty))
+        {
+            return Err(LlvmError::ice(
+                "constant vector lane type does not match type",
+            ));
+        }
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
+        Ok(VectorValue::new(unsafe {
+            LLVMConstVector(values.as_mut_ptr(), values.len() as u32)
+        }))
+    }
+
     pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
@@ -705,6 +741,13 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         match self {
             Self::StructType(value) => Ok(value),
             _ => Err(LlvmError::ice("expected struct type")),
+        }
+    }
+
+    pub fn into_vector_type(self) -> LlvmResult<VectorType<'ctx>> {
+        match self {
+            Self::VectorType(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected vector type")),
         }
     }
 }

@@ -1139,20 +1139,21 @@ promoted global address into each relocation range. The module registry rejects
 reuse of one identity with a different pointee type.
 
 Supported promoted initializers include scalars, fixed array literals and
-repeats, string and byte-string literals, and nominal structs recursively
-composed from those forms. Arrays use LLVM constant arrays. Structs reuse the
-runtime layout's physical field order and named LLVM struct type. This path
-never constructs a global initializer from an `alloca`, load, or other runtime
-instruction.
+repeats, string and byte-string literals, SIMD vectors, and nominal structs
+recursively composed from those forms. Arrays use LLVM constant arrays.
+Vectors reconstruct canonical const `splat`/`insert` expressions into checked
+lane lists for `LLVMConstVector`. Structs reuse the runtime layout's physical
+field order and named LLVM struct type. This path never constructs a global
+initializer from an `alloca`, load, or other runtime instruction.
 
-Vectors, union pointees, and aggregate pointees containing nested relocations
-remain the next boundary and diagnose. Their relocation-aware LLVM constant
-representation must also replace the legacy per-use static-array promotion path
-rather than preserving two allocation identities. Zero-sized promoted
-allocations require explicit identity-bearing storage so distinct source
-allocations cannot collapse to one address. Mutable pointer write-through
-likewise waits for a shared alias-aware place operation instead of reusing
-mutable-receiver copy/writeback.
+Union pointees and aggregate pointees containing nested relocations remain the
+next boundary and diagnose. Their relocation-aware LLVM constant representation
+must also replace the legacy per-use static-array promotion path rather than
+preserving two allocation identities. Zero-sized promoted allocations require
+explicit identity-bearing storage so distinct source allocations cannot
+collapse to one address. Mutable pointer write-through likewise waits for a
+shared alias-aware place operation instead of reusing mutable-receiver
+copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

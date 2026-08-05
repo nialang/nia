@@ -287,6 +287,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::StructLiteral { fields, .. } => {
                 self.emit_promoted_struct_const(value, fields)
             }
+            FunctionExprKind::Splat { .. } | FunctionExprKind::InsertElement { .. } => {
+                self.emit_promoted_vector_const(value)
+            }
             _ => Err(self.error(
                 value.span,
                 "promoted allocation pointee is not yet an LLVM constant",
@@ -357,6 +360,75 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .llvm_basic_type(expr.ty, expr.span)?
             .into_struct_type()?;
         Ok(struct_ty.const_named_struct(&values).into())
+    }
+
+    fn emit_promoted_vector_const(
+        &mut self,
+        expr: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let vector_ty = self
+            .module
+            .llvm_basic_type(expr.ty, expr.span)?
+            .into_vector_type()?;
+        let lanes = self.promoted_vector_lanes(expr)?;
+        vector_ty
+            .const_vector(&lanes)
+            .map(Into::into)
+            .map_err(|_| self.error(expr.span, "failed to create promoted vector constant"))
+    }
+
+    fn promoted_vector_lanes(
+        &mut self,
+        expr: &FunctionExpr,
+    ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
+        let Some(TyKind::Vector { lanes, .. }) = self.module.ty_kind(expr.ty) else {
+            return Err(self.error(
+                expr.span,
+                "promoted vector initializer has a non-vector type",
+            ));
+        };
+        let lane_count = *lanes as usize;
+        match &expr.kind {
+            FunctionExprKind::Splat { value } => {
+                let value = self.emit_promoted_const_value(value)?;
+                Ok(std::iter::repeat_n(value, lane_count).collect())
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                let mut values = self.promoted_vector_lanes(vector)?;
+                if values.len() != lane_count {
+                    return Err(
+                        self.error(expr.span, "promoted vector initializer changed vector type")
+                    );
+                }
+                let index = self.promoted_vector_index(index)?;
+                let Some(lane) = values.get_mut(index) else {
+                    return Err(self.error(expr.span, "promoted vector index is out of bounds"));
+                };
+                *lane = self.emit_promoted_const_value(value)?;
+                Ok(values)
+            }
+            _ => Err(self.error(
+                expr.span,
+                "promoted vector initializer is not a const vector expression",
+            )),
+        }
+    }
+
+    fn promoted_vector_index(&self, expr: &FunctionExpr) -> Result<usize, Diagnostic> {
+        let bits = match &expr.kind {
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => value.bits(),
+            _ => {
+                return Err(
+                    self.error(expr.span, "promoted vector index is not a constant integer")
+                );
+            }
+        };
+        usize::try_from(bits)
+            .map_err(|_| self.error(expr.span, "promoted vector index is too large"))
     }
 
     pub(super) fn emit_optional_null(

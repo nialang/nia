@@ -228,6 +228,45 @@ fn main() bool {
 }
 
 #[test]
+fn emits_vector_promoted_allocation_constant() {
+    let root = temp_dir("emits_vector_promoted_allocation_constant");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+union VectorSlot {
+    pointer: &u16x2,
+    integer: usize,
+}
+
+const slot: VectorSlot = {
+    pointer: &std::builtin::insert(
+        std::builtin::splat[u16x2](4386),
+        1,
+        13124,
+    ),
+};
+
+fn main() u16 {
+    let value: VectorSlot = slot;
+    std::builtin::extract(value.pointer.*, 1)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(
+        ir.contains("linkonce_odr constant <2 x i16> <i16 4386, i16 13124>"),
+        "{ir}"
+    );
+}
+
+#[test]
 fn emits_const_generic_function_and_nominal_array_instances() {
     let root = temp_dir("emits_const_generic_function_and_nominal_array_instances");
     let main = root.join("main.nia");
