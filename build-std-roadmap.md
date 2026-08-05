@@ -3439,6 +3439,32 @@ every supported target has an end-to-end LLVM backend differential; later
 pointer/provenance rounds must still test the relevant emitted artifacts rather
 than inferring backend correctness from layout-query coverage.
 
+Dual-stage const hardening progress (2026-08-05, nominal struct union
+representation): `ConstAbiType` now describes nominal structs with substituted
+`nia-layout` field offsets and object size. ABI encoding produces bytes and an
+equally sized initialization bitmap: recursive field ranges become initialized,
+while inter-field and trailing padding remains uninitialized. Struct decoding
+reads only described fields, so a same-field round trip succeeds while a union
+reinterpretation covering padding is rejected instead of observing fabricated
+zero bytes. Arrays inherit the same bitmap behavior for nested struct elements.
+
+The declaration capability now accepts recursively supported nominal structs
+and still rejects a struct containing pointers, vectors, nested unions, or other
+unsupported leaves. Const-generic nominal structs remain closed until their
+field substitution contract is shared with ordinary aggregate checking. Runtime
+const materialization now lowers whole struct values to ordinary
+`StructLiteral` IR. This exposed the corresponding LLVM place gap: aggregate
+rvalue field projection now uses the general value-temporary path, shared with
+array rvalue indexing rather than special-casing const expressions.
+
+Local padding, generic substitution, invalid nested scalar representation, and
+imported generic differentials fix the semantic boundary. The maintained
+executable encodes and decodes an imported generic padded struct at both
+comptime and runtime, crosses the whole-const-struct boundary, and projects the
+materialized rvalue after LLVM emission. This closes nominal struct union Round
+2c. Const-generic nominal structs, nested union storage, vectors, and pointer
+provenance remain open representation rounds.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

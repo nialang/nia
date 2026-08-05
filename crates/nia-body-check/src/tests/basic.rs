@@ -147,12 +147,18 @@ const fn inspect() usize {
 }
 
 #[test]
-fn const_declaration_filter_accepts_scalar_array_union_fields() {
+fn const_declaration_filter_accepts_scalar_array_and_struct_union_fields() {
     let checked = pipeline_const_declarations(
         r#"
+struct Header {
+    marker: u8,
+    value: u16,
+}
+
 union Payload {
     bytes: [2]u8,
     integer: u16,
+    header: Header,
 }
 
 const fn inspect() u16 {
@@ -166,11 +172,11 @@ const fn inspect() u16 {
 }
 
 #[test]
-fn const_declaration_filter_rejects_union_fields_without_a_const_abi_model() {
+fn const_declaration_filter_rejects_nested_fields_without_a_const_abi_model() {
     let checked = pipeline_const_declarations(
         r#"
 struct Header {
-    value: u16,
+    value: &u16,
 }
 
 union Payload {

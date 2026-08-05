@@ -627,6 +627,62 @@ pub const fn readBits[T](slot: ScalarSlot[T]) u32 {
 }
 
 #[test]
+fn imported_generic_struct_union_preserves_padding_across_const_and_runtime_calls() {
+    let root =
+        temp_dir("imported_generic_struct_union_preserves_padding_across_const_and_runtime_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+module bits;
+using entry::bits;
+
+const compileBytes: [5]u8 = bits::encode[u32]({ marker: 170, value: 287454020 });
+const compilePair: bits::Pair[u32] = bits::decode[u32](compileBytes);
+
+fn main() i32 {
+    let runtimeBytes = bits::encode[u32]({ marker: 170, value: 287454020 });
+    let runtimePair = bits::decode[u32](runtimeBytes);
+    if compileBytes[4] == 170
+        and compilePair.value == 287454020
+        and runtimeBytes[0] == compileBytes[0]
+        and runtimePair.marker == compilePair.marker {
+        0
+    } else {
+        1
+    }
+}
+"#,
+    );
+    write(
+        &root.join("bits.nia"),
+        r#"
+pub struct Pair[T] {
+    marker: u8,
+    value: T,
+}
+
+pub union PairSlot[T] {
+    value: Pair[T],
+    prefix: [5]u8,
+}
+
+pub const fn encode[T](value: Pair[T]) [5]u8 {
+    let slot: PairSlot[T] = { value: value };
+    slot.prefix
+}
+
+pub const fn decode[T](bytes: [5]u8) Pair[T] {
+    let slot: PairSlot[T] = { prefix: bytes };
+    slot.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_const_value_evaluates_layout_builtin_in_defining_module() {
     let root = temp_dir("imported_const_value_evaluates_layout_builtin_in_defining_module");
     write(

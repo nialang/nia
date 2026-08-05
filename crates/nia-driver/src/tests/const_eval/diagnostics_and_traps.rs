@@ -1773,13 +1773,13 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_union_fields_without_a_const_abi_model() {
-    let root = temp_dir("unused_const_function_rejects_union_fields_without_a_const_abi_model");
+fn unused_const_function_rejects_nested_fields_without_a_const_abi_model() {
+    let root = temp_dir("unused_const_function_rejects_nested_fields_without_a_const_abi_model");
     write(
         &root.join("main.nia"),
         r#"
 struct Header {
-    value: u16,
+    value: &u16,
 }
 
 union Payload {
