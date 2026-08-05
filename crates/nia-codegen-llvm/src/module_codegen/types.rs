@@ -730,7 +730,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .or_else(|_| self.union_fields(def_id, args, const_args, span))
     }
 
-    pub(super) fn physical_struct_fields(
+    pub(crate) fn physical_struct_fields(
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],

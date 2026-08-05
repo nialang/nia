@@ -458,6 +458,54 @@ fn take(xs: &&[u8]) {}
 }
 
 #[test]
+fn distinguishes_slice_and_array_pointer_types() {
+    let (module, errors) = parse_module(
+        r#"
+fn take(slice: &[u8], array: &[3]u8, inferred: &mut [_]u8) {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Slice {
+            is_readonly: true,
+            ..
+        })
+    ));
+    let Some(TypeKind::Pointer {
+        is_readonly: true,
+        elem,
+    }) = function.params[1].ty.as_ref().map(|ty| &ty.kind)
+    else {
+        panic!("expected readonly array pointer");
+    };
+    assert!(matches!(
+        elem.kind,
+        TypeKind::Array {
+            len: ArrayLen::Expr(_),
+            ..
+        }
+    ));
+    let Some(TypeKind::Pointer {
+        is_readonly: false,
+        elem,
+    }) = function.params[2].ty.as_ref().map(|ty| &ty.kind)
+    else {
+        panic!("expected writable inferred-array pointer");
+    };
+    assert!(matches!(
+        elem.kind,
+        TypeKind::Array {
+            len: ArrayLen::Infer,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn parses_volatile_pointer_types() {
     let (module, errors) = parse_module(
         r#"

@@ -3738,6 +3738,30 @@ their relocation-aware constant representation and replace the legacy
 per-occurrence static-array promotion counter with the same identity model;
 Round 2g3c remains the imported/generic differential closeout.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3b2 relocation-free
+aggregate promoted allocations): promoted LLVM initializers now recurse through
+fixed array literals and repeats, string and byte-string literals, and nominal
+struct literals. Arrays are emitted as LLVM constant arrays, while structs use
+the shared physical field order and named LLVM struct type; no runtime
+`alloca`, load, or instruction is admitted into a global initializer. The
+maintained executable dereferences promoted fixed-array and struct allocations,
+and low-level IR regressions cover ordinary arrays, byte strings, strings, and
+struct constants.
+
+This work exposed that the parser previously treated every `&[` prefix as a
+slice, despite the language contract assigning `&[T]` to slices and `&[N]T` to
+pointers to fixed arrays. Pointer parsing now uses reversible lookahead: a
+bracketed complete type with no following type remains a slice, while a
+bracketed array length followed by an element type is parsed through the
+ordinary pointer-to-array path. Parser coverage includes readonly fixed-array
+pointers, writable inferred-array pointers, and unchanged slice syntax.
+
+This advances but does not close Round 2g3b2. Vectors, union pointees, and any
+aggregate initializer containing a nested relocation still diagnose. The
+legacy runtime `StaticArrayPointer` counter, zero-sized allocation identity,
+and the imported/generic differential also remain explicit work; none receives
+a second compatibility representation in this batch.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

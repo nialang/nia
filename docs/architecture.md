@@ -1129,7 +1129,7 @@ pointer-width, origin-module, and runtime-type checks. Artifact fingerprints
 encode the origin module through its normalized source identity rather than its
 session-local `ModuleId`.
 
-LLVM materializes a scalar relocation target as a readonly link-once global.
+LLVM materializes a supported relocation target as a readonly link-once global.
 The symbol derives from the origin module's normalized source identity and
 origin span, so all uses and codegen partitions name the same allocation while
 distinct source allocations remain distinct even when their contents match.
@@ -1138,12 +1138,21 @@ Runtime union construction skips relocation placeholder bytes and stores the
 promoted global address into each relocation range. The module registry rejects
 reuse of one identity with a different pointee type.
 
-Aggregate, vector, and nested-relocation pointees remain the next boundary and
-diagnose rather than using an instruction as a global initializer. Their
-relocation-aware LLVM constant representation must also replace the legacy
-per-use static-array promotion path rather than preserving two allocation
-identities. Mutable pointer write-through likewise waits for a shared
-alias-aware place operation instead of reusing mutable-receiver copy/writeback.
+Supported promoted initializers include scalars, fixed array literals and
+repeats, string and byte-string literals, and nominal structs recursively
+composed from those forms. Arrays use LLVM constant arrays. Structs reuse the
+runtime layout's physical field order and named LLVM struct type. This path
+never constructs a global initializer from an `alloca`, load, or other runtime
+instruction.
+
+Vectors, union pointees, and aggregate pointees containing nested relocations
+remain the next boundary and diagnose. Their relocation-aware LLVM constant
+representation must also replace the legacy per-use static-array promotion path
+rather than preserving two allocation identities. Zero-sized promoted
+allocations require explicit identity-bearing storage so distinct source
+allocations cannot collapse to one address. Mutable pointer write-through
+likewise waits for a shared alias-aware place operation instead of reusing
+mutable-receiver copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

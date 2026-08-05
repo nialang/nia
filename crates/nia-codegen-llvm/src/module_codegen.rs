@@ -231,6 +231,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let symbol = self.promoted_allocation_symbol(allocation);
+        let layout = self.layout_of(pointee_ty);
+        if layout.as_ref().is_some_and(|layout| layout.size == 0) {
+            return Err(self.error(
+                span,
+                "zero-sized promoted allocation identity is not yet supported",
+            ));
+        }
         if let Some(existing_ty) = self.promoted_allocations.borrow().get(&allocation).copied() {
             if !self.same_type(existing_ty, pointee_ty) {
                 return Err(self.error(
@@ -265,7 +272,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map_err(Self::diagnostic_from_llvm_error)?;
         global.set_linkage(Linkage::LinkOnceOdr);
         global.set_constant(true);
-        if let Some(layout) = self.layout_of(pointee_ty) {
+        if let Some(layout) = layout {
             let align = u32::try_from(layout.align)
                 .map_err(|_| self.error(span, "promoted allocation alignment is too large"))?;
             global.set_alignment(align);

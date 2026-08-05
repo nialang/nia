@@ -138,6 +138,96 @@ fn main() usize {
 }
 
 #[test]
+fn emits_array_and_struct_promoted_allocation_constants() {
+    let root = temp_dir("emits_array_and_struct_promoted_allocation_constants");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    left: u16,
+    right: u16,
+}
+
+union ArraySlot {
+    pointer: &[3]u8,
+    integer: usize,
+}
+
+union TextSlot {
+    pointer: &[2]char,
+    integer: usize,
+}
+
+union PairSlot {
+    pointer: &Pair,
+    integer: usize,
+}
+
+const pairSlot: PairSlot = { pointer: &Pair{left: 5u16, right: 8u16} };
+const arraySlot: ArraySlot = { pointer: &[3]u8[1, 2, 3] };
+const bytesSlot: ArraySlot = { pointer: &b"abc" };
+const textSlot: TextSlot = { pointer: &"hi" };
+
+fn main() usize {
+    let pair: PairSlot = pairSlot;
+    let array: ArraySlot = arraySlot;
+    let bytes: ArraySlot = bytesSlot;
+    let text: TextSlot = textSlot;
+    _ = text.pointer.*[0];
+    pair.pointer.*.right as usize
+        + array.pointer.*[2] as usize
+        + bytes.pointer.*[1] as usize
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("linkonce_odr constant %nia__s"), "{ir}");
+    assert!(ir.contains("linkonce_odr constant [3 x i8]"), "{ir}");
+    assert!(ir.contains("linkonce_odr constant [2 x i32]"), "{ir}");
+}
+
+#[test]
+fn rejects_zero_sized_promoted_allocation_until_identity_storage_exists() {
+    let root = temp_dir("rejects_zero_sized_promoted_allocation_until_identity_storage_exists");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Empty {}
+
+union Slot {
+    pointer: &Empty,
+    integer: usize,
+}
+
+const slot: Slot = { pointer: &Empty{} };
+
+fn main() bool {
+    let value: Slot = slot;
+    value.pointer == value.pointer
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("zero-sized promoted allocation identity is not yet supported")
+    }));
+}
+
+#[test]
 fn emits_const_generic_function_and_nominal_array_instances() {
     let root = temp_dir("emits_const_generic_function_and_nominal_array_instances");
     let main = root.join("main.nia");

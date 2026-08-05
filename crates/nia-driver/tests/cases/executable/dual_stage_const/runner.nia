@@ -20,6 +20,16 @@ union PointerSlot {
     integer: usize,
 }
 
+union ArrayPointerSlot {
+    pointer: &[3]u8,
+    integer: usize,
+}
+
+union PairPointerSlot {
+    pointer: &Pair,
+    integer: usize,
+}
+
 extend Pair {
     const fn sum(self) i32 {
         self.left + self.right
@@ -111,6 +121,8 @@ const associatedExpected: i32 = Width::fromValue(14).value;
 const constGenericExpected: i32 = constGenericScore[4](11);
 const firstPointerSlot: PointerSlot = { pointer: &34usize };
 const secondPointerSlot: PointerSlot = { pointer: &34usize };
+const arrayPointerSlot: ArrayPointerSlot = { pointer: &[3]u8[2, 4, 8] };
+const pairPointerSlot: PairPointerSlot = { pointer: &Pair{left: 5, right: 7} };
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -119,6 +131,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let firstPointer: PointerSlot = firstPointerSlot;
     let samePointer: PointerSlot = firstPointerSlot;
     let secondPointer: PointerSlot = secondPointerSlot;
+    let arrayPointer: ArrayPointerSlot = arrayPointerSlot;
+    let pairPointer: PairPointerSlot = pairPointerSlot;
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -172,6 +186,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if firstPointer.pointer == secondPointer.pointer {
         return process::exit(27)!;
+    }
+    if arrayPointer.pointer.*[0] != 2 or arrayPointer.pointer.*[2] != 8 {
+        return process::exit(28)!;
+    }
+    if pairPointer.pointer.*.sum() != 12 {
+        return process::exit(29)!;
     }
     !{}
 }
