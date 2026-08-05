@@ -3762,6 +3762,22 @@ legacy runtime `StaticArrayPointer` counter, zero-sized allocation identity,
 and the imported/generic differential also remain explicit work; none receives
 a second compatibility representation in this batch.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3b2 SIMD promoted
+allocations): `nia-llvm` now exposes a checked fixed-vector constant constructor
+over `LLVMConstVector`. It verifies lane count and LLVM element type before
+crossing the C API boundary. LLVM codegen reconstructs the canonical const
+`splat`/`insert` expression tree into a lane constant list, validates every
+constant index, and emits one vector global initializer without runtime
+`insertelement` or shuffle instructions. Low-level IR proves the exact lane
+constant and the maintained executable dereferences the promoted vector through
+a union pointer and observes both lanes.
+
+Vectors are therefore no longer part of the 2g3b2 materialization gap. Union
+pointees and aggregate pointees containing nested relocations remain open,
+together with legacy `StaticArrayPointer` unification and zero-sized identity.
+Round 2g3c still owns the imported/generic differential after those local
+representation boundaries close.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
