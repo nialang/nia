@@ -470,6 +470,113 @@ const BYTES: [8]u8 = encode[u32]([2]u32[287454020, 1432778632]);
 }
 
 #[test]
+fn nominal_struct_union_fields_preserve_padding_initialization() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+struct Padded {
+    marker: u8,
+    word: u32,
+}
+
+union PaddedBytes {
+    value: Padded,
+    prefix: [5]u8,
+    bytes: [8]u8,
+}
+
+const DATA: PaddedBytes = { value: { marker: 170, word: 287454020 } };
+const ROUND_TRIP: Padded = DATA.value;
+const PREFIX: [5]u8 = DATA.prefix;
+const INVALID_PADDING_READ: [8]u8 = DATA.bytes;
+"#,
+        target,
+    );
+    assert_eq!(
+        const_value(&fixture, "PREFIX"),
+        ConstValue::Array(
+            [68, 51, 34, 17, 170]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+    assert!(matches!(
+        const_value(&fixture, "ROUND_TRIP"),
+        ConstValue::Struct(_)
+    ));
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("const union field reads uninitialized storage")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn generic_nominal_struct_union_fields_use_substituted_layout_and_validate_fields() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.endian = "little".to_string();
+    let fixture = check_source_for_target(
+        r#"
+struct Pair[T] {
+    marker: u8,
+    value: T,
+}
+
+union PairBytes[T] {
+    value: Pair[T],
+    prefix: [5]u8,
+}
+
+struct Flags {
+    first: bool,
+    second: bool,
+}
+
+union FlagBytes {
+    raw: [2]u8,
+    flags: Flags,
+}
+
+const fn encode[T](value: Pair[T]) [5]u8 {
+    let slot: PairBytes[T] = { value: value };
+    slot.prefix
+}
+
+const BYTES: [5]u8 = encode[u32]({ marker: 170, value: 287454020 });
+const INVALID: FlagBytes = { raw: [2]u8[0, 2] };
+const FLAGS: Flags = INVALID.flags;
+"#,
+        target,
+    );
+    assert_eq!(
+        const_value(&fixture, "BYTES"),
+        ConstValue::Array(
+            [68, 51, 34, 17, 170]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into()
+        )
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("const union field has an invalid bool representation")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn scalar_union_rejects_reads_of_uninitialized_storage() {
     let fixture = check_source(
         r#"

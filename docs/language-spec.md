@@ -1720,19 +1720,25 @@ const width: usize = p.x + p.y;
 Const union values preserve target storage semantics rather than behaving like
 single-field structs. Integer, floating-point, `bool`, and `char` fields use the
 artifact target's widths and endianness. Fixed arrays recursively composed from
-those scalar types encode each element in array order with the same target
-rules. Reading another field decodes the same bytes as runtime union access. A
+supported types encode each element in array order with the same target rules.
+Nominal structs recursively composed from supported fields use their substituted
+artifact layout, including field reordering and offsets. Their field bytes are
+initialized, while inter-field and trailing padding remains uninitialized.
+Reading the struct itself decodes only its fields; reinterpreting it through a
+union field that covers padding is an uninitialized-storage error. Reading any
+other union field otherwise decodes the same bytes as runtime union access. A
 write changes only the bytes occupied by the selected field. Bytes outside the
-field used for initial construction are uninitialized; a const read that
-requires any such byte is an error rather than implicitly reading zero. Invalid
-`bool` or `char` representations inside an array are diagnosed per element.
+field used for initial construction are uninitialized rather than implicitly
+zero. Invalid `bool` or `char` representations inside an array or struct are
+diagnosed at the containing element or field.
 
-The current const ABI codec is deliberately limited to scalars and fixed arrays
-recursively composed from scalars. A union containing pointers, vectors,
-structs, unions, or other aggregate fields is rejected in a `const fn`
-declaration until const evaluation has an explicit padding, uninitialized-byte,
-and pointer-provenance model for that field kind. Ordinary runtime unions retain
-the full semantics described in section 4.6.
+The current const ABI codec is deliberately limited to scalars, fixed arrays,
+and non-const-generic nominal structs recursively composed from those types. A
+union containing pointers, vectors, nested unions, const-generic nominal
+structs, or other aggregate fields is rejected in a `const fn` declaration
+until const evaluation has an explicit substitution, storage, or
+pointer-provenance model for that field kind. Ordinary runtime unions retain the
+full semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

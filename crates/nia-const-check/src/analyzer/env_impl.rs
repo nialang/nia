@@ -7,8 +7,8 @@ use crate::{
     },
 };
 use nia_const_eval::{
-    ConstAbiType, ConstCommonEnv, ConstEndianness, ConstError, ConstScalarType, ConstUnionValue,
-    ConstValue, ResolvedConstEnv,
+    ConstAbiField, ConstAbiType, ConstCommonEnv, ConstEndianness, ConstError, ConstScalarType,
+    ConstUnionValue, ConstValue, ResolvedConstEnv,
 };
 use nia_const_ir::{
     ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
@@ -920,8 +920,81 @@ impl Analyzer<'_> {
                     layout,
                 ))
             }
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } if self.def_kind_of(def_id) == Some(DefKind::Struct) && const_args.is_empty() => {
+                let signature = self.struct_signature_for(def_id)?;
+                let field_tys = self.const_struct_field_types(&signature, &args)?;
+                let struct_layout =
+                    self.const_struct_instance_layout(ty, def_id, &args, &const_args, target)?;
+                let size = usize::try_from(struct_layout.layout.size).ok()?;
+                let mut fields = Vec::with_capacity(signature.fields.len());
+                for field in &signature.fields {
+                    let field_ty = field_tys.get(&field.name).copied()?;
+                    let (abi, abi_layout) = self.const_union_abi_type(span, field_ty, target)?;
+                    let field_layout = struct_layout
+                        .fields
+                        .iter()
+                        .find(|layout| layout.def_id == field.def_id)?;
+                    if field_layout.layout != abi_layout {
+                        return None;
+                    }
+                    fields.push(ConstAbiField {
+                        name: field.name,
+                        offset: usize::try_from(field_layout.offset).ok()?,
+                        ty: abi,
+                    });
+                }
+                Some((ConstAbiType::Struct { fields, size }, struct_layout.layout))
+            }
             _ => None,
         }
+    }
+
+    fn const_struct_instance_layout(
+        &mut self,
+        ty: InternedTyId,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+        target: nia_layout::TargetDataLayout,
+    ) -> Option<nia_layout::StructLayout> {
+        let module_id = self.current_execution_module_id();
+        let array_lengths = self.program_array_lengths_for_layout(ty);
+        let defs = self.global_defs(module_id)?;
+        let signatures = self.signatures_for_module(module_id)?;
+        let normalization = self.type_normalization_for_module(module_id)?;
+        let array_length = |id| array_lengths.get(&id).copied();
+        let layout_query = |module_id| self.compute_program_layout(module_id, &array_lengths);
+        let program_struct = |def_id| {
+            self.struct_signature_for(def_id)
+                .map(|signature| nia_item_signatures::ProgramStructSignature { signature })
+        };
+        nia_layout::compute_struct_instance_layout_with_program_context(
+            &nia_layout::LayoutComputationInput {
+                type_store: self.input.type_store,
+                defs: defs.as_ref(),
+                signatures: signatures.as_ref(),
+                root_types: &[],
+                normalized: &normalization.as_ref().normalized,
+                array_lengths: &array_length,
+                target,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(self.input.symbols),
+                    layouts: Some(&layout_query),
+                    array_lengths: Some(&array_length),
+                    struct_: Some(&program_struct),
+                    ..Default::default()
+                },
+            },
+            nia_layout::InstanceLayoutRequest {
+                def_id,
+                args,
+                const_args,
+            },
+        )
     }
 
     fn eval_selected_const_method(

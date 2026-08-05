@@ -65,6 +65,17 @@ pub enum ConstAbiType {
         element: Box<ConstAbiType>,
         len: usize,
     },
+    Struct {
+        fields: Vec<ConstAbiField>,
+        size: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstAbiField {
+    pub name: SymbolId,
+    pub offset: usize,
+    pub ty: ConstAbiType,
 }
 
 impl ConstAbiType {
@@ -72,8 +83,14 @@ impl ConstAbiType {
         match self {
             Self::Scalar(scalar) => Some(scalar.byte_len()),
             Self::Array { element, len } => element.byte_len()?.checked_mul(*len),
+            Self::Struct { size, .. } => Some(*size),
         }
     }
+}
+
+struct EncodedAbiValue {
+    bytes: Vec<u8>,
+    initialized: Vec<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,10 +129,15 @@ impl ConstUnionValue {
         let len = abi
             .byte_len()
             .ok_or_else(|| "const union field size is not representable".to_string())?;
-        if len > self.bytes.len() || self.initialized[..len].iter().any(|byte| !byte) {
-            return Err("const union field reads uninitialized storage".to_string());
+        if len > self.bytes.len() {
+            return Err("const union field exceeds its storage".to_string());
         }
-        decode_abi_value(abi, &self.bytes[..len], self.endianness)
+        decode_abi_value(
+            abi,
+            &self.bytes[..len],
+            &self.initialized[..len],
+            self.endianness,
+        )
     }
 
     pub fn write(&mut self, field: SymbolId, value: ConstValue) -> Result<(), String> {
@@ -124,11 +146,11 @@ impl ConstUnionValue {
             .get(&field)
             .ok_or_else(|| "unknown const union field".to_string())?;
         let encoded = encode_abi_value(abi, value, self.endianness)?;
-        if encoded.len() > self.bytes.len() {
+        if encoded.bytes.len() > self.bytes.len() {
             return Err("const union field exceeds its storage".to_string());
         }
-        self.bytes[..encoded.len()].copy_from_slice(&encoded);
-        self.initialized[..encoded.len()].fill(true);
+        self.bytes[..encoded.bytes.len()].copy_from_slice(&encoded.bytes);
+        self.initialized[..encoded.bytes.len()].copy_from_slice(&encoded.initialized);
         self.last_written_field = field;
         Ok(())
     }
@@ -154,9 +176,13 @@ fn encode_abi_value(
     abi: &ConstAbiType,
     value: ConstValue,
     endianness: ConstEndianness,
-) -> Result<Vec<u8>, String> {
+) -> Result<EncodedAbiValue, String> {
     match (abi, value) {
-        (ConstAbiType::Scalar(scalar), value) => encode_scalar(*scalar, value, endianness),
+        (ConstAbiType::Scalar(scalar), value) => {
+            let bytes = encode_scalar(*scalar, value, endianness)?;
+            let initialized = vec![true; bytes.len()];
+            Ok(EncodedAbiValue { bytes, initialized })
+        }
         (ConstAbiType::Array { element, len }, ConstValue::Array(values)) => {
             if values.len() != *len {
                 return Err("const union array field has the wrong length".to_string());
@@ -164,14 +190,41 @@ fn encode_abi_value(
             let capacity = abi
                 .byte_len()
                 .ok_or_else(|| "const union array field size is not representable".to_string())?;
-            let mut encoded = Vec::with_capacity(capacity);
+            let mut bytes = Vec::with_capacity(capacity);
+            let mut initialized = Vec::with_capacity(capacity);
             for value in values {
-                encoded.extend(encode_abi_value(element, value, endianness)?);
+                let encoded = encode_abi_value(element, value, endianness)?;
+                bytes.extend(encoded.bytes);
+                initialized.extend(encoded.initialized);
             }
-            Ok(encoded)
+            Ok(EncodedAbiValue { bytes, initialized })
         }
         (ConstAbiType::Array { .. }, _) => {
             Err("const union field value does not match its array type".to_string())
+        }
+        (ConstAbiType::Struct { fields, size }, ConstValue::Struct(mut values)) => {
+            let mut bytes = vec![0; *size];
+            let mut initialized = vec![false; *size];
+            for field in fields {
+                let value = values
+                    .remove(&field.name)
+                    .ok_or_else(|| "const union struct field is missing".to_string())?;
+                let encoded = encode_abi_value(&field.ty, value, endianness)?;
+                let end = field
+                    .offset
+                    .checked_add(encoded.bytes.len())
+                    .filter(|end| *end <= *size)
+                    .ok_or_else(|| "const union struct field exceeds its layout".to_string())?;
+                bytes[field.offset..end].copy_from_slice(&encoded.bytes);
+                initialized[field.offset..end].copy_from_slice(&encoded.initialized);
+            }
+            if !values.is_empty() {
+                return Err("const union struct value has unknown fields".to_string());
+            }
+            Ok(EncodedAbiValue { bytes, initialized })
+        }
+        (ConstAbiType::Struct { .. }, _) => {
+            Err("const union field value does not match its struct type".to_string())
         }
     }
 }
@@ -179,10 +232,19 @@ fn encode_abi_value(
 fn decode_abi_value(
     abi: &ConstAbiType,
     bytes: &[u8],
+    initialized: &[bool],
     endianness: ConstEndianness,
 ) -> Result<ConstValue, String> {
+    if bytes.len() != initialized.len() {
+        return Err("const union field storage metadata is inconsistent".to_string());
+    }
     match abi {
-        ConstAbiType::Scalar(scalar) => decode_scalar(*scalar, bytes, endianness),
+        ConstAbiType::Scalar(scalar) => {
+            if initialized.iter().any(|byte| !byte) {
+                return Err("const union field reads uninitialized storage".to_string());
+            }
+            decode_scalar(*scalar, bytes, endianness)
+        }
         ConstAbiType::Array { element, len } => {
             let element_len = element
                 .byte_len()
@@ -197,9 +259,40 @@ fn decode_abi_value(
             for index in 0..*len {
                 let start = index * element_len;
                 let end = start + element_len;
-                values.push(decode_abi_value(element, &bytes[start..end], endianness)?);
+                values.push(decode_abi_value(
+                    element,
+                    &bytes[start..end],
+                    &initialized[start..end],
+                    endianness,
+                )?);
             }
             Ok(ConstValue::Array(values))
+        }
+        ConstAbiType::Struct { fields, size } => {
+            if bytes.len() != *size {
+                return Err("const union struct field storage has the wrong length".to_string());
+            }
+            let mut values = BTreeMap::new();
+            for field in fields {
+                let field_len = field.ty.byte_len().ok_or_else(|| {
+                    "const union struct field size is not representable".to_string()
+                })?;
+                let end = field
+                    .offset
+                    .checked_add(field_len)
+                    .filter(|end| *end <= *size)
+                    .ok_or_else(|| "const union struct field exceeds its layout".to_string())?;
+                values.insert(
+                    field.name,
+                    decode_abi_value(
+                        &field.ty,
+                        &bytes[field.offset..end],
+                        &initialized[field.offset..end],
+                        endianness,
+                    )?,
+                );
+            }
+            Ok(ConstValue::Struct(values))
         }
     }
 }

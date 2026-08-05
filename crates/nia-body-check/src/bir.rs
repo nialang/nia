@@ -1560,6 +1560,31 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             TyKind::Array { .. } => self.materialize_const_array_expr(span, ty, value),
+            TyKind::Nominal { def_id, .. }
+                if !self.is_union_def(def_id)
+                    && self.resolved_struct_signature(def_id).is_some() =>
+            {
+                let nia_const_check::ConstValue::Struct(values) = value else {
+                    return None;
+                };
+                let fields = values
+                    .iter()
+                    .map(|(name, value)| {
+                        let field_ty = self.field_ty_for_aggregate_ty(ty, name)?;
+                        Some(TypedFieldInit {
+                            field: self.field_def_for_aggregate_ty(ty, name),
+                            name: self.symbol_name(*name),
+                            value: self.lower_const_value_expr(span, field_ty, Some(value.clone())),
+                            span,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::StructLiteral { def_id, fields },
+                })
+            }
             TyKind::Nominal { def_id, .. } if self.is_union_def(def_id) => {
                 let nia_const_check::ConstValue::Union(union) = value else {
                     return None;

@@ -76,19 +76,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_array_temp_addr(
+    fn emit_value_temp_addr(
         &mut self,
         expr: &FunctionExpr,
+        name: &str,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
             .builder
-            .build_alloca(ty, "arraytmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate slice temporary"))?;
+            .build_alloca(ty, name)
+            .map_err(|_| self.error(expr.span, "failed to allocate value temporary"))?;
         let value = self.emit_expr(expr)?;
         self.builder
             .build_store(ptr, value)
-            .map_err(|_| self.error(expr.span, "failed to store slice temporary"))?;
+            .map_err(|_| self.error(expr.span, "failed to store value temporary"))?;
         Ok(ptr)
     }
 
@@ -262,7 +263,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             | FunctionExprKind::Field { .. }
             | FunctionExprKind::Index { .. } => self.emit_place_addr(lhs.span, lhs),
-            _ => self.emit_array_temp_addr(lhs),
+            _ => self.emit_value_temp_addr(lhs, "arraytmp"),
         }
     }
 
@@ -501,7 +502,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok((ty, ptr))
             }
             _ => {
-                let ptr = self.emit_addr_of(expr)?;
+                let ptr = match &expr.kind {
+                    FunctionExprKind::Global(_)
+                    | FunctionExprKind::Local(_)
+                    | FunctionExprKind::Unary {
+                        op: nia_ast::UnaryOp::Deref,
+                        ..
+                    }
+                    | FunctionExprKind::Field { .. }
+                    | FunctionExprKind::Index { .. } => self.emit_addr_of(expr)?,
+                    _ => self.emit_value_temp_addr(expr, "aggregatetmp")?,
+                };
                 let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
                 Ok((ty, ptr))
             }

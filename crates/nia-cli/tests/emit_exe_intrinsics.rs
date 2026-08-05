@@ -445,6 +445,8 @@ const compileImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
 const compileImportedBits: u32 = pairs::readSlotBits[f32](compileImportedSlot);
 const compilePairBytes: [8]u8 = pairs::encodePair[u32]([2]u32[7, 8]);
 const compilePairValues: [2]u32 = pairs::decodePair[u32](compilePairBytes);
+const compileStructBytes: [5]u8 = pairs::encodeStruct[u32]({ marker: 170, value: 287454020 });
+const compileStruct: pairs::Padded[u32] = pairs::decodeStruct[u32](compileStructBytes);
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
@@ -453,6 +455,8 @@ fn runtimeChecks(value: usize) bool {
     let runtimePairValues: [2]u32 = pairs::decodePair[u32](
         pairs::encodePair[u32]([2]u32[value as u32, value as u32 + 1])
     );
+    let runtimeStructBytes = pairs::encodeStruct[u32]({ marker: 170, value: 287454020 });
+    let runtimeStruct = pairs::decodeStruct[u32](runtimeStructBytes);
     double(value) == 14
         and width.doubled() == 14
         and width.increment() == 8
@@ -475,6 +479,11 @@ fn runtimeChecks(value: usize) bool {
         and pairs::decodePair[u32](compilePairBytes)[1] == compilePairValues[1]
         and runtimePairValues[0] == 7
         and runtimePairValues[1] == 8
+        and compileStructBytes[0] == 68
+        and compileStructBytes[4] == 170
+        and compileStruct.value == 287454020
+        and runtimeStructBytes[4] == compileStructBytes[4]
+        and runtimeStruct.value == compileStruct.value
         and values.len() == 23
 }
 
@@ -502,6 +511,11 @@ pub struct PairIter[T] {
     index: usize,
 }
 
+pub struct Padded[T] {
+    marker: u8,
+    value: T,
+}
+
 pub union ScalarSlot[T] {
     value: T,
     bits: u32,
@@ -510,6 +524,11 @@ pub union ScalarSlot[T] {
 pub union PairBytes[T] {
     values: [2]T,
     bytes: [8]u8,
+}
+
+pub union PaddedBytes[T] {
+    value: Padded[T],
+    prefix: [5]u8,
 }
 
 extend[T] PairIter[T] : Iterator {
@@ -559,6 +578,16 @@ pub const fn encodePair[T](values: [2]T) [8]u8 {
 pub const fn decodePair[T](bytes: [8]u8) [2]T {
     let slot: PairBytes[T] = { bytes: bytes };
     slot.values
+}
+
+pub const fn encodeStruct[T](value: Padded[T]) [5]u8 {
+    let slot: PaddedBytes[T] = { value: value };
+    slot.prefix
+}
+
+pub const fn decodeStruct[T](bytes: [5]u8) Padded[T] {
+    let slot: PaddedBytes[T] = { prefix: bytes };
+    slot.value
 }
 "#,
     )

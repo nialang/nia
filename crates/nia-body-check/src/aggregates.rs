@@ -601,16 +601,49 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn const_union_ty_has_abi_model(&mut self, ty: InternedTyId) -> bool {
+        self.const_union_ty_has_abi_model_inner(ty, &mut HashSet::new())
+    }
+
+    fn const_union_ty_has_abi_model_inner(
+        &mut self,
+        ty: InternedTyId,
+        visiting: &mut HashSet<InternedTyId>,
+    ) -> bool {
         let ty = self.normalize_aliases(ty);
-        match self.expect_ty_kind(ty).clone() {
+        if !visiting.insert(ty) {
+            return false;
+        }
+        let supported = match self.expect_ty_kind(ty).clone() {
             TyKind::Primitive(primitive) => !matches!(
                 primitive,
                 nia_ty::PrimitiveTy::Void | nia_ty::PrimitiveTy::Never
             ),
-            TyKind::Array { elem, .. } => self.const_union_ty_has_abi_model(elem),
+            TyKind::Array { elem, .. } => self.const_union_ty_has_abi_model_inner(elem, visiting),
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } if const_args.is_empty() => {
+                let Some(resolved) = self.resolved_struct_signature(def_id) else {
+                    visiting.remove(&ty);
+                    return false;
+                };
+                let (substitutions, const_substitutions) =
+                    self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+                resolved.signature.fields.iter().all(|field| {
+                    let field_ty = self.substitute_generics_and_consts(
+                        field.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    );
+                    self.const_union_ty_has_abi_model_inner(field_ty, visiting)
+                })
+            }
             TyKind::GenericParam(_) => true,
             _ => false,
-        }
+        };
+        visiting.remove(&ty);
+        supported
     }
 
     pub(crate) fn qualified_global_type(&mut self, expr: &Expr) -> Option<InternedTyId> {
