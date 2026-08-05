@@ -28,8 +28,8 @@ use nia_const_ir::{
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
-    BuiltinFunction, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
-    LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+    BuiltinFunction, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
+    ModuleId, ValueBuiltin,
 };
 use nia_item_signatures::{
     FunctionAttribute, FunctionSignature, GenericParamSignatureKind, ItemSignatures,
@@ -100,6 +100,12 @@ pub(crate) struct ResolvedConstCallee {
     pub function_id: GlobalDefId,
     pub receiver: Option<ResolvedConstExpr>,
     pub target_instantiation: ConstGenericInstantiation,
+}
+
+pub(crate) enum ResolvedConstCalleeSelection {
+    NoMatch,
+    Unique(ResolvedConstCallee),
+    Ambiguous,
 }
 
 pub(crate) struct ConstFunctionInstantiationInput<'a> {

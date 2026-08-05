@@ -595,8 +595,6 @@ impl<'a> BodyChecker<'a> {
 
 fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod> {
     match method {
-        BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
-        BuiltinTraitMethod::End => Some(BuiltinMethod::End),
         BuiltinTraitMethod::IterableIter => Some(BuiltinMethod::Iter),
         _ => None,
     }

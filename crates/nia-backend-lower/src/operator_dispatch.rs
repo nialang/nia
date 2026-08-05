@@ -1211,9 +1211,9 @@ fn builtin_method_trait(
     method: FunctionBuiltinMethod,
 ) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
     match method {
-        FunctionBuiltinMethod::SliceLen => None,
-        FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
-        FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
+        FunctionBuiltinMethod::SliceLen
+        | FunctionBuiltinMethod::Start
+        | FunctionBuiltinMethod::End => None,
         FunctionBuiltinMethod::Iter => {
             Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
         }

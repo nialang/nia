@@ -440,7 +440,7 @@ not a search-and-replace in `lib/std/builtin/place.nia`:
 | Trait | Current structural role | Initial disposition |
 | --- | --- | --- |
 | `Len` | array length and slice metadata | accepted as an ordinary demand-loaded source trait; only slice metadata reading remains intrinsic |
-| `Start` / `End` | range field projection | ordinary trait or inherent range API candidate |
+| `Start` / `End` | range field projection | accepted as inherent structural-range methods; public trait identities removed |
 | `Ptr` / `PtrMut` | slice data-pointer projection and associated target | may retain intrinsic impl bodies, but builtin trait identity is unproven |
 | `Char` | checked `u32` to `char` conversion | move to reviewed Unicode/inherent API; builtin trait identity is unjustified |
 
@@ -3927,8 +3927,18 @@ through generic `where T: Len`, direct slice receivers, an imported generic
 bound, user-defined `Len` at comptime and runtime, const array and slice values,
 runtime slice metadata, item-signature builtin deletion, and the LLVM/native
 `SliceLen` path. The `Len` convenience-trait audit is therefore closed.
-`Start`/`End` and `Ptr`/`PtrMut` remain the next dependency-complete audits; no
-managed wrapper or compatibility identity is introduced by this batch.
+
+The subsequent range-bound audit selected inherent compiler-backed `start()`
+and `end()` methods. Only structural range shapes carrying the requested bound
+expose the method, and an ordinary visible extension with the same name retains
+priority. The public `Start`/`End` traits, their associated `Output`
+projections, seven std impl declarations, solver proofs, signature contracts,
+reachability owners, and backend trait witnesses were removed. Const and
+runtime calls share the same range-shape rules, while the remaining internal
+`Start`/`End` method operations only project the representation. Persistent
+signature-cache tags 26 and 27 remain invalid rather than being reused.
+`Ptr`/`PtrMut` are now the next dependency-complete audit; no managed wrapper
+or compatibility identity is introduced by this batch.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

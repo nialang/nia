@@ -1105,8 +1105,6 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::SliceMut
             | BuiltinTraitMethod::Ptr
             | BuiltinTraitMethod::PtrMut
-            | BuiltinTraitMethod::Start
-            | BuiltinTraitMethod::End
             | BuiltinTraitMethod::IterableIter
             | BuiltinTraitMethod::IteratorNext => None,
         }

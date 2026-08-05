@@ -156,8 +156,6 @@ pub mod known {
     known_symbol!(PTR_TRAIT, "Ptr");
     known_symbol!(PTR_MUT_TRAIT, "PtrMut");
     known_symbol!(LEN_TYPE, "Len");
-    known_symbol!(START_TRAIT, "Start");
-    known_symbol!(END_TRAIT, "End");
     known_symbol!(ITERABLE_TRAIT, "Iterable");
     known_symbol!(ITERATOR_TRAIT, "Iterator");
     known_symbol!(SIMD_TRAIT, "Simd");
@@ -317,8 +315,6 @@ pub mod known {
         (PTR_TRAIT, "Ptr"),
         (PTR_MUT_TRAIT, "PtrMut"),
         (LEN_TYPE, "Len"),
-        (START_TRAIT, "Start"),
-        (END_TRAIT, "End"),
         (ITERABLE_TRAIT, "Iterable"),
         (ITERATOR_TRAIT, "Iterator"),
         (SIMD_TRAIT, "Simd"),
@@ -526,8 +522,6 @@ impl ToSymbolId for nia_ids::BuiltinTraitMethod {
             Self::SliceMut => known::SLICE_MUT,
             Self::Ptr => known::PTR,
             Self::PtrMut => known::PTR_MUT,
-            Self::Start => known::START,
-            Self::End => known::END,
             Self::IterableIter => known::ITER_METHOD,
             Self::IteratorNext => known::NEXT,
         }
@@ -562,8 +556,6 @@ impl ToSymbolId for nia_ids::BuiltinTrait {
             Self::SliceMut => known::SLICE_MUT_TRAIT,
             Self::Ptr => known::PTR_TRAIT,
             Self::PtrMut => known::PTR_MUT_TRAIT,
-            Self::Start => known::START_TRAIT,
-            Self::End => known::END_TRAIT,
             Self::Iterable => known::ITERABLE_TRAIT,
             Self::Iterator => known::ITERATOR_TRAIT,
             Self::Simd => known::SIMD_TRAIT,

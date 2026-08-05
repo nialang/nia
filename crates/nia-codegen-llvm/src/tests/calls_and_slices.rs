@@ -393,6 +393,40 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_inherent_range_bound_methods() {
+    let root = temp_dir("emits_inherent_range_bound_methods");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extend[T] T..T {
+    fn projectedEnd(&self) T {
+        self.end()
+    }
+}
+
+fn rangeSum(start: usize, end: usize) usize {
+    let range = start..end;
+    range.start() + range.projectedEnd()
+}
+
+fn main() usize {
+    rangeSum(20usize, 22usize)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_eq!(ir.matches("extractvalue { i64, i64 }").count(), 2, "{ir}");
+}
+
+#[test]
 fn emits_ptr_methods_on_slice_parameters() {
     let root = temp_dir("emits_ptr_methods_on_slice_parameters");
     let main = root.join("main.nia");

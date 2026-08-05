@@ -1039,7 +1039,7 @@ impl<'a> BodyChecker<'a> {
                     self.resolved_call(expr)
                 {
                     let (receiver, lowered_args) =
-                        self.lower_builtin_call_receiver(callee, args, Some(self_ty));
+                        self.lower_builtin_value_call_receiver(callee, args, self_ty);
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinMethod {
                             method,
@@ -2944,6 +2944,33 @@ impl<'a> BodyChecker<'a> {
             );
         }
         (self.lower_expr(callee), Vec::new())
+    }
+
+    fn lower_builtin_value_call_receiver(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+        self_ty: nia_ids::InternedTyId,
+    ) -> (TypedExpr, Vec<TypedExpr>) {
+        let (mut receiver, args) = self.lower_builtin_call_receiver(callee, args, None);
+        while !self.types_match(receiver.ty, self_ty) {
+            let Some(TyKind::Pointer { elem, .. }) = self
+                .interner
+                .get(self.normalization.normalize(receiver.ty))
+                .cloned()
+            else {
+                break;
+            };
+            receiver = TypedExpr {
+                span: receiver.span,
+                ty: elem,
+                kind: TypedExprKind::Unary {
+                    op: UnaryOp::Deref,
+                    expr: Box::new(receiver),
+                },
+            };
+        }
+        (receiver, args)
     }
 
     pub(crate) fn lower_place(&mut self, expr: &Expr) -> TypedPlace {
