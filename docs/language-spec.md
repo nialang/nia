@@ -1755,14 +1755,17 @@ overwriting a relocation leaves its unwritten fragment uninitialized; it does
 not expose placeholder bytes as an integer representation. Relocations retain
 their promoted-allocation identity and typed pointee through body and function
 IR, including imported reachability and artifact fingerprinting. A relocation
-to a scalar, fixed array, string, byte-string, SIMD-vector, or nominal-struct
-constant without nested relocations materializes at runtime through one
-readonly allocation per source origin; equal contents at distinct origins do
-not imply pointer equality. Union pointees and aggregate pointees containing
-nested relocations remain unavailable until their LLVM constant-storage model
-is complete. Other unsupported field kinds are still rejected in a `const fn`
-declaration. Ordinary runtime unions retain the full semantics described in
-section 4.6.
+to a scalar, fixed array, string, byte-string, SIMD-vector, nominal struct, or
+untagged union constant materializes at runtime through one readonly allocation
+per source origin; equal contents at distinct origins do not imply pointer
+equality. Nested relocations in fixed arrays, structs, and unions are preserved
+as pointer-valued artifact relocations at their ABI offsets. Initialized bytes
+retain their values, while union and struct padding remains uninitialized; no
+host address is serialized into constant storage. Zero-sized promoted
+allocation identity and the legacy runtime static-array promotion path remain
+unsupported until they share this source-origin identity model. Other
+unsupported field kinds are still rejected in a `const fn` declaration.
+Ordinary runtime unions retain the full semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

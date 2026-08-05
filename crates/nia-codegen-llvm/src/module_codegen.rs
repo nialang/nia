@@ -87,6 +87,12 @@ struct FunctionSignature<P> {
     span: Span,
 }
 
+pub(super) enum PromotedAllocationInitializer<'ctx> {
+    Native(BasicValueEnum<'ctx>),
+    // Byte-exact storage may differ from the nominal pointee type under opaque pointers.
+    ArtifactStorage(BasicValueEnum<'ctx>),
+}
+
 pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) context: &'ctx Context,
     pub(super) source: &'a BackendModule,
@@ -227,7 +233,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         allocation: PromotedAllocationId,
         pointee_ty: InternedTyId,
-        value: BasicValueEnum<'ctx>,
+        initializer: PromotedAllocationInitializer<'ctx>,
         span: Span,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let symbol = self.promoted_allocation_symbol(allocation);
@@ -254,13 +260,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
 
         let pointee_llvm_ty = self.llvm_basic_type(pointee_ty, span)?;
+        let (value, storage_ty) = match initializer {
+            PromotedAllocationInitializer::Native(value) => (value, pointee_llvm_ty),
+            PromotedAllocationInitializer::ArtifactStorage(value) => {
+                let storage_ty = value.get_type().map_err(|error| {
+                    self.error(
+                        span,
+                        format!("failed to inspect promoted allocation storage: {error:?}"),
+                    )
+                })?;
+                let storage_struct = storage_ty.into_struct_type().map_err(|_| {
+                    self.error(span, "promoted allocation storage is not a packed struct")
+                })?;
+                if !storage_struct.is_packed() {
+                    return Err(
+                        self.error(span, "promoted allocation storage is not a packed struct")
+                    );
+                }
+                (value, storage_ty)
+            }
+        };
         let value_ty = value.get_type().map_err(|error| {
             self.error(
                 span,
                 format!("failed to inspect promoted allocation value: {error:?}"),
             )
         })?;
-        if value_ty != pointee_llvm_ty {
+        if value_ty != storage_ty {
             return Err(self.error(
                 span,
                 "promoted allocation initializer has the wrong LLVM type",
@@ -268,7 +294,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         let global = self
             .module
-            .add_global(pointee_llvm_ty, None, &symbol)
+            .add_global(storage_ty, None, &symbol)
             .map_err(Self::diagnostic_from_llvm_error)?;
         global.set_linkage(Linkage::LinkOnceOdr);
         global.set_constant(true);

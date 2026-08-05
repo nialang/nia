@@ -842,7 +842,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    fn struct_layout(
+    pub(crate) fn struct_layout(
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],

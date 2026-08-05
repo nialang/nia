@@ -267,6 +267,86 @@ fn main() u16 {
 }
 
 #[test]
+fn emits_nested_relocations_in_promoted_aggregate_storage() {
+    let root = temp_dir("emits_nested_relocations_in_promoted_aggregate_storage");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+union Inner {
+    pointer: &usize,
+    integer: usize,
+}
+
+union Outer {
+    pointer: &Inner,
+    integer: usize,
+}
+
+struct Holder {
+    marker: u8,
+    inner: Inner,
+}
+
+union HolderOuter {
+    pointer: &Holder,
+    integer: usize,
+}
+
+union ArrayOuter {
+    pointer: &[2]Inner,
+    integer: usize,
+}
+
+union ByteUnion {
+    byte: u8,
+    wide: u64,
+}
+
+union ByteOuter {
+    pointer: &ByteUnion,
+    integer: usize,
+}
+
+const slot: Outer = { pointer: &Inner{pointer: &91usize} };
+const holderSlot: HolderOuter = {
+    pointer: &Holder{marker: 3, inner: Inner{pointer: &37usize}},
+};
+const arraySlot: ArrayOuter = {
+    pointer: &[2]Inner[
+        Inner{pointer: &11usize},
+        Inner{pointer: &13usize},
+    ],
+};
+const byteSlot: ByteOuter = { pointer: &ByteUnion{byte: 7} };
+
+fn main() usize {
+    let value: Outer = slot;
+    let holder: HolderOuter = holderSlot;
+    let array: ArrayOuter = arraySlot;
+    let byte: ByteOuter = byteSlot;
+    value.pointer.*.pointer.*
+        + holder.pointer.*.inner.pointer.*
+        + array.pointer.*[0].pointer.*
+        + array.pointer.*[1].pointer.*
+        + byte.pointer.*.byte as usize
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("linkonce_odr constant <{ ptr }>"), "{ir}");
+    assert_eq!(ir.matches("linkonce_odr constant").count(), 8, "{ir}");
+    assert!(ir.matches("linkonce_odr constant <{").count() >= 4, "{ir}");
+    assert!(ir.contains("[7 x i8] undef"), "{ir}");
+}
+
+#[test]
 fn emits_const_generic_function_and_nominal_array_instances() {
     let root = temp_dir("emits_const_generic_function_and_nominal_array_instances");
     let main = root.join("main.nia");

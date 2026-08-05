@@ -5,11 +5,44 @@ use nia_function_ir::{
     FunctionExprKind, FunctionFieldInit, FunctionOptionalTag, FunctionUnionRelocation,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_llvm::values::{BasicValueEnum, PointerValue};
+use nia_llvm::{
+    types::BasicTypeEnum,
+    values::{BasicValueEnum, PointerValue},
+};
 use nia_span::Span;
 use nia_ty::TyKind;
 
 use super::FunctionCodegen;
+use crate::module_codegen::PromotedAllocationInitializer;
+
+struct PromotedConstValue<'ctx> {
+    value: BasicValueEnum<'ctx>,
+    uses_artifact_storage: bool,
+}
+
+impl<'ctx> PromotedConstValue<'ctx> {
+    fn native(value: BasicValueEnum<'ctx>) -> Self {
+        Self {
+            value,
+            uses_artifact_storage: false,
+        }
+    }
+
+    fn packed(value: BasicValueEnum<'ctx>) -> Self {
+        Self {
+            value,
+            uses_artifact_storage: true,
+        }
+    }
+
+    fn into_initializer(self) -> PromotedAllocationInitializer<'ctx> {
+        if self.uses_artifact_storage {
+            PromotedAllocationInitializer::ArtifactStorage(self.value)
+        } else {
+            PromotedAllocationInitializer::Native(self.value)
+        }
+    }
+}
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_array_literal(
@@ -236,7 +269,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.module.materialize_promoted_allocation(
             relocation.allocation,
             pointee.ty,
-            value,
+            value.into_initializer(),
             pointee.span,
         )
     }
@@ -244,64 +277,70 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_promoted_const_value(
         &mut self,
         value: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        match &value.kind {
+    ) -> Result<PromotedConstValue<'ctx>, Diagnostic> {
+        let llvm_value = match &value.kind {
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(integer)) => {
                 let ty = self
                     .module
                     .llvm_basic_type(value.ty, value.span)?
                     .into_int_type()?;
-                Ok(ty.const_u128(integer.bits()).into())
+                ty.const_u128(integer.bits()).into()
             }
             FunctionExprKind::Integer(text) => {
-                self.emit_integer_literal(value.ty, value.span, text)
+                self.emit_integer_literal(value.ty, value.span, text)?
             }
-            FunctionExprKind::Float(text) => self.emit_float_literal(value.ty, value.span, text),
+            FunctionExprKind::Float(text) => self.emit_float_literal(value.ty, value.span, text)?,
             FunctionExprKind::Char(character) => {
-                self.emit_char_literal(value.ty, value.span, *character)
+                self.emit_char_literal(value.ty, value.span, *character)?
             }
             FunctionExprKind::ByteChar(text) => {
-                self.emit_byte_char_literal(value.ty, value.span, text)
+                self.emit_byte_char_literal(value.ty, value.span, text)?
             }
-            FunctionExprKind::Bool(boolean) => Ok(self
+            FunctionExprKind::Bool(boolean) => self
                 .module
                 .context
                 .bool_type()
                 .const_int(u64::from(*boolean), false)
-                .into()),
-            FunctionExprKind::Null => Ok(self
+                .into(),
+            FunctionExprKind::Null => self
                 .module
                 .llvm_basic_type(value.ty, value.span)?
                 .into_pointer_type()?
                 .const_null()
-                .into()),
+                .into(),
             FunctionExprKind::String(scalars) => {
-                self.emit_string_literal(value.ty, value.span, scalars)
+                self.emit_string_literal(value.ty, value.span, scalars)?
             }
             FunctionExprKind::ByteString(bytes) => {
-                self.emit_byte_string_literal(value.ty, value.span, bytes)
+                self.emit_byte_string_literal(value.ty, value.span, bytes)?
             }
             FunctionExprKind::ArrayLiteral { elems } => {
-                self.emit_promoted_array_const(value, elems)
+                return self.emit_promoted_array_const(value, elems);
             }
             FunctionExprKind::StructLiteral { fields, .. } => {
-                self.emit_promoted_struct_const(value, fields)
+                return self.emit_promoted_struct_const(value, fields);
             }
             FunctionExprKind::Splat { .. } | FunctionExprKind::InsertElement { .. } => {
-                self.emit_promoted_vector_const(value)
+                self.emit_promoted_vector_const(value)?
             }
-            _ => Err(self.error(
-                value.span,
-                "promoted allocation pointee is not yet an LLVM constant",
-            )),
-        }
+            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
+                return self.emit_promoted_union_storage(value, bytes, relocations);
+            }
+            _ => {
+                return Err(self.error(
+                    value.span,
+                    "promoted allocation pointee is not yet an LLVM constant",
+                ));
+            }
+        };
+        Ok(PromotedConstValue::native(llvm_value))
     }
 
     fn emit_promoted_array_const(
         &mut self,
         expr: &FunctionExpr,
         elems: &FunctionArrayElements,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+    ) -> Result<PromotedConstValue<'ctx>, Diagnostic> {
         let Some(TyKind::Array { elem, .. }) = self.module.ty_kind(expr.ty).cloned() else {
             return Err(self.error(expr.span, "promoted array initializer has a non-array type"));
         };
@@ -315,18 +354,34 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let count = usize::try_from(count)
                     .map_err(|_| self.error(expr.span, "promoted array length is too large"))?;
                 let value = self.emit_promoted_const_value(value)?;
-                std::iter::repeat_n(value, count).collect()
+                std::iter::repeat_with(|| PromotedConstValue {
+                    value: value.value,
+                    uses_artifact_storage: value.uses_artifact_storage,
+                })
+                .take(count)
+                .collect()
             }
         };
+        if values.iter().any(|value| value.uses_artifact_storage) {
+            return self.promoted_artifact_storage(
+                values.into_iter().map(|value| value.value).collect(),
+                expr.span,
+            );
+        }
+        let values = values
+            .into_iter()
+            .map(|value| value.value)
+            .collect::<Vec<_>>();
         self.module
             .const_array_from_values_in_current(elem, &values, expr.span)
+            .map(PromotedConstValue::native)
     }
 
     fn emit_promoted_struct_const(
         &mut self,
         expr: &FunctionExpr,
         fields: &[FunctionFieldInit],
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+    ) -> Result<PromotedConstValue<'ctx>, Diagnostic> {
         let Some(TyKind::Nominal {
             def_id,
             args,
@@ -338,28 +393,181 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if self.module.is_union_def(def_id) {
             return Err(self.error(
                 expr.span,
-                "promoted union pointee requires relocation-aware constant storage",
+                "promoted union initializer lost its storage form",
             ));
         }
-        let physical_fields = self
+        let layout = self
             .module
-            .physical_struct_fields(def_id, &args, &const_args, expr.span)?
-            .into_iter()
-            .map(|field| field.def_id)
-            .collect::<Vec<_>>();
-        let mut values = Vec::with_capacity(physical_fields.len());
-        for field_id in physical_fields {
+            .struct_layout(def_id, &args, &const_args)
+            .cloned()
+            .ok_or_else(|| self.error(expr.span, "missing promoted struct layout"))?;
+        let mut field_values = Vec::with_capacity(layout.fields.len());
+        for layout_field in layout.fields.iter().filter(|field| field.layout.size != 0) {
+            let field_id = GlobalDefId {
+                module_id: def_id.module_id,
+                def_id: layout_field.def_id,
+            };
             let field = fields
                 .iter()
                 .find(|field| field.field == Some(field_id))
                 .ok_or_else(|| self.error(expr.span, "promoted struct field is missing"))?;
-            values.push(self.emit_promoted_const_value(&field.value)?);
+            let value = self.emit_promoted_const_value(&field.value)?;
+            field_values.push((layout_field.clone(), value));
         }
+        if field_values
+            .iter()
+            .any(|(_, value)| value.uses_artifact_storage)
+        {
+            let mut storage_values = Vec::with_capacity(field_values.len() * 2 + 1);
+            let mut cursor = 0u64;
+            for (field, value) in field_values {
+                if field.offset > cursor {
+                    storage_values
+                        .push(self.promoted_undef_bytes(field.offset - cursor, expr.span)?);
+                }
+                storage_values.push(value.value);
+                cursor = field.offset.checked_add(field.layout.size).ok_or_else(|| {
+                    self.error(expr.span, "promoted struct field range overflows")
+                })?;
+            }
+            if cursor < layout.layout.size {
+                storage_values
+                    .push(self.promoted_undef_bytes(layout.layout.size - cursor, expr.span)?);
+            }
+            return self.promoted_artifact_storage(storage_values, expr.span);
+        }
+        let native_values = field_values
+            .into_iter()
+            .map(|(_, value)| value.value)
+            .collect::<Vec<_>>();
         let struct_ty = self
             .module
             .llvm_basic_type(expr.ty, expr.span)?
             .into_struct_type()?;
-        Ok(struct_ty.const_named_struct(&values).into())
+        Ok(PromotedConstValue::native(
+            struct_ty.const_named_struct(&native_values).into(),
+        ))
+    }
+
+    fn emit_promoted_union_storage(
+        &mut self,
+        expr: &FunctionExpr,
+        bytes: &[Option<u8>],
+        relocations: &[FunctionUnionRelocation],
+    ) -> Result<PromotedConstValue<'ctx>, Diagnostic> {
+        let expected_size = self
+            .module
+            .layout_of(expr.ty)
+            .and_then(|layout| usize::try_from(layout.size).ok());
+        if expected_size != Some(bytes.len()) {
+            return Err(self.error(
+                expr.span,
+                "promoted union storage has the wrong byte length",
+            ));
+        }
+        let mut values = Vec::new();
+        let mut cursor = 0usize;
+        for relocation in relocations {
+            if relocation.offset < cursor {
+                return Err(self.error(
+                    expr.span,
+                    "promoted union relocations overlap or are not sorted",
+                ));
+            }
+            let end = relocation
+                .offset
+                .checked_add(relocation.width)
+                .filter(|end| *end <= bytes.len())
+                .ok_or_else(|| {
+                    self.error(expr.span, "promoted union relocation is out of bounds")
+                })?;
+            if u64::try_from(relocation.width).ok()
+                != Some(self.module.source.layouts.target.pointer_size)
+            {
+                return Err(self.error(
+                    expr.span,
+                    "promoted union relocation has the wrong pointer width",
+                ));
+            }
+            if relocation.offset > cursor {
+                self.push_promoted_byte_segments(
+                    &mut values,
+                    &bytes[cursor..relocation.offset],
+                    expr.span,
+                )?;
+            }
+            values.push(self.emit_promoted_allocation_pointer(relocation)?.into());
+            cursor = end;
+        }
+        if cursor < bytes.len() {
+            self.push_promoted_byte_segments(&mut values, &bytes[cursor..], expr.span)?;
+        }
+        self.promoted_artifact_storage(values, expr.span)
+    }
+
+    fn push_promoted_byte_segments(
+        &self,
+        values: &mut Vec<BasicValueEnum<'ctx>>,
+        bytes: &[Option<u8>],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let mut start = 0usize;
+        while start < bytes.len() {
+            let initialized = bytes[start].is_some();
+            let mut end = start + 1;
+            while end < bytes.len() && bytes[end].is_some() == initialized {
+                end += 1;
+            }
+            if initialized {
+                let segment = bytes[start..end]
+                    .iter()
+                    .map(|byte| byte.expect("initialized promoted byte segment"))
+                    .collect::<Vec<_>>();
+                values.push(self.module.context.const_string(&segment, true).into());
+            } else {
+                values.push(self.promoted_undef_bytes((end - start) as u64, span)?);
+            }
+            start = end;
+        }
+        Ok(())
+    }
+
+    fn promoted_undef_bytes(
+        &self,
+        len: u64,
+        span: Span,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let len = u32::try_from(len)
+            .map_err(|_| self.error(span, "promoted byte storage is too large for LLVM"))?;
+        Ok(self
+            .module
+            .context
+            .i8_type()
+            .array_type(len)
+            .get_undef()
+            .into())
+    }
+
+    fn promoted_artifact_storage(
+        &self,
+        values: Vec<BasicValueEnum<'ctx>>,
+        span: Span,
+    ) -> Result<PromotedConstValue<'ctx>, Diagnostic> {
+        let types = values
+            .iter()
+            .map(|value| {
+                value.get_type().map_err(|error| {
+                    self.error(
+                        span,
+                        format!("failed to inspect promoted storage field: {error:?}"),
+                    )
+                })
+            })
+            .collect::<Result<Vec<BasicTypeEnum<'ctx>>, _>>()?;
+        let ty = self.module.context.struct_type(&types, true);
+        Ok(PromotedConstValue::packed(
+            ty.const_named_struct(&values).into(),
+        ))
     }
 
     fn emit_promoted_vector_const(
@@ -390,7 +598,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let lane_count = *lanes as usize;
         match &expr.kind {
             FunctionExprKind::Splat { value } => {
-                let value = self.emit_promoted_const_value(value)?;
+                let value = self.emit_promoted_const_value(value)?.value;
                 Ok(std::iter::repeat_n(value, lane_count).collect())
             }
             FunctionExprKind::InsertElement {
@@ -408,7 +616,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(lane) = values.get_mut(index) else {
                     return Err(self.error(expr.span, "promoted vector index is out of bounds"));
                 };
-                *lane = self.emit_promoted_const_value(value)?;
+                *lane = self.emit_promoted_const_value(value)?.value;
                 Ok(values)
             }
             _ => Err(self.error(

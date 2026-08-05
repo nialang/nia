@@ -35,6 +35,36 @@ union VectorPointerSlot {
     integer: usize,
 }
 
+union NestedPointerSlot {
+    pointer: &PointerSlot,
+    integer: usize,
+}
+
+struct PointerHolder {
+    marker: u8,
+    slot: PointerSlot,
+}
+
+union HolderPointerSlot {
+    pointer: &PointerHolder,
+    integer: usize,
+}
+
+union NestedArrayPointerSlot {
+    pointer: &[2]PointerSlot,
+    integer: usize,
+}
+
+union ByteUnion {
+    byte: u8,
+    wide: u64,
+}
+
+union ByteUnionPointerSlot {
+    pointer: &ByteUnion,
+    integer: usize,
+}
+
 extend Pair {
     const fn sum(self) i32 {
         self.left + self.right
@@ -135,6 +165,21 @@ const vectorPointerSlot: VectorPointerSlot = {
         13124,
     ),
 };
+const nestedPointerSlot: NestedPointerSlot = {
+    pointer: &PointerSlot{pointer: &91usize},
+};
+const holderPointerSlot: HolderPointerSlot = {
+    pointer: &PointerHolder{marker: 3, slot: PointerSlot{pointer: &37usize}},
+};
+const nestedArrayPointerSlot: NestedArrayPointerSlot = {
+    pointer: &[2]PointerSlot[
+        PointerSlot{pointer: &11usize},
+        PointerSlot{pointer: &13usize},
+    ],
+};
+const byteUnionPointerSlot: ByteUnionPointerSlot = {
+    pointer: &ByteUnion{byte: 7},
+};
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -146,6 +191,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let arrayPointer: ArrayPointerSlot = arrayPointerSlot;
     let pairPointer: PairPointerSlot = pairPointerSlot;
     let vectorPointer: VectorPointerSlot = vectorPointerSlot;
+    let nestedPointer: NestedPointerSlot = nestedPointerSlot;
+    let holderPointer: HolderPointerSlot = holderPointerSlot;
+    let nestedArrayPointer: NestedArrayPointerSlot = nestedArrayPointerSlot;
+    let byteUnionPointer: ByteUnionPointerSlot = byteUnionPointerSlot;
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -209,6 +258,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if std::builtin::extract(vectorPointer.pointer.*, 0) != 4386
         or std::builtin::extract(vectorPointer.pointer.*, 1) != 13124 {
         return process::exit(30)!;
+    }
+    if nestedPointer.pointer.*.pointer.* != 91 {
+        return process::exit(31)!;
+    }
+    if holderPointer.pointer.*.marker != 3 or holderPointer.pointer.*.slot.pointer.* != 37 {
+        return process::exit(32)!;
+    }
+    if nestedArrayPointer.pointer.*[0].pointer.* != 11
+        or nestedArrayPointer.pointer.*[1].pointer.* != 13 {
+        return process::exit(33)!;
+    }
+    if byteUnionPointer.pointer.*.byte != 7 {
+        return process::exit(34)!;
     }
     !{}
 }
