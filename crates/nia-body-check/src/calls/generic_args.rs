@@ -25,6 +25,15 @@ impl<'a> BodyChecker<'a> {
         let mut lowered = Vec::new();
         for arg in type_args {
             if let Some(ty) = &arg.ty {
+                if matches!(ty.kind, TypeKind::Infer) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        arg.span,
+                        "`_` inference is not available for this generic argument list",
+                    ));
+                    lowered.push(self.error());
+                    continue;
+                }
                 lowered.push(self.ty_for_type(ty));
             } else {
                 if let Some(expr) = &arg.expr {
@@ -60,6 +69,37 @@ impl<'a> BodyChecker<'a> {
         params: &[GenericParamSignature],
         args: &[BracketArg],
     ) -> Option<LoweredGenericArgs> {
+        self.lower_bracket_args_for_generic_params_impl(span, params, args, false)
+    }
+
+    pub(super) fn lower_call_bracket_args_for_generic_params(
+        &mut self,
+        span: Span,
+        params: &[GenericParamSignature],
+        args: &[BracketArg],
+    ) -> Option<LoweredGenericArgs> {
+        if args.len() != params.len() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "generic argument count mismatch: expected {}, got {}; use `_` for arguments that should be inferred",
+                    params.len(),
+                    args.len()
+                ),
+            ));
+            return None;
+        }
+        self.lower_bracket_args_for_generic_params_impl(span, params, args, true)
+    }
+
+    fn lower_bracket_args_for_generic_params_impl(
+        &mut self,
+        span: Span,
+        params: &[GenericParamSignature],
+        args: &[BracketArg],
+        allow_infer: bool,
+    ) -> Option<LoweredGenericArgs> {
         if args.len() > params.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -74,6 +114,17 @@ impl<'a> BodyChecker<'a> {
         }
         let mut lowered = LoweredGenericArgs::default();
         for (param, arg) in params.iter().zip(args) {
+            if matches!(arg.ty.as_ref().map(|ty| &ty.kind), Some(TypeKind::Infer)) {
+                if allow_infer {
+                    continue;
+                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    arg.span,
+                    "`_` inference is not available for this generic argument list",
+                ));
+                return None;
+            }
             match &param.kind {
                 GenericParamSignatureKind::Type => {
                     if let Some(ty) = &arg.ty {

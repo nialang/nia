@@ -51,6 +51,18 @@ extend CStringView {
     pub fn isEmpty(&self) bool {
         self.len() == 0
     }
+
+    pub fn parse[T](self) [T as parse::From[CStringView]]::Error!T
+    where T: parse::From[CStringView]
+    {
+        [T]::from(self)
+    }
+
+    pub fn parseRadix[T](self, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T
+    where T: parse::FromRadix[CStringView]
+    {
+        [T]::fromRadix(self, radix)
+    }
 }
 
 extend CStringView : fmt::Format {
@@ -79,8 +91,8 @@ where T: parse::From[&[u8]]
 {
     type Error = [T as parse::From[&[u8]]]::Error;
 
-    fn parse(input: CStringView) [T as parse::From[CStringView]]::Error!T {
-        parse::value[T, &[u8]](input.bytes())
+    fn from(input: CStringView) [T as parse::From[CStringView]]::Error!T {
+        input.bytes().parse[T]()
     }
 }
 
@@ -89,7 +101,7 @@ where T: parse::FromRadix[&[u8]]
 {
     type Error = [T as parse::FromRadix[&[u8]]]::Error;
 
-    fn parseRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
-        parse::radix[T, &[u8]](input.bytes(), radix)
+    fn fromRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
+        input.bytes().parseRadix[T](radix)
     }
 }

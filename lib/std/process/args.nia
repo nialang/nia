@@ -30,6 +30,18 @@ extend Arg {
     pub fn isEmpty(&self) bool {
         self.len() == 0
     }
+
+    pub fn parse[T](self) [T as parse::From[Arg]]::Error!T
+    where T: parse::From[Arg]
+    {
+        [T]::from(self)
+    }
+
+    pub fn parseRadix[T](self, radix: u32) [T as parse::FromRadix[Arg]]::Error!T
+    where T: parse::FromRadix[Arg]
+    {
+        [T]::fromRadix(self, radix)
+    }
 }
 
 extend Arg : fmt::Format {
@@ -47,8 +59,8 @@ where T: parse::From[cstring::CStringView]
 {
     type Error = [T as parse::From[cstring::CStringView]]::Error;
 
-    fn parse(input: Arg) [T as parse::From[Arg]]::Error!T {
-        parse::value[T](input.cstring())
+    fn from(input: Arg) [T as parse::From[Arg]]::Error!T {
+        input.cstring().parse[T]()
     }
 }
 
@@ -57,8 +69,8 @@ where T: parse::FromRadix[cstring::CStringView]
 {
     type Error = [T as parse::FromRadix[cstring::CStringView]]::Error;
 
-    fn parseRadix(input: Arg, radix: u32) [T as parse::FromRadix[Arg]]::Error!T {
-        parse::radix[T](input.cstring(), radix)
+    fn fromRadix(input: Arg, radix: u32) [T as parse::FromRadix[Arg]]::Error!T {
+        input.cstring().parseRadix[T](radix)
     }
 }
 

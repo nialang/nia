@@ -2,4 +2,4 @@ pub(pkg) module core;
 
 using pkg::parse::core;
 
-pub using core::{Error, From, FromRadix, radix, value};
+pub using core::{Error, From, FromRadix};

@@ -87,7 +87,7 @@ fn main() i32 {
 }
 
 #[test]
-fn infers_remaining_generic_function_type_arguments_after_explicit_prefix() {
+fn rejects_implicit_trailing_generic_argument_inference() {
     let checked = pipeline(
         r#"
 fn keep_first[T, U](left: T, right: U) T {
@@ -96,9 +96,38 @@ fn keep_first[T, U](left: T, right: U) T {
 }
 
 fn main() i32 {
-    let mut a: i32 = keep_first[i32](7, true);
-    let mut b: u8 = keep_first[u8](3u8, 123usize);
-    a + b as i32
+    keep_first[i32](7, true)
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("generic argument count mismatch: expected 2, got 1")
+    }));
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("use `_` for arguments that should be inferred")
+    }));
+}
+
+#[test]
+fn explicit_generic_inference_placeholders_cover_type_and_const_parameters() {
+    let checked = pipeline(
+        r#"
+fn keep_first[T, U](left: T, right: U) T {
+    _ = right;
+    left
+}
+
+fn take_array[T, N: usize](xs: [N]T) usize {
+    _ = xs;
+    N
+}
+
+fn main(xs: [4]u8) i32 {
+    keep_first[i32, _](7, true) + take_array[_, _](xs) as i32
 }
 "#,
     );
@@ -115,7 +144,7 @@ fn take_array[T, N: usize](xs: [N]T) usize {
 }
 
 fn main(xs: [4]u8) usize {
-    take_array(xs) + take_array[u8, 4](xs)
+    take_array(xs) + take_array[u8, 4](xs) + take_array[u8, _](xs)
 }
 "#,
     );
@@ -127,7 +156,7 @@ fn main(xs: [4]u8) usize {
         .count();
     assert_eq!(
         const_instance_count,
-        2,
+        3,
         "{:?}",
         checked
             .facts
@@ -185,8 +214,8 @@ fn main(count: usize) usize {
 fn infers_generic_function_input_from_where_predicate_impl_candidates() {
     let checked = pipeline(
         r#"
-trait From[Input] {
-    fn parse(input: Input) Self;
+trait DecodeFrom[Input] {
+    fn decode(input: Input) Self;
 }
 
 struct Wrapped {}
@@ -195,26 +224,26 @@ struct Bytes {
     data: [3]u8,
 }
 
-fn value[T, Input](input: Input) T
-where T: From[Input]
+fn decode[T, Input](input: Input) T
+where T: DecodeFrom[Input]
 {
-    [T]::parse(input)
+    [T]::decode(input)
 }
 
-extend i32 : From[&[char]] {
-    fn parse(input: &[char]) i32 {
+extend i32 : DecodeFrom[&[char]] {
+    fn decode(input: &[char]) i32 {
         input.len() as i32
     }
 }
 
-extend i32 : From[&[u8]] {
-    fn parse(input: &[u8]) i32 {
+extend i32 : DecodeFrom[&[u8]] {
+    fn decode(input: &[u8]) i32 {
         input.len() as i32
     }
 }
 
-extend i32 : From[Wrapped] {
-    fn parse(input: Wrapped) i32 {
+extend i32 : DecodeFrom[Wrapped] {
+    fn decode(input: Wrapped) i32 {
         _ = input;
         0
     }
@@ -223,7 +252,46 @@ extend i32 : From[Wrapped] {
 fn main() i32 {
     let bytes: [3]u8 = [1, 2, 3];
     let wrapped: Bytes = { data: bytes };
-    value[i32](&"abc") + value[i32](&bytes) + value[i32](&wrapped.data)
+    decode[i32, _](&"abc") + decode[i32, _](&bytes) + decode[i32, _](&wrapped.data)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn resolves_receiver_parse_facade_through_result_protocol() {
+    let checked = pipeline(
+        r#"
+trait From[Input] {
+    fn from(input: Input) i32!Self;
+}
+
+extend[Unit] [Unit]
+where Unit: Sized
+{
+    fn parse[T](&self) i32!T
+    where T: From[&[Unit]]
+    {
+        [T]::from(self)
+    }
+}
+
+extend i32 : From[&[char]] {
+    fn from(input: &[char]) i32!i32 {
+        if input.len() == 0 {
+            1!
+        } else {
+            !(input.len() as i32)
+        }
+    }
+}
+
+fn main() i32 {
+    switch (&"nia").parse[i32]() {
+        !value => value,
+        _ => 0,
+    }
 }
 "#,
     );

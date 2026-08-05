@@ -28,7 +28,7 @@ arguments (`{:<{}}`, `{:>{}.{}}`), integer bases (`{:x}`, `{:X}`, `{:b}`,
 addresses (`{:p}`). Literal braces are written as `{{` and `}}`.
 
 Value parsing is independent of formatting. Import `std::parse` and use
-`parse::value[T](input)` or `parse::radix[T](input, radix)` for primitive
+`input.parse[T]()` or `input.parseRadix[T](radix)` for primitive
 integers and bools. Ordinary parsing uses `parse::From[Input]`; explicit-radix
 integer parsing uses `parse::FromRadix[Input]`. Both protocols have an
 associated error type, so user-defined values can retain domain-specific
@@ -38,7 +38,7 @@ Integer parsing accepts prefixes such as `0x`, `0b`, and `0o`; radix parsing is
 for bare digits in an explicit radix.
 Process arguments and environment entries are C-string-backed views; use
 `arg.bytes()` for raw argument bytes, `arg.cstring()` for the underlying
-`std::CStringView`, parse the argument directly with `parse::value[T](arg)`, or
+`std::CStringView`, parse the argument directly with `arg.parse[T]()`, or
 format the argument value directly with `{}`.
 Use `init.args().program()` for argv[0], `for arg in init.args().skipProgram()`
 for application arguments, and `for env in init.env().iter()` for environment
