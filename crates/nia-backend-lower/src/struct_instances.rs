@@ -477,8 +477,12 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
+            FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    self.collect_struct_instances_expr(&relocation.pointee, seen, out);
+                }
+            }
         }
     }
 
@@ -1112,8 +1116,12 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
+            FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    self.collect_union_instances_expr(&relocation.pointee, seen, out);
+                }
+            }
         }
     }
 

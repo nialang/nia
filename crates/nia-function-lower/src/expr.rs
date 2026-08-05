@@ -115,9 +115,26 @@ impl FunctionLowerer<'_> {
                     span: field.span,
                 }),
             },
-            TypedExprKind::UnionStorageLiteral { bytes } => FunctionExprKind::UnionStorageLiteral {
-                bytes: bytes.clone(),
-            },
+            TypedExprKind::UnionStorageLiteral { bytes, relocations } => {
+                FunctionExprKind::UnionStorageLiteral {
+                    bytes: bytes.clone(),
+                    relocations: relocations
+                        .iter()
+                        .map(|relocation| nia_function_ir::FunctionUnionRelocation {
+                            offset: relocation.offset,
+                            width: relocation.width,
+                            allocation: relocation.allocation,
+                            pointee: Box::new(self.lower_value_expr(
+                                &relocation.pointee,
+                                scope,
+                                current,
+                                ops,
+                                blocks,
+                            )),
+                        })
+                        .collect(),
+                }
+            }
             TypedExprKind::Unary { op, expr: inner }
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && matches!(inner.kind, TypedExprKind::Slice { .. }) =>

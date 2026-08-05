@@ -417,6 +417,43 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionExprKind::UnionLiteral { field, .. } => {
                 self.validate_value_expr(&field.value)?
             }
+            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
+                let mut previous_end = 0usize;
+                for relocation in relocations {
+                    if relocation.width == 0 {
+                        return Err(FunctionIrError::new(
+                            expr.span,
+                            "union storage relocation has zero width",
+                        ));
+                    }
+                    let Some(end) = relocation.offset.checked_add(relocation.width) else {
+                        return Err(FunctionIrError::new(
+                            expr.span,
+                            "union storage relocation range overflows",
+                        ));
+                    };
+                    if end > bytes.len() {
+                        return Err(FunctionIrError::new(
+                            expr.span,
+                            "union storage relocation is out of bounds",
+                        ));
+                    }
+                    if relocation.offset < previous_end {
+                        return Err(FunctionIrError::new(
+                            expr.span,
+                            "union storage relocations overlap or are not sorted",
+                        ));
+                    }
+                    if bytes[relocation.offset..end].iter().any(Option::is_none) {
+                        return Err(FunctionIrError::new(
+                            expr.span,
+                            "union storage relocation covers uninitialized bytes",
+                        ));
+                    }
+                    self.validate_value_expr(&relocation.pointee)?;
+                    previous_end = end;
+                }
+            }
             FunctionExprKind::Binary { lhs, rhs, .. }
             | FunctionExprKind::Index { lhs, index: rhs }
             | FunctionExprKind::ExtractElement {
@@ -494,7 +531,6 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::Trap => {}
         }
         Ok(())
@@ -850,6 +886,136 @@ mod tests {
         };
 
         let error = validate_function_body(&body).expect_err("error expr should fail");
+
+        assert!(
+            error.message.contains("error expression escaped"),
+            "{error:?}"
+        );
+    }
+
+    fn body_with_union_storage(
+        bytes: Vec<Option<u8>>,
+        relocations: Vec<crate::FunctionUnionRelocation>,
+    ) -> FunctionBody {
+        let span = Span::new(1, 9);
+        let ty = test_ty();
+        FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::UnionStorageLiteral { bytes, relocations },
+                })],
+                terminator: FunctionTerminator::Tail { value: None, span },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        }
+    }
+
+    fn relocation(
+        offset: usize,
+        width: usize,
+        pointee_kind: FunctionExprKind,
+    ) -> crate::FunctionUnionRelocation {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let span = Span::new(2, 4);
+        crate::FunctionUnionRelocation {
+            offset,
+            width,
+            allocation: crate::PromotedAllocationId::new(module_id, span),
+            pointee: Box::new(FunctionExpr {
+                span,
+                ty: test_ty(),
+                kind: pointee_kind,
+            }),
+        }
+    }
+
+    #[test]
+    fn accepts_well_formed_union_storage_relocation() {
+        let body = body_with_union_storage(
+            vec![Some(0); 8],
+            vec![relocation(0, 8, FunctionExprKind::Integer("1".to_string()))],
+        );
+
+        validate_function_body(&body).expect("well-formed relocation should be valid");
+    }
+
+    #[test]
+    fn rejects_union_storage_relocation_over_uninitialized_bytes() {
+        let mut bytes = vec![Some(0); 8];
+        bytes[3] = None;
+        let body = body_with_union_storage(
+            bytes,
+            vec![relocation(0, 8, FunctionExprKind::Integer("1".to_string()))],
+        );
+
+        let error =
+            validate_function_body(&body).expect_err("relocation storage must remain initialized");
+
+        assert!(
+            error.message.contains("covers uninitialized bytes"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_union_storage_relocation_ranges() {
+        let cases = [
+            (
+                vec![relocation(0, 0, FunctionExprKind::Integer("1".to_string()))],
+                "zero width",
+            ),
+            (
+                vec![relocation(
+                    usize::MAX,
+                    2,
+                    FunctionExprKind::Integer("1".to_string()),
+                )],
+                "range overflows",
+            ),
+            (
+                vec![relocation(4, 8, FunctionExprKind::Integer("1".to_string()))],
+                "out of bounds",
+            ),
+            (
+                vec![
+                    relocation(0, 4, FunctionExprKind::Integer("1".to_string())),
+                    relocation(2, 4, FunctionExprKind::Integer("2".to_string())),
+                ],
+                "overlap or are not sorted",
+            ),
+        ];
+
+        for (relocations, expected) in cases {
+            let body = body_with_union_storage(vec![Some(0); 8], relocations);
+            let error = validate_function_body(&body)
+                .expect_err("malformed relocation range should be rejected");
+            assert!(error.message.contains(expected), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn validates_union_storage_relocation_pointee() {
+        let body = body_with_union_storage(
+            vec![Some(0); 8],
+            vec![relocation(0, 8, FunctionExprKind::Error)],
+        );
+
+        let error = validate_function_body(&body)
+            .expect_err("invalid relocation pointee cannot bypass validation");
 
         assert!(
             error.message.contains("error expression escaped"),

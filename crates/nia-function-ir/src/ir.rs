@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
-pub use nia_ir_names::{GeneratedLocalName, LocalName};
+pub use nia_ir_names::{GeneratedLocalName, LocalName, PromotedAllocationId};
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, IntConst, TraitId};
@@ -300,6 +300,7 @@ pub enum FunctionExprKind {
     },
     UnionStorageLiteral {
         bytes: Vec<Option<u8>>,
+        relocations: Vec<FunctionUnionRelocation>,
     },
     Unary {
         op: UnaryOp,
@@ -366,6 +367,14 @@ pub enum FunctionExprKind {
         range: FunctionSliceRange,
         is_readonly: bool,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionUnionRelocation {
+    pub offset: usize,
+    pub width: usize,
+    pub allocation: PromotedAllocationId,
+    pub pointee: Box<FunctionExpr>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

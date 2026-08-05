@@ -417,8 +417,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::UnionLiteral { def_id, field } => {
                 self.emit_union_literal(expr, *def_id, field)
             }
-            FunctionExprKind::UnionStorageLiteral { bytes } => {
-                self.emit_union_storage_literal(expr, bytes)
+            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
+                self.emit_union_storage_literal(expr, bytes, relocations)
             }
             FunctionExprKind::OptionalSome { expr: inner } => self.emit_optional_some(expr, inner),
             FunctionExprKind::ErrorOk { expr: inner } => {

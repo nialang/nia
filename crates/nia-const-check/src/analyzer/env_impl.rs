@@ -1059,10 +1059,13 @@ impl Analyzer<'_> {
                     nia_layout::primitive_layout(primitive, target),
                 ))
             }
-            TyKind::Pointer { .. } => {
+            TyKind::Pointer { elem, .. } => {
                 let size = usize::try_from(target.pointer_size).ok()?;
                 Some((
-                    ConstAbiType::Pointer { size },
+                    ConstAbiType::Pointer {
+                        size,
+                        pointee: elem,
+                    },
                     nia_layout::TypeLayout {
                         size: target.pointer_size,
                         align: target.pointer_align,

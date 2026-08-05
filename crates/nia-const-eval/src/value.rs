@@ -26,6 +26,14 @@ impl ConstAllocationOrigin {
     pub const fn new(module_id: Option<ModuleId>, span: Span) -> Self {
         Self { module_id, span }
     }
+
+    pub const fn module_id(self) -> Option<ModuleId> {
+        self.module_id
+    }
+
+    pub const fn span(self) -> Span {
+        self.span
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +135,7 @@ pub enum ConstAbiType {
     Scalar(ConstScalarType),
     Pointer {
         size: usize,
+        pointee: InternedTyId,
     },
     Array {
         element: Box<ConstAbiType>,
@@ -158,7 +167,7 @@ impl ConstAbiType {
     pub fn byte_len(&self) -> Option<usize> {
         match self {
             Self::Scalar(scalar) => Some(scalar.byte_len()),
-            Self::Pointer { size } => Some(*size),
+            Self::Pointer { size, .. } => Some(*size),
             Self::Array { element, len } => element.byte_len()?.checked_mul(*len),
             Self::Vector { size, .. } => Some(*size),
             Self::Struct { size, .. } => Some(*size),
@@ -177,6 +186,7 @@ struct EncodedAbiValue {
 pub struct ConstRelocation {
     offset: usize,
     width: usize,
+    pointee: InternedTyId,
     pointer: ConstPointerValue,
 }
 
@@ -191,6 +201,10 @@ impl ConstRelocation {
 
     pub const fn pointer(&self) -> &ConstPointerValue {
         &self.pointer
+    }
+
+    pub const fn pointee(&self) -> InternedTyId {
+        self.pointee
     }
 }
 
@@ -323,7 +337,7 @@ fn encode_abi_value(
                 relocations: Vec::new(),
             })
         }
-        (ConstAbiType::Pointer { size }, ConstValue::Pointer(pointer)) => {
+        (ConstAbiType::Pointer { size, pointee }, ConstValue::Pointer(pointer)) => {
             if *size == 0 {
                 return Err("const union pointer field has zero-sized storage".to_string());
             }
@@ -333,6 +347,7 @@ fn encode_abi_value(
                 relocations: vec![ConstRelocation {
                     offset: 0,
                     width: *size,
+                    pointee: *pointee,
                     pointer,
                 }],
             })
@@ -438,7 +453,7 @@ fn decode_abi_value(
             }
             decode_scalar(*scalar, bytes, endianness)
         }
-        ConstAbiType::Pointer { size } => {
+        ConstAbiType::Pointer { size, .. } => {
             if bytes.len() != *size {
                 return Err("const union pointer field storage has the wrong length".to_string());
             }

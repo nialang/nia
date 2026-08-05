@@ -2,7 +2,7 @@
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionArrayElements, FunctionErrorUnionTag, FunctionExpr, FunctionFieldInit,
-    FunctionOptionalTag,
+    FunctionOptionalTag, FunctionUnionRelocation,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::values::{BasicValueEnum, PointerValue};
@@ -145,13 +145,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         expr: &FunctionExpr,
         bytes: &[Option<u8>],
+        relocations: &[FunctionUnionRelocation],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let union_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
             .builder
             .build_alloca(union_ty, "unionstoragetmp")
             .map_err(|_| self.error(expr.span, "failed to allocate union storage literal"))?;
-        self.emit_union_storage_literal_into(expr, bytes, ptr)?;
+        self.emit_union_storage_literal_into(expr, bytes, relocations, ptr)?;
         self.builder
             .build_load(union_ty, ptr, "unionstorage")
             .map_err(|_| self.error(expr.span, "failed to load union storage literal"))
@@ -161,6 +162,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         expr: &FunctionExpr,
         bytes: &[Option<u8>],
+        relocations: &[FunctionUnionRelocation],
         ptr: PointerValue<'ctx>,
     ) -> Result<(), Diagnostic> {
         let expected_size = self
@@ -169,6 +171,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .and_then(|layout| usize::try_from(layout.size).ok());
         if expected_size != Some(bytes.len()) {
             return Err(self.error(expr.span, "union storage literal has the wrong byte length"));
+        }
+        if !relocations.is_empty() {
+            return Err(self.error(
+                expr.span,
+                "union storage relocation reached LLVM before promoted allocation materialization",
+            ));
         }
         let byte_ty = self.module.context.i8_type();
         for (offset, byte) in bytes.iter().enumerate() {

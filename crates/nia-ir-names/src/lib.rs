@@ -2,6 +2,26 @@
 use nia_symbol::{SymbolId, unresolved_symbol_text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PromotedAllocationId {
+    module_id: nia_ids::ModuleId,
+    span: nia_span::Span,
+}
+
+impl PromotedAllocationId {
+    pub const fn new(module_id: nia_ids::ModuleId, span: nia_span::Span) -> Self {
+        Self { module_id, span }
+    }
+
+    pub const fn module_id(self) -> nia_ids::ModuleId {
+        self.module_id
+    }
+
+    pub const fn span(self) -> nia_span::Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LocalName {
     SelfValue,
     Named(SymbolId),

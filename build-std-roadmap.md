@@ -3614,14 +3614,22 @@ operation and must diagnose; copying nested aggregate or union storage preserves
 the relocation. No host address may enter `ConstValue`, fingerprints, caches, or
 artifact bytes.
 
-Round 2g3 materializes relocations through body IR, function IR, backend
-validation, and LLVM globals, then closes the imported/generic differential.
-The maintained executable must prove same-provenance equality, distinct
-allocation inequality, pointer-field round trips, whole-union crossing, and
-comptime/runtime agreement. Static/global provenance and promoted readonly
-allocation provenance must remain distinguishable, while function pointers
-stay under their separate const-callable capability boundary. Pointer-containing
-unions remain rejected until all three subrounds are complete.
+Round 2g3 is split into three reviewable batches. Round 2g3a gives every frozen
+allocation a shared body/function IR identity, propagates typed relocations
+through every recursive transform and reachability collector, validates their
+storage shape and pointee expression, and fingerprints the allocation through
+stable source identity rather than session-local `ModuleId` allocation. Round
+2g3b materializes that identity as one stable link-once LLVM allocation across
+uses and codegen partitions, writes relocation pointers into runtime union
+storage, and replaces the legacy per-use static-array counter path rather than
+retaining two promotion models. Round 2g3c closes the imported/generic
+differential. The maintained executable must prove same-provenance equality,
+distinct allocation inequality, pointer-field round trips, whole-union
+crossing, and comptime/runtime agreement. Static/global provenance and
+promoted readonly allocation provenance must remain distinguishable, while
+function pointers stay under their separate const-callable capability
+boundary. Pointer-containing unions remain rejected until all three subrounds
+are complete.
 
 Dual-stage const hardening progress (2026-08-05, Round 2g1 pointer provenance
 foundation): the evaluator snapshot representation has been physically removed.
@@ -3678,6 +3686,32 @@ a relocation-bearing `UnionStorageLiteral`: body IR, function IR, backend
 validation, LLVM global allocation/deduplication, and imported-module
 differentials remain Round 2g3. Mutable pointer write-through remains a separate
 alias-aware place-operation task and is not implied by union relocation support.
+
+Dual-stage const hardening progress (2026-08-05, Round 2g3a promoted allocation
+IR): `PromotedAllocationId` now carries the defining module and source span on a
+shared IR surface. Pointer ABI entries retain their original pointee type, so a
+union reinterpretation may change the pointer view without changing how its
+frozen allocation is constructed. Body IR and function IR relocations carry
+storage offset, artifact pointer width, allocation identity, and the typed
+pointee expression.
+
+Instantiation, operator resolution, inlining, local substitution, optimization
+traversal, cross-function constant propagation, devirtualization, aggregate
+instance discovery, trait-object discovery, compiler-builtin discovery, and
+typed/function reachability all recurse through relocation pointees. Function
+IR rejects zero-width, overflowing, out-of-bounds, overlapping, unsorted, or
+uninitialized relocation ranges and validates their pointee expression.
+Backend validation additionally requires a published allocation-origin module,
+artifact pointer width, and a runtime-storable pointee type. Codegen
+fingerprints include offset, width, origin span, pointee expression, and the
+origin module's normalized source identity; no session-local module handle or
+host address enters the cache key.
+
+This closes Round 2g3a only. LLVM still diagnoses if a non-empty relocation
+reaches materialization. Round 2g3b must introduce stable link-once promoted
+globals, relocation stores, and one unified readonly-promotion path before
+pointer-containing const unions become executable; Round 2g3c retains the
+imported/generic executable matrix.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

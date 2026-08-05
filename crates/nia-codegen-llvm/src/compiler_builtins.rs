@@ -246,9 +246,13 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_)
             | FunctionExprKind::Trap => {}
+            FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    self.collect_expr(index, &relocation.pointee);
+                }
+            }
         }
     }
 

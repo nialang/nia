@@ -438,8 +438,16 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
+            FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    self.inline_leaf_calls_in_expr(
+                        &mut relocation.pointee,
+                        function_candidates,
+                        instance_candidates,
+                    );
+                }
+            }
         }
     }
 
@@ -936,8 +944,16 @@ fn substitute_inline_locals(
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
-        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::BuiltinValue(_) => {}
+        FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+            for relocation in relocations {
+                substitute_inline_locals(
+                    &mut relocation.pointee,
+                    substitutions,
+                    require_local_match,
+                )?;
+            }
+        }
         FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::StaticArrayPointer { .. }
         | FunctionExprKind::AddrOf(_)
@@ -1113,7 +1129,19 @@ fn small_pure_inline_expr_cost_with_local(
                 + optional_inline_expr_cost(range.start.as_deref(), budget, local_allowed)?
                 + optional_inline_expr_cost(range.end.as_deref(), budget, local_allowed)?
         }
-        FunctionExprKind::UnionStorageLiteral { bytes } => bytes.len().saturating_add(1),
+        FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
+            let relocation_cost = relocations.iter().try_fold(0usize, |cost, relocation| {
+                Some(cost.saturating_add(small_pure_inline_expr_cost_with_local(
+                    &relocation.pointee,
+                    budget,
+                    local_allowed,
+                )?))
+            })?;
+            bytes
+                .len()
+                .saturating_add(relocation_cost)
+                .saturating_add(1)
+        }
         FunctionExprKind::Error => {
             crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
         }

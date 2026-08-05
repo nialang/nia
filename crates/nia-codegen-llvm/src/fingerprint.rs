@@ -946,7 +946,7 @@ impl<'a> Encoder<'a> {
                 self.global_def(*def_id);
                 self.function_field(field);
             }
-            FunctionExprKind::UnionStorageLiteral { bytes } => {
+            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
                 self.tag(51);
                 self.len(bytes.len());
                 for byte in bytes {
@@ -954,6 +954,15 @@ impl<'a> Encoder<'a> {
                     if let Some(byte) = byte {
                         self.tag(*byte);
                     }
+                }
+                self.len(relocations.len());
+                for relocation in relocations {
+                    self.usize(relocation.offset);
+                    self.usize(relocation.width);
+                    self.module_id(relocation.allocation.module_id());
+                    self.usize(relocation.allocation.span().start);
+                    self.usize(relocation.allocation.span().end);
+                    self.expr(&relocation.pointee);
                 }
             }
             FunctionExprKind::Unary { op, expr } => {
@@ -2102,6 +2111,111 @@ mod tests {
 
     fn dependencies(fixture: &Fixture) -> CodegenUnitDependencies {
         declarations(fixture).dependencies
+    }
+
+    fn expr_fingerprint(index: &ProgramIndex, expr: &FunctionExpr) -> CodegenUnitFingerprint {
+        let mut encoder = Encoder::new("nia.llvm.test-expr.v1", index);
+        encoder.expr(expr);
+        encoder.finish()
+    }
+
+    fn union_storage_expr(
+        ty: InternedTyId,
+        allocation_module: ModuleId,
+        allocation_span: Span,
+        offset: usize,
+        pointee: u128,
+    ) -> FunctionExpr {
+        FunctionExpr {
+            span: Span::default(),
+            ty,
+            kind: FunctionExprKind::UnionStorageLiteral {
+                bytes: vec![None; 8],
+                relocations: vec![FunctionUnionRelocation {
+                    offset,
+                    width: 8,
+                    allocation: PromotedAllocationId::new(allocation_module, allocation_span),
+                    pointee: Box::new(FunctionExpr {
+                        span: allocation_span,
+                        ty,
+                        kind: FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(
+                            IntConst::unsigned(pointee),
+                        )),
+                    }),
+                }],
+            },
+        }
+    }
+
+    fn relocation_fingerprint_fixture(
+        main_id: ModuleId,
+        origin_id: ModuleId,
+    ) -> (Fixture, InternedTyId) {
+        let store = TypeStore::new();
+        let ty = store
+            .append_for_module(main_id)
+            .primitive(PrimitiveTy::Usize);
+        let fixture = fixture(
+            BackendProgram {
+                modules: vec![
+                    module_with_global(main_id, "main.nia", ty, 1),
+                    module_with_global(origin_id, "origin.nia", ty, 2),
+                ]
+                .into(),
+            },
+            store,
+            "main.nia",
+        );
+        (fixture, ty)
+    }
+
+    #[test]
+    fn union_relocation_fingerprint_uses_stable_source_identity() {
+        let mut first_ids = ModuleIdAllocator::new();
+        let (first, first_ty) =
+            relocation_fingerprint_fixture(first_ids.allocate(), first_ids.allocate());
+        let mut second_ids = ModuleIdAllocator::new();
+        let _unused = second_ids.allocate();
+        let (second, second_ty) =
+            relocation_fingerprint_fixture(second_ids.allocate(), second_ids.allocate());
+        let first_expr = union_storage_expr(
+            first_ty,
+            first.index.module_ids()[1],
+            Span::new(10, 14),
+            0,
+            7,
+        );
+        let second_expr = union_storage_expr(
+            second_ty,
+            second.index.module_ids()[1],
+            Span::new(10, 14),
+            0,
+            7,
+        );
+
+        assert_eq!(
+            expr_fingerprint(&first.index, &first_expr),
+            expr_fingerprint(&second.index, &second_expr),
+        );
+    }
+
+    #[test]
+    fn union_relocation_fingerprint_covers_identity_layout_and_pointee() {
+        let mut ids = ModuleIdAllocator::new();
+        let (fixture, ty) = relocation_fingerprint_fixture(ids.allocate(), ids.allocate());
+        let origin = fixture.index.module_ids()[1];
+        let baseline = union_storage_expr(ty, origin, Span::new(10, 14), 0, 7);
+
+        for changed in [
+            union_storage_expr(ty, origin, Span::new(11, 14), 0, 7),
+            union_storage_expr(ty, origin, Span::new(10, 14), 1, 7),
+            union_storage_expr(ty, origin, Span::new(10, 14), 0, 8),
+        ] {
+            assert_ne!(
+                expr_fingerprint(&fixture.index, &baseline),
+                expr_fingerprint(&fixture.index, &changed),
+            );
+        }
     }
 
     #[test]
