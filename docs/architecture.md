@@ -1159,12 +1159,22 @@ the initializer.
 The artifact-storage composer recurses through fixed arrays and physical struct
 layout, so union pointees, structs containing pointer-bearing unions, and arrays
 of them do not require separate representation models. Relocation-free values
-continue to use ordinary LLVM constants. The remaining local promotion
-boundaries are replacement of the legacy per-use static-array path and
-identity-bearing storage for zero-sized promoted allocations, where distinct
-source allocations must not collapse to one address. Mutable pointer
-write-through likewise waits for a shared alias-aware place operation instead
-of reusing mutable-receiver copy/writeback.
+continue to use ordinary LLVM constants.
+
+A zero-sized promoted pointee uses a one-byte packed identity allocation under
+the same stable promoted symbol. This physical allocation does not change the
+Nia pointee layout or any value ABI; it exists only because an allocation whose
+address is observable must have runtime identity. The link-once global is not
+`unnamed_addr`, so LLVM cannot infer that equal contents permit address folding.
+Same-origin uses still deduplicate, while distinct origins use distinct symbols.
+
+The remaining local promotion boundary is replacement of the legacy per-use
+static-array path. Its typed IR currently combines frozen pointer values, which
+already carry allocation origins, with const string and slice materialization,
+which has lost the definition origin; source identity must be restored before
+the counter can be removed. Mutable pointer write-through likewise waits for a
+shared alias-aware place operation instead of reusing mutable-receiver
+copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

@@ -194,8 +194,8 @@ fn main() usize {
 }
 
 #[test]
-fn rejects_zero_sized_promoted_allocation_until_identity_storage_exists() {
-    let root = temp_dir("rejects_zero_sized_promoted_allocation_until_identity_storage_exists");
+fn emits_identity_storage_for_zero_sized_promoted_allocations() {
+    let root = temp_dir("emits_identity_storage_for_zero_sized_promoted_allocations");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -207,11 +207,14 @@ union Slot {
     integer: usize,
 }
 
-const slot: Slot = { pointer: &Empty{} };
+const firstSlot: Slot = { pointer: &Empty{} };
+const secondSlot: Slot = { pointer: &Empty{} };
 
 fn main() bool {
-    let value: Slot = slot;
-    value.pointer == value.pointer
+    let first: Slot = firstSlot;
+    let same: Slot = firstSlot;
+    let second: Slot = secondSlot;
+    first.pointer == same.pointer and first.pointer != second.pointer
 }
 "#,
     )
@@ -220,11 +223,14 @@ fn main() bool {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
-    assert!(output.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .summary
-            .contains("zero-sized promoted allocation identity is not yet supported")
-    }));
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert_eq!(
+        ir.matches("linkonce_odr constant <{ i8 }> zeroinitializer")
+            .count(),
+        2,
+        "{ir}"
+    );
 }
 
 #[test]

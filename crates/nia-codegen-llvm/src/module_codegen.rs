@@ -238,12 +238,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let symbol = self.promoted_allocation_symbol(allocation);
         let layout = self.layout_of(pointee_ty);
-        if layout.as_ref().is_some_and(|layout| layout.size == 0) {
-            return Err(self.error(
-                span,
-                "zero-sized promoted allocation identity is not yet supported",
-            ));
-        }
         if let Some(existing_ty) = self.promoted_allocations.borrow().get(&allocation).copied() {
             if !self.same_type(existing_ty, pointee_ty) {
                 return Err(self.error(
@@ -260,24 +254,36 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
 
         let pointee_llvm_ty = self.llvm_basic_type(pointee_ty, span)?;
-        let (value, storage_ty) = match initializer {
-            PromotedAllocationInitializer::Native(value) => (value, pointee_llvm_ty),
-            PromotedAllocationInitializer::ArtifactStorage(value) => {
-                let storage_ty = value.get_type().map_err(|error| {
-                    self.error(
-                        span,
-                        format!("failed to inspect promoted allocation storage: {error:?}"),
-                    )
-                })?;
-                let storage_struct = storage_ty.into_struct_type().map_err(|_| {
-                    self.error(span, "promoted allocation storage is not a packed struct")
-                })?;
-                if !storage_struct.is_packed() {
-                    return Err(
+        let (value, storage_ty) = if layout.as_ref().is_some_and(|layout| layout.size == 0) {
+            // A semantic allocation still needs a distinct runtime address when its pointee is a ZST.
+            let byte_ty = self.context.i8_type();
+            let storage_ty = self.context.struct_type(&[byte_ty.into()], true);
+            (
+                storage_ty
+                    .const_named_struct(&[byte_ty.const_zero().into()])
+                    .into(),
+                storage_ty.into(),
+            )
+        } else {
+            match initializer {
+                PromotedAllocationInitializer::Native(value) => (value, pointee_llvm_ty),
+                PromotedAllocationInitializer::ArtifactStorage(value) => {
+                    let storage_ty = value.get_type().map_err(|error| {
+                        self.error(
+                            span,
+                            format!("failed to inspect promoted allocation storage: {error:?}"),
+                        )
+                    })?;
+                    let storage_struct = storage_ty.into_struct_type().map_err(|_| {
                         self.error(span, "promoted allocation storage is not a packed struct")
-                    );
+                    })?;
+                    if !storage_struct.is_packed() {
+                        return Err(
+                            self.error(span, "promoted allocation storage is not a packed struct")
+                        );
+                    }
+                    (value, storage_ty)
                 }
-                (value, storage_ty)
             }
         };
         let value_ty = value.get_type().map_err(|error| {

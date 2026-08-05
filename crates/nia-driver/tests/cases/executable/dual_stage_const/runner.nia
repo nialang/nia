@@ -10,6 +10,8 @@ struct Width {
     value: i32,
 }
 
+struct Empty {}
+
 enum Mode {
     Plain(i32),
     Scale(i32, i32),
@@ -62,6 +64,11 @@ union ByteUnion {
 
 union ByteUnionPointerSlot {
     pointer: &ByteUnion,
+    integer: usize,
+}
+
+union EmptyPointerSlot {
+    pointer: &Empty,
     integer: usize,
 }
 
@@ -180,6 +187,8 @@ const nestedArrayPointerSlot: NestedArrayPointerSlot = {
 const byteUnionPointerSlot: ByteUnionPointerSlot = {
     pointer: &ByteUnion{byte: 7},
 };
+const firstEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
+const secondEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -195,6 +204,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let holderPointer: HolderPointerSlot = holderPointerSlot;
     let nestedArrayPointer: NestedArrayPointerSlot = nestedArrayPointerSlot;
     let byteUnionPointer: ByteUnionPointerSlot = byteUnionPointerSlot;
+    let firstEmptyPointer: EmptyPointerSlot = firstEmptyPointerSlot;
+    let sameEmptyPointer: EmptyPointerSlot = firstEmptyPointerSlot;
+    let secondEmptyPointer: EmptyPointerSlot = secondEmptyPointerSlot;
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
         return process::exit(10)!;
     }
@@ -271,6 +283,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if byteUnionPointer.pointer.*.byte != 7 {
         return process::exit(34)!;
+    }
+    if firstEmptyPointer.pointer != sameEmptyPointer.pointer
+        or firstEmptyPointer.pointer == secondEmptyPointer.pointer {
+        return process::exit(35)!;
     }
     !{}
 }

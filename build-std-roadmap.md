@@ -3804,6 +3804,25 @@ Union pointees and nested relocations are therefore no longer part of the
 zero-sized identity-bearing storage remain before the local 2g3b boundary is
 closed; Round 2g3c still owns the imported/generic differential.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3b2 zero-sized
+identity): a zero-sized promoted pointee now receives a one-byte packed LLVM
+identity allocation under its ordinary stable promoted symbol. The extra byte
+belongs only to address identity: it does not change the Nia type layout,
+`sizeOf`, dereference behavior, parameter ABI, or return ABI. The global remains
+readonly link-once ODR, retains the pointee ABI alignment, and is not marked
+`unnamed_addr`, so equal zero-sized contents do not authorize address folding.
+One `PromotedAllocationId` still deduplicates across uses and partitions, while
+distinct source origins retain distinct symbols and addresses.
+
+Low-level IR proves two distinct identity globals and reuse of one origin. The
+maintained native executable proves same-origin equality and distinct-origin
+inequality after object emission and linking. Zero-sized identity is therefore
+no longer part of the local 2g3b gap. The remaining local boundary is replacing
+legacy `StaticArrayPointer`: its current body IR mixes frozen-pointer origins
+with const string/slice materialization that has already lost the definition
+origin, so that work must restore source identity before removing the counter
+rather than rename a use-site allocation.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
