@@ -243,7 +243,7 @@ fn semantic_builtin_method_trait(
     method: nia_sema_ir::BuiltinMethod,
 ) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
     match method {
-        nia_sema_ir::BuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
+        nia_sema_ir::BuiltinMethod::SliceLen => None,
         nia_sema_ir::BuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         nia_sema_ir::BuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
         nia_sema_ir::BuiltinMethod::Iter => {
@@ -405,7 +405,6 @@ pub(super) fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> Option<
         BuiltinTraitMethod::SliceMut => Some(known::SLICE_MUT),
         BuiltinTraitMethod::Ptr => Some(known::PTR),
         BuiltinTraitMethod::PtrMut => Some(known::PTR_MUT),
-        BuiltinTraitMethod::Len => Some(known::LEN),
         BuiltinTraitMethod::Start => Some(known::START),
         BuiltinTraitMethod::End => Some(known::END),
         BuiltinTraitMethod::IteratorNext => Some(known::NEXT),

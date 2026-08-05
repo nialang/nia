@@ -252,12 +252,9 @@ fn eval_resolved_const_expr_flow(
                 }
             }
         }
-        ResolvedConstExprKind::BuiltinMethod { method, lhs } => eval_builtin_method_value(
-            span,
-            *method,
-            eval_resolved_value_or_return_flow!(lhs, env),
-            env,
-        )?,
+        ResolvedConstExprKind::BuiltinMethod { method, lhs } => {
+            eval_builtin_method_value(span, *method, eval_resolved_value_or_return_flow!(lhs, env))?
+        }
         ResolvedConstExprKind::Index { lhs, index } => {
             return eval_resolved_array_index_flow(span, lhs, index, env);
         }
@@ -562,12 +559,9 @@ fn eval_const_expr_flow(
                 });
             }
         },
-        EarlyConstExprKind::BuiltinMethod { method, lhs } => eval_builtin_method_value(
-            expr.span,
-            *method,
-            eval_value_or_return_flow!(lhs, env),
-            env,
-        )?,
+        EarlyConstExprKind::BuiltinMethod { method, lhs } => {
+            eval_builtin_method_value(expr.span, *method, eval_value_or_return_flow!(lhs, env))?
+        }
         EarlyConstExprKind::Index { lhs, index } => {
             return eval_array_index_flow(expr.span, lhs, index, env);
         }
@@ -900,10 +894,8 @@ fn eval_builtin_method_value(
     span: Span,
     method: BuiltinTraitMethod,
     value: ConstValue,
-    env: &mut impl ConstCommonEnv,
 ) -> Result<ConstValue, ConstError> {
     match method {
-        BuiltinTraitMethod::Len => eval_builtin_len_value(span, value, env),
         BuiltinTraitMethod::Start => eval_builtin_range_bound_value(span, value, true),
         BuiltinTraitMethod::End => eval_builtin_range_bound_value(span, value, false),
         _ => Err(ConstError {
@@ -912,29 +904,6 @@ fn eval_builtin_method_value(
                 "unsupported builtin trait method in const expression: {}",
                 method.name()
             ),
-        }),
-    }
-}
-
-fn eval_builtin_len_value(
-    span: Span,
-    value: ConstValue,
-    env: &mut impl ConstCommonEnv,
-) -> Result<ConstValue, ConstError> {
-    match value {
-        ConstValue::Pointer(pointer) => {
-            let value = env.dereference_const_pointer(span, &pointer)?;
-            eval_builtin_len_value(span, value, env)
-        }
-        ConstValue::Array(values) => Ok(ConstValue::Int(IntConst::unsigned(
-            u128::try_from(values.len()).map_err(|_| ConstError {
-                span,
-                message: "const array length is too large".to_string(),
-            })?,
-        ))),
-        _ => Err(ConstError {
-            span,
-            message: "const len requires an array or slice value".to_string(),
         }),
     }
 }

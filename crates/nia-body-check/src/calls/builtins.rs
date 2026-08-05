@@ -270,7 +270,73 @@ impl<'a> BodyChecker<'a> {
                 type_args,
                 args,
             ),
+            BuiltinFunction::SliceLen => self.check_slice_len_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                name,
+                type_args,
+                args,
+            ),
         }
+    }
+
+    fn check_slice_len_builtin_call(
+        &mut self,
+        call_span: Span,
+        value_node: &Expr,
+        builtin_span: Span,
+        name: &str,
+        type_args: BuiltinCallTypeArgs<'_>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let explicit_args = match type_args {
+            BuiltinCallTypeArgs::Bracket(args) => self.lower_bracket_type_args(args),
+        };
+        if explicit_args.len() > 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                builtin_span,
+                format!("builtin `{name}` accepts at most one type argument"),
+            ));
+        }
+        let mut elem_ty = None;
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call_span,
+                format!("builtin `{name}` requires exactly one slice pointer argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+        } else {
+            let actual = self.check_expr(&args[0]);
+            if let Some(TyKind::Pointer { elem, .. }) =
+                self.interner.get(self.normalization.normalize(actual))
+                && let Some(TyKind::Slice { elem, .. }) =
+                    self.interner.get(self.normalization.normalize(*elem))
+            {
+                elem_ty = Some(*elem);
+            }
+            if elem_ty.is_none() {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    args[0].span,
+                    format!("builtin `{name}` requires a slice pointer"),
+                ));
+            }
+        }
+        if let ([expected], Some(actual)) = (explicit_args.as_slice(), elem_ty) {
+            self.expect_type(call_span, *expected, actual, "slice element type");
+        }
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::SliceLen,
+            elem_ty,
+        );
+        self.primitive(PrimitiveTy::Usize)
     }
 
     fn check_char_from_u32_builtin_call(

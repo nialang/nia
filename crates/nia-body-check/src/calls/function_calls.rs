@@ -1287,13 +1287,14 @@ impl<'a> BodyChecker<'a> {
                 Some(ConstGenericValue::Int(IntConst::unsigned(value.into())))
             }
             ArrayLenTy::ConstExpr(id) => self
-                .const_eval
-                .array_lengths
-                .get(&id)
-                .copied()
+                .array_len_const_expr_value(id)
+                .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
+            ArrayLenTy::Builtin { builtin, ty } => self
+                .array_len_value(Span::default(), &ArrayLenTy::Builtin { builtin, ty })
+                .ok()
                 .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
             ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(name)),
-            ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
+            ArrayLenTy::Infer => None,
         }
     }
 }

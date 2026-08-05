@@ -329,6 +329,20 @@ impl Analyzer<'_> {
             .map(|def| def.kind)
     }
 
+    pub(super) fn extension_method_target_ty(
+        &self,
+        function_id: GlobalDefId,
+    ) -> Option<InternedTyId> {
+        let visible_extensions = (self.input.program.visible_extensions?)(function_id.module_id)?;
+        visible_extensions.targets().iter().find_map(|target| {
+            target
+                .methods
+                .iter()
+                .any(|method| method.def_id == function_id)
+                .then_some(target.target_ty)
+        })
+    }
+
     pub(super) fn resolved_const_callee(
         &mut self,
         callee: &ResolvedConstExpr,
@@ -374,15 +388,24 @@ impl Analyzer<'_> {
         };
         let visible_extensions =
             (self.input.program.visible_extensions?)(self.current_execution_module_id())?;
-        let actual_target_ty = self
+        let actual_receiver_ty = self
             .type_normalization_for_module(self.current_execution_module_id())?
             .as_ref()
             .normalize(target_ty);
-        let mut candidates = visible_extensions
-            .all_methods_named(&name)
+        let actual_target_tys = if receiver.is_some() {
+            self.const_method_target_tys(actual_receiver_ty)
+        } else {
+            vec![actual_receiver_ty]
+        };
+        let mut visible_methods = visible_extensions.all_methods_named(&name);
+        visible_methods.extend(visible_extensions.all_trait_witnesses_named(&name));
+        visible_methods.sort_by_key(|(_, method)| method.def_id);
+        visible_methods.dedup_by_key(|(_, method)| method.def_id);
+        let mut candidates = visible_methods
             .into_iter()
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
+                self.ensure_type_context(function_id.module_id)?;
                 self.function_signatures_for_module(function_id.module_id)
                     .and_then(|signatures| {
                         signatures
@@ -399,28 +422,36 @@ impl Analyzer<'_> {
                                 .is_some_and(|param| param.receiver.is_some())
                                 == receiver.is_some()
                     })?;
-                let mut target_instantiation = ConstGenericInstantiation::default();
-                self.infer_generics_from_tys(
-                    callee.span(),
-                    function_id.module_id,
-                    candidate_target_ty,
-                    actual_target_ty,
-                    &mut target_instantiation.type_substitutions,
-                )
-                .ok()?;
-                let substituted_target = self.const_expected_param_type(
-                    function_id.module_id,
-                    candidate_target_ty,
-                    &target_instantiation.type_substitutions,
-                )?;
-                (substituted_target == actual_target_ty).then_some((
-                    candidate_target_ty == actual_target_ty,
-                    ResolvedConstCallee {
-                        function_id,
-                        receiver: receiver.clone(),
-                        target_instantiation,
-                    },
-                ))
+                actual_target_tys
+                    .iter()
+                    .copied()
+                    .find_map(|actual_target_ty| {
+                        let mut target_instantiation = ConstGenericInstantiation::default();
+                        self.infer_generic_substitutions_from_tys(
+                            callee.span(),
+                            function_id.module_id,
+                            candidate_target_ty,
+                            actual_target_ty,
+                            &mut target_instantiation.type_substitutions,
+                            &mut target_instantiation.const_substitutions,
+                        )
+                        .ok()?;
+                        let substituted_target = self.const_expected_param_type(
+                            function_id.module_id,
+                            candidate_target_ty,
+                            &target_instantiation.type_substitutions,
+                            &target_instantiation.const_substitutions,
+                        )?;
+                        self.const_function_types_match(substituted_target, actual_target_ty)
+                            .then_some((
+                                candidate_target_ty == actual_target_ty,
+                                ResolvedConstCallee {
+                                    function_id,
+                                    receiver: receiver.clone(),
+                                    target_instantiation,
+                                },
+                            ))
+                    })
             })
             .collect::<Vec<_>>();
         if candidates.len() > 1 {
@@ -430,6 +461,27 @@ impl Analyzer<'_> {
             }
         }
         (candidates.len() == 1).then(|| candidates.remove(0).1)
+    }
+
+    fn const_method_target_tys(&self, receiver_ty: InternedTyId) -> Vec<InternedTyId> {
+        let mut targets = vec![receiver_ty];
+        loop {
+            let current = *targets.last().expect("receiver target list is non-empty");
+            let next = match self.ty_kind(current) {
+                Some(TyKind::Pointer { elem, .. }) => elem,
+                Some(TyKind::Slice { elem, .. }) => self
+                    .input
+                    .type_store
+                    .append_for_module(self.current_execution_module_id())
+                    .intern(TyKind::SlicePointee { elem }),
+                _ => break,
+            };
+            if targets.contains(&next) {
+                break;
+            }
+            targets.push(next);
+        }
+        targets
     }
 
     pub(super) fn resolved_const_builtin_trait_method(
@@ -453,6 +505,7 @@ impl Analyzer<'_> {
             })
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
+                self.ensure_type_context(function_id.module_id)?;
                 self.function_signatures_for_module(function_id.module_id)
                     .and_then(|signatures| {
                         signatures
@@ -463,27 +516,30 @@ impl Analyzer<'_> {
                     })
                     .filter(|signature| signature.is_const)?;
                 let mut target_instantiation = ConstGenericInstantiation::default();
-                self.infer_generics_from_tys(
+                self.infer_generic_substitutions_from_tys(
                     span,
                     function_id.module_id,
                     candidate_target_ty,
                     actual_target_ty,
                     &mut target_instantiation.type_substitutions,
+                    &mut target_instantiation.const_substitutions,
                 )
                 .ok()?;
                 let substituted_target = self.const_expected_param_type(
                     function_id.module_id,
                     candidate_target_ty,
                     &target_instantiation.type_substitutions,
+                    &target_instantiation.const_substitutions,
                 )?;
-                (substituted_target == actual_target_ty).then_some((
-                    candidate_target_ty == actual_target_ty,
-                    ResolvedConstCallee {
-                        function_id,
-                        receiver: None,
-                        target_instantiation,
-                    },
-                ))
+                self.const_function_types_match(substituted_target, actual_target_ty)
+                    .then_some((
+                        candidate_target_ty == actual_target_ty,
+                        ResolvedConstCallee {
+                            function_id,
+                            receiver: None,
+                            target_instantiation,
+                        },
+                    ))
             })
             .collect::<Vec<_>>();
         if candidates.len() > 1 {

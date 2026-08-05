@@ -152,12 +152,34 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         const_args: &[nia_ty::ConstGenericArg],
     ) -> SymbolMap<nia_ty::ConstGenericArg> {
+        if let Some(method) = self.input.program.extension_methods().method_by_id(def_id) {
+            return method
+                .effective_const_generics
+                .iter()
+                .copied()
+                .zip(const_args.iter().cloned())
+                .collect();
+        }
         let Some(def) = crate::program_def(self.input, def_id) else {
             return SymbolMap::default();
         };
+        let mut generic_params = def
+            .parent
+            .and_then(|parent| {
+                crate::program_def(
+                    self.input,
+                    GlobalDefId {
+                        module_id: def_id.module_id,
+                        def_id: parent,
+                    },
+                )
+            })
+            .map(|parent| parent.generic_params.clone())
+            .unwrap_or_default();
+        generic_params.extend(def.generic_params.iter().cloned());
         let mut const_index = 0;
         let mut const_substitutions = SymbolMap::default();
-        for generic in &def.generic_params {
+        for generic in &generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {}
                 nia_ast::GenericParamKind::Const { .. } => {
@@ -286,6 +308,23 @@ impl<'a> ModuleLowerer<'a> {
             ty: self.normalize_instance_arg_type(arg.ty),
             value: arg.value.clone(),
         }
+    }
+
+    pub(crate) fn canonicalize_instance_const_arg(
+        &self,
+        arg: &nia_ty::ConstGenericArg,
+    ) -> nia_ty::ConstGenericArg {
+        let mut arg = self.normalize_const_generic_arg(arg);
+        if let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value
+            && let Some(value) = self
+                .input
+                .program
+                .const_array_lengths(id.module_id)
+                .and_then(|lengths| lengths.get(&id))
+        {
+            arg.value = nia_ty::ConstGenericValue::Int(i128::from(*value).into());
+        }
+        arg
     }
 
     fn instantiate_const_generic_arg_with_id(

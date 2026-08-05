@@ -104,7 +104,29 @@ impl Analyzer<'_> {
                 self.type_for_module_or_none(elem, self.current_execution_module_id())
                     .map(ConstValueType::Runtime)
             }
-            ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref => None,
+            ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref => {
+                let inner_ty = self.resolved_const_expr_type(inner, None)?;
+                let is_readonly = matches!(op, ConstUnaryOp::RefReadOnly);
+                let kind = match inner_ty {
+                    ConstValueType::Array { elem, .. } => TyKind::Slice {
+                        is_readonly,
+                        elem: elem.runtime()?,
+                    },
+                    ConstValueType::Runtime(inner_ty) => match self.ty_kind(inner_ty)? {
+                        TyKind::SlicePointee { elem } => TyKind::Slice { is_readonly, elem },
+                        _ => TyKind::Pointer {
+                            is_readonly,
+                            elem: inner_ty,
+                        },
+                    },
+                    ConstValueType::Int
+                    | ConstValueType::Bool
+                    | ConstValueType::String
+                    | ConstValueType::Struct(_) => return None,
+                };
+                let ty = self.intern_current_ty(kind)?;
+                Some(ConstValueType::Runtime(ty))
+            }
         }
     }
 
@@ -410,6 +432,13 @@ impl Analyzer<'_> {
         args: &[ResolvedConstExpr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
+        if let ResolvedConstExprKind::Method { receiver, .. } = callee.kind()
+            && self
+                .resolved_const_arg_runtime_type(receiver, None)
+                .is_none()
+        {
+            return None;
+        }
         let Some(resolved_callee) = self.resolved_const_callee(callee) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::CONST,

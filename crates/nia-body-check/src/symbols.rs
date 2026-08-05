@@ -49,6 +49,7 @@ pub(crate) fn builtin_function_symbol(name: SymbolId) -> Option<BuiltinFunction>
         known::FENCE => Some(BuiltinFunction::Fence),
         known::EMBED => Some(BuiltinFunction::Embed),
         known::CHAR_FROM_U32 => Some(BuiltinFunction::CharFromU32),
+        known::SLICE_LEN => Some(BuiltinFunction::SliceLen),
         _ => None,
     }
 }
@@ -92,7 +93,6 @@ pub(crate) fn builtin_trait_method_symbol(name: SymbolId) -> Option<BuiltinTrait
         known::SLICE_MUT => Some(BuiltinTraitMethod::SliceMut),
         known::PTR => Some(BuiltinTraitMethod::Ptr),
         known::PTR_MUT => Some(BuiltinTraitMethod::PtrMut),
-        known::LEN => Some(BuiltinTraitMethod::Len),
         known::START => Some(BuiltinTraitMethod::Start),
         known::END => Some(BuiltinTraitMethod::End),
         known::ITER_METHOD => Some(BuiltinTraitMethod::IterableIter),

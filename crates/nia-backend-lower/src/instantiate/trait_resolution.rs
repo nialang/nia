@@ -133,7 +133,7 @@ impl<'a> ModuleLowerer<'a> {
         key: &ExtensionTraitMethodKey,
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
@@ -169,9 +169,18 @@ impl<'a> ModuleLowerer<'a> {
             let args = method
                 .effective_generics
                 .iter()
-                .map(|generic| user_impl.substitutions.get(generic).copied())
-                .collect::<Option<Vec<_>>>()?;
-            return Some((method.def_id, args));
+                .filter_map(|generic| user_impl.substitutions.get(generic).copied())
+                .collect::<Vec<_>>();
+            let const_args = method
+                .effective_const_generics
+                .iter()
+                .filter_map(|generic| user_impl.const_substitutions.get(generic))
+                .map(|arg| self.canonicalize_instance_const_arg(arg))
+                .collect::<Vec<_>>();
+            if args.len() + const_args.len() != method.effective_generics.len() {
+                return None;
+            }
+            return Some((method.def_id, args, const_args));
         }
         for target in self.input.extensions.targets() {
             for method in &target.methods {
@@ -187,9 +196,18 @@ impl<'a> ModuleLowerer<'a> {
                 let args = method
                     .effective_generics
                     .iter()
-                    .map(|generic| user_impl.substitutions.get(generic).copied())
-                    .collect::<Option<Vec<_>>>()?;
-                return Some((method.def_id, args));
+                    .filter_map(|generic| user_impl.substitutions.get(generic).copied())
+                    .collect::<Vec<_>>();
+                let const_args = method
+                    .effective_const_generics
+                    .iter()
+                    .filter_map(|generic| user_impl.const_substitutions.get(generic))
+                    .map(|arg| self.canonicalize_instance_const_arg(arg))
+                    .collect::<Vec<_>>();
+                if args.len() + const_args.len() != method.effective_generics.len() {
+                    return None;
+                }
+                return Some((method.def_id, args, const_args));
             }
         }
         None

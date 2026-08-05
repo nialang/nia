@@ -951,7 +951,7 @@ pub enum ResolvedCall {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinMethod {
-    Len,
+    SliceLen,
     Start,
     End,
     Iter,
@@ -960,7 +960,7 @@ pub enum BuiltinMethod {
 impl BuiltinMethod {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Len => "len",
+            Self::SliceLen => "sliceLen",
             Self::Start => "start",
             Self::End => "end",
             Self::Iter => "iter",
@@ -969,7 +969,7 @@ impl BuiltinMethod {
 
     /// Whether the const evaluator implements this compiler intrinsic method.
     pub fn is_const_capable(self) -> bool {
-        matches!(self, Self::Len | Self::Start | Self::End | Self::Iter)
+        matches!(self, Self::SliceLen | Self::Start | Self::End | Self::Iter)
     }
 }
 
@@ -1105,7 +1105,6 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::SliceMut
             | BuiltinTraitMethod::Ptr
             | BuiltinTraitMethod::PtrMut
-            | BuiltinTraitMethod::Len
             | BuiltinTraitMethod::Start
             | BuiltinTraitMethod::End
             | BuiltinTraitMethod::IterableIter

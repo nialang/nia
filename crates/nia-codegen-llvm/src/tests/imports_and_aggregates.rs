@@ -720,5 +720,17 @@ pub fn make_box() Box {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("ret i32 8"), "{}", main_ir.ir);
+    assert!(main_ir.ir.contains("call i64"), "{}", main_ir.ir);
+    assert!(
+        output
+            .modules
+            .iter()
+            .any(|module| module.ir.contains("ret i64 8")),
+        "{:?}",
+        output
+            .modules
+            .iter()
+            .map(|module| &module.ir)
+            .collect::<Vec<_>>()
+    );
 }

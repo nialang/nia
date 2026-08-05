@@ -17,7 +17,7 @@ missing_symbol
 
 fn main() i32 {
 let mut values: [len()]i32 = [0; len()];
-values.len() as i32
+values[0]
 }
 "#,
     );

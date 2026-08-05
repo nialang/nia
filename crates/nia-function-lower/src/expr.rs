@@ -1147,6 +1147,7 @@ impl FunctionLowerer<'_> {
                 arg_module_id: self.module_id,
                 self_arg: None,
                 args: args.clone(),
+                const_args: Vec::new(),
                 receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
@@ -1250,7 +1251,7 @@ impl FunctionLowerer<'_> {
 
     fn lower_builtin_method(method: BuiltinMethod) -> FunctionBuiltinMethod {
         match method {
-            BuiltinMethod::Len => FunctionBuiltinMethod::Len,
+            BuiltinMethod::SliceLen => FunctionBuiltinMethod::SliceLen,
             BuiltinMethod::Start => FunctionBuiltinMethod::Start,
             BuiltinMethod::End => FunctionBuiltinMethod::End,
             BuiltinMethod::Iter => FunctionBuiltinMethod::Iter,

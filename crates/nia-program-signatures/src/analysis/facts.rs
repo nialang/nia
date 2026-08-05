@@ -286,6 +286,7 @@ pub fn collect_program_trait_impls(
                 impl_id: impl_signature.impl_id,
                 builtin: impl_signature.builtin.clone(),
                 generics: impl_signature.generics.clone(),
+                generic_params: impl_signature.generic_params.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,

@@ -56,9 +56,8 @@ pub trait PtrMut : Ptr {
     fn ptr_mut(&mut self) &mut [Self as PtrMut]::Target;
 }
 
-@[builtin("Len")]
 pub trait Len {
-    fn len(&self) usize;
+    const fn len(&self) usize;
 }
 
 @[builtin("Start")]
@@ -75,15 +74,20 @@ pub trait End {
     fn end(&self) [Self as End]::Output;
 }
 
-@[builtin("array.Len")]
 extend[T, N: usize] [N]T : Len {
-    fn len(&self) usize;
+    const fn len(&self) usize {
+        N
+    }
 }
 
-@[builtin("slice.Len")]
 extend[T] [T] : Len {
-    fn len(&self) usize;
+    const fn len(&self) usize {
+        sliceLen(&self)
+    }
 }
+
+@[builtin("sliceLen")]
+const fn sliceLen[T](value: &[T]) usize;
 
 @[builtin("slice.Ptr")]
 extend[T] [T] : Ptr {

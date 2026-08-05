@@ -153,6 +153,10 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             impl_id: TraitImplId(51),
             builtin: Some("iterator".to_string()),
             generics: vec![generic_name],
+            generic_params: vec![item_signatures::GenericParamSignature {
+                name: generic_name,
+                kind: item_signatures::GenericParamSignatureKind::Const { ty: primitive },
+            }],
             target_ty: nominal,
             trait_ty: Some(trait_ty),
             trait_span: Some(span),

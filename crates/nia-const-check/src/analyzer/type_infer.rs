@@ -17,16 +17,25 @@ enum ConstSliceLenCheck {
 impl Analyzer<'_> {
     pub(super) fn substitute_ty_generics(&mut self, ty: InternedTyId) -> InternedTyId {
         let module_id = self.current_execution_module_id();
-        let substitutions = self
-            .active_execution_frames()
-            .flat_map(|frame| frame.type_substitutions.iter())
-            .map(|(name, ty)| (*name, *ty))
-            .collect::<SymbolMap<_>>();
+        let mut type_substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
+        let frames = self.active_execution_frames().collect::<Vec<_>>();
+        for frame in frames.into_iter().rev() {
+            type_substitutions.extend(frame.type_substitutions.clone());
+            const_substitutions.extend(frame.const_substitutions.clone());
+        }
         let interner = self
             .type_contexts
-            .get_mut(&module_id)
+            .get(&module_id)
             .expect("type context must exist for current execution module");
-        substitute_ty_generics(interner, ty, &|name| substitutions.get(name).copied())
+        nia_ty::substitute_ty(
+            interner.store,
+            &interner.append,
+            ty,
+            &|name| type_substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        )
     }
 
     pub(super) fn instantiate_resolved_function_generics(
@@ -68,17 +77,22 @@ impl Analyzer<'_> {
             if let Some(expected) = expected_return
                 && let Some(expected) = self.type_for_module_or_none(expected, signature_module_id)
             {
-                self.infer_generics_from_tys(
+                self.infer_generic_substitutions_from_tys(
                     span,
                     signature_module_id,
                     signature.return_type,
                     expected,
                     &mut substitutions,
+                    &mut const_substitutions,
                 )?;
             }
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
-                let expected =
-                    self.const_expected_param_type(signature_module_id, param.ty, &substitutions);
+                let expected = self.const_expected_param_type(
+                    signature_module_id,
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                );
                 let concrete_expected =
                     expected.filter(|expected| !self.type_contains_generic(*expected));
                 let Some(arg_ty) =
@@ -101,22 +115,35 @@ impl Analyzer<'_> {
                     }
                     continue;
                 };
-                self.infer_generics_from_tys(
+                self.infer_generic_substitutions_from_tys(
                     span,
                     signature_module_id,
                     param.ty,
                     arg_ty,
                     &mut substitutions,
+                    &mut const_substitutions,
                 )?;
             }
-            for generic in &signature.generics {
-                if !substitutions.contains_key(generic) {
-                    let name = self.symbol_name(*generic);
-                    return Err(ConstError {
-                        span,
-                        message: format!("cannot infer const generic type argument `{name}`"),
-                    });
+            for generic in &signature.generic_params {
+                let inferred = match generic.kind {
+                    GenericParamSignatureKind::Type => substitutions.contains_key(&generic.name),
+                    GenericParamSignatureKind::Const { .. } => {
+                        const_substitutions.contains_key(&generic.name)
+                    }
+                };
+                if inferred {
+                    continue;
                 }
+                let name = self.symbol_name(generic.name);
+                let message = match generic.kind {
+                    GenericParamSignatureKind::Type => {
+                        format!("cannot infer const generic type argument `{name}`")
+                    }
+                    GenericParamSignatureKind::Const { .. } => {
+                        format!("cannot infer const generic argument `{name}`")
+                    }
+                };
+                return Err(ConstError { span, message });
             }
         } else {
             for (generic, arg) in signature.generic_params.iter().zip(generic_args) {
@@ -215,13 +242,19 @@ impl Analyzer<'_> {
         &mut self,
         module_id: ModuleId,
         ty: InternedTyId,
-        substitutions: &SymbolMap<InternedTyId>,
+        type_substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
         self.ensure_type_context(module_id)?;
         let types = self.type_contexts.get(&module_id)?;
-        Some(substitute_ty_generics(types, ty, &|generic| {
-            substitutions.get(generic).copied()
-        }))
+        Some(nia_ty::substitute_ty(
+            types.store,
+            &types.append,
+            ty,
+            &|generic| type_substitutions.get(generic).copied(),
+            &|generic| const_substitutions.get(generic).cloned(),
+            None,
+        ))
     }
 
     pub(super) fn resolved_const_arg_runtime_type(
@@ -229,8 +262,29 @@ impl Analyzer<'_> {
         expr: &ResolvedConstExpr,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        self.resolved_const_expr_type(expr, expected)
-            .and_then(|ty| ty.runtime())
+        let ty = self.resolved_const_expr_type(expr, expected)?;
+        match ty {
+            ConstValueType::Runtime(ty) => Some(ty),
+            ConstValueType::Array {
+                elem,
+                len: Some(len),
+            } => {
+                let elem = elem.runtime()?;
+                self.const_runtime_type(
+                    elem,
+                    |elem| TyKind::Array {
+                        len: ArrayLenTy::ConstValue(len),
+                        elem,
+                    },
+                    self.current_execution_module_id(),
+                )
+            }
+            ConstValueType::Int
+            | ConstValueType::Bool
+            | ConstValueType::String
+            | ConstValueType::Array { len: None, .. }
+            | ConstValueType::Struct(_) => None,
+        }
     }
 
     fn resolved_const_arg_expected_compatibility(
@@ -1065,11 +1119,6 @@ impl Analyzer<'_> {
         lhs: ConstValueType,
     ) -> Option<ConstValueType> {
         let receiver_ty = match lhs {
-            ConstValueType::Array { .. } if method == BuiltinTraitMethod::Len => {
-                return Some(ConstValueType::Runtime(
-                    self.current_runtime_primitive_type(PrimitiveTy::Usize),
-                ));
-            }
             ConstValueType::Runtime(ty) => ty,
             ConstValueType::Array { .. }
             | ConstValueType::Struct(_)
@@ -1078,17 +1127,12 @@ impl Analyzer<'_> {
             | ConstValueType::String => return None,
         };
         let trait_id = method.trait_id();
-        if !matches!(
-            method,
-            BuiltinTraitMethod::Len | BuiltinTraitMethod::Start | BuiltinTraitMethod::End
-        ) || !self.proves_trait_obligation(receiver_ty, TraitId::Builtin(trait_id), Vec::new())
+        if !matches!(method, BuiltinTraitMethod::Start | BuiltinTraitMethod::End)
+            || !self.proves_trait_obligation(receiver_ty, TraitId::Builtin(trait_id), Vec::new())
         {
             return None;
         }
         match method {
-            BuiltinTraitMethod::Len => Some(ConstValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Usize),
-            )),
             BuiltinTraitMethod::Start | BuiltinTraitMethod::End => self
                 .resolve_associated_type_projection(
                     receiver_ty,
@@ -1441,7 +1485,16 @@ impl Analyzer<'_> {
                 .get(&id)
                 .copied()
                 .or_else(|| self.eval_array_len_const_expr_id(id)),
-            ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::Builtin { .. } => None,
+            ArrayLenTy::Builtin { builtin, ty } => {
+                let ConstValue::Int(value) = self
+                    .resolve_layout_builtin_for_ty(Span::default(), builtin, ty)
+                    .ok()?
+                else {
+                    return None;
+                };
+                u64::try_from(value.bits()).ok()
+            }
+            ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) => None,
         }
     }
 
@@ -2728,7 +2781,11 @@ impl Analyzer<'_> {
         ));
     }
 
-    fn const_function_types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+    pub(super) fn const_function_types_match(
+        &mut self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
         let module_id = self.current_execution_module_id();
         let expected = self
             .type_normalization_for_module(module_id)
@@ -2859,7 +2916,7 @@ impl Analyzer<'_> {
             })
     }
 
-    fn const_generic_values_match_for_execution(
+    pub(super) fn const_generic_values_match_for_execution(
         &mut self,
         expected: &ConstGenericArg,
         actual: &ConstGenericArg,
@@ -2879,7 +2936,7 @@ impl Analyzer<'_> {
         }
     }
 
-    fn resolve_const_generic_arg_for_execution(
+    pub(super) fn resolve_const_generic_arg_for_execution(
         &mut self,
         arg: &ConstGenericArg,
     ) -> Option<ConstGenericValue> {

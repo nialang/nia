@@ -538,6 +538,7 @@ pub enum FunctionCallee {
         arg_module_id: nia_ids::ModuleId,
         self_arg: Option<InternedTyId>,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
         receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
     },
@@ -595,7 +596,7 @@ pub struct FunctionBuiltinOperator {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBuiltinMethod {
-    Len,
+    SliceLen,
     Start,
     End,
     Iter,

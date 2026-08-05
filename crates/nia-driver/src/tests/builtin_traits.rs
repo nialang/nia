@@ -475,8 +475,8 @@ fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
 }
 
 #[test]
-fn builtin_len_method_and_ptr_traits_model_arrays_and_slices() {
-    let root = temp_dir("builtin_len_method_and_ptr_traits_model_arrays_and_slices");
+fn len_method_and_builtin_ptr_traits_model_arrays_and_slices() {
+    let root = temp_dir("len_method_and_builtin_ptr_traits_model_arrays_and_slices");
     write(
         &root.join("main.nia"),
         r##"
@@ -829,8 +829,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn builtin_len_trait_constrains_array_and_slice_length() {
-    let root = temp_dir("builtin_len_trait_constrains_array_and_slice_length");
+fn ordinary_len_trait_constrains_array_and_slice_length() {
+    let root = temp_dir("ordinary_len_trait_constrains_array_and_slice_length");
     write(
         &root.join("main.nia"),
         r#"
@@ -839,14 +839,38 @@ where T: Len {
     value.len()
 }
 
-fn associated_len_of[T](value: T) usize
-where T: Len {
-    [T]::len(value)
-}
-
 fn main(slice: & [usize]) usize {
     let mut array = [1usize, 2usize, 3usize, 4usize];
-    len_of(array) + associated_len_of(slice)
+    len_of(array) + slice.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_generic_len_bound_uses_the_demand_loaded_source_trait() {
+    let root = temp_dir("imported_generic_len_bound_uses_the_demand_loaded_source_trait");
+    write(
+        &root.join("api.nia"),
+        r#"
+pub fn lenOf[T](value: T) usize
+where T: Len {
+    value.len()
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using entry::api;
+
+fn main(slice: &[u8]) usize {
+    let array = [1u8, 2u8, 3u8];
+    api::lenOf(array) + slice.len()
 }
 "#,
     );
@@ -1098,8 +1122,8 @@ fn main() usize {
 }
 
 #[test]
-fn builtin_len_start_end_traits_allow_user_impls() {
-    let root = temp_dir("builtin_len_start_end_traits_allow_user_impls");
+fn ordinary_len_and_builtin_range_traits_allow_user_impls() {
+    let root = temp_dir("ordinary_len_and_builtin_range_traits_allow_user_impls");
     write(
         &root.join("main.nia"),
         r#"
@@ -1109,7 +1133,7 @@ struct Window {
 }
 
 extend Window : Len {
-    fn len(& self) usize {
+    const fn len(& self) usize {
         self.hi - self.lo
     }
 }
@@ -1157,8 +1181,8 @@ fn main() usize {
 }
 
 #[test]
-fn builtin_len_start_end_traits_validate_method_signatures() {
-    let root = temp_dir("builtin_len_start_end_traits_validate_method_signatures");
+fn ordinary_len_and_builtin_range_traits_validate_method_signatures() {
+    let root = temp_dir("ordinary_len_and_builtin_range_traits_validate_method_signatures");
     write(
         &root.join("main.nia"),
         r#"
@@ -1167,7 +1191,7 @@ struct BadStart {}
 struct BadEnd {}
 
 extend BadLen : Len {
-    fn len(self) i32 {
+    const fn len(self) i32 {
         1
     }
 }

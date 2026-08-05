@@ -277,17 +277,19 @@ fn match_type_pattern<'a>(
             Some(TyKind::Array {
                 len: actual_len,
                 elem: actual_elem,
-            }) if len == actual_len => match_type_pattern(
-                TypedTyRef {
-                    store: pattern.store,
-                    ty: *elem,
-                },
-                TypedTyRef {
-                    store: actual.store,
-                    ty: *actual_elem,
-                },
-                substitutions,
-            ),
+            }) if matches!(len, nia_ty::ArrayLenTy::GenericParam(_)) || len == actual_len => {
+                match_type_pattern(
+                    TypedTyRef {
+                        store: pattern.store,
+                        ty: *elem,
+                    },
+                    TypedTyRef {
+                        store: actual.store,
+                        ty: *actual_elem,
+                    },
+                    substitutions,
+                )
+            }
             _ => false,
         },
         TyKind::Range { kind, bound } => match actual.kind() {

@@ -155,7 +155,7 @@ pub mod known {
     known_symbol!(SLICE_MUT_TRAIT, "SliceMut");
     known_symbol!(PTR_TRAIT, "Ptr");
     known_symbol!(PTR_MUT_TRAIT, "PtrMut");
-    known_symbol!(LEN_TRAIT, "Len");
+    known_symbol!(LEN_TYPE, "Len");
     known_symbol!(START_TRAIT, "Start");
     known_symbol!(END_TRAIT, "End");
     known_symbol!(ITERABLE_TRAIT, "Iterable");
@@ -230,6 +230,7 @@ pub mod known {
     known_symbol!(FENCE, "fence");
     known_symbol!(EMBED, "embed");
     known_symbol!(CHAR_FROM_U32, "charFromU32");
+    known_symbol!(SLICE_LEN, "sliceLen");
 
     known_symbol!(ASM_CONFIG, "AsmConfig");
     known_symbol!(I8, "i8");
@@ -315,7 +316,7 @@ pub mod known {
         (SLICE_MUT_TRAIT, "SliceMut"),
         (PTR_TRAIT, "Ptr"),
         (PTR_MUT_TRAIT, "PtrMut"),
-        (LEN_TRAIT, "Len"),
+        (LEN_TYPE, "Len"),
         (START_TRAIT, "Start"),
         (END_TRAIT, "End"),
         (ITERABLE_TRAIT, "Iterable"),
@@ -388,6 +389,7 @@ pub mod known {
         (FENCE, "fence"),
         (EMBED, "embed"),
         (CHAR_FROM_U32, "charFromU32"),
+        (SLICE_LEN, "sliceLen"),
         (ASM_CONFIG, "AsmConfig"),
         (I8, "i8"),
         (I16, "i16"),
@@ -489,6 +491,7 @@ impl ToSymbolId for nia_ids::BuiltinFunction {
             Self::Fence => known::FENCE,
             Self::Embed => known::EMBED,
             Self::CharFromU32 => known::CHAR_FROM_U32,
+            Self::SliceLen => known::SLICE_LEN,
         }
     }
 }
@@ -523,7 +526,6 @@ impl ToSymbolId for nia_ids::BuiltinTraitMethod {
             Self::SliceMut => known::SLICE_MUT,
             Self::Ptr => known::PTR,
             Self::PtrMut => known::PTR_MUT,
-            Self::Len => known::LEN,
             Self::Start => known::START,
             Self::End => known::END,
             Self::IterableIter => known::ITER_METHOD,
@@ -560,7 +562,6 @@ impl ToSymbolId for nia_ids::BuiltinTrait {
             Self::SliceMut => known::SLICE_MUT_TRAIT,
             Self::Ptr => known::PTR_TRAIT,
             Self::PtrMut => known::PTR_MUT_TRAIT,
-            Self::Len => known::LEN_TRAIT,
             Self::Start => known::START_TRAIT,
             Self::End => known::END_TRAIT,
             Self::Iterable => known::ITERABLE_TRAIT,

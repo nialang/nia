@@ -456,11 +456,12 @@ impl BackendValidator<'_> {
                 arg_module_id,
                 self_arg,
                 args,
+                const_args,
                 receiver,
                 ..
             } => {
                 self.validate_expr(receiver);
-                if self_arg.is_none() && args.is_empty() {
+                if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
                     self.validate_function_ref(
                         *def_id,
                         span,
@@ -473,7 +474,7 @@ impl BackendValidator<'_> {
                             arg_module_id: *arg_module_id,
                             self_arg: *self_arg,
                             args,
-                            const_args: &[],
+                            const_args,
                         },
                         span,
                         "backend IR method call references missing function instance",

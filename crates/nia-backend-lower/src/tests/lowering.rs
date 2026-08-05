@@ -160,6 +160,7 @@ fn main() i32 {
             },
             impl_id,
             effective_generics: Vec::new(),
+            effective_const_generics: Vec::new(),
             trait_id: None,
             trait_args: Vec::new(),
             where_predicates: Vec::new(),
@@ -509,7 +510,7 @@ fn main() i32 {
 fn instantiates_const_generic_function_array_lengths_in_function_ir() {
     let source = r#"
 fn take[T, N: usize](items: [N]T) usize {
-    items.len()
+    N
 }
 
 fn main() usize {
@@ -575,7 +576,7 @@ fn make8() Buffer[u8, 8] {
 fn main() usize {
     let a = make4();
     let b = make8();
-    a.data.len() + b.data.len()
+    a.data[0] as usize + b.data[0] as usize
 }
 "#;
     let lowering = lower_source(source);

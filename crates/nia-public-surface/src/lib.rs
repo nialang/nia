@@ -3,8 +3,8 @@ use std::{borrow::Borrow, collections::HashMap};
 
 use nia_defs::{
     DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PathSegmentKind,
-    PublicItem, PublicNamespace, PublicSource, PublicSurfaces, UsingEntry, UsingGroupItem,
-    UsingName, UsingPathSegment, UsingSelector, Visibility,
+    PublicItem, PublicNamespace, PublicSource, PublicSurfaceLookup, PublicSurfaces, UsingEntry,
+    UsingGroupItem, UsingName, UsingPathSegment, UsingSelector, Visibility,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
@@ -12,7 +12,9 @@ use nia_imports::{
     ModuleGraph, ModuleRootSegment, module_declaration_visibility_allows, visibility_allows,
 };
 use nia_span::Span;
-use nia_symbol::{KnownSymbolText, SymbolId, SymbolMap, SymbolText, symbol_text_or_unresolved};
+use nia_symbol::{
+    KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, symbol_text_or_unresolved,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicSurfaceComputation {
@@ -450,6 +452,11 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
             (defs.module_id, defs)
         })
         .collect::<HashMap<_, _>>();
+    let len_prelude = graph
+        .std_package_root()
+        .and_then(|std| graph.get(std))
+        .and_then(|std| std.children.get(&known::BUILTIN).copied())
+        .and_then(|builtin| surfaces.public_type(builtin, &known::LEN_TYPE));
     let mut using_scopes: HashMap<ModuleId, ModuleUsingScope> = HashMap::new();
     for defs in defs_by_module {
         let defs = defs.borrow();
@@ -550,6 +557,21 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     }
                 }
             }
+        }
+        if !scope.types.contains_key(&known::LEN_TYPE)
+            && let Some(item) = &len_prelude
+        {
+            scope.types.insert(
+                known::LEN_TYPE,
+                UsingEntry {
+                    target_module: item.target_module,
+                    target_def_id: item.target_def_id,
+                    namespace: PublicNamespace::Type,
+                    directive_span: Span::default(),
+                    name_span: item.name_span,
+                    parent_enum: None,
+                },
+            );
         }
         using_scopes.insert(defs.module_id, scope);
     }

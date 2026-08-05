@@ -170,6 +170,7 @@ pub struct ProgramTraitImplSignature {
     pub impl_id: TraitImplId,
     pub builtin: Option<String>,
     pub generics: Vec<SymbolId>,
+    pub generic_params: Vec<GenericParamSignature>,
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
     pub trait_args: Vec<InternedTyId>,
@@ -319,6 +320,7 @@ pub struct TraitImplSignature {
     pub impl_id: TraitImplId,
     pub builtin: Option<String>,
     pub generics: Vec<SymbolId>,
+    pub generic_params: Vec<GenericParamSignature>,
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
     pub trait_span: Option<Span>,
@@ -840,6 +842,7 @@ impl<'a> SignatureCollector<'a> {
             impl_id,
             builtin: self.builtin_extend_attribute(&item.attributes),
             generics: generic_signature_names(&extend.generics),
+            generic_params: self.generic_param_signatures(&extend.generics),
             target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
                 .trait_ref
