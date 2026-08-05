@@ -30,8 +30,8 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_union_relocation_at_llvm_promotion_boundary() {
-    let root = temp_dir("rejects_union_relocation_at_llvm_promotion_boundary");
+fn emits_scalar_promoted_allocation_for_union_relocation() {
+    let root = temp_dir("emits_scalar_promoted_allocation_for_union_relocation");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -43,8 +43,10 @@ union Slot {
 
 const slot: Slot = { pointer: &34usize };
 
-fn main() Slot {
-    slot
+fn main() bool {
+    let left: Slot = slot;
+    let right: Slot = slot;
+    left.pointer == right.pointer
 }
 "#,
     )
@@ -53,14 +55,86 @@ fn main() Slot {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("linkonce_odr constant i64 34"), "{ir}");
+    assert!(ir.contains("store ptr @nia__promoted__"), "{ir}");
+}
 
-    assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("before promoted allocation materialization")),
-        "{:?}",
-        output.diagnostics
+#[test]
+fn keeps_distinct_scalar_promotion_origins_separate() {
+    let root = temp_dir("keeps_distinct_scalar_promotion_origins_separate");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const leftSlot: Slot = { pointer: &34usize };
+const rightSlot: Slot = { pointer: &34usize };
+
+fn main() bool {
+    let left: Slot = leftSlot;
+    let same: Slot = leftSlot;
+    let right: Slot = rightSlot;
+    left.pointer == same.pointer and left.pointer != right.pointer
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert_eq!(
+        ir.matches("linkonce_odr constant i64 34").count(),
+        2,
+        "{ir}"
     );
+}
+
+#[test]
+fn emits_imported_scalar_promotion_after_origin_module_is_ready() {
+    let root = temp_dir("emits_imported_scalar_promotion_after_origin_module_is_ready");
+    let main = root.join("main.nia");
+    std::fs::write(
+        root.join("defs.nia"),
+        r#"
+pub union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+pub const slot: Slot = { pointer: &55usize };
+"#,
+    )
+    .expect("write defs source");
+    std::fs::write(
+        &main,
+        r#"
+module defs;
+using entry::defs;
+
+fn main() usize {
+    let value: defs::Slot = defs::slot;
+    value.pointer.*
+}
+"#,
+    )
+    .expect("write main source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("linkonce_odr constant i64 55"), "{ir}");
+    assert!(ir.contains("store ptr @nia__promoted__"), "{ir}");
 }
 
 #[test]

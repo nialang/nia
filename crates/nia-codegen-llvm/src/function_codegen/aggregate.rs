@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionArrayElements, FunctionErrorUnionTag, FunctionExpr, FunctionFieldInit,
-    FunctionOptionalTag, FunctionUnionRelocation,
+    FunctionArrayElements, FunctionBuiltinValue, FunctionErrorUnionTag, FunctionExpr,
+    FunctionExprKind, FunctionFieldInit, FunctionOptionalTag, FunctionUnionRelocation,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::values::{BasicValueEnum, PointerValue};
@@ -172,14 +172,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if expected_size != Some(bytes.len()) {
             return Err(self.error(expr.span, "union storage literal has the wrong byte length"));
         }
-        if !relocations.is_empty() {
-            return Err(self.error(
-                expr.span,
-                "union storage relocation reached LLVM before promoted allocation materialization",
-            ));
+        let mut relocated_bytes = vec![false; bytes.len()];
+        for relocation in relocations {
+            let end = relocation
+                .offset
+                .checked_add(relocation.width)
+                .filter(|end| *end <= bytes.len())
+                .ok_or_else(|| {
+                    self.error(expr.span, "union storage relocation is out of bounds")
+                })?;
+            relocated_bytes[relocation.offset..end].fill(true);
         }
         let byte_ty = self.module.context.i8_type();
         for (offset, byte) in bytes.iter().enumerate() {
+            if relocated_bytes[offset] {
+                continue;
+            }
             let Some(byte) = byte else {
                 continue;
             };
@@ -195,7 +203,80 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_store(byte_ptr, byte_ty.const_int(u64::from(*byte), false))
                 .map_err(|_| self.error(expr.span, "failed to store union storage byte"))?;
         }
+        for relocation in relocations {
+            let offset = u64::try_from(relocation.offset).map_err(|_| {
+                self.error(expr.span, "union relocation offset is not representable")
+            })?;
+            let offset = self.module.context.i64_type().const_int(offset, false);
+            let relocation_ptr = unsafe {
+                self.builder
+                    .build_gep(byte_ty, ptr, &[offset], "union.relocation.ptr")
+                    .map_err(|_| {
+                        self.error(expr.span, "failed to address union relocation storage")
+                    })?
+            };
+            let promoted = self.emit_promoted_allocation_pointer(relocation)?;
+            let store = self
+                .builder
+                .build_store(relocation_ptr, promoted)
+                .map_err(|_| self.error(expr.span, "failed to store union relocation pointer"))?;
+            let align = u32::try_from(self.module.source.layouts.target.pointer_align)
+                .map_err(|_| self.error(expr.span, "artifact pointer alignment is too large"))?;
+            store.set_alignment(align);
+        }
         Ok(())
+    }
+
+    fn emit_promoted_allocation_pointer(
+        &mut self,
+        relocation: &FunctionUnionRelocation,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let pointee = &relocation.pointee;
+        let value = match &pointee.kind {
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
+                let ty = self
+                    .module
+                    .llvm_basic_type(pointee.ty, pointee.span)?
+                    .into_int_type()?;
+                ty.const_u128(value.bits()).into()
+            }
+            FunctionExprKind::Integer(text) => {
+                self.emit_integer_literal(pointee.ty, pointee.span, text)?
+            }
+            FunctionExprKind::Float(text) => {
+                self.emit_float_literal(pointee.ty, pointee.span, text)?
+            }
+            FunctionExprKind::Char(value) => {
+                self.emit_char_literal(pointee.ty, pointee.span, *value)?
+            }
+            FunctionExprKind::ByteChar(text) => {
+                self.emit_byte_char_literal(pointee.ty, pointee.span, text)?
+            }
+            FunctionExprKind::Bool(value) => self
+                .module
+                .context
+                .bool_type()
+                .const_int(u64::from(*value), false)
+                .into(),
+            FunctionExprKind::Null => self
+                .module
+                .llvm_basic_type(pointee.ty, pointee.span)?
+                .into_pointer_type()?
+                .const_null()
+                .into(),
+            _ => {
+                return Err(self.error(
+                    pointee.span,
+                    "promoted allocation pointee is not yet a scalar LLVM constant",
+                ));
+            }
+        };
+        self.module.materialize_promoted_allocation(
+            relocation.allocation,
+            pointee.ty,
+            value,
+            pointee.span,
+        )
     }
 
     pub(super) fn emit_optional_null(

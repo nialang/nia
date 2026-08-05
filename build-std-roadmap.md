@@ -3713,6 +3713,31 @@ globals, relocation stores, and one unified readonly-promotion path before
 pointer-containing const unions become executable; Round 2g3c retains the
 imported/generic executable matrix.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3b1 scalar promoted
+allocations): LLVM now lowers relocation-bearing union storage whose promoted
+pointee is a scalar constant. Ordinary initialized bytes are emitted while
+relocation ranges are skipped, then each range receives the address of a
+readonly promoted global. Its symbol combines the defining module's normalized
+source identity with the allocation-origin span, uses link-once ODR linkage
+across codegen partitions, retains the pointee ABI alignment, and is reused for
+every occurrence of the same `PromotedAllocationId`. Reusing an identity with a
+different pointee type is an internal error rather than creating a second
+address.
+
+Promoted origin modules are now explicit `FunctionBodyRefs` dependencies. This
+prevents imported scalar relocations from fingerprinting or emitting before the
+module that supplies their stable source identity is published. LLVM regressions
+cover one-origin deduplication, distinct equal-valued origins, and an imported
+origin with no incidental symbol dependency. The maintained native executable
+proves same-origin equality, distinct-origin inequality, and dereference value
+after object emission and linking.
+
+This closes scalar-only Round 2g3b1. Aggregate, vector, and nested-relocation
+pointees still diagnose at the LLVM constant boundary. Round 2g3b2 must provide
+their relocation-aware constant representation and replace the legacy
+per-occurrence static-array promotion counter with the same identity model;
+Round 2g3c remains the imported/generic differential closeout.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
