@@ -797,6 +797,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             4 => Ok(self.context.i32_type().into()),
             8 => Ok(self.context.i64_type().into()),
             16 => Ok(self.context.i128_type().into()),
+            align if align.is_power_of_two() && align <= u64::from(u32::MAX) => {
+                Ok(BasicTypeEnum::from(self.context.i8_type())
+                    .vector_type(align as u32)
+                    .into())
+            }
             _ => Err(self.error(span, format!("unsupported union alignment {align}"))),
         }
     }

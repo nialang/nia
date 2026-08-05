@@ -11,6 +11,7 @@ pub enum ConstValue {
     String(String),
     Pointer(Box<ConstValue>),
     Array(Vec<ConstValue>),
+    Vector(Vec<ConstValue>),
     Range(ConstRangeValue),
     Struct(BTreeMap<SymbolId, ConstValue>),
     Union(ConstUnionValue),
@@ -65,6 +66,11 @@ pub enum ConstAbiType {
         element: Box<ConstAbiType>,
         len: usize,
     },
+    Vector {
+        lane: ConstScalarType,
+        lanes: usize,
+        size: usize,
+    },
     Struct {
         fields: Vec<ConstAbiField>,
         size: usize,
@@ -87,6 +93,7 @@ impl ConstAbiType {
         match self {
             Self::Scalar(scalar) => Some(scalar.byte_len()),
             Self::Array { element, len } => element.byte_len()?.checked_mul(*len),
+            Self::Vector { size, .. } => Some(*size),
             Self::Struct { size, .. } => Some(*size),
             Self::Union { size, .. } => Some(*size),
         }
@@ -214,6 +221,12 @@ fn encode_abi_value(
         (ConstAbiType::Array { .. }, _) => {
             Err("const union field value does not match its array type".to_string())
         }
+        (ConstAbiType::Vector { lane, lanes, size }, ConstValue::Vector(values)) => {
+            encode_vector(*lane, *lanes, *size, values, endianness)
+        }
+        (ConstAbiType::Vector { .. }, _) => {
+            Err("const union field value does not match its vector type".to_string())
+        }
         (ConstAbiType::Struct { fields, size }, ConstValue::Struct(mut values)) => {
             let mut bytes = vec![0; *size];
             let mut initialized = vec![false; *size];
@@ -290,6 +303,9 @@ fn decode_abi_value(
             }
             Ok(ConstValue::Array(values))
         }
+        ConstAbiType::Vector { lane, lanes, size } => {
+            decode_vector(*lane, *lanes, *size, bytes, initialized, endianness)
+        }
         ConstAbiType::Struct { fields, size } => {
             if bytes.len() != *size {
                 return Err("const union struct field storage has the wrong length".to_string());
@@ -328,6 +344,95 @@ fn decode_abi_value(
             }))
         }
     }
+}
+
+fn vector_store_len(lane: ConstScalarType, lanes: usize) -> Option<usize> {
+    if lane == ConstScalarType::Bool {
+        lanes.checked_add(7)?.checked_div(8)
+    } else {
+        lane.byte_len().checked_mul(lanes)
+    }
+}
+
+fn encode_vector(
+    lane: ConstScalarType,
+    lanes: usize,
+    size: usize,
+    values: Vec<ConstValue>,
+    endianness: ConstEndianness,
+) -> Result<EncodedAbiValue, String> {
+    if values.len() != lanes {
+        return Err("const union vector field has the wrong lane count".to_string());
+    }
+    let store_len = vector_store_len(lane, lanes)
+        .filter(|store_len| *store_len <= size)
+        .ok_or_else(|| "const union vector field exceeds its layout".to_string())?;
+    let mut bytes = vec![0; size];
+    let mut initialized = vec![false; size];
+    if lane == ConstScalarType::Bool {
+        for (index, value) in values.into_iter().enumerate() {
+            let ConstValue::Bool(value) = value else {
+                return Err("const union vector lane does not match its bool type".to_string());
+            };
+            if value {
+                let byte = match endianness {
+                    ConstEndianness::Little => index / 8,
+                    ConstEndianness::Big => store_len - 1 - index / 8,
+                };
+                bytes[byte] |= 1 << (index % 8);
+            }
+        }
+        initialized[..store_len].fill(true);
+        return Ok(EncodedAbiValue { bytes, initialized });
+    }
+    let lane_len = lane.byte_len();
+    for (index, value) in values.into_iter().enumerate() {
+        let encoded = encode_scalar(lane, value, endianness)?;
+        let start = index * lane_len;
+        bytes[start..start + lane_len].copy_from_slice(&encoded);
+        initialized[start..start + lane_len].fill(true);
+    }
+    Ok(EncodedAbiValue { bytes, initialized })
+}
+
+fn decode_vector(
+    lane: ConstScalarType,
+    lanes: usize,
+    size: usize,
+    bytes: &[u8],
+    initialized: &[bool],
+    endianness: ConstEndianness,
+) -> Result<ConstValue, String> {
+    if bytes.len() != size {
+        return Err("const union vector field storage has the wrong length".to_string());
+    }
+    let store_len = vector_store_len(lane, lanes)
+        .filter(|store_len| *store_len <= size)
+        .ok_or_else(|| "const union vector field exceeds its layout".to_string())?;
+    if initialized[..store_len].iter().any(|byte| !byte) {
+        return Err("const union vector field reads uninitialized storage".to_string());
+    }
+    let mut values = Vec::with_capacity(lanes);
+    if lane == ConstScalarType::Bool {
+        for index in 0..lanes {
+            let byte = match endianness {
+                ConstEndianness::Little => index / 8,
+                ConstEndianness::Big => store_len - 1 - index / 8,
+            };
+            values.push(ConstValue::Bool(bytes[byte] & (1 << (index % 8)) != 0));
+        }
+        return Ok(ConstValue::Vector(values));
+    }
+    let lane_len = lane.byte_len();
+    for index in 0..lanes {
+        let start = index * lane_len;
+        values.push(decode_scalar(
+            lane,
+            &bytes[start..start + lane_len],
+            endianness,
+        )?);
+    }
+    Ok(ConstValue::Vector(values))
 }
 
 fn encode_scalar(

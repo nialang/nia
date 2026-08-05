@@ -356,7 +356,7 @@ impl Analyzer<'_> {
         let Some(function_id) = self.current_execution_function_id() else {
             return Vec::new();
         };
-        let Some(signatures) = self.signatures_for_module(function_id.module_id) else {
+        let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {
             return Vec::new();
         };
         let Some(signature) = signatures

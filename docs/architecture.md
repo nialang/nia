@@ -1034,12 +1034,13 @@ without forcing anonymous data into the runtime type interner.
 Const unions use a separate storage value, not `ConstValue::Struct` with one
 field. `ConstValue::Union` contains target-ordered bytes, one initialized bit per
 byte, and a stable const ABI descriptor for every supported field. A descriptor
-is a scalar, a recursively nested fixed array, a nominal struct containing
-layout-owned field offsets and an object size, or another untagged union with
-its complete field schema and storage size. There is deliberately no active or
-last-written field identity: source construction history is not part of an
-untagged union value. Reads decode the requested field from the shared bytes,
-and writes replace only that field's described byte and initialization ranges.
+is a scalar, a recursively nested fixed array, a SIMD vector with scalar lane
+schema and allocation size, a nominal struct containing layout-owned field
+offsets and an object size, or another untagged union with its complete field
+schema and storage size. There is deliberately no active or last-written field
+identity: source construction history is not part of an untagged union value.
+Reads decode the requested field from the shared bytes, and writes replace only
+that field's described byte and initialization ranges.
 
 `nia-layout` owns the primitive layouts and the union max-size/max-alignment
 formula used to size this storage. `nia-const-check` maps substituted semantic
@@ -1065,6 +1066,15 @@ uninitialized read. When runtime code projects a field from a union `const`,
 body IR lowering reads that field from the same stored bytes and materializes
 the decoded scalar, array, struct, or nested union.
 
+Vectors have a distinct `ConstValue::Vector`; they are not represented as
+arrays. Numeric lanes encode in lane order with artifact endianness. Boolean
+lanes encode as a packed integer mask with lane 0 as the least significant bit,
+and target-sized integer lanes use the artifact pointer width. Only the store
+width is initialized; allocation-tail padding remains absent. Concrete vector
+const values materialize into body IR through an internal splat followed by
+lane inserts, reusing the ordinary runtime SIMD lowering rather than adding a
+second backend literal model.
+
 Whole const unions use an internal `UnionStorageLiteral` rather than an ordinary
 source `UnionLiteral`. It carries one optional value per artifact byte through
 typed body IR and function IR. Backend validation requires a concrete nominal
@@ -1074,8 +1084,15 @@ being fabricated as zero. This path is used for expression temporaries, direct
 aggregate destinations, indirect arguments, and returns, so crossing from
 comptime into runtime preserves storage without reconstructing a field. Whole
 struct const values still materialize as ordinary `StructLiteral` expressions.
-Pointers and vectors remain a declaration-time const capability boundary until
-their provenance or lane representation has one explicit model.
+Pointers remain a declaration-time const capability boundary until provenance
+has one explicit model.
+
+Foreign const execution receives three disjoint signature-fact channels:
+types, functions, and values. Executable reachability may request each
+`SignatureItemSet` independently, so function-call resolution must use the
+function channel rather than assuming a type- or const-binding subset also
+contains function signatures. This keeps signature-facts mode equivalent to
+full-module const checking for nested imported `const fn` calls.
 
 Consumers outside `nia-const-check` should use the typed value surface's
 accessors for structural field and array element queries instead of duplicating
@@ -1171,6 +1188,13 @@ target change invalidate cached layout products. Standalone body-check entry
 points derive the same data layout from the `TargetConfig` in scope; the
 host-only convenience entry constructs `TargetConfig::host()` once and uses it
 for both checking and layout rather than assuming LP64 independently.
+
+`nia-layout::vector_layout` is the single vector storage owner used by frontend
+layout, backend validation, and LLVM lowering. It computes the byte-rounded
+native store width from lane bit width, including packed `bool` lanes, chooses
+the next power of two as ABI alignment, and rounds allocation size to that
+alignment. Backend-local scalar-alignment approximations are forbidden because
+they disagree with LLVM aggregate offsets and union stores.
 
 The algorithm reads every existing handle from the session `TypeStore` and
 publishes structural types created by generic substitution through a

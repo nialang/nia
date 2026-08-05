@@ -1728,6 +1728,10 @@ artifact layout, including field reordering and offsets. Their field bytes are
 initialized, while inter-field and trailing padding remains uninitialized.
 Nested unions recursively preserve the same raw bytes and initialization state;
 they do not acquire an active-field tag or field-construction identity.
+SIMD vectors preserve lane order and artifact endianness. Numeric lane payloads
+are stored consecutively, boolean mask lanes are bit-packed with lane 0 as the
+least significant bit, and vector allocation-tail padding remains
+uninitialized. Target-sized integer lanes use the artifact pointer width.
 Reading the struct itself decodes only its fields; reinterpreting it through a
 union field that covers padding is an uninitialized-storage error. Reading any
 other union field otherwise decodes the same bytes as runtime union access. A
@@ -1736,15 +1740,15 @@ field used for initial construction are uninitialized rather than implicitly
 zero. Invalid `bool` or `char` representations inside an array or struct are
 diagnosed at the containing element or field.
 
-The current const ABI codec is deliberately limited to scalars, fixed arrays,
+The current const ABI codec supports scalars, fixed arrays, SIMD vectors,
 nominal structs, and untagged unions recursively composed from those types.
 Nominal type and const arguments are substituted by declaration parameter kind
 and order; semantically equal const expressions and literal arguments identify
-the same concrete field type. A union containing pointers, vectors, or other
-unsupported aggregate fields is rejected in a `const fn` declaration until
-const evaluation has an explicit representation or pointer-provenance model for
-that field kind. Ordinary runtime unions retain the full semantics described in
-section 4.6.
+the same concrete field type. A union containing pointers or another
+unsupported field kind is rejected in a `const fn` declaration until const
+evaluation has an explicit representation or provenance model for that field
+kind. Ordinary runtime unions retain the full semantics described in section
+4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.
@@ -2394,7 +2398,15 @@ SIMD vector builtins operate on primitive vector types such as `u8x16` and
 `value`; `Vec` must be a SIMD vector type and `value` must have its lane type.
 `@extract(vector, index)` reads one lane, and `@insert(vector, index, value)`
 returns a copy of `vector` with one lane replaced. Lane indexes are integer
-values. Out-of-range indexes have backend-defined behavior.
+values. An out-of-range index is a const diagnostic during constant evaluation
+and traps before accessing a lane at runtime.
+
+Vector storage uses its native bit width. The store width is the byte-rounded
+total lane width, including one bit per boolean mask lane. Its ABI alignment is
+the next power of two of the store width, and its allocation size is rounded to
+that alignment. `splat`, `extract`, `insert`, and `bitmask` are dual-stage
+`const fn` builtins: the same operation may execute during constant evaluation
+or lower to runtime SIMD instructions.
 
 Vector comparisons return boolean mask vectors such as `boolx16`. `@bitmask`
 packs a boolean mask vector into `usize`, with lane 0 in the least significant

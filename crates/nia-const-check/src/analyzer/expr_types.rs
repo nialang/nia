@@ -420,7 +420,7 @@ impl Analyzer<'_> {
         };
         let function_id = resolved_callee.function_id;
         let signature = self
-            .signatures_for_module(function_id.module_id)?
+            .function_signatures_for_module(function_id.module_id)?
             .as_ref()
             .functions
             .get(&function_id.def_id)?

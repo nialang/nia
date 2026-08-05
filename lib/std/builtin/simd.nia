@@ -11,20 +11,20 @@ pub trait SimdMask : Simd {}
 
 // Creates a SIMD vector by splatting one lane value.
 @[builtin("splat")]
-pub fn splat[V](value: [V as Simd]::Lane) V
+pub const fn splat[V](value: [V as Simd]::Lane) V
 where V: Simd;
 
 // Extracts a SIMD lane.
 @[builtin("extract")]
-pub fn extract[V](vector: V, index: usize) [V as Simd]::Lane
+pub const fn extract[V](vector: V, index: usize) [V as Simd]::Lane
 where V: Simd;
 
 // Inserts a SIMD lane.
 @[builtin("insert")]
-pub fn insert[V](vector: V, index: usize, value: [V as Simd]::Lane) V
+pub const fn insert[V](vector: V, index: usize, value: [V as Simd]::Lane) V
 where V: Simd;
 
 // Converts a SIMD bool mask vector into a bitmask.
 @[builtin("bitmask")]
-pub fn bitmask[V](vector: V) usize
+pub const fn bitmask[V](vector: V) usize
 where V: SimdMask;

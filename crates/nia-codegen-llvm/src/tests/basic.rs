@@ -223,6 +223,50 @@ fn changed(v: u8x16, i: usize, x: u8) u8x16 {
         ir.contains("insertelement <16 x i8>"),
         "expected vector lane insert:\n{ir}"
     );
+    assert!(
+        ir.matches("icmp ult i64").count() >= 2
+            && ir.contains("extract.trap")
+            && ir.contains("insert.trap")
+            && ir.contains("llvm.trap"),
+        "expected checked SIMD lane indexes:\n{ir}"
+    );
+}
+
+#[test]
+fn vector_union_storage_uses_shared_native_alignment() {
+    let root = temp_dir("vector_union_storage_uses_shared_native_alignment");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+union WideSlot {
+    vector: u8x32,
+    bytes: [32]u8,
+}
+
+fn wrap(vector: u8x32) WideSlot {
+    { vector: vector }
+}
+
+fn read(slot: WideSlot) u8x32 {
+    slot.vector
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("type { <32 x i8> }")
+            && ir.contains("store <32 x i8>")
+            && ir.contains("align 32"),
+        "expected 32-byte vector union storage alignment:\n{ir}"
+    );
 }
 
 #[test]

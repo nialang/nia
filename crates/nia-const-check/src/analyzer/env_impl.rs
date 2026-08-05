@@ -253,7 +253,7 @@ impl ConstCommonEnv for Analyzer<'_> {
             .extend(resolved_const_substitutions);
         if let Some(function_id) = function_id {
             let return_type = self
-                .signatures_for_module(function_id.module_id)
+                .function_signatures_for_module(function_id.module_id)
                 .and_then(|signatures| {
                     signatures
                         .as_ref()
@@ -622,7 +622,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
             });
         };
         let function_id = resolved_callee.function_id;
-        let Some(signatures) = self.signatures_for_module(function_id.module_id) else {
+        let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {
             return Err(ConstError {
                 span,
                 message: "const expression can only call `const fn`".to_string(),
@@ -666,11 +666,6 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     },
                 )?
             };
-        if let Some(value) =
-            self.try_call_builtin_function(span, &signature, generic_args, &call_arg_exprs, &args)?
-        {
-            return Ok(value);
-        }
         let return_ty = self
             .substitute_ty_into_current_module(
                 function_id.module_id,
@@ -681,6 +676,30 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 span,
                 message: "cannot resolve const function return type".to_string(),
             })?;
+        if let Some(value) = self.try_call_builtin_function(
+            span,
+            &signature,
+            return_ty,
+            generic_args,
+            &call_arg_exprs,
+            &args,
+        )? {
+            if builtin_function(&signature).is_some_and(|builtin| {
+                matches!(
+                    builtin,
+                    BuiltinFunction::Splat
+                        | BuiltinFunction::Extract
+                        | BuiltinFunction::Insert
+                        | BuiltinFunction::Bitmask
+                )
+            }) {
+                let return_ty = ConstValueType::Runtime(return_ty);
+                let value = self.normalize_typed_const_value(value, &return_ty);
+                self.validate_typed_value(span, &value, &return_ty);
+                return Ok(value);
+            }
+            return Ok(value);
+        }
         let Some(function) = self.const_function_body(function_id) else {
             return Err(ConstError {
                 span,
@@ -920,6 +939,21 @@ impl Analyzer<'_> {
                     layout,
                 ))
             }
+            TyKind::Vector { elem, lanes } => {
+                let lane = const_union_scalar_type(elem, self.input.target.pointer_width)?;
+                if lane == ConstScalarType::Char {
+                    return None;
+                }
+                let layout = nia_layout::vector_layout(elem, lanes, target)?;
+                Some((
+                    ConstAbiType::Vector {
+                        lane,
+                        lanes: usize::try_from(lanes).ok()?,
+                        size: usize::try_from(layout.size).ok()?,
+                    },
+                    layout,
+                ))
+            }
             TyKind::Nominal {
                 def_id,
                 args,
@@ -1024,7 +1058,7 @@ impl Analyzer<'_> {
     ) -> Result<nia_const_eval::ResolvedConstCallOutput, ConstError> {
         let function_id = callee.function_id;
         let signature = self
-            .signatures_for_module(function_id.module_id)
+            .function_signatures_for_module(function_id.module_id)
             .and_then(|signatures| {
                 signatures
                     .as_ref()
@@ -1180,6 +1214,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         signature: &FunctionSignature,
+        return_ty: InternedTyId,
         generic_args: &[ResolvedConstGenericArg],
         _arg_exprs: &[ResolvedConstExpr],
         args: &[ConstValue],
@@ -1287,6 +1322,113 @@ impl Analyzer<'_> {
                     )))
                 }))))
             }
+            BuiltinFunction::Splat => {
+                if args.len() != 1 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `splat` expects exactly one lane value".to_string(),
+                    });
+                }
+                let TyKind::Vector { lanes, .. } = self.active_ty_kind(return_ty) else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `splat` requires a concrete vector return type"
+                            .to_string(),
+                    });
+                };
+                Ok(Some(ConstValue::Vector(vec![
+                    args[0].clone();
+                    lanes as usize
+                ])))
+            }
+            BuiltinFunction::Extract => {
+                if args.len() != 2 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `extract` expects a vector and lane index".to_string(),
+                    });
+                }
+                let ConstValue::Vector(values) = &args[0] else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `extract` requires a vector value".to_string(),
+                    });
+                };
+                let index = const_vector_index(span, &args[1], "extract")?;
+                values
+                    .get(index)
+                    .cloned()
+                    .map(Some)
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: format!(
+                            "builtin `extract` lane index {index} is out of range for {} lanes",
+                            values.len()
+                        ),
+                    })
+            }
+            BuiltinFunction::Insert => {
+                if args.len() != 3 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `insert` expects a vector, lane index, and lane value"
+                            .to_string(),
+                    });
+                }
+                let ConstValue::Vector(mut values) = args[0].clone() else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `insert` requires a vector value".to_string(),
+                    });
+                };
+                let index = const_vector_index(span, &args[1], "insert")?;
+                let lane_count = values.len();
+                let Some(lane) = values.get_mut(index) else {
+                    return Err(ConstError {
+                        span,
+                        message: format!(
+                            "builtin `insert` lane index {index} is out of range for {lane_count} lanes"
+                        ),
+                    });
+                };
+                *lane = args[2].clone();
+                Ok(Some(ConstValue::Vector(values)))
+            }
+            BuiltinFunction::Bitmask => {
+                if args.len() != 1 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `bitmask` expects exactly one mask vector".to_string(),
+                    });
+                }
+                let ConstValue::Vector(values) = &args[0] else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `bitmask` requires a mask vector".to_string(),
+                    });
+                };
+                if values.len() > 64 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `bitmask` supports at most 64 mask lanes".to_string(),
+                    });
+                }
+                let mut mask = 0u64;
+                for (index, value) in values.iter().enumerate() {
+                    let ConstValue::Bool(value) = value else {
+                        return Err(ConstError {
+                            span,
+                            message: "builtin `bitmask` requires boolean mask lanes".to_string(),
+                        });
+                    };
+                    if *value {
+                        mask |= 1u64 << index;
+                    }
+                }
+                Ok(Some(ConstValue::Int(nia_ty::IntConst::unsigned(
+                    u128::from(mask),
+                ))))
+            }
             _ => Err(ConstError {
                 span,
                 message: format!(
@@ -1296,6 +1438,25 @@ impl Analyzer<'_> {
             }),
         }
     }
+}
+
+fn const_vector_index(span: Span, value: &ConstValue, builtin: &str) -> Result<usize, ConstError> {
+    let ConstValue::Int(value) = value else {
+        return Err(ConstError {
+            span,
+            message: format!("builtin `{builtin}` requires an integer lane index"),
+        });
+    };
+    if value.is_signed() && value.as_i128().is_some_and(|value| value < 0) {
+        return Err(ConstError {
+            span,
+            message: format!("builtin `{builtin}` lane index cannot be negative"),
+        });
+    }
+    usize::try_from(value.bits()).map_err(|_| ConstError {
+        span,
+        message: format!("builtin `{builtin}` lane index is not representable"),
+    })
 }
 
 impl Analyzer<'_> {

@@ -828,6 +828,125 @@ const INVALID_BOOL: bool = BOOL_BITS.flag;
     }
 }
 
+#[test]
+fn vector_union_fields_follow_artifact_endianness() {
+    for (endian, expected) in [
+        ("little", [0x22, 0x11, 0x44, 0x33]),
+        ("big", [0x11, 0x22, 0x33, 0x44]),
+    ] {
+        let mut target = nia_target_config::TargetConfig::host();
+        target.endian = endian.to_string();
+        let fixture = check_source_for_target(
+            r#"
+@[builtin("splat")]
+const fn splat[V](value: u16) V;
+
+@[builtin("insert")]
+const fn insert[V](vector: V, index: usize, value: u16) V;
+
+union VectorBytes {
+    vector: u16x2,
+    bytes: [4]u8,
+}
+
+const VECTOR: u16x2 = insert[u16x2](splat[u16x2](4386), 1, 13124);
+const STORAGE: VectorBytes = { vector: VECTOR };
+const BYTES: [4]u8 = STORAGE.bytes;
+"#,
+            target,
+        );
+        assert!(
+            fixture.checked.diagnostics.is_empty(),
+            "{:?}",
+            fixture.checked.diagnostics
+        );
+        assert_eq!(
+            const_value(&fixture, "BYTES"),
+            ConstValue::Array(
+                expected
+                    .map(|value| ConstValue::Int(IntConst::unsigned(value as u128)))
+                    .into()
+            )
+        );
+    }
+}
+
+#[test]
+fn usize_vector_union_fields_follow_artifact_pointer_width() {
+    for (pointer_width, bytes_len) in [(32, 8), (64, 16)] {
+        let mut target = nia_target_config::TargetConfig::host();
+        target.pointer_width = pointer_width;
+        target.endian = "little".to_string();
+        let source = format!(
+            r#"
+@[builtin("splat")]
+const fn splat[V](value: usize) V;
+
+@[builtin("insert")]
+const fn insert[V](vector: V, index: usize, value: usize) V;
+
+union VectorBytes {{
+    vector: usizex2,
+    bytes: [{bytes_len}]u8,
+}}
+
+const VECTOR: usizex2 = insert[usizex2](splat[usizex2](1), 1, 2);
+const STORAGE: VectorBytes = {{ vector: VECTOR }};
+const BYTES: [{bytes_len}]u8 = STORAGE.bytes;
+"#,
+        );
+        let fixture = check_source_for_target(&source, target);
+        assert!(
+            fixture.checked.diagnostics.is_empty(),
+            "{:?}",
+            fixture.checked.diagnostics
+        );
+        let ConstValue::Array(bytes) = const_value(&fixture, "BYTES") else {
+            panic!("usize vector bytes must be an array");
+        };
+        assert_eq!(bytes.len(), bytes_len);
+        assert_eq!(bytes[0], ConstValue::Int(IntConst::unsigned(1)));
+        assert_eq!(
+            bytes[pointer_width as usize / 8],
+            ConstValue::Int(IntConst::unsigned(2))
+        );
+    }
+}
+
+#[test]
+fn float_vector_union_fields_preserve_lane_bits() {
+    let fixture = check_source(
+        r#"
+@[builtin("splat")]
+const fn splat[V](value: f32) V;
+
+@[builtin("insert")]
+const fn insert[V](vector: V, index: usize, value: f32) V;
+
+union VectorWords {
+    vector: f32x2,
+    words: [2]u32,
+}
+
+const VECTOR: f32x2 = insert[f32x2](splat[f32x2](1.0), 1, -2.5);
+const STORAGE: VectorWords = { vector: VECTOR };
+const WORDS: [2]u32 = STORAGE.words;
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "WORDS"),
+        ConstValue::Array(vec![
+            ConstValue::Int(IntConst::unsigned(0x3f80_0000)),
+            ConstValue::Int(IntConst::unsigned(0xc020_0000)),
+        ])
+    );
+}
+
 fn const_value(fixture: &CheckedFixture, name: &str) -> ConstValue {
     let def_id = fixture
         .defs

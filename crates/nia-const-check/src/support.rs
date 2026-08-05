@@ -30,6 +30,22 @@ pub(crate) fn validate_assignment_shape(
                 validate_assignment_shape(diagnostics, span, value, previous, symbol_name);
             }
         }
+        (ConstValue::Vector(values), ConstValue::Vector(previous_values)) => {
+            if values.len() != previous_values.len() {
+                diagnostics.push(Diagnostic::user_error_at(
+                    codes::CONST,
+                    span,
+                    format!(
+                        "const vector lane count {} does not match expected lane count {}",
+                        values.len(),
+                        previous_values.len()
+                    ),
+                ));
+            }
+            for (value, previous) in values.iter().zip(previous_values) {
+                validate_assignment_shape(diagnostics, span, value, previous, symbol_name);
+            }
+        }
         (ConstValue::Struct(values), ConstValue::Struct(previous_values)) => {
             let previous_names = previous_values.keys().cloned().collect::<HashSet<_>>();
             for (name, previous) in previous_values {

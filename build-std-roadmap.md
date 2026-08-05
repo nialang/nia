@@ -3551,6 +3551,43 @@ runtime argument, then reinterpret it again to prove that the stage boundary
 preserves the exact byte state. This closes nested union storage Round 2e;
 vectors and pointer provenance remain later representation rounds.
 
+Dual-stage const hardening progress (2026-08-05, Round 2f vector
+representation): vector support is an artifact-representation round, not only
+another const evaluator value variant. `nia-layout` is the owner of the vector
+storage contract. A
+vector's store width is the byte-rounded total lane bit width, including packed
+`bool` mask lanes; its ABI alignment is the next power of two of that store
+width, and its allocation size is rounded to that alignment. All layout
+consumers must call that shared rule instead of retaining backend-local copies.
+This also corrects the existing mismatch where Nia described `boolx16` as 16
+bytes and `u8x16` as byte-aligned while LLVM stores them as a 2-byte mask and a
+16-byte-aligned vector respectively.
+
+Const evaluation now has a distinct vector value and ABI descriptor. Vector
+encoding and decoding preserve lane order, artifact endianness, floating-point
+bits, packed boolean masks, target-sized integer lanes, and any allocation tail
+padding without conflating vectors with arrays. The minimal SIMD construction
+and observation surface (`splat`, `extract`, `insert`, and `bitmask`) becomes
+`const fn`; their evaluator uses the fully instantiated concrete signature, so
+expected-return inference and explicit generic arguments take the same path.
+Lane-wise arithmetic and comparison are not silently claimed by this round and
+remain a later const-execution decision.
+
+`extract` and `insert` now have one stage-independent bounds contract. A
+constant out-of-range index produces a const diagnostic; a runtime
+out-of-range index traps before LLVM's element instruction, so LLVM poison is
+not observable language behavior. The executable regressions cover both
+paths, direct runtime SIMD use after comptime construction, imported generic
+vector unions, whole-union runtime materialization followed by another
+reinterpretation, little- and big-endian integer storage, floating-point bit
+preservation, boolean packing and `bitmask`, 32- and 64-bit `usize` lanes, and
+LLVM IR alignment for vector fields in union storage. Executable signature-fact
+mode also gained a distinct foreign function-signature channel after this round
+exposed that its Types and Values subsets could not resolve nested imported
+`const fn` calls. Pointer provenance stays outside Round 2f and remains its own
+representation and ownership design. This closes vector representation Round
+2f without claiming lane-wise operator const execution.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

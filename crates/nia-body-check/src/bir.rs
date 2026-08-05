@@ -1560,6 +1560,46 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             TyKind::Array { .. } => self.materialize_const_array_expr(span, ty, value),
+            TyKind::Vector { elem, lanes } => {
+                let nia_const_check::ConstValue::Vector(values) = value else {
+                    return None;
+                };
+                if values.len() != lanes as usize {
+                    return None;
+                }
+                let lane_ty = self.primitive(elem);
+                let first = values.first()?.clone();
+                let mut vector = TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Splat {
+                        value: Box::new(self.lower_const_value_expr(span, lane_ty, Some(first))),
+                    },
+                };
+                let usize_ty = self.primitive(nia_ty::PrimitiveTy::Usize);
+                for (index, value) in values.iter().enumerate().skip(1) {
+                    vector = TypedExpr {
+                        span,
+                        ty,
+                        kind: TypedExprKind::InsertElement {
+                            vector: Box::new(vector),
+                            index: Box::new(TypedExpr {
+                                span,
+                                ty: usize_ty,
+                                kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(
+                                    nia_ty::IntConst::unsigned(index as u128),
+                                )),
+                            }),
+                            value: Box::new(self.lower_const_value_expr(
+                                span,
+                                lane_ty,
+                                Some(value.clone()),
+                            )),
+                        },
+                    };
+                }
+                Some(vector)
+            }
             TyKind::Nominal { def_id, .. }
                 if !self.is_union_def(def_id)
                     && self.resolved_struct_signature(def_id).is_some() =>
