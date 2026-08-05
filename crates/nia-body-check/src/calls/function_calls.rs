@@ -443,9 +443,11 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        let Some(lowered_args) =
-            self.lower_bracket_args_for_generic_params(span, &signature.generic_params, type_args)
-        else {
+        let Some(lowered_args) = self.lower_call_bracket_args_for_generic_params(
+            span,
+            &signature.generic_params,
+            type_args,
+        ) else {
             for arg in args {
                 self.check_expr(arg);
             }

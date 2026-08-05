@@ -205,15 +205,17 @@ instead of treating reference equality as sequence equality. `split` produces
 borrowed segments through ordinary `for`, preserving empty segments at leading,
 trailing, or adjacent separators without allocating owned strings.
 Textual value parsing is owned by the root `std::parse` module rather than by
-formatting. `parse::value[T](input)` performs ordinary parsing and
-`parse::radix[T](input, radix)` parses bare integer digits in radix 2 through
-36. The public `parse::From[Input]` and `parse::FromRadix[Input]` protocols let
-character slices, byte slices, C-string views, process arguments, and
-environment values share those entry points without making `fmt` own their
+formatting. Supported inputs provide `input.parse[T]()` for ordinary parsing
+and `input.parseRadix[T](radix)` for bare integer digits in radix 2 through 36.
+Character slices, byte slices, `CStringView`, process arguments, and environment
+values own these receiver methods. The public `parse::From[Input]` and
+`parse::FromRadix[Input]` result-side protocols let values accept these source
+types without separate byte-specific result APIs or making `fmt` own their
 adapters. Each protocol has an associated error type, so user-defined parsers
 retain their domain errors; `bool` intentionally has no radix capability.
-Protocol methods use `parse` and `parseRadix`; the former snake-case methods
-and `fmt` parsing reexports are physically absent. Integer prefixes, sign
+Protocol methods use `from` and `fromRadix`; no parallel free-function parsing
+facade is exported. The former snake-case methods and `fmt` parsing reexports
+are physically absent. Integer prefixes, sign
 handling, bounds, and the `parse::Error` distinctions remain explicit and
 allocation-free.
 With `std::hash` imported, `[char]` and `String` implement `Hash[H]` for

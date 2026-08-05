@@ -175,7 +175,7 @@ module parse;
 using entry::parse;
 
 fn main() i32 {
-parse::value[i32](&"abc")
+(&"abc").parse[i32]()
 }
 "#,
     );
@@ -186,7 +186,7 @@ parse::value[i32](&"abc")
         "parse.nia",
         r#"
 pub module parse_impl;
-pub using parse_impl::{From, value};
+pub using parse_impl::From;
 "#,
     );
     let parse_impl_id = fixture.add_child(
@@ -195,23 +195,26 @@ pub using parse_impl::{From, value};
         "fmt/parse_impl.nia",
         r#"
 pub trait From[Input] {
-fn parse(input: Input) Self;
+fn from(input: Input) Self;
 }
 
-pub fn value[T, Input](input: Input) T
-where T: From[Input]
+extend[Unit] [Unit]
+where Unit: Sized
 {
-[T]::parse(input)
+pub fn parse[T](&self) T
+where T: From[&[Unit]] {
+[T]::from(self)
+}
 }
 
 extend i32 : From[&[char]] {
-fn parse(input: &[char]) i32 {
+fn from(input: &[char]) i32 {
     input.len() as i32
 }
 }
 
 extend i32 : From[&[u8]] {
-fn parse(input: &[u8]) i32 {
+fn from(input: &[u8]) i32 {
     input.len() as i32
 }
 }

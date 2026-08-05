@@ -2866,7 +2866,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 return process::exit(18)!;
             }
         } else if for_count == 1 {
-            switch parse::value[u16](arg) {
+            switch arg.parse[u16]() {
                 !value => {
                     if value != 1234 {
                         return process::exit(19)!;
@@ -2895,13 +2895,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if second.len() != 4 {
         return process::exit(6)!;
     }
-    switch parse::value[u16](second_arg) {
+    switch second_arg.parse[u16]() {
         !value => { if value != 1234 {
                 return process::exit(14)!;
             } },
         error! => { return process::exit(15)!; },
     }
-    switch parse::radix[u16](second_arg, 16) {
+    switch second_arg.parseRadix[u16](16) {
         !value => { if value != 0x1234 {
                 return process::exit(16)!;
             } },

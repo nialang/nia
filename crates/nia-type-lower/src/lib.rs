@@ -628,7 +628,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
                 self.visit_expr(callee);
                 for arg in args {
                     if let Some(ty) = &arg.ty {
-                        self.lower_type_in_context(ty, TypeContext::Value);
+                        if !matches!(ty.kind, TypeKind::Infer) {
+                            self.lower_type_in_context(ty, TypeContext::Value);
+                        }
                     } else if let Some(expr) = &arg.expr {
                         self.visit_expr(expr);
                     }

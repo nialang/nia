@@ -691,7 +691,7 @@ fn targetArg(
             return build::Error::Internal(build::ErrorOperation::Initialize)!;
         },
     };
-    let pointerWidth = switch parse::value[u32](pointerWidthArg) {
+    let pointerWidth = switch pointerWidthArg.parse[u32]() {
         !value => {
             value
         },
@@ -719,7 +719,7 @@ fn u32Arg(
             return build::Error::Internal(build::ErrorOperation::Initialize)!;
         },
     };
-    switch parse::value[u32](arg) {
+    switch arg.parse[u32]() {
         !value => !value,
         error! => {
             _ = error;

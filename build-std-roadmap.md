@@ -2920,9 +2920,9 @@ process workflow remain the next reconstruction work.
 
 Standard-library reconstruction progress (2026-08-03, textual parsing batch):
 textual value parsing is now the independent root `std::parse` facade rather
-than a formatting submodule. Ordinary `parse::value[T](input)` and explicit
-`parse::radix[T](input, radix)` calls accept character slices, byte slices,
-C-string views, process arguments, and environment values. `parse::From` and
+than a formatting submodule. Character slices, byte slices, C-string views,
+process arguments, and environment values expose ordinary `input.parse[T]()`
+and explicit `input.parseRadix[T](radix)` calls. `parse::From` and
 `parse::FromRadix` are separate capabilities with associated error types:
 custom values retain domain-specific failures, while `bool` does not pretend
 to support radix parsing. Primitive integer errors retain empty, digit, sign,
@@ -2936,13 +2936,10 @@ the C-string/process adapters now depend on parsing directly, so `fmt` owns
 only formatting. The reviewed build-host closure records the new shallow
 facade and provider instead of the deleted `std/fmt/parse.nia` path.
 
-The intended `parse::value[i32](&"123")` spelling exposed a general inference
-gap when other nominal `From` candidates were visible: fixed-array pointers
-were committed as the generic input before their ordinary slice coercion could
-select the where-clause candidate. Function-call candidate filtering now
-compares literal and stable reference targets against exact pointer types and
-pointer-array-to-slice coercions before committing substitutions. Character
-and byte literals, named arrays, and array fields are covered without `[..]`.
+The receiver surface leaves the input type with its owning source API, so
+fixed-array pointers take their ordinary slice coercion before result-protocol
+selection. Character and byte literals, named arrays, and array fields are
+covered without `[..]`.
 All 153 body-check tests, focused cross-module visibility/reachability tests,
 primitive/custom-error and process-argument executable regressions, one
 production configured build, strict workspace Clippy, formatting, and the
@@ -3464,6 +3461,29 @@ comptime and runtime, crosses the whole-const-struct boundary, and projects the
 materialized rvalue after LLVM emission. This closes nominal struct union Round
 2c. Const-generic nominal structs, nested union storage, vectors, and pointer
 provenance remain open representation rounds.
+
+Standard-library reconstruction progress (2026-08-05, receiver parsing and
+generic-call cleanup): textual parsing now has one ordinary user surface:
+supported inputs expose `input.parse[T]()` and `input.parseRadix[T](radix)`.
+Borrowed character and byte slices own the structural receiver extension;
+`CStringView`, `Arg`, and `EnvVar` own their view-specific methods. The
+result-side `parse::From[Input]` and `parse::FromRadix[Input]` protocols retain
+input polymorphism and associated error types, with `from` and `fromRadix` as
+their implementation methods. The redundant free-function facade is physically
+absent rather than retained as an alias.
+
+The facade had introduced a language-wide implicit-prefix rule solely to hide
+its second `Input` generic. That rule is now removed: an explicit generic
+function-call list has the declaration's full arity, while `_` explicitly marks
+each type or const position that inference must fill. Omitting brackets still
+requests full inference. Bracket `_` is deferred by syntax type-lowering and
+consumed by function-call binding, so no inference sentinel leaks into semantic
+types, const arguments, monomorphization, or backend IR. The 12-test type-lower,
+167-test body-check, 198-test compiler-query, 559-test driver, and 122-case
+build-library suites pass (one build helper is intentionally ignored), together
+with primitive/custom-error and process-argument emitted executables. Workspace
+check, strict all-target Clippy, formatting, old-surface search, and diff
+whitespace audit also pass.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

@@ -120,7 +120,7 @@ module parse;
 using entry::parse;
 
 pub fn main() i32 {
-parse::value[i32, parse::Input](parse::Input {})
+(parse::Input {}).parse[i32]()
 }
 "#,
     );
@@ -133,17 +133,18 @@ parse::value[i32, parse::Input](parse::Input {})
 pub struct Input {}
 
 pub trait From[Input] {
-fn parse(input: Input) Self;
+fn from(input: Input) Self;
 }
 
-pub fn value[T, Input](input: Input) T
-where T: From[Input]
-{
-[T]::parse(input)
+extend Input {
+pub fn parse[T](self) T
+where T: From[Input] {
+[T]::from(self)
+}
 }
 
 extend i32 : From[Input] {
-fn parse(input: Input) i32 {
+fn from(input: Input) i32 {
     _ = input;
     42
 }
@@ -159,25 +160,25 @@ fn parse(input: Input) i32 {
         .iter()
         .find(|module| module.id == parse_id)
         .expect("parse module should be executable-reachable");
-    let parse_method = parse_module
+    let from_method = parse_module
         .defs
         .defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.name == sym("parse") && def.kind == nia_defs::DefKind::Method).then_some(
+            (def.name == sym("from") && def.kind == nia_defs::DefKind::Method).then_some(
                 GlobalDefId {
                     module_id: parse_id,
                     def_id,
                 },
             )
         })
-        .expect("impl parse method should be defined");
+        .expect("impl from method should be defined");
 
     assert!(
         parse_module
             .body_ir
             .function_bodies
-            .contains_key(&parse_method),
+            .contains_key(&from_method),
         "matched trait impl method body should be retained for executable codegen"
     );
 }
