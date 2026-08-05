@@ -12,7 +12,7 @@ use nia_const_ir::{
 use nia_ids::{LayoutBuiltin, ModuleId, ModuleIdAllocator, ValueBuiltin};
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
-use nia_ty::IntConst;
+use nia_ty::{IntConst, PrimitiveTy, TypeStore};
 use std::collections::BTreeMap;
 
 #[test]
@@ -48,8 +48,9 @@ fn pointer_union_storage_requires_an_exact_relocation() {
         is_readonly: true,
         pointee: Box::new(ConstValue::Int(IntConst::unsigned(21))),
     };
+    let pointee = test_pointee_ty();
     let fields = BTreeMap::from([
-        (pointer_field, ConstAbiType::Pointer { size: 8 }),
+        (pointer_field, ConstAbiType::Pointer { size: 8, pointee }),
         (
             integer_field,
             ConstAbiType::Scalar(ConstScalarType::Integer {
@@ -127,6 +128,7 @@ fn nested_aggregate_union_storage_preserves_pointer_relocations() {
         bits: 8,
         signed: false,
     });
+    let pointee = test_pointee_ty();
     let holder_abi = ConstAbiType::Struct {
         fields: vec![
             ConstAbiField {
@@ -140,7 +142,7 @@ fn nested_aggregate_union_storage_preserves_pointer_relocations() {
             ConstAbiField {
                 name: pointer_field,
                 offset: 8,
-                ty: ConstAbiType::Pointer { size: 8 },
+                ty: ConstAbiType::Pointer { size: 8, pointee },
             },
         ],
         size: 16,
@@ -201,8 +203,9 @@ fn nested_union_storage_preserves_pointer_relocations() {
         is_readonly: true,
         pointee: Box::new(ConstValue::Int(IntConst::unsigned(55))),
     };
+    let pointee = test_pointee_ty();
     let inner_fields = BTreeMap::from([
-        (pointer_field, ConstAbiType::Pointer { size: 8 }),
+        (pointer_field, ConstAbiType::Pointer { size: 8, pointee }),
         (
             integer_field,
             ConstAbiType::Scalar(ConstScalarType::Integer {
@@ -249,6 +252,13 @@ fn nested_union_storage_preserves_pointer_relocations() {
 
 fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
+}
+
+fn test_pointee_ty() -> nia_ids::InternedTyId {
+    let mut modules = ModuleIdAllocator::new();
+    TypeStore::new()
+        .append_for_module(modules.allocate())
+        .primitive(PrimitiveTy::Usize)
 }
 
 #[path = "tests/lowered_collections.rs"]

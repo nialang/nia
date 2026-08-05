@@ -30,6 +30,40 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_union_relocation_at_llvm_promotion_boundary() {
+    let root = temp_dir("rejects_union_relocation_at_llvm_promotion_boundary");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+union Slot {
+    pointer: &usize,
+    integer: usize,
+}
+
+const slot: Slot = { pointer: &34usize };
+
+fn main() Slot {
+    slot
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("before promoted allocation materialization")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
 fn emits_const_generic_function_and_nominal_array_instances() {
     let root = temp_dir("emits_const_generic_function_and_nominal_array_instances");
     let main = root.join("main.nia");

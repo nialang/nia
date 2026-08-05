@@ -292,6 +292,11 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::UnionLiteral { field, .. } => {
             collect_function_refs_from_expr(&field.value, types, refs);
         }
+        FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+            for relocation in relocations {
+                collect_function_refs_from_expr(&relocation.pointee, types, refs);
+            }
+        }
         FunctionExprKind::AddrOf(place) => collect_function_refs_from_place(place, types, refs),
         FunctionExprKind::Binary { lhs, rhs, .. } => {
             collect_function_refs_from_expr(lhs, types, refs);
@@ -355,7 +360,6 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Local(_)
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)
-        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::Trap => {}
         FunctionExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);
@@ -913,5 +917,56 @@ mod tests {
         reference.span = Span::new(3, 4);
 
         assert_eq!(reference.key(), key);
+    }
+
+    #[test]
+    fn union_storage_relocation_pointee_participates_in_reachability() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Usize);
+        let pointee_global = global(module_id, 1);
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![FunctionOp::Expr(expr(
+                    ty,
+                    FunctionExprKind::UnionStorageLiteral {
+                        bytes: vec![None; 8],
+                        relocations: vec![crate::FunctionUnionRelocation {
+                            offset: 0,
+                            width: 8,
+                            allocation: crate::PromotedAllocationId::new(
+                                module_id,
+                                Span::new(4, 7),
+                            ),
+                            pointee: Box::new(expr(ty, FunctionExprKind::Global(pointee_global))),
+                        }],
+                    },
+                ))],
+                terminator: FunctionTerminator::Tail {
+                    value: None,
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        };
+
+        let refs = body.value_refs(&types);
+
+        assert_eq!(refs.globals, BTreeSet::from([pointee_global]));
+        assert!(refs.types.contains(&ty));
     }
 }

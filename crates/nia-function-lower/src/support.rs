@@ -1000,9 +1000,13 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }
-                | TypedExprKind::UnionStorageLiteral { .. }
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::Trap => {}
+                TypedExprKind::UnionStorageLiteral { relocations, .. } => {
+                    for relocation in relocations {
+                        visit_expr(&relocation.pointee, max_id);
+                    }
+                }
             }
         }
 

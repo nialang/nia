@@ -713,8 +713,12 @@ fn collect_typed_expr_refs(
         | TypedExprKind::Bool(_)
         | TypedExprKind::Null
         | TypedExprKind::ConstGeneric(_)
-        | TypedExprKind::UnionStorageLiteral { .. }
         | TypedExprKind::Local(_) => {}
+        TypedExprKind::UnionStorageLiteral { relocations, .. } => {
+            for relocation in relocations {
+                collect_typed_expr_refs(module, &relocation.pointee, refs);
+            }
+        }
         TypedExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);
         }

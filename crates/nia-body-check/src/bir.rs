@@ -10,7 +10,8 @@ use nia_body_ir::{
     TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedIfPattern,
     TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
     TypedPattern, TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedWhile,
+    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedUnionRelocation,
+    TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -1629,9 +1630,34 @@ impl<'a> BodyChecker<'a> {
                 let nia_const_check::ConstValue::Union(union) = value else {
                     return None;
                 };
-                if !union.relocations().is_empty() {
-                    return None;
-                }
+                let relocations = union
+                    .relocations()
+                    .iter()
+                    .map(|relocation| {
+                        let nia_const_check::ConstPointerValue::Frozen {
+                            origin,
+                            is_readonly: true,
+                            pointee,
+                        } = relocation.pointer()
+                        else {
+                            return None;
+                        };
+                        let module_id = origin.module_id()?;
+                        Some(TypedUnionRelocation {
+                            offset: relocation.offset(),
+                            width: relocation.width(),
+                            allocation: nia_body_ir::PromotedAllocationId::new(
+                                module_id,
+                                origin.span(),
+                            ),
+                            pointee: Box::new(self.lower_const_value_expr(
+                                origin.span(),
+                                relocation.pointee(),
+                                Some((**pointee).clone()),
+                            )),
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
                 Some(TypedExpr {
                     span,
                     ty,
@@ -1642,6 +1668,7 @@ impl<'a> BodyChecker<'a> {
                             .zip(union.initialized())
                             .map(|(byte, initialized)| initialized.then_some(*byte))
                             .collect(),
+                        relocations,
                     },
                 })
             }

@@ -442,8 +442,8 @@ const slot: Slot = dangling();
 }
 
 #[test]
-fn runtime_union_materialization_waits_for_relocation_lowering() {
-    let root = temp_dir("runtime_union_materialization_waits_for_relocation_lowering");
+fn runtime_union_relocation_reaches_function_ir_with_promoted_identity() {
+    let root = temp_dir("runtime_union_relocation_reaches_function_ir_with_promoted_identity");
     write(
         &root.join("main.nia"),
         r#"
@@ -460,13 +460,48 @@ fn main() Slot {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("runtime expression cannot use this const value")),
-        "{:?}",
-        program.diagnostics
-    );
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let main = main_module
+        .functions
+        .iter()
+        .find(|function| function.name == sym("main"))
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main body");
+    let relocation = body
+        .blocks
+        .iter()
+        .find_map(|block| match &block.terminator {
+            nia_function_ir::FunctionTerminator::Return {
+                value: Some(value), ..
+            }
+            | nia_function_ir::FunctionTerminator::Tail {
+                value: Some(value), ..
+            } => match &value.kind {
+                nia_function_ir::FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                    relocations.first()
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("const union return relocation");
+
+    assert_eq!(relocation.offset, 0);
+    assert_eq!(relocation.width, 8);
+    assert_eq!(relocation.allocation.module_id(), main_module.id);
+    assert!(!relocation.allocation.span().is_empty());
+    assert!(matches!(
+        relocation.pointee.kind,
+        nia_function_ir::FunctionExprKind::BuiltinValue(
+            nia_function_ir::FunctionBuiltinValue::Int(_)
+        )
+    ));
 }

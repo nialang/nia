@@ -132,8 +132,14 @@ where
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
-        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::BuiltinValue(_) => false,
+        FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+            let mut changed = false;
+            for relocation in relocations {
+                changed |= rewrite_expr(&mut relocation.pointee);
+            }
+            changed
+        }
         FunctionExprKind::EnumVariant { fields, .. } => {
             let mut changed = false;
             for field in fields {

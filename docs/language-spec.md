@@ -1752,11 +1752,13 @@ cannot fabricate a pointer, and reading relocation-bearing storage through a
 scalar or vector field is rejected. Relocations survive recursive aggregate and
 nested-union copies and participate in pointer lifetime validation. Partially
 overwriting a relocation leaves its unwritten fragment uninitialized; it does
-not expose placeholder bytes as an integer representation. Runtime
+not expose placeholder bytes as an integer representation. Relocations retain
+their promoted-allocation identity and typed pointee through body and function
+IR, including imported reachability and artifact fingerprinting. Runtime
 materialization of a relocation-bearing const union is not available until the
-backend relocation model is complete. Other unsupported field kinds are still
-rejected in a `const fn` declaration. Ordinary runtime unions retain the full
-semantics described in section 4.6.
+LLVM promoted-allocation model is complete. Other unsupported field kinds are
+still rejected in a `const fn` declaration. Ordinary runtime unions retain the
+full semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

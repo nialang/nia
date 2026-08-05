@@ -337,8 +337,10 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
-        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::BuiltinValue(_) => false,
+        FunctionExprKind::UnionStorageLiteral { relocations, .. } => relocations
+            .iter()
+            .any(|relocation| function_expr_contains_builtin_eq(&relocation.pointee)),
     }
 }
 

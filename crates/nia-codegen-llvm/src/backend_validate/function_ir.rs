@@ -226,7 +226,7 @@ impl BackendValidator<'_> {
                 self.validate_field_init(expr.ty, field.field, field.span);
                 self.validate_expr(&field.value);
             }
-            FunctionExprKind::UnionStorageLiteral { bytes } => {
+            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
                 let is_union = match self.index.ty_kind(expr.ty) {
                     Some(TyKind::Nominal { def_id, .. }) => {
                         self.index.has_union(*def_id) || self.index.has_union_instances(*def_id)
@@ -250,6 +250,29 @@ impl BackendValidator<'_> {
                         expr.span,
                         "backend IR union storage literal has the wrong byte length",
                     ));
+                }
+                for relocation in relocations {
+                    let Some(owner) = self.index.module(relocation.allocation.module_id()) else {
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            nia_diagnostic::codes::INVALID_BACKEND_IR,
+                            expr.span,
+                            "backend IR union storage relocation references a missing module",
+                        ));
+                        continue;
+                    };
+                    if usize::try_from(owner.layouts.target.pointer_size).ok()
+                        != Some(relocation.width)
+                    {
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            nia_diagnostic::codes::INVALID_BACKEND_IR,
+                            expr.span,
+                            "backend IR union storage relocation has the wrong pointer width",
+                        ));
+                    }
+                    self.current_subject = Some("promoted allocation");
+                    self.validate_runtime_type(relocation.pointee.ty, relocation.pointee.span);
+                    self.current_subject = None;
+                    self.validate_expr(&relocation.pointee);
                 }
             }
             FunctionExprKind::Unary { expr, .. }

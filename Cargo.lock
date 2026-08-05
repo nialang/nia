@@ -582,6 +582,8 @@ dependencies = [
 name = "nia-ir-names"
 version = "0.4.3"
 dependencies = [
+ "nia-ids",
+ "nia-span",
  "nia-symbol",
 ]
 

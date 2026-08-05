@@ -1118,12 +1118,24 @@ partial-relocation reads, and constructing a pointer from arbitrary initialized
 bytes diagnose. Escape
 validation recursively inspects relocation targets.
 
-The current runtime const materializer handles supported frozen array pointers,
-but relocation-bearing union storage deliberately stops before body IR.
-Cross-module identity deduplication, IR/backend relocation propagation, and LLVM
-global materialization remain the next round. Mutable pointer write-through
-likewise waits for a shared alias-aware place operation instead of reusing
-mutable-receiver copy/writeback.
+The runtime const pipeline represents a frozen relocation target with
+`PromotedAllocationId`, whose module and source span identify the semantic
+allocation independently of a host address. Body IR and function IR carry the
+relocation's storage range, allocation identity, and typed pointee expression.
+All recursive transforms, dependency collectors, and optimization visitors must
+visit that pointee. Function IR validates relocation bounds, ordering,
+non-overlap, initialized pointer storage, and pointee shape; backend validation adds artifact
+pointer-width, origin-module, and runtime-type checks. Artifact fingerprints
+encode the origin module through its normalized source identity rather than its
+session-local `ModuleId`.
+
+LLVM global materialization remains the next boundary. A relocation-bearing
+union currently reaches IR but diagnoses before LLVM emission. The backend must
+map one `PromotedAllocationId` to one stable link-once allocation across
+functions and codegen partitions, then replace the legacy per-use static-array
+promotion path rather than preserving two allocation identities. Mutable
+pointer write-through likewise waits for a shared alias-aware place operation
+instead of reusing mutable-receiver copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

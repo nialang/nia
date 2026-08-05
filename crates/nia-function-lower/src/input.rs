@@ -254,11 +254,16 @@ impl BodyInputValidator {
             | TypedExprKind::Function(_)
             | TypedExprKind::FunctionInstance { .. }
             | TypedExprKind::BuiltinValue(_)
-            | TypedExprKind::UnionStorageLiteral { .. }
             | TypedExprKind::Trap
             | TypedExprKind::MemoryIntrinsic(_)
             | TypedExprKind::Discard(_)
             | TypedExprKind::Error => Ok(()),
+            TypedExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    self.validate_value_expr(&relocation.pointee)?;
+                }
+                Ok(())
+            }
         }
     }
 

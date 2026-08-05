@@ -257,8 +257,13 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
+            FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    changed |=
+                        self.devirtualize_direct_trait_calls_in_expr(&mut relocation.pointee);
+                }
+            }
         }
         changed
     }

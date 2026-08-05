@@ -5,7 +5,7 @@ use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind,
 };
-pub use nia_ir_names::{GeneratedLocalName, LocalName};
+pub use nia_ir_names::{GeneratedLocalName, LocalName, PromotedAllocationId};
 pub use nia_sema_ir::{
     BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue, FunctionReference,
     GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, TraitObjectCoercion,
@@ -250,6 +250,7 @@ pub enum TypedExprKind {
     },
     UnionStorageLiteral {
         bytes: Vec<Option<u8>>,
+        relocations: Vec<TypedUnionRelocation>,
     },
     Unary {
         op: UnaryOp,
@@ -317,6 +318,14 @@ pub enum TypedExprKind {
     },
     IfPattern(Box<TypedIfPattern>),
     Switch(Box<TypedSwitch>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedUnionRelocation {
+    pub offset: usize,
+    pub width: usize,
+    pub allocation: PromotedAllocationId,
+    pub pointee: Box<TypedExpr>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

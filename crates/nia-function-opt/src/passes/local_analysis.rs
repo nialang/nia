@@ -183,8 +183,12 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
+            FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
+                for relocation in relocations {
+                    self.collect_expr(&relocation.pointee);
+                }
+            }
         }
     }
 

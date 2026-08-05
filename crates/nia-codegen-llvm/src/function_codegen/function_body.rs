@@ -1244,8 +1244,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_union_literal_into(value, field, ptr)?;
                 Ok(true)
             }
-            FunctionExprKind::UnionStorageLiteral { bytes } => {
-                self.emit_union_storage_literal_into(value, bytes, ptr)?;
+            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
+                self.emit_union_storage_literal_into(value, bytes, relocations, ptr)?;
                 Ok(true)
             }
             FunctionExprKind::Null => {

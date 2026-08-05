@@ -352,8 +352,23 @@ impl<'a> ModuleLowerer<'a> {
                         }),
                     }
                 }
-                FunctionExprKind::UnionStorageLiteral { bytes } => {
-                    FunctionExprKind::UnionStorageLiteral { bytes }
+                FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
+                    FunctionExprKind::UnionStorageLiteral {
+                        bytes,
+                        relocations: relocations
+                            .into_iter()
+                            .map(|relocation| nia_function_ir::FunctionUnionRelocation {
+                                offset: relocation.offset,
+                                width: relocation.width,
+                                allocation: relocation.allocation,
+                                pointee: Box::new(
+                                    self.resolve_builtin_operator_calls_in_expr(
+                                        *relocation.pointee,
+                                    ),
+                                ),
+                            })
+                            .collect(),
+                    }
                 }
                 FunctionExprKind::Unary { op, expr } => FunctionExprKind::Unary {
                     op,
