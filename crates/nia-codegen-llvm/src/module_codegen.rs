@@ -14,6 +14,7 @@ use crate::program_index::ProgramIndex;
 use crate::time_codegen_module_stage;
 use nia_backend_ir::{BackendFunction, BackendModule, CodegenPartition};
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::PromotedAllocationId;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::TypeLayout;
 use nia_llvm::{
@@ -107,6 +108,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
+    promoted_allocations: RefCell<HashMap<PromotedAllocationId, InternedTyId>>,
     static_array_counter: RefCell<usize>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
@@ -153,6 +155,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instance_value_lookups: RefCell::new(HashMap::new()),
             globals: HashMap::new(),
             global_instances: HashMap::new(),
+            promoted_allocations: RefCell::new(HashMap::new()),
             static_array_counter: RefCell::new(0),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
@@ -218,6 +221,69 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         global.set_constant(true);
         global.set_initializer(&value);
         Ok(global.as_pointer_value())
+    }
+
+    pub(super) fn materialize_promoted_allocation(
+        &self,
+        allocation: PromotedAllocationId,
+        pointee_ty: InternedTyId,
+        value: BasicValueEnum<'ctx>,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let symbol = self.promoted_allocation_symbol(allocation);
+        if let Some(existing_ty) = self.promoted_allocations.borrow().get(&allocation).copied() {
+            if !self.same_type(existing_ty, pointee_ty) {
+                return Err(self.error(
+                    span,
+                    "promoted allocation identity was reused with a different pointee type",
+                ));
+            }
+            return self
+                .module
+                .get_global(&symbol)
+                .map_err(Self::diagnostic_from_llvm_error)?
+                .map(|global| global.as_pointer_value())
+                .ok_or_else(|| self.error(span, "promoted allocation registry lost its global"));
+        }
+
+        let pointee_llvm_ty = self.llvm_basic_type(pointee_ty, span)?;
+        let value_ty = value.get_type().map_err(|error| {
+            self.error(
+                span,
+                format!("failed to inspect promoted allocation value: {error:?}"),
+            )
+        })?;
+        if value_ty != pointee_llvm_ty {
+            return Err(self.error(
+                span,
+                "promoted allocation initializer has the wrong LLVM type",
+            ));
+        }
+        let global = self
+            .module
+            .add_global(pointee_llvm_ty, None, &symbol)
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        global.set_linkage(Linkage::LinkOnceOdr);
+        global.set_constant(true);
+        if let Some(layout) = self.layout_of(pointee_ty) {
+            let align = u32::try_from(layout.align)
+                .map_err(|_| self.error(span, "promoted allocation alignment is too large"))?;
+            global.set_alignment(align);
+        }
+        global.set_initializer(&value);
+        self.promoted_allocations
+            .borrow_mut()
+            .insert(allocation, pointee_ty);
+        Ok(global.as_pointer_value())
+    }
+
+    fn promoted_allocation_symbol(&self, allocation: PromotedAllocationId) -> String {
+        let module = self.mangle_module_id(allocation.module_id()).raw();
+        let span = allocation.span();
+        format!(
+            "nia__promoted__s{module:016x}__b{:x}__e{:x}",
+            span.start, span.end
+        )
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {

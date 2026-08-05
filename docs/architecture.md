@@ -1129,13 +1129,21 @@ pointer-width, origin-module, and runtime-type checks. Artifact fingerprints
 encode the origin module through its normalized source identity rather than its
 session-local `ModuleId`.
 
-LLVM global materialization remains the next boundary. A relocation-bearing
-union currently reaches IR but diagnoses before LLVM emission. The backend must
-map one `PromotedAllocationId` to one stable link-once allocation across
-functions and codegen partitions, then replace the legacy per-use static-array
-promotion path rather than preserving two allocation identities. Mutable
-pointer write-through likewise waits for a shared alias-aware place operation
-instead of reusing mutable-receiver copy/writeback.
+LLVM materializes a scalar relocation target as a readonly link-once global.
+The symbol derives from the origin module's normalized source identity and
+origin span, so all uses and codegen partitions name the same allocation while
+distinct source allocations remain distinct even when their contents match.
+Function-body references include origin modules as readiness dependencies.
+Runtime union construction skips relocation placeholder bytes and stores the
+promoted global address into each relocation range. The module registry rejects
+reuse of one identity with a different pointee type.
+
+Aggregate, vector, and nested-relocation pointees remain the next boundary and
+diagnose rather than using an instruction as a global initializer. Their
+relocation-aware LLVM constant representation must also replace the legacy
+per-use static-array promotion path rather than preserving two allocation
+identities. Mutable pointer write-through likewise waits for a shared
+alias-aware place operation instead of reusing mutable-receiver copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

@@ -1754,11 +1754,13 @@ nested-union copies and participate in pointer lifetime validation. Partially
 overwriting a relocation leaves its unwritten fragment uninitialized; it does
 not expose placeholder bytes as an integer representation. Relocations retain
 their promoted-allocation identity and typed pointee through body and function
-IR, including imported reachability and artifact fingerprinting. Runtime
-materialization of a relocation-bearing const union is not available until the
-LLVM promoted-allocation model is complete. Other unsupported field kinds are
-still rejected in a `const fn` declaration. Ordinary runtime unions retain the
-full semantics described in section 4.6.
+IR, including imported reachability and artifact fingerprinting. A relocation
+to a scalar constant materializes at runtime through one readonly allocation
+per source origin; equal contents at distinct origins do not imply pointer
+equality. Aggregate, vector, and nested-relocation pointees remain unavailable
+until their LLVM constant-storage model is complete. Other unsupported field
+kinds are still rejected in a `const fn` declaration. Ordinary runtime unions
+retain the full semantics described in section 4.6.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

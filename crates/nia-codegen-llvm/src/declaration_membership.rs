@@ -228,6 +228,9 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn add_refs(&mut self, refs: FunctionBodyRefs) {
+        for module_id in refs.modules {
+            self.add_context_dependency(module_id);
+        }
         for def_id in refs.functions {
             if let Some(item) = self.index.function(def_id) {
                 self.add_function(item);

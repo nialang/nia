@@ -78,6 +78,7 @@ impl FunctionInstanceRef {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct FunctionBodyRefs {
+    pub modules: BTreeSet<ModuleId>,
     pub functions: BTreeSet<GlobalDefId>,
     pub globals: BTreeSet<GlobalDefId>,
     pub function_instances: Vec<FunctionInstanceRef>,
@@ -88,6 +89,7 @@ pub struct FunctionBodyRefs {
 
 impl FunctionBodyRefs {
     pub fn extend(&mut self, other: Self) {
+        self.modules.extend(other.modules);
         self.functions.extend(other.functions);
         self.globals.extend(other.globals);
         self.function_instances.extend(other.function_instances);
@@ -294,6 +296,7 @@ fn collect_function_refs_from_expr(
         }
         FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
             for relocation in relocations {
+                refs.modules.insert(relocation.allocation.module_id());
                 collect_function_refs_from_expr(&relocation.pointee, types, refs);
             }
         }
@@ -967,6 +970,7 @@ mod tests {
         let refs = body.value_refs(&types);
 
         assert_eq!(refs.globals, BTreeSet::from([pointee_global]));
+        assert_eq!(refs.modules, BTreeSet::from([module_id]));
         assert!(refs.types.contains(&ty));
     }
 }
