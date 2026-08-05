@@ -1106,13 +1106,24 @@ value. Writable frozen allocations cannot escape. The origin is semantic
 allocation identity, not a host address. Typed-query context frames are marked
 separately and do not fabricate execution lifetime merely by being present.
 
+Const union storage represents pointers with typed relocations alongside its
+raw bytes and per-byte initialization state. A relocation records its storage
+offset, artifact pointer width, and `ConstPointerValue`; the covered bytes are
+initialized placeholders and never contain a host address. Recursive array and
+struct encoding shifts relocation offsets, nested unions preserve them, and a
+field write invalidates overlapping relocations. Unwritten fragments of an
+invalidated relocation become uninitialized rather than ordinary zero bytes. A
+pointer read requires one exact relocation. Scalar/vector reinterpretation,
+partial-relocation reads, and constructing a pointer from arbitrary initialized
+bytes diagnose. Escape
+validation recursively inspects relocation targets.
+
 The current runtime const materializer handles supported frozen array pointers,
-but cross-module identity deduplication and union storage remain part of the
-relocation round. Pointer-containing const unions therefore stay at the
-declaration boundary: their storage must gain typed relocations before the codec
-or backend may accept them. Mutable pointer write-through likewise waits for a
-shared alias-aware place operation instead of reusing mutable-receiver
-copy/writeback.
+but relocation-bearing union storage deliberately stops before body IR.
+Cross-module identity deduplication, IR/backend relocation propagation, and LLVM
+global materialization remain the next round. Mutable pointer write-through
+likewise waits for a shared alias-aware place operation instead of reusing
+mutable-receiver copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

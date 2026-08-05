@@ -1059,6 +1059,16 @@ impl Analyzer<'_> {
                     nia_layout::primitive_layout(primitive, target),
                 ))
             }
+            TyKind::Pointer { .. } => {
+                let size = usize::try_from(target.pointer_size).ok()?;
+                Some((
+                    ConstAbiType::Pointer { size },
+                    nia_layout::TypeLayout {
+                        size: target.pointer_size,
+                        align: target.pointer_align,
+                    },
+                ))
+            }
             TyKind::Array { len, elem } => {
                 let len = match len {
                     nia_ty::ArrayLenTy::Builtin { builtin, ty } => {
@@ -1777,12 +1787,18 @@ fn validate_const_pointer_escape(
             ConstValue::ErrorUnion(Ok(value)) | ConstValue::ErrorUnion(Err(value)) => {
                 validate(value, place_may_escape, inside_frozen_allocation)
             }
+            ConstValue::Union(union) => union.relocations().iter().try_for_each(|relocation| {
+                validate(
+                    &ConstValue::Pointer(relocation.pointer().clone()),
+                    place_may_escape,
+                    inside_frozen_allocation,
+                )
+            }),
             ConstValue::Int(_)
             | ConstValue::Float(_)
             | ConstValue::Bool(_)
             | ConstValue::String(_)
             | ConstValue::Range(_)
-            | ConstValue::Union(_)
             | ConstValue::Optional(None) => Ok(()),
         }
     }

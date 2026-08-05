@@ -125,6 +125,9 @@ impl ConstScalarType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstAbiType {
     Scalar(ConstScalarType),
+    Pointer {
+        size: usize,
+    },
     Array {
         element: Box<ConstAbiType>,
         len: usize,
@@ -155,6 +158,7 @@ impl ConstAbiType {
     pub fn byte_len(&self) -> Option<usize> {
         match self {
             Self::Scalar(scalar) => Some(scalar.byte_len()),
+            Self::Pointer { size } => Some(*size),
             Self::Array { element, len } => element.byte_len()?.checked_mul(*len),
             Self::Vector { size, .. } => Some(*size),
             Self::Struct { size, .. } => Some(*size),
@@ -166,6 +170,28 @@ impl ConstAbiType {
 struct EncodedAbiValue {
     bytes: Vec<u8>,
     initialized: Vec<bool>,
+    relocations: Vec<ConstRelocation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstRelocation {
+    offset: usize,
+    width: usize,
+    pointer: ConstPointerValue,
+}
+
+impl ConstRelocation {
+    pub const fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    pub const fn pointer(&self) -> &ConstPointerValue {
+        &self.pointer
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,6 +199,7 @@ pub struct ConstUnionValue {
     fields: BTreeMap<SymbolId, ConstAbiType>,
     bytes: Vec<u8>,
     initialized: Vec<bool>,
+    relocations: Vec<ConstRelocation>,
     endianness: ConstEndianness,
 }
 
@@ -188,6 +215,7 @@ impl ConstUnionValue {
             fields,
             bytes: vec![0; storage_size],
             initialized: vec![false; storage_size],
+            relocations: Vec::new(),
             endianness,
         };
         union.write(initial_field, value)?;
@@ -209,6 +237,7 @@ impl ConstUnionValue {
             abi,
             &self.bytes[..len],
             &self.initialized[..len],
+            &relocations_for_subrange(&self.relocations, 0, len)?,
             self.endianness,
         )
     }
@@ -222,8 +251,28 @@ impl ConstUnionValue {
         if encoded.bytes.len() > self.bytes.len() {
             return Err("const union field exceeds its storage".to_string());
         }
-        self.bytes[..encoded.bytes.len()].copy_from_slice(&encoded.bytes);
-        self.initialized[..encoded.bytes.len()].copy_from_slice(&encoded.initialized);
+        let written_end = encoded.bytes.len();
+        let mut initialized = self.initialized.clone();
+        for relocation in &self.relocations {
+            let relocation_end = relocation.offset + relocation.width;
+            if relocation.offset < written_end {
+                initialized[relocation.offset..relocation_end].fill(false);
+            }
+        }
+        initialized[..written_end].copy_from_slice(&encoded.initialized);
+        let mut relocations = self
+            .relocations
+            .iter()
+            .filter(|relocation| relocation.offset >= written_end)
+            .cloned()
+            .collect::<Vec<_>>();
+        relocations.extend(encoded.relocations);
+        relocations.sort_by_key(|relocation| relocation.offset);
+        validate_relocations(&relocations, self.bytes.len(), &initialized)?;
+
+        self.bytes[..written_end].copy_from_slice(&encoded.bytes);
+        self.initialized = initialized;
+        self.relocations = relocations;
         Ok(())
     }
 
@@ -233,6 +282,10 @@ impl ConstUnionValue {
 
     pub fn initialized(&self) -> &[bool] {
         &self.initialized
+    }
+
+    pub fn relocations(&self) -> &[ConstRelocation] {
+        &self.relocations
     }
 
     pub fn validate_abi(
@@ -250,6 +303,7 @@ impl ConstUnionValue {
         if self.endianness != endianness {
             return Err("const union storage has the wrong endianness".to_string());
         }
+        validate_relocations(&self.relocations, storage_size, &self.initialized)?;
         Ok(())
     }
 }
@@ -263,7 +317,28 @@ fn encode_abi_value(
         (ConstAbiType::Scalar(scalar), value) => {
             let bytes = encode_scalar(*scalar, value, endianness)?;
             let initialized = vec![true; bytes.len()];
-            Ok(EncodedAbiValue { bytes, initialized })
+            Ok(EncodedAbiValue {
+                bytes,
+                initialized,
+                relocations: Vec::new(),
+            })
+        }
+        (ConstAbiType::Pointer { size }, ConstValue::Pointer(pointer)) => {
+            if *size == 0 {
+                return Err("const union pointer field has zero-sized storage".to_string());
+            }
+            Ok(EncodedAbiValue {
+                bytes: vec![0; *size],
+                initialized: vec![true; *size],
+                relocations: vec![ConstRelocation {
+                    offset: 0,
+                    width: *size,
+                    pointer,
+                }],
+            })
+        }
+        (ConstAbiType::Pointer { .. }, _) => {
+            Err("const union field value does not match its pointer type".to_string())
         }
         (ConstAbiType::Array { element, len }, ConstValue::Array(values)) => {
             if values.len() != *len {
@@ -274,12 +349,19 @@ fn encode_abi_value(
                 .ok_or_else(|| "const union array field size is not representable".to_string())?;
             let mut bytes = Vec::with_capacity(capacity);
             let mut initialized = Vec::with_capacity(capacity);
+            let mut relocations = Vec::new();
             for value in values {
                 let encoded = encode_abi_value(element, value, endianness)?;
+                let offset = bytes.len();
+                relocations.extend(shift_relocations(encoded.relocations, offset)?);
                 bytes.extend(encoded.bytes);
                 initialized.extend(encoded.initialized);
             }
-            Ok(EncodedAbiValue { bytes, initialized })
+            Ok(EncodedAbiValue {
+                bytes,
+                initialized,
+                relocations,
+            })
         }
         (ConstAbiType::Array { .. }, _) => {
             Err("const union field value does not match its array type".to_string())
@@ -293,6 +375,7 @@ fn encode_abi_value(
         (ConstAbiType::Struct { fields, size }, ConstValue::Struct(mut values)) => {
             let mut bytes = vec![0; *size];
             let mut initialized = vec![false; *size];
+            let mut relocations = Vec::new();
             for field in fields {
                 let value = values
                     .remove(&field.name)
@@ -305,11 +388,16 @@ fn encode_abi_value(
                     .ok_or_else(|| "const union struct field exceeds its layout".to_string())?;
                 bytes[field.offset..end].copy_from_slice(&encoded.bytes);
                 initialized[field.offset..end].copy_from_slice(&encoded.initialized);
+                relocations.extend(shift_relocations(encoded.relocations, field.offset)?);
             }
             if !values.is_empty() {
                 return Err("const union struct value has unknown fields".to_string());
             }
-            Ok(EncodedAbiValue { bytes, initialized })
+            Ok(EncodedAbiValue {
+                bytes,
+                initialized,
+                relocations,
+            })
         }
         (ConstAbiType::Struct { .. }, _) => {
             Err("const union field value does not match its struct type".to_string())
@@ -319,6 +407,7 @@ fn encode_abi_value(
             Ok(EncodedAbiValue {
                 bytes: value.bytes,
                 initialized: value.initialized,
+                relocations: value.relocations,
             })
         }
         (ConstAbiType::Union { .. }, _) => {
@@ -331,6 +420,7 @@ fn decode_abi_value(
     abi: &ConstAbiType,
     bytes: &[u8],
     initialized: &[bool],
+    relocations: &[ConstRelocation],
     endianness: ConstEndianness,
 ) -> Result<ConstValue, String> {
     if bytes.len() != initialized.len() {
@@ -338,10 +428,34 @@ fn decode_abi_value(
     }
     match abi {
         ConstAbiType::Scalar(scalar) => {
+            if !relocations.is_empty() {
+                return Err(
+                    "const union scalar field reinterprets pointer relocation storage".to_string(),
+                );
+            }
             if initialized.iter().any(|byte| !byte) {
                 return Err("const union field reads uninitialized storage".to_string());
             }
             decode_scalar(*scalar, bytes, endianness)
+        }
+        ConstAbiType::Pointer { size } => {
+            if bytes.len() != *size {
+                return Err("const union pointer field storage has the wrong length".to_string());
+            }
+            if initialized.iter().any(|byte| !byte) {
+                return Err("const union pointer field reads uninitialized storage".to_string());
+            }
+            let [relocation] = relocations else {
+                return Err(
+                    "const union pointer field requires one exact pointer relocation".to_string(),
+                );
+            };
+            if relocation.offset != 0 || relocation.width != *size {
+                return Err(
+                    "const union pointer field requires one exact pointer relocation".to_string(),
+                );
+            }
+            Ok(ConstValue::Pointer(relocation.pointer.clone()))
         }
         ConstAbiType::Array { element, len } => {
             let element_len = element
@@ -361,12 +475,18 @@ fn decode_abi_value(
                     element,
                     &bytes[start..end],
                     &initialized[start..end],
+                    &relocations_for_subrange(relocations, start, element_len)?,
                     endianness,
                 )?);
             }
             Ok(ConstValue::Array(values))
         }
         ConstAbiType::Vector { lane, lanes, size } => {
+            if !relocations.is_empty() {
+                return Err(
+                    "const union vector field reinterprets pointer relocation storage".to_string(),
+                );
+            }
             decode_vector(*lane, *lanes, *size, bytes, initialized, endianness)
         }
         ConstAbiType::Struct { fields, size } => {
@@ -389,6 +509,7 @@ fn decode_abi_value(
                         &field.ty,
                         &bytes[field.offset..end],
                         &initialized[field.offset..end],
+                        &relocations_for_subrange(relocations, field.offset, field_len)?,
                         endianness,
                     )?,
                 );
@@ -403,10 +524,77 @@ fn decode_abi_value(
                 fields: fields.clone(),
                 bytes: bytes.to_vec(),
                 initialized: initialized.to_vec(),
+                relocations: relocations.to_vec(),
                 endianness,
             }))
         }
     }
+}
+
+fn shift_relocations(
+    relocations: Vec<ConstRelocation>,
+    offset: usize,
+) -> Result<Vec<ConstRelocation>, String> {
+    relocations
+        .into_iter()
+        .map(|mut relocation| {
+            relocation.offset = relocation
+                .offset
+                .checked_add(offset)
+                .ok_or_else(|| "const union relocation offset is not representable".to_string())?;
+            Ok(relocation)
+        })
+        .collect()
+}
+
+fn relocations_for_subrange(
+    relocations: &[ConstRelocation],
+    start: usize,
+    len: usize,
+) -> Result<Vec<ConstRelocation>, String> {
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| "const union relocation range is not representable".to_string())?;
+    let mut selected = Vec::new();
+    for relocation in relocations {
+        let relocation_end = relocation
+            .offset
+            .checked_add(relocation.width)
+            .ok_or_else(|| "const union relocation range is not representable".to_string())?;
+        if relocation.offset >= end || relocation_end <= start {
+            continue;
+        }
+        if relocation.offset < start || relocation_end > end {
+            return Err("const union field reads only part of a pointer relocation".to_string());
+        }
+        let mut relocation = relocation.clone();
+        relocation.offset -= start;
+        selected.push(relocation);
+    }
+    Ok(selected)
+}
+
+fn validate_relocations(
+    relocations: &[ConstRelocation],
+    storage_size: usize,
+    initialized: &[bool],
+) -> Result<(), String> {
+    let mut previous_end = 0;
+    for relocation in relocations {
+        let end = relocation
+            .offset
+            .checked_add(relocation.width)
+            .filter(|end| relocation.width > 0 && *end <= storage_size)
+            .ok_or_else(|| "const union relocation exceeds its storage".to_string())?;
+        if relocation.offset < previous_end {
+            return Err("const union relocations overlap".to_string());
+        }
+        if initialized[relocation.offset..end].iter().any(|byte| !byte) {
+            return Err("const union relocation covers uninitialized storage".to_string());
+        }
+        previous_end = end;
+    }
+    Ok(())
 }
 
 fn vector_store_len(lane: ConstScalarType, lanes: usize) -> Option<usize> {
@@ -446,7 +634,11 @@ fn encode_vector(
             }
         }
         initialized[..store_len].fill(true);
-        return Ok(EncodedAbiValue { bytes, initialized });
+        return Ok(EncodedAbiValue {
+            bytes,
+            initialized,
+            relocations: Vec::new(),
+        });
     }
     let lane_len = lane.byte_len();
     for (index, value) in values.into_iter().enumerate() {
@@ -455,7 +647,11 @@ fn encode_vector(
         bytes[start..start + lane_len].copy_from_slice(&encoded);
         initialized[start..start + lane_len].fill(true);
     }
-    Ok(EncodedAbiValue { bytes, initialized })
+    Ok(EncodedAbiValue {
+        bytes,
+        initialized,
+        relocations: Vec::new(),
+    })
 }
 
 fn decode_vector(

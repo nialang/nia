@@ -38,6 +38,215 @@ fn frozen_pointer_value_equality_uses_origin_not_pointee_contents() {
     assert_ne!(same_origin, different_origin);
 }
 
+#[test]
+fn pointer_union_storage_requires_an_exact_relocation() {
+    let pointer_field = sym("pointer");
+    let integer_field = sym("integer");
+    let byte_field = sym("byte");
+    let pointer = ConstPointerValue::Frozen {
+        origin: ConstAllocationOrigin::new(None, Span::new(4, 8)),
+        is_readonly: true,
+        pointee: Box::new(ConstValue::Int(IntConst::unsigned(21))),
+    };
+    let fields = BTreeMap::from([
+        (pointer_field, ConstAbiType::Pointer { size: 8 }),
+        (
+            integer_field,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 64,
+                signed: false,
+            }),
+        ),
+        (
+            byte_field,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 8,
+                signed: false,
+            }),
+        ),
+    ]);
+    let mut union = ConstUnionValue::new(
+        fields,
+        8,
+        pointer_field,
+        ConstValue::Pointer(pointer.clone()),
+        ConstEndianness::Little,
+    )
+    .expect("encode pointer relocation");
+
+    assert_eq!(union.relocations().len(), 1);
+    assert_eq!(union.relocations()[0].offset(), 0);
+    assert_eq!(union.relocations()[0].width(), 8);
+    assert_eq!(
+        union
+            .read(pointer_field)
+            .expect("decode pointer relocation"),
+        ConstValue::Pointer(pointer)
+    );
+    assert_eq!(
+        union
+            .read(integer_field)
+            .expect_err("integer reinterpretation must reject a relocation"),
+        "const union scalar field reinterprets pointer relocation storage"
+    );
+
+    union
+        .write(byte_field, ConstValue::Int(IntConst::unsigned(0)))
+        .expect("partially overwrite pointer storage");
+    assert!(union.relocations().is_empty());
+    assert_eq!(
+        union
+            .read(integer_field)
+            .expect_err("untouched pointer placeholders must not become integer bytes"),
+        "const union field reads uninitialized storage"
+    );
+
+    union
+        .write(integer_field, ConstValue::Int(IntConst::unsigned(0)))
+        .expect("fully overwrite pointer storage with integer bytes");
+    assert_eq!(
+        union
+            .read(pointer_field)
+            .expect_err("integer bytes must not fabricate a pointer"),
+        "const union pointer field requires one exact pointer relocation"
+    );
+}
+
+#[test]
+fn nested_aggregate_union_storage_preserves_pointer_relocations() {
+    let prefix = sym("prefix");
+    let pointer_field = sym("pointer");
+    let holder = sym("holder");
+    let bytes = sym("bytes");
+    let pointer = ConstPointerValue::Frozen {
+        origin: ConstAllocationOrigin::new(None, Span::new(12, 18)),
+        is_readonly: true,
+        pointee: Box::new(ConstValue::Int(IntConst::unsigned(34))),
+    };
+    let byte = ConstAbiType::Scalar(ConstScalarType::Integer {
+        bits: 8,
+        signed: false,
+    });
+    let holder_abi = ConstAbiType::Struct {
+        fields: vec![
+            ConstAbiField {
+                name: prefix,
+                offset: 0,
+                ty: ConstAbiType::Array {
+                    element: Box::new(byte.clone()),
+                    len: 8,
+                },
+            },
+            ConstAbiField {
+                name: pointer_field,
+                offset: 8,
+                ty: ConstAbiType::Pointer { size: 8 },
+            },
+        ],
+        size: 16,
+    };
+    let fields = BTreeMap::from([
+        (holder, holder_abi),
+        (
+            bytes,
+            ConstAbiType::Array {
+                element: Box::new(byte),
+                len: 16,
+            },
+        ),
+    ]);
+    let union = ConstUnionValue::new(
+        fields,
+        16,
+        holder,
+        ConstValue::Struct(BTreeMap::from([
+            (
+                prefix,
+                ConstValue::Array(
+                    (0..8)
+                        .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                        .collect(),
+                ),
+            ),
+            (pointer_field, ConstValue::Pointer(pointer.clone())),
+        ])),
+        ConstEndianness::Little,
+    )
+    .expect("encode nested pointer relocation");
+
+    assert_eq!(union.relocations().len(), 1);
+    assert_eq!(union.relocations()[0].offset(), 8);
+    let ConstValue::Struct(decoded) = union.read(holder).expect("decode holder") else {
+        panic!("holder must decode as a struct");
+    };
+    assert_eq!(
+        decoded.get(&pointer_field),
+        Some(&ConstValue::Pointer(pointer))
+    );
+    assert_eq!(
+        union
+            .read(bytes)
+            .expect_err("byte view must not split a pointer relocation"),
+        "const union field reads only part of a pointer relocation"
+    );
+}
+
+#[test]
+fn nested_union_storage_preserves_pointer_relocations() {
+    let pointer_field = sym("pointer");
+    let integer_field = sym("integer");
+    let inner_field = sym("inner");
+    let pointer = ConstPointerValue::Frozen {
+        origin: ConstAllocationOrigin::new(None, Span::new(20, 24)),
+        is_readonly: true,
+        pointee: Box::new(ConstValue::Int(IntConst::unsigned(55))),
+    };
+    let inner_fields = BTreeMap::from([
+        (pointer_field, ConstAbiType::Pointer { size: 8 }),
+        (
+            integer_field,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 64,
+                signed: false,
+            }),
+        ),
+    ]);
+    let inner = ConstUnionValue::new(
+        inner_fields.clone(),
+        8,
+        pointer_field,
+        ConstValue::Pointer(pointer.clone()),
+        ConstEndianness::Little,
+    )
+    .expect("encode inner pointer relocation");
+    let outer = ConstUnionValue::new(
+        BTreeMap::from([(
+            inner_field,
+            ConstAbiType::Union {
+                fields: inner_fields,
+                size: 8,
+            },
+        )]),
+        8,
+        inner_field,
+        ConstValue::Union(inner),
+        ConstEndianness::Little,
+    )
+    .expect("copy nested union relocation");
+
+    assert_eq!(outer.relocations().len(), 1);
+    let ConstValue::Union(decoded_inner) = outer.read(inner_field).expect("decode inner union")
+    else {
+        panic!("inner field must decode as a union");
+    };
+    assert_eq!(
+        decoded_inner
+            .read(pointer_field)
+            .expect("decode nested pointer relocation"),
+        ConstValue::Pointer(pointer)
+    );
+}
+
 fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }

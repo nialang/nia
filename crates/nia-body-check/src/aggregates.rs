@@ -624,6 +624,7 @@ impl<'a> BodyChecker<'a> {
                     && lanes > 0
                     && nia_layout::vector_layout(elem, lanes, self.layouts.target).is_some()
             }
+            TyKind::Pointer { .. } => true,
             TyKind::Nominal {
                 def_id,
                 args,

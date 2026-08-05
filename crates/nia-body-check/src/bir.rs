@@ -1629,6 +1629,9 @@ impl<'a> BodyChecker<'a> {
                 let nia_const_check::ConstValue::Union(union) = value else {
                     return None;
                 };
+                if !union.relocations().is_empty() {
+                    return None;
+                }
                 Some(TypedExpr {
                     span,
                     ty,

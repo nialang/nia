@@ -1773,8 +1773,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_nested_fields_without_a_const_abi_model() {
-    let root = temp_dir("unused_const_function_rejects_nested_fields_without_a_const_abi_model");
+fn unused_const_function_accepts_nested_pointer_fields_with_relocations() {
+    let root = temp_dir("unused_const_function_accepts_nested_pointer_fields_with_relocations");
     write(
         &root.join("main.nia"),
         r#"
@@ -1797,14 +1797,7 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const union field `header` requires a supported const ABI type")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
