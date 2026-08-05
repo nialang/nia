@@ -454,11 +454,12 @@ fn collect_function_refs_from_callee(
             arg_module_id,
             self_arg,
             args,
+            const_args,
             receiver,
             ..
         } => {
-            collect_function_instance_types(*self_arg, args, &[], refs);
-            if self_arg.is_none() && args.is_empty() {
+            collect_function_instance_types(*self_arg, args, const_args, refs);
+            if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
                 refs.functions.insert(*def_id);
             } else {
                 refs.function_instances.push(FunctionInstanceRef {
@@ -466,7 +467,7 @@ fn collect_function_refs_from_callee(
                     arg_module_id: *arg_module_id,
                     self_arg: *self_arg,
                     args: args.clone(),
-                    const_args: Vec::new(),
+                    const_args: const_args.clone(),
                     span,
                 });
             }
@@ -526,7 +527,7 @@ fn collect_function_refs_from_callee(
             let receiver_is_unevaluated = matches!(
                 (method, types.get(*self_ty)),
                 (
-                    crate::FunctionBuiltinMethod::Len,
+                    crate::FunctionBuiltinMethod::SliceLen,
                     Some(TyKind::Array { .. })
                 )
             );
@@ -867,7 +868,7 @@ mod tests {
                 usize_ty,
                 FunctionExprKind::Call {
                     callee: FunctionCallee::BuiltinMethod {
-                        method: crate::FunctionBuiltinMethod::Len,
+                        method: crate::FunctionBuiltinMethod::SliceLen,
                         self_ty,
                         receiver: Box::new(expr(self_ty, FunctionExprKind::Global(global))),
                     },

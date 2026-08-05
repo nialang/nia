@@ -192,8 +192,9 @@ fn main() i64 {{
 }
 
 #[test]
-fn array_len_only_large_module_emits_no_cross_partition_global_declarations() {
-    let root = temp_dir("array_len_only_large_module_emits_no_cross_partition_global_declarations");
+fn ordinary_array_len_calls_emit_required_cross_partition_global_declarations() {
+    let root =
+        temp_dir("ordinary_array_len_calls_emit_required_cross_partition_global_declarations");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -233,12 +234,12 @@ fn main() usize {
             .count(),
         8
     );
-    assert!(source_modules.iter().all(|module| {
-        !module
-            .ir
-            .lines()
-            .any(|line| line.starts_with('@') && line.contains(" = external constant "))
-    }));
+    let external_constants = source_modules
+        .iter()
+        .flat_map(|module| module.ir.lines())
+        .filter(|line| line.starts_with('@') && line.contains(" = external constant "))
+        .collect::<Vec<_>>();
+    assert_eq!(external_constants.len(), 5, "{external_constants:#?}");
 }
 
 #[test]

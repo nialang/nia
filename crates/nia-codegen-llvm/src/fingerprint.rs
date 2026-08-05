@@ -1217,6 +1217,7 @@ impl<'a> Encoder<'a> {
                 arg_module_id,
                 self_arg,
                 args,
+                const_args,
                 receiver_kind,
                 receiver,
             } => {
@@ -1225,6 +1226,7 @@ impl<'a> Encoder<'a> {
                 self.module_id(*arg_module_id);
                 self.optional_ty(*self_arg);
                 self.types(args);
+                self.const_args(const_args);
                 self.receiver(*receiver_kind);
                 self.expr(receiver);
             }

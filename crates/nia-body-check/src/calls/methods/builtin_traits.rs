@@ -518,9 +518,6 @@ impl<'a> BodyChecker<'a> {
         trait_id: BuiltinTrait,
         trait_args: Vec<InternedTyId>,
     ) -> InternedTyId {
-        if matches!(trait_id, BuiltinTrait::Len) {
-            return self.primitive(PrimitiveTy::Usize);
-        }
         if matches!(trait_id, BuiltinTrait::Iterable) {
             let iter = self.interner.intern(TyKind::Projection {
                 self_ty,
@@ -598,7 +595,6 @@ impl<'a> BodyChecker<'a> {
 
 fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod> {
     match method {
-        BuiltinTraitMethod::Len => Some(BuiltinMethod::Len),
         BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
         BuiltinTraitMethod::End => Some(BuiltinMethod::End),
         BuiltinTraitMethod::IterableIter => Some(BuiltinMethod::Iter),

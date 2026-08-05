@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn query_loader_loads_len_prelude_provider_on_demand() {
+    let root = temp_dir("query_loader_loads_len_prelude_provider_on_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+fn main(values: &[u8]) usize {
+    values.len()
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/builtin.nia");
+    assert_module_loaded(&program, "lib/std/builtin/place.nia");
+    assert_module_not_loaded(&program, "lib/std/builtin/atomic.nia");
+}
+
+#[test]
+fn query_loader_does_not_load_len_provider_without_len_demand() {
+    let root = temp_dir("query_loader_does_not_load_len_provider_without_len_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+fn main() usize {
+    1usize
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_not_loaded(&program, "lib/std/builtin.nia");
+    assert_module_not_loaded(&program, "lib/std/builtin/place.nia");
+}
+
+#[test]
 fn query_loader_loads_implicit_builtin_trait_provider_from_facade() {
     let root = temp_dir("query_loader_loads_implicit_builtin_trait_provider_from_facade");
     let main_path = root.join("main.nia");

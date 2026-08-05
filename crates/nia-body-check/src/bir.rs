@@ -5,13 +5,13 @@ use nia_ast::{
     StmtKind, SwitchArmBody, UnaryOp,
 };
 use nia_body_ir::{
-    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, LocalName,
-    MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding,
-    TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedIfPattern,
-    TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
-    TypedPattern, TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedUnionRelocation,
-    TypedWhile,
+    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinMethod, BuiltinOperator, BuiltinPlaceMethod,
+    LocalName, MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic,
+    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
+    TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
+    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
+    TypedUnionRelocation, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -1213,6 +1213,21 @@ impl<'a> BodyChecker<'a> {
             (nia_ids::BuiltinFunction::CharFromU32, [value]) => TypedExprKind::CharFromU32 {
                 value: Box::new(self.lower_expr(value)),
             },
+            (nia_ids::BuiltinFunction::SliceLen, [value]) => {
+                let value_ty = self.expr_ty(value).unwrap_or_else(|| self.error());
+                let self_ty = match self.interner.get(self.normalization.normalize(value_ty)) {
+                    Some(TyKind::Pointer { elem, .. }) => *elem,
+                    _ => self.error(),
+                };
+                TypedExprKind::Call {
+                    callee: TypedCallee::BuiltinMethod {
+                        method: BuiltinMethod::SliceLen,
+                        self_ty,
+                        receiver: Box::new(self.lower_expr(value)),
+                    },
+                    args: Vec::new(),
+                }
+            }
             (nia_ids::BuiltinFunction::Asm, [arg]) => self.lower_inline_asm(arg),
             (nia_ids::BuiltinFunction::MemCopy, [dest, source]) => {
                 TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {

@@ -62,6 +62,7 @@ pub struct VisibleExtensionsInput<'a> {
     pub trait_impls: &'a [ProgramTraitImplSignature],
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
     pub visible_modules: Option<&'a [nia_ids::ModuleId]>,
+    pub trait_witness_modules: Option<&'a [nia_ids::ModuleId]>,
 }
 
 #[derive(Clone, Copy)]
@@ -120,6 +121,7 @@ pub fn visible_extensions_for_module(
         trait_impls: _,
         nominal_extension_providers,
         visible_modules,
+        trait_witness_modules,
     } = input;
     let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
     let computed_visible_modules;
@@ -140,12 +142,15 @@ pub fn visible_extensions_for_module(
         computed_visible_modules = declared_module_closure(&visibility_context);
         &computed_visible_modules
     };
-    let witness_modules = visible_modules;
-    let imported_visible_modules = visible_modules
+    let witness_modules = trait_witness_modules.unwrap_or(visible_modules);
+    let mut imported_visible_modules = visible_modules
         .iter()
+        .chain(witness_modules.iter())
         .copied()
         .filter(|visible_module| *visible_module != module_id)
         .collect::<Vec<_>>();
+    imported_visible_modules.sort();
+    imported_visible_modules.dedup();
     let mut visible = VisibleExtensionMethods::default();
     let extension_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(visibility, graph, defining_module, module_id)
@@ -184,6 +189,7 @@ pub fn visible_extensions_for_module(
                     def_id: method.def_id,
                     impl_id: method.impl_id,
                     effective_generics: method.effective_generics.clone(),
+                    effective_const_generics: method.effective_const_generics.clone(),
                     trait_id: method.trait_id,
                     trait_args: method
                         .trait_args
@@ -191,10 +197,8 @@ pub fn visible_extensions_for_module(
                         .map(|arg| method_normalization.normalize(*arg))
                         .collect(),
                     where_predicates: method.where_predicates.clone(),
-                    is_callable: extension_visibility_allows(
-                        method.visibility,
-                        method.def_id.module_id,
-                    ),
+                    is_callable: visible_modules.contains(&method.def_id.module_id)
+                        && extension_visibility_allows(method.visibility, method.def_id.module_id),
                     is_trait_witness: trait_is_visible,
                 },
             );
@@ -205,6 +209,19 @@ pub fn visible_extensions_for_module(
         imported_visible_modules.iter().copied(),
         extension_visibility_allows,
         |value| {
+            let trait_is_visible = value.trait_id.is_some_and(|trait_id| {
+                witness_modules.contains(&value.def_id.module_id)
+                    && trait_id_is_visible(
+                        module_id,
+                        witness_modules,
+                        trait_id,
+                        public_surfaces,
+                        &mut resolver_cache,
+                    )
+            });
+            if !visible_modules.contains(&value.def_id.module_id) && !trait_is_visible {
+                return;
+            }
             if resolver_cache
                 .defs(value.def_id.module_id)
                 .is_none_or(|defs| defs.defs.get(value.def_id.def_id).is_none())
@@ -224,7 +241,9 @@ pub fn visible_extensions_for_module(
                     def_id: value.def_id,
                 },
             );
-            visible.insert_trait_witness_impl(value.def_id.module_id, value.impl_id);
+            if trait_is_visible {
+                visible.insert_trait_witness_impl(value.def_id.module_id, value.impl_id);
+            }
         },
     );
     VisibleExtensionsForModule { methods: visible }

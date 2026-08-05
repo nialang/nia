@@ -2401,12 +2401,18 @@ When their type argument is concrete, `@size[T]()`, `@align[T]()`, and
 `@offset[T]("field")` are compile-time known values and may appear in ordinary
 expressions. `@size[T]()` and `@align[T]()` may also appear in array lengths and
 static initializers. In generic code these builtins remain layout values until
-the generic function is instantiated.
+the generic function is instantiated. A concrete layout-builtin array length
+participates in const-generic inference just like a literal or evaluated const
+expression, with the same result for compile-time and runtime calls.
 
-`value.len()` calls the built-in `Len` trait method. Arrays and slices have
-compiler-proven `Len` implementations; for `[N]T`, it returns `N`; for `&[T]`
-and `&mut [T]`, it returns the runtime slice length. User types may implement
-`Len` when they do not overlap compiler-proven array or slice implementations.
+`value.len()` calls the ordinary source-defined `Len` trait method. The loader
+makes `Len` available as a demand-loaded prelude trait when source uses the
+method or names the trait, so the common call requires no explicit import.
+`std::builtin` defines ordinary implementations for `[N]T` and `[T]`. The array
+body returns the const generic `N`; the slice body uses the narrow `sliceLen`
+representation intrinsic to read runtime slice metadata. The compiler does not
+assign `Len` a builtin trait identity. User types implement the same trait with
+`const fn len(&self) usize`, usable from both const and runtime calls.
 
 `range.start()` and `range.end()` call the built-in `Start` and `End` trait
 methods. They are available only for range shapes that carry the requested
@@ -2849,8 +2855,8 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
 `Sized`, `Deref`, `DerefMut`, `Index`, `IndexMut`, `Slice`, `SliceMut`,
-`Ptr`, `PtrMut`, and `Char` are also builtin capability traits. Their names and
-required members are fixed by the language:
+`Start`, `End`, `Ptr`, and `PtrMut` are also builtin capability traits. Their
+names and required members are fixed by the language:
 
 ```nia
 trait Sized {}
@@ -2885,10 +2891,6 @@ trait SliceMut[R] : Slice[R] {
     fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
-trait Len {
-    fn len(&self) usize;
-}
-
 trait Start {
     type Output;
     fn start(&self) [Self as Start]::Output;
@@ -2909,9 +2911,6 @@ trait PtrMut : Ptr {
     fn ptr_mut(&mut self) &mut [Self as PtrMut]::Target;
 }
 
-trait Char {
-    fn char(self) ?char;
-}
 ```
 
 The compiler proves builtin implementations for primitive operations,

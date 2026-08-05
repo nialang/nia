@@ -41,6 +41,7 @@ pub struct ExtensionAssociatedValue {
     pub def_id: GlobalDefId,
     pub impl_id: TraitImplId,
     pub target_ty: InternedTyId,
+    pub trait_id: Option<TraitId>,
     pub visibility: Visibility,
 }
 
@@ -63,6 +64,7 @@ pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
     pub impl_id: TraitImplId,
     pub effective_generics: Vec<SymbolId>,
+    pub effective_const_generics: Vec<SymbolId>,
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
@@ -85,6 +87,7 @@ pub struct VisibleExtensionMethod {
     pub def_id: GlobalDefId,
     pub impl_id: TraitImplId,
     pub effective_generics: Vec<SymbolId>,
+    pub effective_const_generics: Vec<SymbolId>,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
     pub where_predicates: Vec<WherePredicateSignature>,

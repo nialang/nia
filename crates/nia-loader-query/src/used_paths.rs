@@ -6,7 +6,7 @@ use nia_ast_walk::{Visitor, walk_expr, walk_item, walk_module, walk_stmt, walk_t
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
-use nia_symbol::{SymbolId, SymbolMap, ToSymbolId};
+use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
 
 pub(crate) fn collect_used_modules(
     item_tree: &ActiveModuleItemTree,
@@ -161,6 +161,20 @@ impl QualifiedPathModuleCollector<'_> {
                 ));
         }
     }
+
+    fn collect_len_prelude(&mut self) {
+        if self.module_map.contains_root(known::STD) {
+            self.packages.push(known::STD);
+            self.paths.push(UsedModulePath::Package {
+                package: known::STD,
+                segments: vec![known::BUILTIN],
+                include_declared_children: false,
+                processing: UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
+                    trait_name: known::LEN_TYPE,
+                },
+            });
+        }
+    }
 }
 
 pub(crate) fn module_using_aliases(
@@ -241,6 +255,11 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
+        if let ExprKind::Call { callee, .. } = &expr.kind
+            && matches!(&callee.kind, ExprKind::Field { name, .. } if *name == known::LEN)
+        {
+            self.collect_len_prelude();
+        }
         if let ExprKind::Call { callee, args } = &expr.kind
             && let Some(segments) = expr_qualified_segments(callee)
         {
@@ -259,6 +278,14 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
 
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         if let TypeKind::Path { segments } = &ty.kind {
+            if segments.len() == 1
+                && segments
+                    .first()
+                    .and_then(type_path_segment_name)
+                    .is_some_and(|name| name == known::LEN_TYPE)
+            {
+                self.collect_len_prelude();
+            }
             self.collect_path_segments(
                 segments
                     .iter()

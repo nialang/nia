@@ -7,9 +7,9 @@ mod public_surface;
 pub use nia_ast::PathSegmentKind;
 use nia_ast::{
     BindingItem, Block, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem,
-    FunctionItem, GenericParam, Module, StmtKind, StructItem, TraitAssociatedType,
-    TraitAssociatedValue, TypeAliasItem, UnionItem, UsingItem, generic_param_identities,
-    type_ref_identity, where_clause_identity,
+    FunctionItem, GenericParam, GenericParamKind, Module, StmtKind, StructItem,
+    TraitAssociatedType, TraitAssociatedValue, TypeAliasItem, UnionItem, UsingItem,
+    generic_param_identities, type_ref_identity, where_clause_identity,
 };
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
@@ -644,6 +644,14 @@ pub struct Def {
     pub generic_params: Vec<GenericParam>,
     pub visibility: Visibility,
     pub span: Span,
+}
+
+impl Def {
+    pub fn const_generic_names(&self) -> impl Iterator<Item = SymbolId> + '_ {
+        self.generic_params.iter().filter_map(|generic| {
+            matches!(generic.kind, GenericParamKind::Const { .. }).then_some(generic.name)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -969,9 +969,15 @@ impl ResolvedConstEnv for Analyzer<'_> {
         param: &ResolvedConstParam,
         value: ConstValue,
     ) -> Result<(), ConstError> {
-        let ty = param
+        let declared_ty = param
             .ty()
-            .map(|ty| ConstValueType::Runtime(self.substitute_ty_generics(ty)));
+            .filter(|ty| !matches!(self.ty_kind(*ty), Some(TyKind::Error)))
+            .or_else(|| {
+                param.receiver()?;
+                let function_id = self.current_execution_function_id()?;
+                self.extension_method_target_ty(function_id)
+            });
+        let ty = declared_ty.map(|ty| ConstValueType::Runtime(self.substitute_ty_generics(ty)));
         self.bind_local_value(
             span,
             param.local_id(),
@@ -1586,6 +1592,37 @@ impl Analyzer<'_> {
                 Ok(Some(ConstValue::Int(nia_ty::IntConst::unsigned(
                     u128::from(mask),
                 ))))
+            }
+            BuiltinFunction::SliceLen => {
+                if type_args.len() > 1 || args.len() != 1 {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `sliceLen` expects exactly one value argument"
+                            .to_string(),
+                    });
+                }
+                let mut value = args[0].clone();
+                loop {
+                    value = match value {
+                        ConstValue::Pointer(pointer) => {
+                            self.dereference_const_pointer(span, &pointer)?
+                        }
+                        ConstValue::Array(values) => {
+                            break Ok(Some(ConstValue::Int(nia_ty::IntConst::unsigned(
+                                u128::try_from(values.len()).map_err(|_| ConstError {
+                                    span,
+                                    message: "const slice length is too large".to_string(),
+                                })?,
+                            ))));
+                        }
+                        _ => {
+                            break Err(ConstError {
+                                span,
+                                message: "builtin `sliceLen` requires a slice pointer".to_string(),
+                            });
+                        }
+                    };
+                }
             }
             _ => Err(ConstError {
                 span,

@@ -272,7 +272,7 @@ pub(super) fn provide_extension_provider_module_facts(
         let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
         let methods = collect_extension_method_index_for_module(&module, &trait_index.trait_defs);
         let (associated_values, associated_value_diagnostics) =
-            collect_extension_associated_value_index_for_module(&module);
+            collect_extension_associated_value_index_for_module(&module, &trait_index.trait_defs);
         let nominal_providers =
             collect_nominal_extension_providers_for_module(&module, &trait_index.trait_defs);
         Ok(ExtensionProviderModuleFactsQueryValue {
@@ -837,12 +837,30 @@ pub(super) fn provide_visible_extensions(
         .unwrap_or_default()
     };
     let visible_modules = visible_provider_modules_for_module(db, module_id)?;
+    let trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    let mut fact_modules = visible_modules.clone();
+    fact_modules.extend(trait_witness_modules.iter().copied());
+    fact_modules.sort();
+    fact_modules.dedup();
     let mut extension_methods = nia_defs::ExtensionMethods::default();
     let mut associated_values = nia_defs::ExtensionAssociatedValues::default();
-    for provider_module in visible_modules.iter().copied() {
+    for provider_module in fact_modules {
         let facts = db.get(ExtensionProviderModuleFactsQuery(provider_module))?;
-        extension_methods.extend(facts.methods.clone());
-        associated_values.extend(facts.associated_values.clone());
+        if visible_modules.contains(&provider_module) {
+            extension_methods.extend(facts.methods.clone());
+            associated_values.extend(facts.associated_values.clone());
+        } else {
+            for method in facts.methods.all_methods() {
+                if matches!(method.trait_id, Some(nia_ty::TraitId::Source(_))) {
+                    extension_methods.insert(provider_module, method.clone());
+                }
+            }
+            for value in facts.associated_values.all_values() {
+                if matches!(value.trait_id, Some(nia_ty::TraitId::Source(_))) {
+                    associated_values.insert(provider_module, value.clone());
+                }
+            }
+        }
     }
     let visible_extensions = visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
@@ -861,6 +879,7 @@ pub(super) fn provide_visible_extensions(
         trait_impls: &[],
         nominal_extension_providers: &nominal_extension_providers,
         visible_modules: Some(visible_modules.as_slice()),
+        trait_witness_modules: Some(trait_witness_modules.as_slice()),
     });
     if let Some(error) = query_failure
         .into_inner()
@@ -940,6 +959,7 @@ pub(super) fn provide_visible_trait_impls(
         trait_impls: trait_impls.as_slice(),
         nominal_extension_providers: &nominal_extension_providers,
         visible_modules: Some(visible_modules.as_slice()),
+        trait_witness_modules: None,
     });
     if let Some(error) = query_failure
         .into_inner()

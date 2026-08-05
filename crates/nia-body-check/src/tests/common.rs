@@ -352,6 +352,18 @@ fn pipeline_with_options(
                 }
                 let mut effective_generics = extend_generics.clone();
                 effective_generics.extend(method_def.generics.iter().cloned());
+                let mut effective_const_generics = impl_signature
+                    .generic_params
+                    .iter()
+                    .filter_map(|generic| {
+                        matches!(
+                            generic.kind,
+                            nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                        )
+                        .then_some(generic.name)
+                    })
+                    .collect::<Vec<_>>();
+                effective_const_generics.extend(method_def.const_generic_names());
                 extensions.insert(
                     impl_signature.impl_id,
                     target_ty,
@@ -363,6 +375,7 @@ fn pipeline_with_options(
                         },
                         impl_id: impl_signature.impl_id,
                         effective_generics,
+                        effective_const_generics,
                         trait_id: None,
                         trait_args: Vec::new(),
                         where_predicates: Vec::new(),
@@ -442,6 +455,7 @@ fn single_module_trait_impls(
                 impl_id: impl_signature.impl_id,
                 builtin: impl_signature.builtin.clone(),
                 generics: impl_signature.generics.clone(),
+                generic_params: impl_signature.generic_params.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,

@@ -539,6 +539,7 @@ impl<'a> ModuleLowerer<'a> {
                                                 arg_module_id: self.current_arg_module_id(),
                                                 self_arg: None,
                                                 args: target_args,
+                                                const_args: Vec::new(),
                                                 receiver_kind: self
                                                     .receiver_kind_for_method(def_id)
                                                     .unwrap_or(nia_ids::ReceiverKind::Value),
@@ -741,6 +742,7 @@ impl<'a> ModuleLowerer<'a> {
                 arg_module_id: _,
                 self_arg,
                 args,
+                const_args,
                 receiver_kind,
                 receiver,
             } => {
@@ -756,11 +758,22 @@ impl<'a> ModuleLowerer<'a> {
                 } else {
                     self.canonicalize_instance_args(&args)
                 };
+                let const_args = const_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            &arg,
+                            substitutions,
+                            &mut HashSet::new(),
+                        )
+                    })
+                    .collect();
                 FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: self.canonicalize_instance_self_arg(self_arg),
                     args,
+                    const_args,
                     receiver_kind,
                     receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
                 }
@@ -785,13 +798,15 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
                 let receiver = Box::new(self.instantiate_expr(*receiver, substitutions));
-                if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
-                    trait_id,
-                    &trait_args,
-                    method_id,
-                    &method_name,
-                    self_ty,
-                ) {
+                if let Some((def_id, target_args, target_const_args)) = self
+                    .resolve_trait_method_impl(
+                        trait_id,
+                        &trait_args,
+                        method_id,
+                        &method_name,
+                        self_ty,
+                    )
+                {
                     let mut instance_args = target_args;
                     instance_args.extend(args);
                     FunctionCallee::Method {
@@ -799,6 +814,7 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id: self.current_arg_module_id(),
                         self_arg: None,
                         args: instance_args,
+                        const_args: target_const_args,
                         receiver_kind,
                         receiver,
                     }
@@ -814,6 +830,7 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id: self.current_arg_module_id(),
                         self_arg: Some(default_self_ty),
                         args: instance_args,
+                        const_args: Vec::new(),
                         receiver_kind,
                         receiver,
                     }
@@ -864,16 +881,18 @@ impl<'a> ModuleLowerer<'a> {
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
-                if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
-                    trait_id,
-                    &trait_args,
-                    method_id,
-                    &method_name,
-                    self_ty,
-                ) {
+                if let Some((def_id, target_args, target_const_args)) = self
+                    .resolve_trait_method_impl(
+                        trait_id,
+                        &trait_args,
+                        method_id,
+                        &method_name,
+                        self_ty,
+                    )
+                {
                     let mut instance_args = target_args;
                     instance_args.extend(args);
-                    if instance_args.is_empty() {
+                    if instance_args.is_empty() && target_const_args.is_empty() {
                         FunctionCallee::Function(def_id)
                     } else {
                         FunctionCallee::FunctionInstance {
@@ -881,7 +900,7 @@ impl<'a> ModuleLowerer<'a> {
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: None,
                             args: instance_args,
-                            const_args: Vec::new(),
+                            const_args: target_const_args,
                         }
                     }
                 } else if self.trait_method_has_default(method_id)
@@ -1042,7 +1061,9 @@ impl<'a> ModuleLowerer<'a> {
         trait_method_id: GlobalDefId,
         trait_method_name: &SymbolId,
         self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
+        let self_ty = self.canonicalize_instance_arg(self_ty);
+        let trait_args = self.canonicalize_instance_args(trait_args);
         let trait_method_name = self
             .method_symbol_for_def(trait_method_id)
             .unwrap_or(*trait_method_name);
@@ -1051,53 +1072,54 @@ impl<'a> ModuleLowerer<'a> {
             method_name: trait_method_name,
             trait_arg_count: trait_args.len(),
         };
-        if let Some(candidate) = self.current_impl_trait_method(&key, trait_args, self_ty) {
-            return Some(candidate);
+        if let Some(candidate) = self.current_impl_trait_method(&key, &trait_args, self_ty) {
+            return Some((candidate.0, candidate.1, Vec::new()));
         }
-        if let Some(candidate) = self.selected_user_trait_method_impl(&key, trait_args, self_ty) {
-            return Some(candidate);
-        }
-        if let Some(pointee) = self.pointer_elem_ty(self_ty)
-            && let Some(candidate) = self.selected_user_trait_method_impl(&key, trait_args, pointee)
-        {
-            return Some(candidate);
-        }
-        if let Some(candidate) = self.global_trait_method_impl_candidate(&key, trait_args, self_ty)
-        {
+        if let Some(candidate) = self.selected_user_trait_method_impl(&key, &trait_args, self_ty) {
             return Some(candidate);
         }
         if let Some(pointee) = self.pointer_elem_ty(self_ty)
             && let Some(candidate) =
-                self.global_trait_method_impl_candidate(&key, trait_args, pointee)
+                self.selected_user_trait_method_impl(&key, &trait_args, pointee)
         {
             return Some(candidate);
+        }
+        if let Some(candidate) = self.global_trait_method_impl_candidate(&key, &trait_args, self_ty)
+        {
+            return Some((candidate.0, candidate.1, Vec::new()));
+        }
+        if let Some(pointee) = self.pointer_elem_ty(self_ty)
+            && let Some(candidate) =
+                self.global_trait_method_impl_candidate(&key, &trait_args, pointee)
+        {
+            return Some((candidate.0, candidate.1, Vec::new()));
         }
         let candidates = self.program_extension_trait_method_candidates(&key);
         let candidates = candidates
             .iter()
             .filter_map(|candidate| {
-                self.trait_impl_method_for_candidate(candidate, trait_args, self_ty)
+                self.trait_impl_method_for_candidate(candidate, &trait_args, self_ty)
                     .map(|resolved| (candidate, resolved))
             })
             .collect::<Vec<_>>();
         let candidates = self.unique_trait_impl_method_candidates(candidates);
         let candidates = self.filter_more_specific_trait_impl_method_candidates(candidates);
         match candidates.as_slice() {
-            [(_, candidate)] => Some(candidate.clone()),
+            [(_, candidate)] => Some((candidate.0, candidate.1.clone(), Vec::new())),
             _ => {
                 let pointee = self.pointer_elem_ty(self_ty)?;
                 let candidates = self.program_extension_trait_method_candidates(&key);
                 let candidates = candidates
                     .iter()
                     .filter_map(|candidate| {
-                        self.trait_impl_method_for_candidate(candidate, trait_args, pointee)
+                        self.trait_impl_method_for_candidate(candidate, &trait_args, pointee)
                             .map(|resolved| (candidate, resolved))
                     })
                     .collect::<Vec<_>>();
                 let candidates = self.unique_trait_impl_method_candidates(candidates);
                 let candidates = self.filter_more_specific_trait_impl_method_candidates(candidates);
                 match candidates.as_slice() {
-                    [(_, candidate)] => Some(candidate.clone()),
+                    [(_, candidate)] => Some((candidate.0, candidate.1.clone(), Vec::new())),
                     _ => None,
                 }
             }

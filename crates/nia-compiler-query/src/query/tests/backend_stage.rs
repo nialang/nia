@@ -266,7 +266,7 @@ fn main() usize {
 let values: [compileCount]u8 = [0; compileCount];
 count(Pair[usize] { first: 1, second: 2 })
 + count(Pair[bool] { first: true, second: false })
-+ values.len()
++ values[0] as usize
 }
 "#,
     );

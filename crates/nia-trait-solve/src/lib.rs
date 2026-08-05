@@ -308,7 +308,6 @@ where
             }
             BuiltinTrait::Ptr => self.can_be_slice(self_ty, false),
             BuiltinTrait::PtrMut => self.can_be_slice(self_ty, true),
-            BuiltinTrait::Len => self.can_have_len(self_ty),
             BuiltinTrait::Start => self.can_have_range_start(self_ty),
             BuiltinTrait::End => self.can_have_range_end(self_ty),
             BuiltinTrait::Iterable => false,
@@ -551,13 +550,6 @@ where
             ),
             _ => false,
         }
-    }
-
-    fn can_have_len(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.type_store.get(self.normalize(ty)),
-            Some(TyKind::GenericParam(_) | TyKind::Array { .. } | TyKind::Slice { .. })
-        )
     }
 
     fn can_have_range_start(&self, ty: InternedTyId) -> bool {
@@ -963,9 +955,6 @@ impl TraitSolver<'_> {
             BuiltinTrait::PtrMut => {
                 goal.trait_args.is_empty() && self.intrinsic_ptr_target_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::Len => {
-                goal.trait_args.is_empty() && self.intrinsic_len_output_ty(self_ty).is_some()
-            }
             BuiltinTrait::Start => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_range_start_output_ty(self_ty).is_some()
@@ -1270,13 +1259,6 @@ impl TraitSolver<'_> {
                 is_readonly: true,
                 elem,
             }) if !require_mutable => Some(*elem),
-            _ => None,
-        }
-    }
-
-    pub fn intrinsic_len_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
-        match self.kind(self_ty) {
-            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => Some(self.usize()),
             _ => None,
         }
     }
@@ -2352,7 +2334,28 @@ impl TraitSolver<'_> {
             }
             ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(*name),
             ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(*id),
-            ArrayLenTy::Builtin { .. } | ArrayLenTy::Infer => return None,
+            ArrayLenTy::Builtin {
+                builtin,
+                ty: layout_ty,
+            } => {
+                let layout_ty = self.normalize(*layout_ty);
+                let layouts = self.layouts?;
+                let layout = layouts.types.get(&layout_ty).cloned().or_else(|| {
+                    layouts.types.iter().find_map(|(candidate, layout)| {
+                        self.types_equivalent_in_layout_interner(
+                            layout_ty,
+                            *candidate,
+                            layouts,
+                            &mut HashSet::new(),
+                        )
+                        .then(|| layout.clone())
+                    })
+                })?;
+                ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+                    layout.builtin_value(*builtin).into(),
+                ))
+            }
+            ArrayLenTy::Infer => return None,
         };
         Some(ConstGenericArg { ty, value })
     }

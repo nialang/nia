@@ -8,6 +8,7 @@ pub(super) struct ExtensionMethodLookup {
     pub(super) target_ty: InternedTyId,
     pub(super) impl_id: nia_ids::TraitImplId,
     pub(super) effective_generics: Vec<SymbolId>,
+    pub(super) effective_const_generics: Vec<SymbolId>,
     pub(super) where_predicates: Vec<nia_defs::WherePredicateSignature>,
 }
 
@@ -75,8 +76,20 @@ impl<'a> BodyChecker<'a> {
             let target_ty = local_normalization.normalize(impl_signature.target_ty);
             for method in &impl_signature.methods {
                 let mut effective_generics = impl_signature.generics.clone();
+                let mut effective_const_generics = impl_signature
+                    .generic_params
+                    .iter()
+                    .filter_map(|generic| {
+                        matches!(
+                            generic.kind,
+                            nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                        )
+                        .then_some(generic.name)
+                    })
+                    .collect::<Vec<_>>();
                 if let Some(def) = defs.defs.get(method.def_id) {
                     effective_generics.extend(def.generics.iter().cloned());
+                    effective_const_generics.extend(def.const_generic_names());
                 }
                 methods.insert(
                     GlobalDefId {
@@ -87,6 +100,7 @@ impl<'a> BodyChecker<'a> {
                         target_ty,
                         impl_id: impl_signature.impl_id,
                         effective_generics,
+                        effective_const_generics,
                         where_predicates: impl_signature.where_predicates.clone(),
                     },
                 );
@@ -104,6 +118,7 @@ impl<'a> BodyChecker<'a> {
                         target_ty,
                         impl_id: method.impl_id,
                         effective_generics: method.effective_generics.clone(),
+                        effective_const_generics: method.effective_const_generics.clone(),
                         where_predicates: method.where_predicates.clone(),
                     });
             }
@@ -149,6 +164,7 @@ impl<'a> BodyChecker<'a> {
             target_ty,
             impl_id: method.impl_id,
             effective_generics: method.effective_generics.clone(),
+            effective_const_generics: method.effective_const_generics.clone(),
             where_predicates: method.where_predicates.clone(),
         })
     }

@@ -41,9 +41,9 @@ use crate::{
 
 mod storage;
 
-const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
-const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
-const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI003";
+const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR002";
+const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL002";
+const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI005";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
@@ -1124,6 +1124,7 @@ fn write_trait_impl_signature(
     write_u64(encoded, signature.impl_id.0);
     write_optional_string(encoded, signature.builtin.as_deref());
     write_symbols(encoded, &signature.generics, graph)?;
+    write_generic_params(encoded, &signature.generic_params, graph)?;
     write_type_index(encoded, graph.intern(signature.target_ty)?);
     write_optional_type(encoded, signature.trait_ty, graph)?;
     write_optional_span(encoded, signature.trait_span);
@@ -1161,6 +1162,7 @@ fn read_trait_impl_signature(
     let impl_id = TraitImplId(read_u64(cursor)?);
     let builtin = read_optional_string(cursor)?;
     let generics = read_symbols(cursor, symbols)?;
+    let generic_params = read_generic_params(cursor, types, symbols)?;
     let target_ty = read_type_index(cursor, types)?;
     let trait_ty = read_optional_type(cursor, types)?;
     let trait_span = read_optional_span(cursor, source_len)?;
@@ -1211,6 +1213,7 @@ fn read_trait_impl_signature(
         impl_id,
         builtin,
         generics,
+        generic_params,
         target_ty,
         trait_ty,
         trait_span,
@@ -2599,50 +2602,77 @@ fn read_primitive(cursor: &mut Cursor<&[u8]>) -> Option<PrimitiveTy> {
     })
 }
 
-const BUILTIN_TRAITS: [BuiltinTrait; 32] = [
-    BuiltinTrait::Add,
-    BuiltinTrait::Sub,
-    BuiltinTrait::Mul,
-    BuiltinTrait::Div,
-    BuiltinTrait::Rem,
-    BuiltinTrait::Neg,
-    BuiltinTrait::Not,
-    BuiltinTrait::BitNot,
-    BuiltinTrait::BitAnd,
-    BuiltinTrait::BitOr,
-    BuiltinTrait::BitXor,
-    BuiltinTrait::Shl,
-    BuiltinTrait::Shr,
-    BuiltinTrait::Eq,
-    BuiltinTrait::Ord,
-    BuiltinTrait::Sized,
-    BuiltinTrait::Unsized,
-    BuiltinTrait::Deref,
-    BuiltinTrait::DerefMut,
-    BuiltinTrait::Index,
-    BuiltinTrait::IndexMut,
-    BuiltinTrait::Slice,
-    BuiltinTrait::SliceMut,
-    BuiltinTrait::Ptr,
-    BuiltinTrait::PtrMut,
-    BuiltinTrait::Len,
-    BuiltinTrait::Start,
-    BuiltinTrait::End,
-    BuiltinTrait::Iterable,
-    BuiltinTrait::Iterator,
-    BuiltinTrait::Simd,
-    BuiltinTrait::SimdMask,
-];
-
 fn builtin_trait_tag(value: BuiltinTrait) -> u8 {
-    BUILTIN_TRAITS
-        .iter()
-        .position(|candidate| *candidate == value)
-        .expect("all builtin traits have stable tags") as u8
+    match value {
+        BuiltinTrait::Add => 0,
+        BuiltinTrait::Sub => 1,
+        BuiltinTrait::Mul => 2,
+        BuiltinTrait::Div => 3,
+        BuiltinTrait::Rem => 4,
+        BuiltinTrait::Neg => 5,
+        BuiltinTrait::Not => 6,
+        BuiltinTrait::BitNot => 7,
+        BuiltinTrait::BitAnd => 8,
+        BuiltinTrait::BitOr => 9,
+        BuiltinTrait::BitXor => 10,
+        BuiltinTrait::Shl => 11,
+        BuiltinTrait::Shr => 12,
+        BuiltinTrait::Eq => 13,
+        BuiltinTrait::Ord => 14,
+        BuiltinTrait::Sized => 15,
+        BuiltinTrait::Unsized => 16,
+        BuiltinTrait::Deref => 17,
+        BuiltinTrait::DerefMut => 18,
+        BuiltinTrait::Index => 19,
+        BuiltinTrait::IndexMut => 20,
+        BuiltinTrait::Slice => 21,
+        BuiltinTrait::SliceMut => 22,
+        BuiltinTrait::Ptr => 23,
+        BuiltinTrait::PtrMut => 24,
+        BuiltinTrait::Start => 26,
+        BuiltinTrait::End => 27,
+        BuiltinTrait::Iterable => 28,
+        BuiltinTrait::Iterator => 29,
+        BuiltinTrait::Simd => 30,
+        BuiltinTrait::SimdMask => 31,
+    }
 }
 
 fn read_builtin_trait(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinTrait> {
-    BUILTIN_TRAITS.get(read_u8(cursor)? as usize).copied()
+    Some(match read_u8(cursor)? {
+        0 => BuiltinTrait::Add,
+        1 => BuiltinTrait::Sub,
+        2 => BuiltinTrait::Mul,
+        3 => BuiltinTrait::Div,
+        4 => BuiltinTrait::Rem,
+        5 => BuiltinTrait::Neg,
+        6 => BuiltinTrait::Not,
+        7 => BuiltinTrait::BitNot,
+        8 => BuiltinTrait::BitAnd,
+        9 => BuiltinTrait::BitOr,
+        10 => BuiltinTrait::BitXor,
+        11 => BuiltinTrait::Shl,
+        12 => BuiltinTrait::Shr,
+        13 => BuiltinTrait::Eq,
+        14 => BuiltinTrait::Ord,
+        15 => BuiltinTrait::Sized,
+        16 => BuiltinTrait::Unsized,
+        17 => BuiltinTrait::Deref,
+        18 => BuiltinTrait::DerefMut,
+        19 => BuiltinTrait::Index,
+        20 => BuiltinTrait::IndexMut,
+        21 => BuiltinTrait::Slice,
+        22 => BuiltinTrait::SliceMut,
+        23 => BuiltinTrait::Ptr,
+        24 => BuiltinTrait::PtrMut,
+        26 => BuiltinTrait::Start,
+        27 => BuiltinTrait::End,
+        28 => BuiltinTrait::Iterable,
+        29 => BuiltinTrait::Iterator,
+        30 => BuiltinTrait::Simd,
+        31 => BuiltinTrait::SimdMask,
+        _ => return None,
+    })
 }
 
 fn syntax_kind_tag(value: SyntaxKind) -> u8 {
@@ -2862,6 +2892,20 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     include!("signature_cache/tests/test_support.rs");
+
+    #[test]
+    fn builtin_trait_cache_tags_keep_removed_slots_invalid() {
+        assert_eq!(builtin_trait_tag(BuiltinTrait::PtrMut), 24);
+        assert_eq!(builtin_trait_tag(BuiltinTrait::Start), 26);
+        assert_eq!(
+            read_builtin_trait(&mut Cursor::new([26_u8].as_slice())),
+            Some(BuiltinTrait::Start)
+        );
+        assert_eq!(
+            read_builtin_trait(&mut Cursor::new([25_u8].as_slice())),
+            None
+        );
+    }
 
     #[path = "check_certificate.rs"]
     mod check_certificate;

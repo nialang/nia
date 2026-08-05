@@ -141,11 +141,9 @@ formatting traits does not by itself establish a coherent string API.
 
 Compiler-known traits receive the same scrutiny. Operators and structural place
 semantics may require compiler participation, but convenience methods do not
-automatically require builtin trait identity. `Len`, `Start`, `End`, `Ptr`,
-`PtrMut`, and `Char` must each justify why an ordinary trait with
-compiler-provided structural implementations or intrinsic bodies is
-insufficient. Their current cross-compiler implementation is audit evidence,
-not a reason to preserve it.
+automatically require builtin trait identity. The completed `Char` and `Len`
+audits removed those identities; `Start`, `End`, `Ptr`, and `PtrMut` retain
+their current status only until their dependency-complete audits settle it.
 
 The current audit sets this design direction:
 
@@ -394,11 +392,14 @@ Initial convenience-trait dispositions are deliberately asymmetric. `Char` is
 not a trait: checked scalar construction is `unicode::fromScalarValue`, backed
 by `std::builtin::charFromU32`, while `char.codepoint()` and
 `char.encodeUtf8()` provide inherent scalar operations.
-`Start`/`End` are range accessors. `Len` and `Ptr`/`PtrMut` need compiler-created
-implementations for structural arrays, slices, or data pointers, but that does
-not require builtin trait identity. Each migration must trace symbol identity,
-type/projection solving, const evaluation, reachability, backend dispatch, and
-LLVM before deleting its builtin declaration.
+`Len` is an ordinary demand-loaded prelude trait. Its source array impl returns
+the const generic length and its source slice impl calls the private
+representation intrinsic `sliceLen`; user implementations use the same trait
+selection path. `Start`/`End` are range accessors. `Ptr`/`PtrMut` need
+compiler-created data-pointer implementations, but that does not by itself
+require builtin trait identity. Each remaining migration must trace symbol
+identity, type/projection solving, const evaluation, reachability, backend
+dispatch, and LLVM before deleting its builtin declaration.
 
 ### 4.1 Text, Path, And Process Error-Flow Matrix
 

@@ -145,6 +145,7 @@ impl<'a> BodyChecker<'a> {
                     def_id: method.def_id,
                     impl_id: method.impl_id,
                     effective_generics: lookup.effective_generics.clone(),
+                    effective_const_generics: lookup.effective_const_generics.clone(),
                     trait_id: method.trait_id,
                     trait_args: Vec::new(),
                     where_predicates: lookup.where_predicates.clone(),
@@ -1993,13 +1994,18 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
                 nia_ty::IntConst::unsigned((*value).into()),
             )),
-            ArrayLenTy::ConstExpr(id) => {
-                self.const_eval.array_lengths.get(id).copied().map(|value| {
-                    nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
-                })
+            ArrayLenTy::ConstExpr(id) => self.array_len_const_expr_value(*id).map(|value| {
+                nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
+            }),
+            ArrayLenTy::Builtin { .. } => {
+                self.array_len_value(Span::default(), len)
+                    .ok()
+                    .map(|value| {
+                        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
+                    })
             }
             ArrayLenTy::GenericParam(name) => Some(nia_ty::ConstGenericValue::GenericParam(*name)),
-            ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
+            ArrayLenTy::Infer => None,
         }
     }
 

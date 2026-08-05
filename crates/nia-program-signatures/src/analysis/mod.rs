@@ -12,8 +12,8 @@ use nia_ids::{
     ReceiverKind, TraitImplId, Visibility,
 };
 use nia_item_signatures::{
-    FunctionSignature, ItemSignatures, ProgramConstSignature, ProgramEnumSignature,
-    ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
+    FunctionSignature, GenericParamSignatureKind, ItemSignatures, ProgramConstSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
     ProgramUnionSignature, TraitImplSignature, TraitSignature,
 };
@@ -267,6 +267,17 @@ pub fn collect_extension_method_index_for_module(
         for method in &impl_signature.methods {
             let effective_generics =
                 extension_method_effective_generics(module, impl_signature, method, target_ty);
+            let mut effective_const_generics = impl_signature
+                .generic_params
+                .iter()
+                .filter_map(|generic| {
+                    matches!(generic.kind, GenericParamSignatureKind::Const { .. })
+                        .then_some(generic.name)
+                })
+                .collect::<Vec<_>>();
+            if let Some(def) = module.defs.defs.get(method.def_id) {
+                effective_const_generics.extend(def.const_generic_names());
+            }
             extensions.insert_with_nominal_target(
                 module.module_id,
                 ExtensionMethod {
@@ -277,6 +288,7 @@ pub fn collect_extension_method_index_for_module(
                     },
                     impl_id: impl_signature.impl_id,
                     effective_generics,
+                    effective_const_generics,
                     target_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
@@ -402,11 +414,13 @@ fn normalize_where_predicates(
 
 pub fn collect_extension_associated_value_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
+    trait_defs: &HashSet<GlobalDefId>,
 ) -> (ExtensionAssociatedValues, Vec<Diagnostic>) {
     let mut values = ExtensionAssociatedValues::default();
     let mut diagnostics = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
+        let trait_id = impl_trait_id_for_index(module, impl_signature, trait_defs);
         if !is_extendable_target(module.type_store, target_ty) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
@@ -426,6 +440,7 @@ pub fn collect_extension_associated_value_index_for_module(
                     },
                     impl_id: impl_signature.impl_id,
                     target_ty,
+                    trait_id,
                     visibility: associated_value.visibility,
                 },
                 nominal_target_def_id(module.type_store, target_ty),
@@ -1104,9 +1119,6 @@ fn builtin_trait_method_signature_matches(
         (BuiltinTrait::Iterator, BuiltinTraitMethod::IteratorNext) => {
             builtin_iterator_method_signature_matches(module, impl_signature, actual)
         }
-        (BuiltinTrait::Len, BuiltinTraitMethod::Len) => {
-            builtin_len_method_signature_matches(module, actual)
-        }
         (BuiltinTrait::Start, BuiltinTraitMethod::Start)
         | (BuiltinTrait::End, BuiltinTraitMethod::End) => {
             builtin_bound_method_signature_matches(module, impl_signature, actual)
@@ -1222,24 +1234,6 @@ fn builtin_iterable_method_signature_matches(
         return false;
     };
     types_equivalent(module.type_store, module.lowering, actual.return_type, iter)
-}
-
-fn builtin_len_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    actual: &FunctionSignature,
-) -> bool {
-    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
-        return false;
-    }
-    types_equivalent(
-        module.type_store,
-        module.lowering,
-        actual.return_type,
-        module
-            .type_store
-            .append_for_module(module.module_id)
-            .intern(TyKind::Primitive(PrimitiveTy::Usize)),
-    )
 }
 
 fn builtin_bound_method_signature_matches(

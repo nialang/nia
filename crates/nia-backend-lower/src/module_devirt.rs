@@ -131,6 +131,7 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id: self.input.module_id,
                         self_arg: None,
                         args: Vec::new(),
+                        const_args: Vec::new(),
                         receiver_kind: nia_ids::ReceiverKind::Ref,
                         receiver,
                     };
@@ -370,14 +371,14 @@ impl<'a> ModuleLowerer<'a> {
         else {
             return None;
         };
-        let (def_id, args) = self.resolve_trait_method_impl(
+        let (def_id, args, const_args) = self.resolve_trait_method_impl(
             *trait_def_id,
             trait_args,
             *method_id,
             method_name,
             *self_ty,
         )?;
-        args.is_empty().then(|| (expr.clone(), def_id))
+        (args.is_empty() && const_args.is_empty()).then(|| (expr.clone(), def_id))
     }
 
     fn record_devirtualization(

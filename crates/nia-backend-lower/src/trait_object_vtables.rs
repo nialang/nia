@@ -450,7 +450,11 @@ impl<'a> ModuleLowerer<'a> {
                     &method.name,
                     self_ty,
                 )
-                .map(|(def_id, args)| (def_id, self.input.module_id, None, args))
+                .and_then(|(def_id, args, const_args)| {
+                    const_args
+                        .is_empty()
+                        .then_some((def_id, self.input.module_id, None, args))
+                })
                 .or_else(|| {
                     if self.trait_method_has_default(method_id) {
                         // A default method is defined and type-checked in the

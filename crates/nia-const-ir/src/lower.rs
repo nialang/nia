@@ -807,7 +807,6 @@ fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(SymbolId, Option<&nia_ast
 
 fn const_builtin_method_name(name: SymbolId) -> Option<BuiltinTraitMethod> {
     match name {
-        known::LEN => Some(BuiltinTraitMethod::Len),
         known::START => Some(BuiltinTraitMethod::Start),
         known::END => Some(BuiltinTraitMethod::End),
         _ => None,

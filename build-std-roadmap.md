@@ -439,7 +439,7 @@ not a search-and-replace in `lib/std/builtin/place.nia`:
 
 | Trait | Current structural role | Initial disposition |
 | --- | --- | --- |
-| `Len` | array length and slice metadata | ordinary trait candidate with compiler-provided array/slice impl bodies |
+| `Len` | array length and slice metadata | accepted as an ordinary demand-loaded source trait; only slice metadata reading remains intrinsic |
 | `Start` / `End` | range field projection | ordinary trait or inherent range API candidate |
 | `Ptr` / `PtrMut` | slice data-pointer projection and associated target | may retain intrinsic impl bodies, but builtin trait identity is unproven |
 | `Char` | checked `u32` to `char` conversion | move to reviewed Unicode/inherent API; builtin trait identity is unjustified |
@@ -3871,6 +3871,64 @@ vector, nested-relocation, zero-sized, and array/string coverage from Round
 boundary. Mutable pointer write-through remains the separate alias-aware place
 operation task; function pointers retain their separate const-callable
 capability boundary.
+
+Standard-library reconstruction progress (2026-08-05, ordinary `Len` trait):
+`Len` no longer has a compiler builtin trait or method identity. The
+`@[builtin("Len")]`, `array.Len`, and `slice.Len` declarations and every
+`BuiltinTrait::Len`/`BuiltinTraitMethod::Len` dispatch path are deleted.
+`std::builtin` now defines one ordinary `Len` trait with `const fn len`, a
+source array impl whose body returns `N`, and a source slice impl whose body
+calls the narrow private `sliceLen` representation intrinsic. Internal BIR and
+function IR name that operation `SliceLen`, so neither source nor IR preserves
+the former ambiguous trait-level name.
+
+Zero-import `.len()` ergonomics are retained through the existing provider
+architecture rather than special type identity. A method call named `len`, or
+a source reference to bare `Len`, requests the `std::builtin` provider on
+demand. The public surface exposes the loaded source `GlobalDefId` as a
+low-priority prelude candidate, leaving local declarations authoritative and
+leaving programs with no length demand free of the builtin facade. Visible
+extension closure now includes imported trait-witness provider modules while
+callability remains independently filtered; this aligns const witness lookup
+with ordinary runtime visibility without exposing private impl methods.
+
+The source impl exposed two general const-checker gaps previously hidden by the
+builtin fast path. Const method target inference now derives both type and const
+generic substitutions through arrays, nominal const arguments, pointers,
+slices, optionals, function types, trait objects, and projections, then applies
+both maps through the shared `nia_ty::substitute_ty` operation. Candidate
+equality uses evaluated const values rather than const-expression identity.
+Array-length inference evaluates layout builtins through the same layout query
+in both const and runtime calls, and generic completeness checks keep type and
+const substitution maps distinct. Thus a `[N]T` parameter can infer `N` from
+`[@size[Header]()]u8` whether its `const fn` call is executed at comptime or
+lowered as an ordinary runtime instance. Const extension calls also establish
+the owner module type context, normalize
+pointer/slice receivers to their self target, recover an implicit receiver's
+type from the visible extension target, and type const references with the same
+pointer/slice distinction as runtime checking. These are source const-method
+capabilities, not `Len` exceptions.
+
+The runtime path now preserves the same impl-level const substitutions instead
+of dropping them after trait selection. Trait-impl signatures and the extension
+index retain generic parameter kinds, method callees carry explicit const
+arguments, and function-instance references, validation, fingerprinting, and
+LLVM lookup all include them. Concrete const-expression and layout-builtin
+array lengths are canonicalized at the instance boundary, so `[N]T` source
+impls lower to ordinary specialized methods for literal, imported, and
+layout-derived `N`. This is a general runtime trait-method contract, not an
+array-length dispatch rule. Because the array impl is now an ordinary
+`&self` method, runtime calls also retain normal receiver evaluation and the
+corresponding cross-partition data dependencies rather than inheriting the
+deleted intrinsic's unevaluated-receiver optimization.
+
+Focused conformance covers demand and no-demand provider loading, fixed arrays
+through generic `where T: Len`, direct slice receivers, an imported generic
+bound, user-defined `Len` at comptime and runtime, const array and slice values,
+runtime slice metadata, item-signature builtin deletion, and the LLVM/native
+`SliceLen` path. The `Len` convenience-trait audit is therefore closed.
+`Start`/`End` and `Ptr`/`PtrMut` remain the next dependency-complete audits; no
+managed wrapper or compatibility identity is introduced by this batch.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

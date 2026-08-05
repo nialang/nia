@@ -303,7 +303,6 @@ pub enum BuiltinTrait {
     SliceMut,
     Ptr,
     PtrMut,
-    Len,
     Start,
     End,
     Iterable,
@@ -355,10 +354,11 @@ pub enum BuiltinFunction {
     Fence,
     Embed,
     CharFromU32,
+    SliceLen,
 }
 
 impl BuiltinFunction {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::ConstError,
         Self::Trap,
         Self::SizeOf,
@@ -384,6 +384,7 @@ impl BuiltinFunction {
         Self::Fence,
         Self::Embed,
         Self::CharFromU32,
+        Self::SliceLen,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -413,6 +414,7 @@ impl BuiltinFunction {
             "fence" => Some(Self::Fence),
             "embed" => Some(Self::Embed),
             "charFromU32" => Some(Self::CharFromU32),
+            "sliceLen" => Some(Self::SliceLen),
             _ => None,
         }
     }
@@ -444,6 +446,7 @@ impl BuiltinFunction {
             Self::Fence => "fence",
             Self::Embed => "embed",
             Self::CharFromU32 => "charFromU32",
+            Self::SliceLen => "sliceLen",
         }
     }
 
@@ -456,6 +459,7 @@ impl BuiltinFunction {
             | Self::Offset
             | Self::Embed
             | Self::CharFromU32
+            | Self::SliceLen
             | Self::Splat
             | Self::Extract
             | Self::Insert
@@ -594,7 +598,6 @@ pub enum BuiltinTraitMethod {
     SliceMut,
     Ptr,
     PtrMut,
-    Len,
     Start,
     End,
     IterableIter,
@@ -836,15 +839,6 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
-            Self::Len,
-            BuiltinTraitMethodDescriptor::method(
-                "len",
-                BuiltinTrait::Len,
-                1,
-                ReceiverKind::RefReadOnly,
-            ),
-        ),
-        (
             Self::Start,
             BuiltinTraitMethodDescriptor::method(
                 "start",
@@ -954,7 +948,6 @@ impl BuiltinTraitMethod {
             | Self::IndexMut
             | Self::Slice
             | Self::SliceMut
-            | Self::Len
             | Self::Start
             | Self::End
             | Self::IterableIter
@@ -1054,7 +1047,6 @@ impl BuiltinTrait {
     const SLICE_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceMut];
     const PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Ptr];
     const PTR_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::PtrMut];
-    const LEN_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Len];
     const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
     const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
     const ITERABLE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IterableIter];
@@ -1090,7 +1082,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 31] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -1116,7 +1108,6 @@ impl BuiltinTrait {
         Self::SliceMut,
         Self::Ptr,
         Self::PtrMut,
-        Self::Len,
         Self::Start,
         Self::End,
         Self::Iterable,
@@ -1325,14 +1316,6 @@ impl BuiltinTrait {
             &Self::TARGET_ASSOC_TYPES,
             &Self::PTR_MUT_METHODS,
             &Self::PTR_MUT_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::Len,
-            "Len",
-            0,
-            &Self::NO_ASSOC_TYPES,
-            &Self::LEN_METHODS,
-            &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Start,

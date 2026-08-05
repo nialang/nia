@@ -82,7 +82,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         } = callee
         {
             return match method {
-                nia_function_ir::FunctionBuiltinMethod::Len => {
+                nia_function_ir::FunctionBuiltinMethod::SliceLen => {
                     self.emit_builtin_len_method(expr.span, *self_ty, receiver)
                 }
                 nia_function_ir::FunctionBuiltinMethod::Start => self.emit_range_bound(
@@ -324,56 +324,57 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 arg_module_id,
                 self_arg,
                 args: type_args,
+                const_args,
                 receiver_kind,
                 receiver,
             } => {
-                let (function, is_extern, param_tys) = if self_arg.is_none() && type_args.is_empty()
-                {
-                    let item = self.module.function_item(*def_id);
-                    (
-                        self.module.function(*def_id),
-                        item.is_some_and(|item| item.is_extern),
-                        item.map(|item| {
-                            item.params
-                                .iter()
-                                .map(|param| param.passing_ty)
-                                .collect::<Vec<_>>()
-                        }),
-                    )
-                } else {
-                    let instance = self.module.function_instance_item_with_arg_module(
-                        *def_id,
-                        *arg_module_id,
-                        *self_arg,
-                        type_args,
-                        &[],
-                    );
-                    (
-                        instance.and_then(|instance| {
-                            self.module.function_instance_value(
-                                instance.def_id,
-                                instance.arg_module_id,
-                                instance.self_arg,
-                                &instance.args,
-                                &instance.const_args,
-                            )
-                        }),
-                        instance.is_some_and(|instance| instance.is_extern),
-                        instance.map(|instance| {
-                            instance
-                                .params
-                                .iter()
-                                .map(|param| param.passing_ty)
-                                .collect::<Vec<_>>()
-                        }),
-                    )
-                };
+                let (function, is_extern, param_tys) =
+                    if self_arg.is_none() && type_args.is_empty() && const_args.is_empty() {
+                        let item = self.module.function_item(*def_id);
+                        (
+                            self.module.function(*def_id),
+                            item.is_some_and(|item| item.is_extern),
+                            item.map(|item| {
+                                item.params
+                                    .iter()
+                                    .map(|param| param.passing_ty)
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                    } else {
+                        let instance = self.module.function_instance_item_with_arg_module(
+                            *def_id,
+                            *arg_module_id,
+                            *self_arg,
+                            type_args,
+                            const_args,
+                        );
+                        (
+                            instance.and_then(|instance| {
+                                self.module.function_instance_value(
+                                    instance.def_id,
+                                    instance.arg_module_id,
+                                    instance.self_arg,
+                                    &instance.args,
+                                    &instance.const_args,
+                                )
+                            }),
+                            instance.is_some_and(|instance| instance.is_extern),
+                            instance.map(|instance| {
+                                instance
+                                    .params
+                                    .iter()
+                                    .map(|param| param.passing_ty)
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                    };
                 let Some(function) = function else {
                     return Err(self.error(
                         expr.span,
                         format!(
-                            "missing method function for def {:?} in arg module {:?} with args {:?}",
-                            def_id, arg_module_id, type_args
+                            "missing method function for def {:?} in arg module {:?} with args {:?} and const args {:?}",
+                            def_id, arg_module_id, type_args, const_args
                         ),
                     ));
                 };

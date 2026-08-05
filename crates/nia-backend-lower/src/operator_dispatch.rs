@@ -598,6 +598,7 @@ impl<'a> ModuleLowerer<'a> {
                 arg_module_id,
                 self_arg,
                 args,
+                const_args,
                 receiver_kind,
                 receiver,
             } => FunctionCallee::Method {
@@ -605,6 +606,7 @@ impl<'a> ModuleLowerer<'a> {
                 arg_module_id,
                 self_arg,
                 args,
+                const_args,
                 receiver_kind,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
@@ -620,13 +622,15 @@ impl<'a> ModuleLowerer<'a> {
             } => {
                 let receiver = Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver));
                 if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
-                    if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
-                        trait_id,
-                        &trait_args,
-                        method_id,
-                        &method_name,
-                        self_ty,
-                    ) {
+                    if let Some((def_id, target_args, target_const_args)) = self
+                        .resolve_trait_method_impl(
+                            trait_id,
+                            &trait_args,
+                            method_id,
+                            &method_name,
+                            self_ty,
+                        )
+                    {
                         let mut instance_args = target_args;
                         instance_args.extend(args);
                         FunctionCallee::Method {
@@ -634,6 +638,7 @@ impl<'a> ModuleLowerer<'a> {
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: None,
                             args: instance_args,
+                            const_args: target_const_args,
                             receiver_kind,
                             receiver,
                         }
@@ -647,6 +652,7 @@ impl<'a> ModuleLowerer<'a> {
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: Some(default_self_ty),
                             args: instance_args,
+                            const_args: Vec::new(),
                             receiver_kind,
                             receiver,
                         }
@@ -701,13 +707,15 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             } => {
                 if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
-                    if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
-                        trait_id,
-                        &trait_args,
-                        method_id,
-                        &method_name,
-                        self_ty,
-                    ) {
+                    if let Some((def_id, target_args, target_const_args)) = self
+                        .resolve_trait_method_impl(
+                            trait_id,
+                            &trait_args,
+                            method_id,
+                            &method_name,
+                            self_ty,
+                        )
+                    {
                         let mut instance_args = target_args;
                         instance_args.extend(args);
                         FunctionCallee::FunctionInstance {
@@ -715,7 +723,7 @@ impl<'a> ModuleLowerer<'a> {
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: None,
                             args: instance_args,
-                            const_args: Vec::new(),
+                            const_args: target_const_args,
                         }
                     } else if self.trait_method_has_default(method_id) {
                         let default_self_ty =
@@ -949,6 +957,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
+                    const_args: Vec::new(),
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
                         .unwrap_or(nia_ids::ReceiverKind::Value),
@@ -992,6 +1001,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
+                    const_args: Vec::new(),
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
                         .unwrap_or(nia_ids::ReceiverKind::Value),
@@ -1024,6 +1034,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
+                    const_args: Vec::new(),
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
                         .unwrap_or(nia_ids::ReceiverKind::Value),
@@ -1074,6 +1085,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
+                    const_args: Vec::new(),
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
                         .unwrap_or(nia_ids::ReceiverKind::Value),
@@ -1199,7 +1211,7 @@ fn builtin_method_trait(
     method: FunctionBuiltinMethod,
 ) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
     match method {
-        FunctionBuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
+        FunctionBuiltinMethod::SliceLen => None,
         FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
         FunctionBuiltinMethod::Iter => {

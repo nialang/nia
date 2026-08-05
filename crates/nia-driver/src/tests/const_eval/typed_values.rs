@@ -743,6 +743,72 @@ fn main() i32 {
 }
 
 #[test]
+fn ordinary_user_len_impl_runs_at_comptime_and_runtime() {
+    let root = temp_dir("ordinary_user_len_impl_runs_at_comptime_and_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Window {
+    start: usize,
+    end: usize,
+}
+
+extend Window : Len {
+    const fn len(&self) usize {
+        self.end - self.start
+    }
+}
+
+const fn width(value: Window) usize {
+    value.len()
+}
+
+const n: usize = width({ start: 2usize, end: 7usize });
+
+fn main() i32 {
+    let value: Window = { start: 4usize, end: 9usize };
+    let mut values: [n]i32 = [0; n];
+    (value.len() + values.len()) as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn layout_array_length_infers_const_generic_at_comptime_and_runtime() {
+    let root = temp_dir("layout_array_length_infers_const_generic_at_comptime_and_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Header {
+    first: i32,
+    second: i32,
+}
+
+const fn arrayLen[T, N: usize](value: [N]T) usize {
+    value.len()
+}
+
+const n: usize = arrayLen(
+    [std::builtin::size[Header]()]u8[0u8; std::builtin::size[Header]()]
+);
+
+fn main() i32 {
+    let values: [std::builtin::size[Header]()]u8 =
+        [0u8; std::builtin::size[Header]()];
+    (n + arrayLen(values)) as i32
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_range_start_and_end_methods_evaluate_bounds() {
     let root = temp_dir("const_range_start_and_end_methods_evaluate_bounds");
     write(

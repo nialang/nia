@@ -62,20 +62,20 @@ const Lanes: usize;
 fn records_builtin_extend_attributes_with_bodyless_methods() {
     let signatures = signatures_ok(
         r#"
-trait Len {
-fn len(&self) usize;
+trait Probe {
+fn probe(&self) usize;
 }
 
-@[builtin("array.Len")]
-extend[T, N: usize] [N]T : Len {
-fn len(&self) usize;
+@[builtin("test.Probe")]
+extend[T] [T] : Probe {
+fn probe(&self) usize;
 }
 "#,
     );
 
     assert_eq!(signatures.trait_impls.len(), 1);
     let impl_signature = &signatures.trait_impls[0];
-    assert_eq!(impl_signature.builtin.as_deref(), Some("array.Len"));
+    assert_eq!(impl_signature.builtin.as_deref(), Some("test.Probe"));
     assert_eq!(impl_signature.methods.len(), 1);
     let method = &signatures.functions[&impl_signature.methods[0].def_id];
     assert!(!method.has_body);
