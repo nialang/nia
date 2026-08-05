@@ -541,8 +541,11 @@ For Nia structs with reordered fields:
 - backend static data is emitted using physical field order;
 - padding is target-defined and not directly addressable.
 
-ZST globals have semantic identity in the compiler but require no runtime
-storage.
+ZST globals that are not observed by address require no runtime storage. A
+readonly promoted ZST allocation whose address is observable may use one byte
+of backend identity storage. That byte is not part of the ZST's Nia layout and
+does not change its size, alignment, parameter ABI, return ABI, or dereference
+semantics.
 
 Extern globals use external symbol names and C ABI-compatible types.
 
