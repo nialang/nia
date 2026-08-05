@@ -494,6 +494,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_)
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::Trap => {}
         }
         Ok(())

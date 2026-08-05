@@ -946,6 +946,16 @@ impl<'a> Encoder<'a> {
                 self.global_def(*def_id);
                 self.function_field(field);
             }
+            FunctionExprKind::UnionStorageLiteral { bytes } => {
+                self.tag(51);
+                self.len(bytes.len());
+                for byte in bytes {
+                    self.bool(byte.is_some());
+                    if let Some(byte) = byte {
+                        self.tag(*byte);
+                    }
+                }
+            }
             FunctionExprKind::Unary { op, expr } => {
                 self.tag(33);
                 self.unary(*op);

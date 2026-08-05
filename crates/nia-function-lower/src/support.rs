@@ -1000,6 +1000,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }
+                | TypedExprKind::UnionStorageLiteral { .. }
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::Trap => {}
             }

@@ -115,6 +115,9 @@ impl FunctionLowerer<'_> {
                     span: field.span,
                 }),
             },
+            TypedExprKind::UnionStorageLiteral { bytes } => FunctionExprKind::UnionStorageLiteral {
+                bytes: bytes.clone(),
+            },
             TypedExprKind::Unary { op, expr: inner }
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && matches!(inner.kind, TypedExprKind::Slice { .. }) =>

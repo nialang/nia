@@ -226,6 +226,32 @@ impl BackendValidator<'_> {
                 self.validate_field_init(expr.ty, field.field, field.span);
                 self.validate_expr(&field.value);
             }
+            FunctionExprKind::UnionStorageLiteral { bytes } => {
+                let is_union = match self.index.ty_kind(expr.ty) {
+                    Some(TyKind::Nominal { def_id, .. }) => {
+                        self.index.has_union(*def_id) || self.index.has_union_instances(*def_id)
+                    }
+                    _ => false,
+                };
+                if !is_union {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        "backend IR union storage literal has a non-union type",
+                    ));
+                }
+                let expected_size = self
+                    .index
+                    .type_layout(expr.ty)
+                    .and_then(|layout| usize::try_from(layout.size).ok());
+                if expected_size != Some(bytes.len()) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        "backend IR union storage literal has the wrong byte length",
+                    ));
+                }
+            }
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::OptionalSome { expr }
             | FunctionExprKind::ErrorOk { expr }

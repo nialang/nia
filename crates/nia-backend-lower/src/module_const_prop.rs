@@ -566,6 +566,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
+        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::BuiltinValue(_) => {}
     }
     changed

@@ -254,6 +254,7 @@ impl BodyInputValidator {
             | TypedExprKind::Function(_)
             | TypedExprKind::FunctionInstance { .. }
             | TypedExprKind::BuiltinValue(_)
+            | TypedExprKind::UnionStorageLiteral { .. }
             | TypedExprKind::Trap
             | TypedExprKind::MemoryIntrinsic(_)
             | TypedExprKind::Discard(_)

@@ -116,6 +116,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::ArrayLiteral { .. }
         | FunctionExprKind::StructLiteral { .. }
         | FunctionExprKind::UnionLiteral { .. }
+        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::Null
         | FunctionExprKind::OptionalSome { .. }
         | FunctionExprKind::ErrorOk { .. }

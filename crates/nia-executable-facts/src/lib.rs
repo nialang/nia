@@ -713,6 +713,7 @@ fn collect_typed_expr_refs(
         | TypedExprKind::Bool(_)
         | TypedExprKind::Null
         | TypedExprKind::ConstGeneric(_)
+        | TypedExprKind::UnionStorageLiteral { .. }
         | TypedExprKind::Local(_) => {}
         TypedExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);

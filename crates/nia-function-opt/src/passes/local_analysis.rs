@@ -183,6 +183,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }

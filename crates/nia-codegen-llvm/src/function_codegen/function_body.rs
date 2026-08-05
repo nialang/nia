@@ -1244,6 +1244,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_union_literal_into(value, field, ptr)?;
                 Ok(true)
             }
+            FunctionExprKind::UnionStorageLiteral { bytes } => {
+                self.emit_union_storage_literal_into(value, bytes, ptr)?;
+                Ok(true)
+            }
             FunctionExprKind::Null => {
                 self.emit_tagged_union_into(
                     value,
@@ -1362,6 +1366,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(())
             }
             FunctionExprKind::UnionLiteral { field, .. } => self.emit_effect_expr(&field.value),
+            FunctionExprKind::UnionStorageLiteral { .. } => Ok(()),
             FunctionExprKind::OptionalSome { expr }
             | FunctionExprKind::ErrorOk { expr }
             | FunctionExprKind::ErrorErr { expr }
@@ -1416,6 +1421,7 @@ fn is_aggregate_literal(value: &FunctionExpr) -> bool {
         FunctionExprKind::ArrayLiteral { .. }
             | FunctionExprKind::StructLiteral { .. }
             | FunctionExprKind::UnionLiteral { .. }
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::Null
             | FunctionExprKind::OptionalSome { .. }
             | FunctionExprKind::ErrorOk { .. }

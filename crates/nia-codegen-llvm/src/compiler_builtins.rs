@@ -246,6 +246,7 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_)
             | FunctionExprKind::Trap => {}
         }

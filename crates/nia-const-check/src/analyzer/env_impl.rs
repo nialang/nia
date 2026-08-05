@@ -879,7 +879,7 @@ fn const_union_scalar_type(primitive: PrimitiveTy, pointer_width: u32) -> Option
 }
 
 impl Analyzer<'_> {
-    fn const_union_abi_type(
+    pub(super) fn const_union_abi_type(
         &mut self,
         span: Span,
         ty: InternedTyId,
@@ -948,6 +948,25 @@ impl Analyzer<'_> {
                     });
                 }
                 Some((ConstAbiType::Struct { fields, size }, struct_layout.layout))
+            }
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } if self.def_kind_of(def_id) == Some(DefKind::Union) => {
+                let signature = self.union_signature_for(def_id)?;
+                let field_tys = self.const_union_field_types(&signature, &args, &const_args)?;
+                let mut fields = BTreeMap::new();
+                let mut field_layouts = Vec::with_capacity(signature.fields.len());
+                for field in &signature.fields {
+                    let field_ty = field_tys.get(&field.name).copied()?;
+                    let (abi, layout) = self.const_union_abi_type(span, field_ty, target)?;
+                    fields.insert(field.name, abi);
+                    field_layouts.push(layout);
+                }
+                let layout = nia_layout::union_layout_from_fields(field_layouts.iter());
+                let size = usize::try_from(layout.size).ok()?;
+                Some((ConstAbiType::Union { fields, size }, layout))
             }
             _ => None,
         }

@@ -141,6 +141,55 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
+    pub(super) fn emit_union_storage_literal(
+        &mut self,
+        expr: &FunctionExpr,
+        bytes: &[Option<u8>],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let union_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(union_ty, "unionstoragetmp")
+            .map_err(|_| self.error(expr.span, "failed to allocate union storage literal"))?;
+        self.emit_union_storage_literal_into(expr, bytes, ptr)?;
+        self.builder
+            .build_load(union_ty, ptr, "unionstorage")
+            .map_err(|_| self.error(expr.span, "failed to load union storage literal"))
+    }
+
+    pub(super) fn emit_union_storage_literal_into(
+        &mut self,
+        expr: &FunctionExpr,
+        bytes: &[Option<u8>],
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let expected_size = self
+            .module
+            .layout_of(expr.ty)
+            .and_then(|layout| usize::try_from(layout.size).ok());
+        if expected_size != Some(bytes.len()) {
+            return Err(self.error(expr.span, "union storage literal has the wrong byte length"));
+        }
+        let byte_ty = self.module.context.i8_type();
+        for (offset, byte) in bytes.iter().enumerate() {
+            let Some(byte) = byte else {
+                continue;
+            };
+            let offset = u64::try_from(offset)
+                .map_err(|_| self.error(expr.span, "union storage offset is not representable"))?;
+            let offset = self.module.context.i64_type().const_int(offset, false);
+            let byte_ptr = unsafe {
+                self.builder
+                    .build_gep(byte_ty, ptr, &[offset], "union.byte.ptr")
+                    .map_err(|_| self.error(expr.span, "failed to address union storage byte"))?
+            };
+            self.builder
+                .build_store(byte_ptr, byte_ty.const_int(u64::from(*byte), false))
+                .map_err(|_| self.error(expr.span, "failed to store union storage byte"))?;
+        }
+        Ok(())
+    }
+
     pub(super) fn emit_optional_null(
         &mut self,
         expr: &FunctionExpr,

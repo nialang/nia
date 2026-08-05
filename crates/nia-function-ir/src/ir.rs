@@ -298,6 +298,9 @@ pub enum FunctionExprKind {
         def_id: nia_ids::GlobalDefId,
         field: Box<FunctionFieldInit>,
     },
+    UnionStorageLiteral {
+        bytes: Vec<Option<u8>>,
+    },
     Unary {
         op: UnaryOp,
         expr: Box<FunctionExpr>,

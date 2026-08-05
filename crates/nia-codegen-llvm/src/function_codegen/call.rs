@@ -747,6 +747,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_union_literal_into(arg, field, ptr)?;
                 Ok(ptr)
             }
+            FunctionExprKind::UnionStorageLiteral { bytes } => {
+                let ty = self.module.llvm_basic_type(arg.ty, span)?;
+                let ptr = self
+                    .builder
+                    .build_alloca(ty, "arg.copy")
+                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
+                self.emit_union_storage_literal_into(arg, bytes, ptr)?;
+                Ok(ptr)
+            }
             FunctionExprKind::Call { callee, args } if self.call_returns_indirect_out(arg) => {
                 let ty = self.module.llvm_basic_type(arg.ty, span)?;
                 let ptr = self

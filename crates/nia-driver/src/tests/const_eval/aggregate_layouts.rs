@@ -683,6 +683,65 @@ pub const fn decode[T](bytes: [5]u8) Pair[T] {
 }
 
 #[test]
+fn imported_generic_nested_union_preserves_storage_across_const_and_runtime_calls() {
+    let root =
+        temp_dir("imported_generic_nested_union_preserves_storage_across_const_and_runtime_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+module bits;
+using entry::bits;
+
+const compileSlot: bits::Outer[u32] = bits::layered[u32](1144201745, 26197);
+const compileBytes: [4]u8 = bits::readBytes[u32](compileSlot);
+
+fn main() i32 {
+    let runtimeSlot = bits::layered[u32](1144201745, 26197);
+    let runtimeBytes = bits::readBytes[u32](runtimeSlot);
+    let materializedBytes = bits::readBytes[u32](compileSlot);
+    if compileBytes[0] == 85
+        and compileBytes[1] == 102
+        and compileBytes[2] == 51
+        and compileBytes[3] == 68
+        and runtimeBytes[3] == compileBytes[3]
+        and materializedBytes[2] == compileBytes[2] {
+        0
+    } else {
+        1
+    }
+}
+"#,
+    );
+    write(
+        &root.join("bits.nia"),
+        r#"
+pub union Inner[T] {
+    wide: T,
+    narrow: u16,
+}
+
+pub union Outer[T] {
+    inner: Inner[T],
+    bytes: [4]u8,
+}
+
+pub const fn layered[T](wide: T, narrow: u16) Outer[T] {
+    let mut inner: Inner[T] = { wide: wide };
+    inner.narrow = narrow;
+    { inner: inner }
+}
+
+pub const fn readBytes[T](slot: Outer[T]) [4]u8 {
+    slot.bytes
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_const_value_evaluates_layout_builtin_in_defining_module() {
     let root = temp_dir("imported_const_value_evaluates_layout_builtin_in_defining_module");
     write(

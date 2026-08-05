@@ -372,6 +372,9 @@ impl<'a> ModuleLowerer<'a> {
                         }),
                     }
                 }
+                FunctionExprKind::UnionStorageLiteral { bytes } => {
+                    FunctionExprKind::UnionStorageLiteral { bytes }
+                }
                 FunctionExprKind::Unary { op, expr } => FunctionExprKind::Unary {
                     op,
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),

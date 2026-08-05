@@ -438,6 +438,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }
@@ -935,6 +936,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
+        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::BuiltinValue(_) => {}
         FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::StaticArrayPointer { .. }
@@ -1111,6 +1113,7 @@ fn small_pure_inline_expr_cost_with_local(
                 + optional_inline_expr_cost(range.start.as_deref(), budget, local_allowed)?
                 + optional_inline_expr_cost(range.end.as_deref(), budget, local_allowed)?
         }
+        FunctionExprKind::UnionStorageLiteral { bytes } => bytes.len().saturating_add(1),
         FunctionExprKind::Error => {
             crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
         }
