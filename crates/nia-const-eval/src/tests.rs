@@ -1,8 +1,8 @@
 use crate::{
-    ConstAbiField, ConstAbiType, ConstCommonEnv, ConstEndianness, ConstError, ConstEvalBudget,
-    ConstScalarType, ConstUnionValue, ConstValue, EarlyConstEnv, EmptyEnv, ResolvedConstEnv,
-    eval_early_const_bool_expr, eval_early_const_expr, eval_early_const_int_expr,
-    eval_float_literal, eval_int_literal, eval_resolved_const_int_expr,
+    ConstAbiField, ConstAbiType, ConstAllocationOrigin, ConstCommonEnv, ConstEndianness,
+    ConstError, ConstEvalBudget, ConstPointerValue, ConstScalarType, ConstUnionValue, ConstValue,
+    EarlyConstEnv, EmptyEnv, ResolvedConstEnv, eval_early_const_bool_expr, eval_early_const_expr,
+    eval_early_const_int_expr, eval_float_literal, eval_int_literal, eval_resolved_const_int_expr,
 };
 use nia_const_ir::{
     ConstAssignOp, ConstNameResolution, EarlyConstAssign, EarlyConstAssignTarget, EarlyConstExpr,
@@ -14,6 +14,29 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
+
+#[test]
+fn frozen_pointer_value_equality_uses_origin_not_pointee_contents() {
+    let origin = ConstAllocationOrigin::new(None, Span::new(4, 8));
+    let same_origin = ConstPointerValue::Frozen {
+        origin,
+        is_readonly: true,
+        pointee: Box::new(ConstValue::Int(IntConst::unsigned(1))),
+    };
+    let changed_contents = ConstPointerValue::Frozen {
+        origin,
+        is_readonly: true,
+        pointee: Box::new(ConstValue::Int(IntConst::unsigned(2))),
+    };
+    let different_origin = ConstPointerValue::Frozen {
+        origin: ConstAllocationOrigin::new(None, Span::new(9, 12)),
+        is_readonly: true,
+        pointee: Box::new(ConstValue::Int(IntConst::unsigned(1))),
+    };
+
+    assert_eq!(same_origin, changed_contents);
+    assert_ne!(same_origin, different_origin);
+}
 
 fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))

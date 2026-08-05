@@ -3283,7 +3283,10 @@ impl<'a> BodyChecker<'a> {
 
 fn pointer_pointee(value: &nia_const_check::ConstValue) -> Option<&nia_const_check::ConstValue> {
     match value {
-        nia_const_check::ConstValue::Pointer(pointee) => Some(pointee),
+        nia_const_check::ConstValue::Pointer(nia_const_check::ConstPointerValue::Frozen {
+            pointee,
+            ..
+        }) => Some(pointee),
         nia_const_check::ConstValue::String(_) => Some(value),
         _ => None,
     }

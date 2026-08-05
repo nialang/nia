@@ -140,7 +140,7 @@ pub enum ConstKey {
     Local(LocalId),
 }
 
-pub use nia_const_eval::ConstValue;
+pub use nia_const_eval::{ConstPointerValue, ConstValue};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstInput<'a> {

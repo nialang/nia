@@ -1,4 +1,4 @@
-use crate::ConstValue;
+use crate::{ConstAllocationOrigin, ConstPointerValue, ConstValue, ResolvedConstPlace};
 
 use nia_const_ir::{
     ConstNameResolution, EarlyConstAssignTarget, EarlyConstBinding, EarlyConstExpr,
@@ -170,6 +170,49 @@ pub trait ConstCommonEnv {
         Ok(value)
     }
 
+    fn reference_const_value(
+        &mut self,
+        span: Span,
+        value: ConstValue,
+        is_readonly: bool,
+    ) -> Result<ConstValue, ConstError> {
+        Ok(ConstValue::Pointer(ConstPointerValue::Frozen {
+            origin: ConstAllocationOrigin::new(None, span),
+            is_readonly,
+            pointee: Box::new(value),
+        }))
+    }
+
+    fn dereference_const_pointer(
+        &mut self,
+        span: Span,
+        pointer: &ConstPointerValue,
+    ) -> Result<ConstValue, ConstError> {
+        match pointer {
+            ConstPointerValue::Frozen { pointee, .. } => Ok((**pointee).clone()),
+            ConstPointerValue::Place { .. } => Err(ConstError {
+                span,
+                message: "const place pointer is unavailable in this context".to_string(),
+            }),
+        }
+    }
+
+    fn validate_const_root_result(
+        &mut self,
+        _span: Span,
+        _value: &ConstValue,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn validate_const_function_result(
+        &mut self,
+        _span: Span,
+        _value: &ConstValue,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
     fn push_const_scope(&mut self, span: Span) -> Result<(), ConstError> {
         Err(ConstError {
             span,
@@ -315,6 +358,16 @@ pub trait EarlyConstEnv: ConstCommonEnv {
 }
 
 pub trait ResolvedConstEnv: ConstCommonEnv {
+    fn reference_resolved_place(
+        &mut self,
+        span: Span,
+        _place: &ResolvedConstPlace,
+        value: ConstValue,
+        is_readonly: bool,
+    ) -> Result<ConstValue, ConstError> {
+        self.reference_const_value(span, value, is_readonly)
+    }
+
     fn prepare_resolved_binding(
         &mut self,
         _binding: &ResolvedConstBinding,

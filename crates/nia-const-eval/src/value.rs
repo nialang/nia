@@ -1,7 +1,70 @@
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ConstAllocationId {
+    module_id: ModuleId,
+    serial: u64,
+}
+
+impl ConstAllocationId {
+    pub const fn new(module_id: ModuleId, serial: u64) -> Self {
+        Self { module_id, serial }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ConstAllocationOrigin {
+    module_id: Option<ModuleId>,
+    span: Span,
+}
+
+impl ConstAllocationOrigin {
+    pub const fn new(module_id: Option<ModuleId>, span: Span) -> Self {
+        Self { module_id, span }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstPointerPathElem {
+    Field(SymbolId),
+    Index(usize),
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstPointerValue {
+    Frozen {
+        origin: ConstAllocationOrigin,
+        is_readonly: bool,
+        pointee: Box<ConstValue>,
+    },
+    Place {
+        allocation: ConstAllocationId,
+        path: Vec<ConstPointerPathElem>,
+    },
+}
+
+impl PartialEq for ConstPointerValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Frozen { origin: lhs, .. }, Self::Frozen { origin: rhs, .. }) => lhs == rhs,
+            (
+                Self::Place {
+                    allocation: lhs_allocation,
+                    path: lhs_path,
+                },
+                Self::Place {
+                    allocation: rhs_allocation,
+                    path: rhs_path,
+                },
+            ) => lhs_allocation == rhs_allocation && lhs_path == rhs_path,
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstValue {
@@ -9,7 +72,7 @@ pub enum ConstValue {
     Float(f64),
     Bool(bool),
     String(String),
-    Pointer(Box<ConstValue>),
+    Pointer(ConstPointerValue),
     Array(Vec<ConstValue>),
     Vector(Vec<ConstValue>),
     Range(ConstRangeValue),

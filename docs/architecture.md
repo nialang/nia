@@ -1084,8 +1084,35 @@ being fabricated as zero. This path is used for expression temporaries, direct
 aggregate destinations, indirect arguments, and returns, so crossing from
 comptime into runtime preserves storage without reconstructing a field. Whole
 struct const values still materialize as ordinary `StructLiteral` expressions.
-Pointers remain a declaration-time const capability boundary until provenance
-has one explicit model.
+
+Const pointers have explicit provenance and no longer contain a transparent
+boxed pointee snapshot. A place pointer contains an evaluator allocation id and
+a field/index projection path. Local bindings receive fresh allocation ids;
+dereference resolves the active frame value, so a write to the owner is visible
+through an existing pointer. Equality compares provenance, never pointee
+contents. Before a function frame is removed, its result and mutable-receiver
+writeback are recursively checked: a pointer owned by that frame or by an
+already-ended nested scope is rejected, while a pointer into caller storage may
+pass through. A top-level const result cannot retain any place pointer.
+
+An rvalue reference created while an execution frame or block scope is active
+receives a temporary place allocation owned by that scope. This matches runtime
+block-temporary lifetime: nested calls may use or return the pointer to their
+caller, but it becomes invalid when its owning scope ends. Only an rvalue
+reference created directly by a module or local const-binding initializer,
+without an active evaluator execution scope, uses the separate frozen-allocation
+pointer carrying its defining module, source span, readonly state, and pointee
+value. Writable frozen allocations cannot escape. The origin is semantic
+allocation identity, not a host address. Typed-query context frames are marked
+separately and do not fabricate execution lifetime merely by being present.
+
+The current runtime const materializer handles supported frozen array pointers,
+but cross-module identity deduplication and union storage remain part of the
+relocation round. Pointer-containing const unions therefore stay at the
+declaration boundary: their storage must gain typed relocations before the codec
+or backend may accept them. Mutable pointer write-through likewise waits for a
+shared alias-aware place operation instead of reusing mutable-receiver
+copy/writeback.
 
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each

@@ -3588,6 +3588,70 @@ exposed that its Types and Values subsets could not resolve nested imported
 representation and ownership design. This closes vector representation Round
 2f without claiming lane-wise operator const execution.
 
+Dual-stage const hardening next stage (Round 2g pointer provenance): pointer
+support is split by semantic dependency rather than enabled by teaching the
+union codec to copy pointer-width integers. The current evaluator-only
+`Pointer(Box<ConstValue>)` is a pointee snapshot, not provenance: it aliases no
+allocation, compares through the pointee value, and can outlive the local whose
+address produced it. It must be replaced rather than retained as a compatibility
+representation.
+
+Round 2g1 establishes explicit const allocation and place identity. Taking a
+reference to a live place records that allocation plus its projection path;
+dereference resolves the live allocation, pointer equality compares provenance
+instead of pointee contents, and a function or const root rejects a place
+pointer that would escape its owner. Read-only direct const-binding promotions use a
+distinct frozen-allocation provenance and retain a stable source origin. Mutable pointer
+write-through and general alias analysis are not inferred from the earlier
+mutable-receiver writeback mechanism; they require an explicit shared place
+operation in a later batch.
+
+Round 2g2 extends union storage with relocations. A pointer field contributes a
+pointer-width initialized range plus a typed relocation carrying its target
+allocation and offset. Reinterpreting relocation bytes as an integer or
+constructing a pointer from arbitrary integer bytes is not a comptime address
+operation and must diagnose; copying nested aggregate or union storage preserves
+the relocation. No host address may enter `ConstValue`, fingerprints, caches, or
+artifact bytes.
+
+Round 2g3 materializes relocations through body IR, function IR, backend
+validation, and LLVM globals, then closes the imported/generic differential.
+The maintained executable must prove same-provenance equality, distinct
+allocation inequality, pointer-field round trips, whole-union crossing, and
+comptime/runtime agreement. Static/global provenance and promoted readonly
+allocation provenance must remain distinguishable, while function pointers
+stay under their separate const-callable capability boundary. Pointer-containing
+unions remain rejected until all three subrounds are complete.
+
+Dual-stage const hardening progress (2026-08-05, Round 2g1 pointer provenance
+foundation): the evaluator snapshot representation has been physically removed.
+`ConstPointerValue` now distinguishes a frozen promoted allocation from a live
+place allocation plus field/index path. Every evaluated local binding receives
+a fresh allocation id. Dereference looks up that live allocation, so mutation of
+the owner is observable through an existing pointer; equality compares frozen
+origin or place allocation/path and no longer treats a pointer as equal to its
+pointee value.
+
+Function results are recursively validated before their frame is removed. A
+pointer into a callee local or an ended nested scope diagnoses an escape, while
+a pointer received from caller storage may return unchanged. Top-level const
+results reject all live-place provenance. Rvalue references inside a function
+or block are scope-owned temporary allocations rather than promotions. A direct
+module or local read-only const promotion uses a stable module-and-source frozen
+origin; writable const promotions are rejected. Typed-query context frames are
+explicitly distinct from evaluator lifetime frames. The checks recurse through
+ordinary aggregate and payload values, and frozen storage cannot smuggle a live
+place pointer inside it.
+Focused driver regressions cover same-place equality, distinct equal-valued
+allocations, read-after-owner-mutation, caller-pointer pass-through, ended-scope
+dereference, direct and nested dangling results, module/local readonly promotion,
+function-temporary escape, and writable-promotion rejection.
+
+This closes Round 2g1 only. Frozen-origin runtime deduplication, mutable
+write-through, union relocations, artifact materialization, and the imported
+differential remain the explicit Round 2g2/2g3 work above; pointer-containing
+const unions are still rejected rather than accepted through snapshot fallback.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
