@@ -114,14 +114,22 @@ pub fn eval_early_const_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstValue, ConstError> {
-    with_const_eval_session(env, |env| eval_const_expr(expr, env))
+    with_const_eval_session(env, |env| {
+        let value = eval_const_expr(expr, env)?;
+        env.validate_const_root_result(expr.span(), &value)?;
+        Ok(value)
+    })
 }
 
 pub fn eval_resolved_const_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstValue, ConstError> {
-    with_const_eval_session(env, |env| eval_resolved_const_expr_value(expr, env))
+    with_const_eval_session(env, |env| {
+        let value = eval_resolved_const_expr_value(expr, env)?;
+        env.validate_const_root_result(expr.span(), &value)?;
+        Ok(value)
+    })
 }
 
 fn eval_resolved_const_expr_value(
@@ -244,9 +252,12 @@ fn eval_resolved_const_expr_flow(
                 }
             }
         }
-        ResolvedConstExprKind::BuiltinMethod { method, lhs } => {
-            eval_builtin_method_value(span, *method, eval_resolved_value_or_return_flow!(lhs, env))?
-        }
+        ResolvedConstExprKind::BuiltinMethod { method, lhs } => eval_builtin_method_value(
+            span,
+            *method,
+            eval_resolved_value_or_return_flow!(lhs, env),
+            env,
+        )?,
         ResolvedConstExprKind::Index { lhs, index } => {
             return eval_resolved_array_index_flow(span, lhs, index, env);
         }
@@ -264,7 +275,7 @@ fn eval_resolved_const_expr_flow(
         }
         ResolvedConstExprKind::CompileError { message } => {
             let value = eval_resolved_value_or_return_flow!(message, env);
-            let Some(message) = const_error_message(&value) else {
+            let Some(message) = const_error_message_from_value(span, &value, env)? else {
                 return Err(ConstError {
                     span,
                     message: "builtin `error` requires a const string message".to_string(),
@@ -400,7 +411,7 @@ fn eval_resolved_const_expr_flow(
             op: ConstUnaryOp::Deref,
             expr: inner,
         } => match eval_resolved_value_or_return_flow!(inner, env) {
-            ConstValue::Pointer(value) => *value,
+            ConstValue::Pointer(pointer) => env.dereference_const_pointer(span, &pointer)?,
             _ => {
                 return Err(ConstError {
                     span,
@@ -409,9 +420,20 @@ fn eval_resolved_const_expr_flow(
             }
         },
         ResolvedConstExprKind::Unary {
-            op: ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref,
+            op: op @ (ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref),
             expr: inner,
-        } => ConstValue::Pointer(Box::new(eval_resolved_value_or_return_flow!(inner, env))),
+        } => match eval_resolved_call_receiver(inner, env)? {
+            ResolvedConstCallReceiver::Place { value, place } => env.reference_resolved_place(
+                span,
+                &place,
+                value,
+                matches!(op, ConstUnaryOp::RefReadOnly),
+            )?,
+            ResolvedConstCallReceiver::Value(value) => {
+                env.reference_const_value(span, value, matches!(op, ConstUnaryOp::RefReadOnly))?
+            }
+            ResolvedConstCallReceiver::Flow(flow) => return Ok(flow),
+        },
         ResolvedConstExprKind::OptionalSome { expr: inner } => ConstValue::Optional(Some(
             Box::new(eval_resolved_value_or_return_flow!(inner, env)),
         )),
@@ -540,9 +562,12 @@ fn eval_const_expr_flow(
                 });
             }
         },
-        EarlyConstExprKind::BuiltinMethod { method, lhs } => {
-            eval_builtin_method_value(expr.span, *method, eval_value_or_return_flow!(lhs, env))?
-        }
+        EarlyConstExprKind::BuiltinMethod { method, lhs } => eval_builtin_method_value(
+            expr.span,
+            *method,
+            eval_value_or_return_flow!(lhs, env),
+            env,
+        )?,
         EarlyConstExprKind::Index { lhs, index } => {
             return eval_array_index_flow(expr.span, lhs, index, env);
         }
@@ -560,7 +585,7 @@ fn eval_const_expr_flow(
         }
         EarlyConstExprKind::CompileError { message } => {
             let value = eval_value_or_return_flow!(message, env);
-            let Some(message) = const_error_message(&value) else {
+            let Some(message) = const_error_message_from_value(expr.span, &value, env)? else {
                 return Err(ConstError {
                     span: expr.span,
                     message: "builtin `error` requires a const string message".to_string(),
@@ -679,7 +704,7 @@ fn eval_const_expr_flow(
             op: ConstUnaryOp::Deref,
             expr: inner,
         } => match eval_value_or_return_flow!(inner, env) {
-            ConstValue::Pointer(value) => *value,
+            ConstValue::Pointer(pointer) => env.dereference_const_pointer(expr.span, &pointer)?,
             _ => {
                 return Err(ConstError {
                     span: expr.span,
@@ -688,9 +713,12 @@ fn eval_const_expr_flow(
             }
         },
         EarlyConstExprKind::Unary {
-            op: ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref,
+            op: op @ (ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref),
             expr: inner,
-        } => ConstValue::Pointer(Box::new(eval_value_or_return_flow!(inner, env))),
+        } => {
+            let value = eval_value_or_return_flow!(inner, env);
+            env.reference_const_value(expr.span, value, matches!(op, ConstUnaryOp::RefReadOnly))?
+        }
         EarlyConstExprKind::OptionalSome { expr: inner } => {
             ConstValue::Optional(Some(Box::new(eval_value_or_return_flow!(inner, env))))
         }
@@ -872,9 +900,10 @@ fn eval_builtin_method_value(
     span: Span,
     method: BuiltinTraitMethod,
     value: ConstValue,
+    env: &mut impl ConstCommonEnv,
 ) -> Result<ConstValue, ConstError> {
     match method {
-        BuiltinTraitMethod::Len => eval_builtin_len_value(span, value),
+        BuiltinTraitMethod::Len => eval_builtin_len_value(span, value, env),
         BuiltinTraitMethod::Start => eval_builtin_range_bound_value(span, value, true),
         BuiltinTraitMethod::End => eval_builtin_range_bound_value(span, value, false),
         _ => Err(ConstError {
@@ -887,9 +916,16 @@ fn eval_builtin_method_value(
     }
 }
 
-fn eval_builtin_len_value(span: Span, value: ConstValue) -> Result<ConstValue, ConstError> {
+fn eval_builtin_len_value(
+    span: Span,
+    value: ConstValue,
+    env: &mut impl ConstCommonEnv,
+) -> Result<ConstValue, ConstError> {
     match value {
-        ConstValue::Pointer(value) => eval_builtin_len_value(span, *value),
+        ConstValue::Pointer(pointer) => {
+            let value = env.dereference_const_pointer(span, &pointer)?;
+            eval_builtin_len_value(span, value, env)
+        }
         ConstValue::Array(values) => Ok(ConstValue::Int(IntConst::unsigned(
             u128::try_from(values.len()).map_err(|_| ConstError {
                 span,
@@ -901,6 +937,18 @@ fn eval_builtin_len_value(span: Span, value: ConstValue) -> Result<ConstValue, C
             message: "const len requires an array or slice value".to_string(),
         }),
     }
+}
+
+fn const_error_message_from_value(
+    span: Span,
+    value: &ConstValue,
+    env: &mut impl ConstCommonEnv,
+) -> Result<Option<String>, ConstError> {
+    if let ConstValue::Pointer(pointer) = value {
+        let value = env.dereference_const_pointer(span, pointer)?;
+        return const_error_message_from_value(span, &value, env);
+    }
+    Ok(const_error_message(value))
 }
 
 fn eval_builtin_range_bound_value(
@@ -1112,7 +1160,10 @@ fn early_pattern_matches(
         }
         EarlyConstPattern::Pointer { pattern, span }
         | EarlyConstPattern::MutPointer { pattern, span } => match target {
-            ConstValue::Pointer(value) => early_pattern_matches(value, pattern, env, bindings),
+            ConstValue::Pointer(pointer) => {
+                let value = env.dereference_const_pointer(*span, pointer)?;
+                early_pattern_matches(&value, pattern, env, bindings)
+            }
             _ => Err(ConstError {
                 span: *span,
                 message: "const pointer pattern requires a pointer target".to_string(),
@@ -1212,7 +1263,10 @@ fn resolved_pattern_matches(
         }
         ResolvedConstPatternKind::Pointer { pattern, span }
         | ResolvedConstPatternKind::MutPointer { pattern, span } => match target {
-            ConstValue::Pointer(value) => resolved_pattern_matches(value, pattern, env, bindings),
+            ConstValue::Pointer(pointer) => {
+                let value = env.dereference_const_pointer(*span, pointer)?;
+                resolved_pattern_matches(&value, pattern, env, bindings)
+            }
             _ => Err(ConstError {
                 span: *span,
                 message: "const pointer pattern requires a pointer target".to_string(),
@@ -2118,6 +2172,10 @@ fn eval_const_function_call(
             message: "const function must return a value".to_string(),
         }),
     });
+    let result = result.and_then(|value| {
+        env.validate_const_function_result(span, &value)?;
+        Ok(value)
+    });
     env.pop_function_frame();
     result
 }
@@ -2252,6 +2310,7 @@ fn eval_resolved_const_function_call_inner(
         }),
     });
     let result = result.and_then(|value| {
+        env.validate_const_function_result(span, &value)?;
         let mutable_receiver = params
             .iter()
             .find(|param| param.receiver() == Some(nia_ids::ReceiverKind::Ref))
@@ -2262,6 +2321,9 @@ fn eval_resolved_const_function_call_inner(
                 )
             })
             .transpose()?;
+        if let Some(receiver) = &mutable_receiver {
+            env.validate_const_function_result(span, receiver)?;
+        }
         Ok(ResolvedConstCallOutput {
             value,
             mutable_receiver,
@@ -4024,9 +4086,7 @@ fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
         (ConstValue::Float(lhs), ConstValue::Float(rhs)) => Some(lhs == rhs),
         (ConstValue::Bool(lhs), ConstValue::Bool(rhs)) => Some(lhs == rhs),
         (ConstValue::String(lhs), ConstValue::String(rhs)) => Some(lhs == rhs),
-        (ConstValue::Pointer(lhs), ConstValue::Pointer(rhs)) => values_equal(lhs, rhs),
-        (ConstValue::Pointer(lhs), rhs) => values_equal(lhs, rhs),
-        (lhs, ConstValue::Pointer(rhs)) => values_equal(lhs, rhs),
+        (ConstValue::Pointer(lhs), ConstValue::Pointer(rhs)) => Some(lhs == rhs),
         (ConstValue::String(lhs), ConstValue::Array(rhs)) => {
             Some(char_array_to_string(rhs)? == *lhs)
         }

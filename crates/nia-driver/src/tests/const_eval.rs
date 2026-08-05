@@ -14,5 +14,6 @@ mod builtins_and_imports;
 mod control_flow;
 mod diagnostics_and_traps;
 mod generic_inference;
+mod pointer_provenance;
 mod strings_and_targets;
 mod typed_values;

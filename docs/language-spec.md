@@ -1776,9 +1776,13 @@ trap primitive. Merely declaring it in a branch does not execute it.
 whose evaluated const string becomes the diagnostic message.
 
 Constant evaluation may use ordinary `let mut` locals for loops, accumulation,
-and aggregate construction. Each call receives fresh local state. That state
-cannot modify a module or associated `const`, has no observable address or
-cross-query identity, and cannot escape into the returned const value:
+and aggregate construction. Each call receives fresh local state. Taking the
+address of a local creates a transient place pointer to that call's allocation;
+dereferencing it reads the current allocation value rather than a snapshot, and
+pointer equality compares allocation plus projection identity rather than
+pointee contents. That state cannot modify a module or associated `const`, has
+no host address or cross-query identity, and a pointer to it cannot escape into
+the returned const value:
 
 ```nia
 const fn width() usize {
@@ -1791,6 +1795,21 @@ const fn width() usize {
 
 const arrayWidth: usize = width();
 ```
+
+A pointer received from the caller may be returned unchanged because its
+allocation outlives the callee frame. Taking a pointer to a value expression
+inside a function or block creates a temporary allocation owned by that scope;
+it may be passed to a nested call and used while the scope is live, but it may
+not escape. A module or local `const` initializer may instead directly promote a
+read-only value expression into a frozen allocation with stable source
+provenance. Writable const promotion is rejected. These rules apply recursively when pointers
+are stored in arrays, structs, optionals, error unions, or enum payloads.
+Mutable write-through remains outside the current const pointer capability;
+mutable receiver writeback is a separate call contract.
+
+Pointer-containing untagged unions are not const-capable yet. Their eventual
+representation requires artifact relocations; a pointer is never converted to
+host address bytes or a fabricated compile-time integer.
 
 Calls are staged by their use site:
 

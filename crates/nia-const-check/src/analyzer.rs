@@ -13,7 +13,9 @@ use crate::{
         primitive_integer_layout, primitive_integer_range_for_target,
     },
 };
-use nia_const_eval::{ConstAbiType, ConstEndianness, ConstError};
+use nia_const_eval::{
+    ConstAbiType, ConstAllocationId, ConstEndianness, ConstError, ConstPointerValue,
+};
 use nia_const_ir::{
     ConstAssignOp, ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral,
     ConstUnaryOp, ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssign,
@@ -298,14 +300,18 @@ pub(crate) struct Analyzer<'a> {
     // Each active const root or function instance owns its transient expression facts.
     resolved_expr_types: Vec<HashMap<Span, InternedTyId>>,
     const_eval_budget: nia_const_eval::ConstEvalBudget,
+    next_const_allocation_serial: u64,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConstCallFrame {
+    is_execution_frame: bool,
     module_id: Option<ModuleId>,
     function_id: Option<GlobalDefId>,
     return_type: Option<InternedTyId>,
     locals: HashMap<LocalId, ConstValue>,
+    allocation_ids: HashMap<LocalId, ConstAllocationId>,
+    temporary_allocations: HashMap<ConstAllocationId, ConstValue>,
     local_types: HashMap<LocalId, ConstValueType>,
     mutable_locals: HashSet<LocalId>,
     type_substitutions: SymbolMap<InternedTyId>,
@@ -315,10 +321,13 @@ pub(crate) struct ConstCallFrame {
 impl From<TypedConstFrame> for ConstCallFrame {
     fn from(frame: TypedConstFrame) -> Self {
         Self {
+            is_execution_frame: false,
             module_id: frame.module_id,
             function_id: frame.function_id,
             return_type: None,
             locals: HashMap::new(),
+            allocation_ids: HashMap::new(),
+            temporary_allocations: HashMap::new(),
             local_types: frame.local_types,
             mutable_locals: HashSet::new(),
             type_substitutions: frame.type_substitutions,
@@ -355,6 +364,7 @@ impl Analyzer<'_> {
             resolved_call_instantiations: HashMap::new(),
             resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
+            next_const_allocation_serial: 0,
         }
     }
 
@@ -400,6 +410,7 @@ impl Analyzer<'_> {
             resolved_call_instantiations: HashMap::new(),
             resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
+            next_const_allocation_serial: 0,
         }
     }
 
@@ -749,9 +760,15 @@ impl Analyzer<'_> {
                 }
             }
             Some(TyKind::Pointer { elem, .. }) => match value {
-                ConstValue::Pointer(value) => ConstValue::Pointer(Box::new(
-                    self.normalize_runtime_typed_const_value(*value, elem),
-                )),
+                ConstValue::Pointer(ConstPointerValue::Frozen {
+                    origin,
+                    is_readonly,
+                    pointee,
+                }) => ConstValue::Pointer(ConstPointerValue::Frozen {
+                    origin,
+                    is_readonly,
+                    pointee: Box::new(self.normalize_runtime_typed_const_value(*pointee, elem)),
+                }),
                 value => value,
             },
             Some(TyKind::Optional { elem }) => match value {
@@ -865,11 +882,13 @@ impl Analyzer<'_> {
                 }
             }
             Some(TyKind::Pointer { elem, .. }) => {
-                let ConstValue::Pointer(value) = value else {
+                let ConstValue::Pointer(pointer) = value else {
                     self.push_const_type_mismatch(span, "pointer");
                     return;
                 };
-                self.validate_runtime_typed_value(span, value, elem);
+                if let ConstPointerValue::Frozen { pointee, .. } = pointer {
+                    self.validate_runtime_typed_value(span, pointee, elem);
+                }
             }
             Some(TyKind::Optional { elem }) => match value {
                 ConstValue::Optional(Some(value)) => {

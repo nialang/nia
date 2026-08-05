@@ -301,6 +301,11 @@ impl Analyzer<'_> {
             .find_map(|frame| frame.locals.get(&local_id).cloned())
     }
 
+    pub(super) fn call_local_allocation(&self, local_id: LocalId) -> Option<ConstAllocationId> {
+        self.active_execution_frames()
+            .find_map(|frame| frame.allocation_ids.get(&local_id).copied())
+    }
+
     pub(super) fn active_execution_frames(&self) -> impl Iterator<Item = &ConstCallFrame> {
         self.call_locals
             .iter()

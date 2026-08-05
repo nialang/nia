@@ -7,7 +7,8 @@ use crate::{
     },
 };
 use nia_const_eval::{
-    ConstAbiField, ConstAbiType, ConstCommonEnv, ConstEndianness, ConstError, ConstScalarType,
+    ConstAbiField, ConstAbiType, ConstAllocationId, ConstAllocationOrigin, ConstCommonEnv,
+    ConstEndianness, ConstError, ConstPointerPathElem, ConstPointerValue, ConstScalarType,
     ConstUnionValue, ConstValue, ResolvedConstEnv,
 };
 use nia_const_ir::{
@@ -28,6 +29,7 @@ use nia_symbol::symbol_identity_key;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{IntConst, PrimitiveTy, TyKind};
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 impl ConstCommonEnv for Analyzer<'_> {
@@ -204,8 +206,117 @@ impl ConstCommonEnv for Analyzer<'_> {
         Ok(value)
     }
 
+    fn reference_const_value(
+        &mut self,
+        span: Span,
+        value: ConstValue,
+        is_readonly: bool,
+    ) -> Result<ConstValue, ConstError> {
+        if !self
+            .call_locals
+            .iter()
+            .any(|frame| frame.is_execution_frame)
+        {
+            return Ok(ConstValue::Pointer(ConstPointerValue::Frozen {
+                origin: ConstAllocationOrigin::new(Some(self.current_execution_module_id()), span),
+                is_readonly,
+                pointee: Box::new(value),
+            }));
+        }
+        let allocation = self.next_const_allocation_id(span)?;
+        let Some(frame) = self.call_locals.last_mut() else {
+            unreachable!("nonempty const frame stack lost its last frame")
+        };
+        frame.temporary_allocations.insert(allocation, value);
+        Ok(ConstValue::Pointer(ConstPointerValue::Place {
+            allocation,
+            path: Vec::new(),
+        }))
+    }
+
+    fn dereference_const_pointer(
+        &mut self,
+        span: Span,
+        pointer: &ConstPointerValue,
+    ) -> Result<ConstValue, ConstError> {
+        match pointer {
+            ConstPointerValue::Frozen { pointee, .. } => Ok((**pointee).clone()),
+            ConstPointerValue::Place { allocation, path } => {
+                let root = self
+                    .call_locals
+                    .iter()
+                    .rev()
+                    .find_map(|frame| {
+                        let local =
+                            frame
+                                .allocation_ids
+                                .iter()
+                                .find_map(|(local_id, candidate)| {
+                                    (candidate == allocation)
+                                        .then(|| frame.locals.get(local_id).cloned())
+                                        .flatten()
+                                });
+                        local.or_else(|| frame.temporary_allocations.get(allocation).cloned())
+                    })
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "const pointer refers to storage whose lifetime has ended"
+                            .to_string(),
+                    })?;
+                read_const_pointer_path(span, root, path, self)
+            }
+        }
+    }
+
+    fn validate_const_root_result(
+        &mut self,
+        span: Span,
+        value: &ConstValue,
+    ) -> Result<(), ConstError> {
+        validate_const_pointer_escape(value, &|_| false)
+            .map_err(|message| ConstError { span, message })
+    }
+
+    fn validate_const_function_result(
+        &mut self,
+        span: Span,
+        value: &ConstValue,
+    ) -> Result<(), ConstError> {
+        let Some(function_frame) = self.call_locals.last() else {
+            return Err(ConstError {
+                span,
+                message: "const function frame is missing during pointer escape validation"
+                    .to_string(),
+            });
+        };
+        let owned = function_frame
+            .allocation_ids
+            .values()
+            .copied()
+            .chain(function_frame.temporary_allocations.keys().copied())
+            .collect::<HashSet<_>>();
+        let alive = self
+            .call_locals
+            .iter()
+            .flat_map(|frame| {
+                frame
+                    .allocation_ids
+                    .values()
+                    .copied()
+                    .chain(frame.temporary_allocations.keys().copied())
+            })
+            .collect::<HashSet<_>>();
+        validate_const_pointer_escape(value, &|allocation| {
+            alive.contains(&allocation) && !owned.contains(&allocation)
+        })
+        .map_err(|message| ConstError { span, message })
+    }
+
     fn push_const_scope(&mut self, _span: Span) -> Result<(), ConstError> {
-        self.call_locals.push(ConstCallFrame::default());
+        self.call_locals.push(ConstCallFrame {
+            is_execution_frame: true,
+            ..ConstCallFrame::default()
+        });
         Ok(())
     }
 
@@ -215,7 +326,10 @@ impl ConstCommonEnv for Analyzer<'_> {
 
     fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
         self.const_eval_budget.enter_call(span)?;
-        self.call_locals.push(ConstCallFrame::default());
+        self.call_locals.push(ConstCallFrame {
+            is_execution_frame: true,
+            ..ConstCallFrame::default()
+        });
         self.resolved_expr_types
             .push(std::collections::HashMap::new());
         Ok(())
@@ -284,6 +398,37 @@ pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
 }
 
 impl ResolvedConstEnv for Analyzer<'_> {
+    fn reference_resolved_place(
+        &mut self,
+        span: Span,
+        place: &nia_const_eval::ResolvedConstPlace,
+        _value: ConstValue,
+        _is_readonly: bool,
+    ) -> Result<ConstValue, ConstError> {
+        let allocation = self
+            .call_local_allocation(place.local_id)
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const reference target has no live allocation".to_string(),
+            })?;
+        let path = place
+            .path
+            .iter()
+            .map(|elem| match elem {
+                nia_const_eval::ResolvedConstPlaceElem::Field(name) => {
+                    ConstPointerPathElem::Field(*name)
+                }
+                nia_const_eval::ResolvedConstPlaceElem::Index(index) => {
+                    ConstPointerPathElem::Index(*index)
+                }
+            })
+            .collect();
+        Ok(ConstValue::Pointer(ConstPointerValue::Place {
+            allocation,
+            path,
+        }))
+    }
+
     fn prepare_resolved_binding(
         &mut self,
         binding: &ResolvedConstBinding,
@@ -1243,7 +1388,7 @@ impl Analyzer<'_> {
                         message: "builtin `error` expects exactly one message argument".to_string(),
                     });
                 }
-                let Some(message) = const_string_message(&args[0]) else {
+                let Some(message) = self.resolve_const_string_message(span, &args[0])? else {
                     return Err(ConstError {
                         span,
                         message: "builtin `error` requires a const string message".to_string(),
@@ -1258,7 +1403,7 @@ impl Analyzer<'_> {
                         message: "builtin `embed` expects exactly one path argument".to_string(),
                     });
                 }
-                let Some(path) = const_string_message(&args[0]) else {
+                let Some(path) = self.resolve_const_string_message(span, &args[0])? else {
                     return Err(ConstError {
                         span,
                         message: "builtin `embed` requires a const string path".to_string(),
@@ -1461,11 +1606,11 @@ fn const_vector_index(span: Span, value: &ConstValue, builtin: &str) -> Result<u
 
 impl Analyzer<'_> {
     fn const_string_symbol(
-        &self,
+        &mut self,
         span: Span,
         value: &ConstValue,
     ) -> Result<Option<SymbolId>, ConstError> {
-        let Some(name) = const_string_message(value) else {
+        let Some(name) = self.resolve_const_string_message(span, value)? else {
             return Ok(None);
         };
         self.input
@@ -1481,6 +1626,18 @@ impl Analyzer<'_> {
                     collision.incoming
                 ),
             })
+    }
+
+    fn resolve_const_string_message(
+        &mut self,
+        span: Span,
+        value: &ConstValue,
+    ) -> Result<Option<String>, ConstError> {
+        if let ConstValue::Pointer(pointer) = value {
+            let value = self.dereference_const_pointer(span, pointer)?;
+            return self.resolve_const_string_message(span, &value);
+        }
+        Ok(const_string_message(value))
     }
 }
 
@@ -1507,12 +1664,148 @@ fn const_string_message(value: &ConstValue) -> Option<String> {
                 _ => None,
             })
             .collect(),
-        ConstValue::Pointer(value) => const_string_message(value),
+        ConstValue::Pointer(ConstPointerValue::Frozen { pointee, .. }) => {
+            const_string_message(pointee)
+        }
+        ConstValue::Pointer(ConstPointerValue::Place { .. }) => None,
         _ => None,
     }
 }
 
+fn read_const_pointer_path(
+    span: Span,
+    root: ConstValue,
+    path: &[ConstPointerPathElem],
+    analyzer: &Analyzer<'_>,
+) -> Result<ConstValue, ConstError> {
+    let Some((head, tail)) = path.split_first() else {
+        return Ok(root);
+    };
+    let value = match (head, root) {
+        (ConstPointerPathElem::Field(name), ConstValue::Struct(mut fields)) => {
+            fields.remove(name).ok_or_else(|| ConstError {
+                span,
+                message: format!(
+                    "unknown const pointer field `{}`",
+                    analyzer.symbol_name(*name)
+                ),
+            })?
+        }
+        (ConstPointerPathElem::Field(name), ConstValue::Union(union)) => {
+            union.read(*name).map_err(|message| ConstError {
+                span,
+                message: format!("{message} `{}`", analyzer.symbol_name(*name)),
+            })?
+        }
+        (ConstPointerPathElem::Index(index), ConstValue::Array(values)) => {
+            values.get(*index).cloned().ok_or_else(|| ConstError {
+                span,
+                message: format!("const pointer index {index} is out of bounds"),
+            })?
+        }
+        (ConstPointerPathElem::Field(_), _) => {
+            return Err(ConstError {
+                span,
+                message: "const pointer field projection requires an aggregate allocation"
+                    .to_string(),
+            });
+        }
+        (ConstPointerPathElem::Index(_), _) => {
+            return Err(ConstError {
+                span,
+                message: "const pointer index projection requires an array allocation".to_string(),
+            });
+        }
+    };
+    read_const_pointer_path(span, value, tail, analyzer)
+}
+
+fn validate_const_pointer_escape(
+    value: &ConstValue,
+    place_may_escape: &impl Fn(ConstAllocationId) -> bool,
+) -> Result<(), String> {
+    fn validate(
+        value: &ConstValue,
+        place_may_escape: &impl Fn(ConstAllocationId) -> bool,
+        inside_frozen_allocation: bool,
+    ) -> Result<(), String> {
+        match value {
+            ConstValue::Pointer(ConstPointerValue::Frozen {
+                is_readonly,
+                pointee,
+                ..
+            }) => {
+                if !is_readonly {
+                    return Err(
+                        "const value cannot retain a writable pointer to promoted temporary storage"
+                            .to_string(),
+                    );
+                }
+                validate(pointee, place_may_escape, true)
+            }
+            ConstValue::Pointer(ConstPointerValue::Place { allocation, .. }) => {
+                if inside_frozen_allocation || !place_may_escape(*allocation) {
+                    return Err(
+                        "const value cannot retain a pointer to storage whose lifetime ends here"
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            }
+            ConstValue::Array(values) | ConstValue::Vector(values) => values
+                .iter()
+                .try_for_each(|value| validate(value, place_may_escape, inside_frozen_allocation)),
+            ConstValue::Struct(fields) => fields
+                .values()
+                .try_for_each(|value| validate(value, place_may_escape, inside_frozen_allocation)),
+            ConstValue::Enum { payload, .. } => match payload {
+                nia_const_eval::ConstEnumPayload::Unit => Ok(()),
+                nia_const_eval::ConstEnumPayload::Tuple(values) => {
+                    values.iter().try_for_each(|value| {
+                        validate(value, place_may_escape, inside_frozen_allocation)
+                    })
+                }
+                nia_const_eval::ConstEnumPayload::Named(fields) => {
+                    fields.values().try_for_each(|value| {
+                        validate(value, place_may_escape, inside_frozen_allocation)
+                    })
+                }
+            },
+            ConstValue::Optional(Some(value)) => {
+                validate(value, place_may_escape, inside_frozen_allocation)
+            }
+            ConstValue::ErrorUnion(Ok(value)) | ConstValue::ErrorUnion(Err(value)) => {
+                validate(value, place_may_escape, inside_frozen_allocation)
+            }
+            ConstValue::Int(_)
+            | ConstValue::Float(_)
+            | ConstValue::Bool(_)
+            | ConstValue::String(_)
+            | ConstValue::Range(_)
+            | ConstValue::Union(_)
+            | ConstValue::Optional(None) => Ok(()),
+        }
+    }
+
+    validate(value, place_may_escape, false)
+}
+
 impl Analyzer<'_> {
+    fn next_const_allocation_id(&mut self, span: Span) -> Result<ConstAllocationId, ConstError> {
+        let allocation = ConstAllocationId::new(
+            self.current_execution_module_id(),
+            self.next_const_allocation_serial,
+        );
+        self.next_const_allocation_serial = self
+            .next_const_allocation_serial
+            .checked_add(1)
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const allocation identity space was exhausted".to_string(),
+            })?;
+        Ok(allocation)
+    }
+
     fn bind_local_value(
         &mut self,
         span: Span,
@@ -1528,6 +1821,7 @@ impl Analyzer<'_> {
         } else {
             (value, None)
         };
+        let allocation = self.next_const_allocation_id(span)?;
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ConstError {
                 span,
@@ -1538,6 +1832,7 @@ impl Analyzer<'_> {
             frame.mutable_locals.insert(local_id);
         }
         frame.locals.insert(local_id, value.clone());
+        frame.allocation_ids.insert(local_id, allocation);
         if let Some(ty) = ty {
             let typed = TypedConstValue { value, ty };
             frame.local_types.insert(local_id, typed.ty.clone());

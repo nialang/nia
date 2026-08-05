@@ -35,7 +35,10 @@ pub(crate) fn const_error_message(value: &ConstValue) -> Option<String> {
     match value {
         ConstValue::String(value) => Some(value.clone()),
         ConstValue::Array(values) => char_array_to_string(values),
-        ConstValue::Pointer(value) => const_error_message(value),
+        ConstValue::Pointer(crate::ConstPointerValue::Frozen { pointee, .. }) => {
+            const_error_message(pointee)
+        }
+        ConstValue::Pointer(crate::ConstPointerValue::Place { .. }) => None,
         _ => None,
     }
 }
