@@ -742,6 +742,78 @@ pub const fn readBytes[T](slot: Outer[T]) [4]u8 {
 }
 
 #[test]
+fn imported_generic_vector_union_is_shared_across_const_and_runtime_calls() {
+    let root = temp_dir("imported_generic_vector_union_is_shared_across_const_and_runtime_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+module bits;
+using entry::bits;
+
+const compileVector: u16x2 = std::builtin::insert(
+    std::builtin::splat[u16x2](4386),
+    1,
+    13124,
+);
+const compileSlot: bits::VectorSlot[u16x2] = bits::slot[u16x2](compileVector);
+const compileBytes: [4]u8 = bits::readBytes[u16x2](compileSlot);
+const decoded: u16x2 = bits::decode[u16x2](compileBytes);
+
+fn main() i32 {
+    let runtimeVector = std::builtin::insert(
+        std::builtin::splat[u16x2](4386),
+        1,
+        13124,
+    );
+    let runtimeBytes = bits::encode[u16x2](runtimeVector);
+    let materializedBytes = bits::readBytes[u16x2](compileSlot);
+    if compileBytes[0] == 34
+        and compileBytes[1] == 17
+        and compileBytes[2] == 68
+        and compileBytes[3] == 51
+        and std::builtin::extract(decoded, 1) == 13124
+        and runtimeBytes[2] == compileBytes[2]
+        and materializedBytes[3] == compileBytes[3] {
+        0
+    } else {
+        1
+    }
+}
+"#,
+    );
+    write(
+        &root.join("bits.nia"),
+        r#"
+pub union VectorSlot[V] {
+    value: V,
+    bytes: [4]u8,
+}
+
+pub const fn slot[V](value: V) VectorSlot[V] {
+    { value: value }
+}
+
+pub const fn encode[V](value: V) [4]u8 {
+    let slot: VectorSlot[V] = { value: value };
+    slot.bytes
+}
+
+pub const fn decode[V](bytes: [4]u8) V {
+    let slot: VectorSlot[V] = { bytes: bytes };
+    slot.value
+}
+
+pub const fn readBytes[V](slot: VectorSlot[V]) [4]u8 {
+    slot.bytes
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_const_value_evaluates_layout_builtin_in_defining_module() {
     let root = temp_dir("imported_const_value_evaluates_layout_builtin_in_defining_module");
     write(

@@ -406,14 +406,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn vector_layout(&self, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
-        if !elem.is_vector_element() || lanes == 0 {
-            return None;
-        }
-        let elem_layout = self.primitive_layout(elem)?;
-        Some(TypeLayout {
-            size: elem_layout.size.checked_mul(lanes as u64)?,
-            align: elem_layout.align,
-        })
+        nia_layout::vector_layout(elem, lanes, self.source.layouts.target)
     }
 
     pub(super) fn integer_llvm_type(

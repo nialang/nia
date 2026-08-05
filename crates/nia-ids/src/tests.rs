@@ -57,6 +57,10 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::Offset
                 | BuiltinFunction::Embed
                 | BuiltinFunction::CharFromU32
+                | BuiltinFunction::Splat
+                | BuiltinFunction::Extract
+                | BuiltinFunction::Insert
+                | BuiltinFunction::Bitmask
         );
         assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
     }

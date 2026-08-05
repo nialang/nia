@@ -455,16 +455,16 @@ impl BuiltinFunction {
             | Self::AlignOf
             | Self::Offset
             | Self::Embed
-            | Self::CharFromU32 => true,
+            | Self::CharFromU32
+            | Self::Splat
+            | Self::Extract
+            | Self::Insert
+            | Self::Bitmask => true,
             Self::Asm
             | Self::MemCopy
             | Self::MemMove
             | Self::MemSet
             | Self::LoadUnaligned
-            | Self::Splat
-            | Self::Extract
-            | Self::Insert
-            | Self::Bitmask
             | Self::Ctz
             | Self::Clz
             | Self::Popcount

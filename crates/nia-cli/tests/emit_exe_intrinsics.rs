@@ -54,6 +54,138 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_const_vector_union_preserves_storage_across_runtime() {
+    let root = temp_dir("emit_exe_const_vector_union_preserves_storage_across_runtime");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+union VectorSlot {
+    vector: u16x2,
+    bytes: [4]u8,
+}
+
+union MaskSlot {
+    mask: boolx4,
+    raw: u8,
+}
+
+const fn makeVector() u16x2 {
+    std::builtin::insert(std::builtin::splat[u16x2](4386), 1, 13124)
+}
+
+const fn makeSlot(vector: u16x2) VectorSlot {
+    { vector: vector }
+}
+
+const fn readBytes(slot: VectorSlot) [4]u8 {
+    slot.bytes
+}
+
+const fn decode(bytes: [4]u8) u16x2 {
+    let slot: VectorSlot = { bytes: bytes };
+    slot.vector
+}
+
+const compileVector: u16x2 = makeVector();
+const compileSlot: VectorSlot = makeSlot(compileVector);
+const compileBytes: [4]u8 = readBytes(compileSlot);
+const decoded: u16x2 = decode(compileBytes);
+const compileMask: boolx4 = std::builtin::insert(
+    std::builtin::splat[boolx4](false),
+    1,
+    true,
+);
+const compileMaskSlot: MaskSlot = { mask: compileMask };
+const compileMaskRaw: u8 = compileMaskSlot.raw;
+const compileMaskBits: usize = std::builtin::bitmask(compileMask);
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let runtimeBytes = readBytes(makeSlot(makeVector()));
+    let materializedBytes = readBytes(compileSlot);
+    let runtimeMaskSlot: MaskSlot = { mask: compileMask };
+    if compileBytes[0] != 34
+        or compileBytes[1] != 17
+        or compileBytes[2] != 68
+        or compileBytes[3] != 51
+        or runtimeBytes[2] != compileBytes[2]
+        or materializedBytes[3] != compileBytes[3]
+        or std::builtin::extract(decoded, 1) != 13124
+        or compileMaskRaw != 2
+        or compileMaskBits != 2
+        or runtimeMaskSlot.raw != compileMaskRaw {
+        return process::exit(1)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe const vector union");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted const vector union executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_simd_lane_out_of_range_traps() {
+    let root = temp_dir("emit_exe_simd_lane_out_of_range_traps");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+fn lane(index: usize) u8 {
+    std::builtin::extract(std::builtin::splat[u8x4](7), index)
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    _ = lane(4);
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe SIMD bounds trap");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted SIMD bounds trap executable");
+    assert!(!status.success(), "out-of-range SIMD lane access must trap");
+}
+
+#[test]
 fn emit_exe_bit_intrinsics_are_zero_defined() {
     let root = temp_dir("emit_exe_bit_intrinsics_are_zero_defined");
     let main = root.join("main.nia");

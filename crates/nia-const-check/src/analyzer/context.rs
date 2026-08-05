@@ -378,7 +378,7 @@ impl Analyzer<'_> {
             .into_iter()
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
-                self.signatures_for_module(function_id.module_id)
+                self.function_signatures_for_module(function_id.module_id)
                     .and_then(|signatures| {
                         signatures
                             .as_ref()
@@ -448,7 +448,7 @@ impl Analyzer<'_> {
             })
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
-                self.signatures_for_module(function_id.module_id)
+                self.function_signatures_for_module(function_id.module_id)
                     .and_then(|signatures| {
                         signatures
                             .as_ref()
@@ -612,6 +612,21 @@ impl Analyzer<'_> {
         } else {
             (self.input.program.signatures?)(module_id).map(ModuleSignatures::Shared)
         }
+    }
+
+    pub(super) fn function_signatures_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<ModuleSignatures<'_>> {
+        if module_id == self.input.defs.module_id {
+            return Some(ModuleSignatures::Borrowed(self.input.signatures));
+        }
+        if let Some(signatures) = self.input.program.function_signatures
+            && let Some(signatures) = signatures(module_id)
+        {
+            return Some(ModuleSignatures::Shared(signatures));
+        }
+        (self.input.program.signatures?)(module_id).map(ModuleSignatures::Shared)
     }
 
     pub(super) fn type_normalization_for_module(

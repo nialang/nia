@@ -111,6 +111,16 @@ fn with_signature_const_input<T>(
             ),
         )
     };
+    let function_signatures_for_module = |module_id| {
+        capture_query_failure(
+            &query_failure,
+            signature_item_signatures_semantic(
+                db,
+                module_id,
+                nia_item_tree::SignatureItemSet::Functions,
+            ),
+        )
+    };
     let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id))?;
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
@@ -143,6 +153,7 @@ fn with_signature_const_input<T>(
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
             signatures: Some(&item_signatures_for_module),
+            function_signatures: Some(&function_signatures_for_module),
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,
             global_initializer: None,

@@ -373,3 +373,147 @@ fn nested_union_propagates_struct_padding() {
         "const union field reads uninitialized storage"
     );
 }
+
+#[test]
+fn vector_union_storage_preserves_lane_order_and_endianness() {
+    let bytes = sym("bytes");
+    let vector = sym("vector");
+    let byte = ConstAbiType::Scalar(ConstScalarType::Integer {
+        bits: 8,
+        signed: false,
+    });
+    let fields = BTreeMap::from([
+        (
+            bytes,
+            ConstAbiType::Array {
+                element: Box::new(byte),
+                len: 4,
+            },
+        ),
+        (
+            vector,
+            ConstAbiType::Vector {
+                lane: ConstScalarType::Integer {
+                    bits: 16,
+                    signed: false,
+                },
+                lanes: 2,
+                size: 4,
+            },
+        ),
+    ]);
+    let values = ConstValue::Vector(vec![
+        ConstValue::Int(IntConst::unsigned(0x1122)),
+        ConstValue::Int(IntConst::unsigned(0x3344)),
+    ]);
+
+    for (endianness, expected) in [
+        (ConstEndianness::Little, [0x22, 0x11, 0x44, 0x33]),
+        (ConstEndianness::Big, [0x11, 0x22, 0x33, 0x44]),
+    ] {
+        let union = ConstUnionValue::new(fields.clone(), 4, vector, values.clone(), endianness)
+            .expect("initialize vector union field");
+        assert_eq!(
+            union.read(bytes).expect("reinterpret vector bytes"),
+            ConstValue::Array(
+                expected
+                    .map(|value| ConstValue::Int(IntConst::unsigned(value as u128)))
+                    .into(),
+            )
+        );
+        assert_eq!(union.read(vector).expect("round-trip vector"), values);
+    }
+}
+
+#[test]
+fn bool_vector_union_storage_is_bit_packed() {
+    let bytes = sym("bytes");
+    let mask = sym("mask");
+    let fields = BTreeMap::from([
+        (
+            bytes,
+            ConstAbiType::Array {
+                element: Box::new(ConstAbiType::Scalar(ConstScalarType::Integer {
+                    bits: 8,
+                    signed: false,
+                })),
+                len: 2,
+            },
+        ),
+        (
+            mask,
+            ConstAbiType::Vector {
+                lane: ConstScalarType::Bool,
+                lanes: 16,
+                size: 2,
+            },
+        ),
+    ]);
+    let values = ConstValue::Vector(
+        (0..16)
+            .map(|index| ConstValue::Bool(matches!(index, 0 | 9)))
+            .collect(),
+    );
+
+    for (endianness, expected) in [
+        (ConstEndianness::Little, [0x01, 0x02]),
+        (ConstEndianness::Big, [0x02, 0x01]),
+    ] {
+        let union = ConstUnionValue::new(fields.clone(), 2, mask, values.clone(), endianness)
+            .expect("initialize mask vector union field");
+        assert_eq!(
+            union.read(bytes).expect("reinterpret packed mask bytes"),
+            ConstValue::Array(
+                expected
+                    .map(|value| ConstValue::Int(IntConst::unsigned(value as u128)))
+                    .into(),
+            )
+        );
+        assert_eq!(union.read(mask).expect("round-trip mask vector"), values);
+    }
+}
+
+#[test]
+fn vector_union_storage_keeps_allocation_tail_uninitialized() {
+    let all = sym("all");
+    let vector = sym("vector");
+    let fields = BTreeMap::from([
+        (
+            all,
+            ConstAbiType::Array {
+                element: Box::new(ConstAbiType::Scalar(ConstScalarType::Integer {
+                    bits: 8,
+                    signed: false,
+                })),
+                len: 16,
+            },
+        ),
+        (
+            vector,
+            ConstAbiType::Vector {
+                lane: ConstScalarType::Float32,
+                lanes: 3,
+                size: 16,
+            },
+        ),
+    ]);
+    let union = ConstUnionValue::new(
+        fields,
+        16,
+        vector,
+        ConstValue::Vector(vec![
+            ConstValue::Float(1.0),
+            ConstValue::Float(-2.5),
+            ConstValue::Float(3.25),
+        ]),
+        ConstEndianness::Little,
+    )
+    .expect("initialize padded vector union field");
+
+    assert_eq!(
+        union
+            .read(all)
+            .expect_err("vector allocation tail must remain uninitialized"),
+        "const union field reads uninitialized storage"
+    );
+}

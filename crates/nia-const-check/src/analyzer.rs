@@ -845,6 +845,25 @@ impl Analyzer<'_> {
                     self.validate_runtime_typed_value(span, value, elem);
                 }
             }
+            Some(TyKind::Vector { elem, lanes }) => {
+                let ConstValue::Vector(values) = value else {
+                    self.push_const_type_mismatch(span, "vector");
+                    return;
+                };
+                if values.len() != lanes as usize {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::CONST,
+                        span,
+                        format!(
+                            "const vector lane count {} does not match expected lane count {lanes}",
+                            values.len()
+                        ),
+                    ));
+                }
+                for value in values {
+                    self.validate_primitive_typed_value(span, value, elem);
+                }
+            }
             Some(TyKind::Pointer { elem, .. }) => {
                 let ConstValue::Pointer(value) = value else {
                     self.push_const_type_mismatch(span, "pointer");

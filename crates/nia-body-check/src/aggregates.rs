@@ -619,6 +619,11 @@ impl<'a> BodyChecker<'a> {
                 nia_ty::PrimitiveTy::Void | nia_ty::PrimitiveTy::Never
             ),
             TyKind::Array { elem, .. } => self.const_union_ty_has_abi_model_inner(elem, visiting),
+            TyKind::Vector { elem, lanes } => {
+                elem.is_vector_element()
+                    && lanes > 0
+                    && nia_layout::vector_layout(elem, lanes, self.layouts.target).is_some()
+            }
             TyKind::Nominal {
                 def_id,
                 args,
@@ -1499,6 +1504,7 @@ impl<'a> BodyChecker<'a> {
                     defs: self.program.defs,
                     type_normalizations: self.program.type_normalizations,
                     signatures: self.program.signatures,
+                    function_signatures: self.program.signatures,
                     value_signatures: self.program.signatures,
                     const_values: Some(self.program_const_values),
                     global_initializer: None,
@@ -1562,6 +1568,7 @@ impl<'a> BodyChecker<'a> {
                 defs: self.program.defs,
                 type_normalizations: self.program.type_normalizations,
                 signatures: self.program.signatures,
+                function_signatures: self.program.signatures,
                 value_signatures: self.program.signatures,
                 const_values: Some(self.program_const_values),
                 global_initializer: None,

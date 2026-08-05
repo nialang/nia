@@ -559,8 +559,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         vector: &FunctionExpr,
         index: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lanes = match self.module.ty_kind(vector.ty) {
+            Some(TyKind::Vector { lanes, .. }) => *lanes,
+            _ => return Err(self.error(expr.span, "extract argument is not a SIMD vector")),
+        };
         let vector = self.emit_expr(vector)?.into_vector_value()?;
         let index = self.emit_expr(index)?.into_int_value()?;
+        self.emit_vector_index_bounds_check(expr.span, index, lanes, "extract")?;
         self.builder
             .build_extract_element(vector, index, "extract")
             .map_err(|_| self.error(expr.span, "failed to extract vector lane"))
@@ -573,12 +578,52 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         index: &FunctionExpr,
         value: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lanes = match self.module.ty_kind(vector.ty) {
+            Some(TyKind::Vector { lanes, .. }) => *lanes,
+            _ => return Err(self.error(expr.span, "insert argument is not a SIMD vector")),
+        };
         let vector = self.emit_expr(vector)?.into_vector_value()?;
         let index = self.emit_expr(index)?.into_int_value()?;
         let value = self.emit_expr(value)?;
+        self.emit_vector_index_bounds_check(expr.span, index, lanes, "insert")?;
         self.builder
             .build_insert_element(vector, value, index, "insert")
             .map_err(|_| self.error(expr.span, "failed to insert vector lane"))
+    }
+
+    fn emit_vector_index_bounds_check(
+        &mut self,
+        span: Span,
+        index: nia_llvm::values::IntValue<'ctx>,
+        lanes: u32,
+        name: &str,
+    ) -> Result<(), Diagnostic> {
+        let limit = index.get_type().const_int(u64::from(lanes), false);
+        let in_bounds = self
+            .builder
+            .build_basic_int_compare(
+                nia_llvm::IntPredicate::ULT,
+                index.into(),
+                limit.into(),
+                &format!("{name}.in_bounds"),
+            )
+            .map_err(|_| self.error(span, "failed to compare SIMD lane index"))?
+            .into_int_value()?;
+        let operation = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, &format!("{name}.operation"))?;
+        let trap = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, &format!("{name}.trap"))?;
+        self.builder
+            .build_conditional_branch(in_bounds, operation, trap)
+            .map_err(|_| self.error(span, "failed to branch on SIMD lane bounds"))?;
+        self.builder.position_at_end(trap);
+        self.emit_trap(span)?;
+        self.builder.position_at_end(operation);
+        Ok(())
     }
 
     fn emit_bitmask(

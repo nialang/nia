@@ -900,6 +900,61 @@ fn main() i32 {
 }
 
 #[test]
+fn simd_builtins_execute_in_const_and_materialize_at_runtime() {
+    let root = temp_dir("simd_builtins_execute_in_const_and_materialize_at_runtime");
+    write(
+        &root.join("main.nia"),
+        r#"
+const filled: u8x4 = std::builtin::splat[u8x4](3);
+const changed: u8x4 = std::builtin::insert(filled, 2, 9);
+const lane: u8 = std::builtin::extract(changed, 2);
+const mask: boolx4 = std::builtin::insert(
+    std::builtin::splat[boolx4](false),
+    1,
+    true,
+);
+const bits: usize = std::builtin::bitmask(mask);
+
+fn main() bool {
+    lane == 9
+        and bits == 2
+        and std::builtin::extract(changed, 0) == 3
+        and std::builtin::extract(changed, 2) == 9
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_simd_lane_access_rejects_out_of_range_indexes() {
+    let root = temp_dir("const_simd_lane_access_rejects_out_of_range_indexes");
+    write(
+        &root.join("main.nia"),
+        r#"
+const invalid: u8 = std::builtin::extract(
+    std::builtin::splat[u8x4](0),
+    4,
+);
+
+fn main() u8 { invalid }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("lane index 4 is out of range for 4 lanes")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn char_conversion_builtin_requires_u32() {
     let root = temp_dir("char_conversion_builtin_requires_u32");
     write(

@@ -104,6 +104,28 @@ pub fn array_layout(element: &TypeLayout, len: u64) -> Option<TypeLayout> {
     })
 }
 
+pub fn vector_layout(
+    element: PrimitiveTy,
+    lanes: u32,
+    target: TargetDataLayout,
+) -> Option<TypeLayout> {
+    if !element.is_vector_element() || lanes == 0 {
+        return None;
+    }
+    let lane_bits = if element == PrimitiveTy::Bool {
+        1
+    } else {
+        primitive_layout(element, target).size.checked_mul(8)?
+    };
+    let store_bits = lane_bits.checked_mul(u64::from(lanes))?;
+    let store_size = store_bits.checked_add(7)?.checked_div(8)?;
+    let align = store_size.checked_next_power_of_two()?;
+    Some(TypeLayout {
+        size: align_to(store_size, align),
+        align,
+    })
+}
+
 pub fn union_layout_from_fields<'a>(
     fields: impl IntoIterator<Item = &'a TypeLayout>,
 ) -> TypeLayout {
@@ -780,19 +802,15 @@ impl<'a> LayoutComputer<'a> {
     }
 
     fn vector_layout(&mut self, span: Span, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
-        let elem_layout = self.primitive_layout(elem)?;
-        let Some(size) = elem_layout.size.checked_mul(lanes as u64) else {
+        let Some(layout) = vector_layout(elem, lanes, self.target) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 span,
-                "SIMD vector layout size overflowed",
+                "SIMD vector layout is invalid or overflowed",
             ));
             return None;
         };
-        Some(TypeLayout {
-            size,
-            align: elem_layout.align,
-        })
+        Some(layout)
     }
 
     fn array_layout(
@@ -1576,6 +1594,35 @@ mod tests {
         assert_eq!(
             array_layout(&TypeLayout { size: 4, align: 4 }, 3),
             Some(TypeLayout { size: 12, align: 4 })
+        );
+    }
+
+    #[test]
+    fn vector_layout_uses_native_bit_width_and_allocation_alignment() {
+        assert_eq!(
+            vector_layout(PrimitiveTy::Bool, 16, TargetDataLayout::LP64),
+            Some(TypeLayout { size: 2, align: 2 })
+        );
+        assert_eq!(
+            vector_layout(PrimitiveTy::U8, 16, TargetDataLayout::LP64),
+            Some(TypeLayout {
+                size: 16,
+                align: 16,
+            })
+        );
+        assert_eq!(
+            vector_layout(PrimitiveTy::F32, 3, TargetDataLayout::LP64),
+            Some(TypeLayout {
+                size: 16,
+                align: 16,
+            })
+        );
+        assert_eq!(
+            vector_layout(PrimitiveTy::Usize, 2, TargetDataLayout::LP64),
+            Some(TypeLayout {
+                size: 16,
+                align: 16,
+            })
         );
     }
 

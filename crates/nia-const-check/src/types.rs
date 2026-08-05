@@ -186,6 +186,7 @@ pub struct ConstProgramContext<'a> {
     pub type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<Arc<nia_type_normalize::TypeNormalization>>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
+    pub function_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub const_values: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>>,
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedConstExpr>>,
@@ -203,6 +204,7 @@ impl fmt::Debug for ConstProgramContext<'_> {
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field("signatures", &self.signatures.is_some())
+            .field("function_signatures", &self.function_signatures.is_some())
             .field("value_signatures", &self.value_signatures.is_some())
             .field("const_values", &self.const_values.is_some())
             .field("global_initializer", &self.global_initializer.is_some())
@@ -223,6 +225,7 @@ impl<'a> ConstProgramContext<'a> {
             defs: None,
             type_normalizations: None,
             signatures: None,
+            function_signatures: None,
             value_signatures: None,
             const_values: None,
             global_initializer: None,
