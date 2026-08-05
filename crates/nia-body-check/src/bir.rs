@@ -1589,20 +1589,16 @@ impl<'a> BodyChecker<'a> {
                 let nia_const_check::ConstValue::Union(union) = value else {
                     return None;
                 };
-                let name = union.last_written_field();
-                let field_ty = self.field_ty_for_aggregate_ty(ty, &name)?;
-                let field_value = union.read(name).ok()?;
                 Some(TypedExpr {
                     span,
                     ty,
-                    kind: TypedExprKind::UnionLiteral {
-                        def_id,
-                        field: Box::new(TypedFieldInit {
-                            field: self.field_def_for_aggregate_ty(ty, &name),
-                            name: self.symbol_name(name),
-                            value: self.lower_const_value_expr(span, field_ty, Some(field_value)),
-                            span,
-                        }),
+                    kind: TypedExprKind::UnionStorageLiteral {
+                        bytes: union
+                            .bytes()
+                            .iter()
+                            .zip(union.initialized())
+                            .map(|(byte, initialized)| initialized.then_some(*byte))
+                            .collect(),
                     },
                 })
             }

@@ -355,6 +355,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Local(_)
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::UnionStorageLiteral { .. }
         | FunctionExprKind::Trap => {}
         FunctionExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);

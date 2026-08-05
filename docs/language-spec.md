@@ -1726,6 +1726,8 @@ supported types encode each element in array order with the same target rules.
 Nominal structs recursively composed from supported fields use their substituted
 artifact layout, including field reordering and offsets. Their field bytes are
 initialized, while inter-field and trailing padding remains uninitialized.
+Nested unions recursively preserve the same raw bytes and initialization state;
+they do not acquire an active-field tag or field-construction identity.
 Reading the struct itself decodes only its fields; reinterpreting it through a
 union field that covers padding is an uninitialized-storage error. Reading any
 other union field otherwise decodes the same bytes as runtime union access. A
@@ -1735,12 +1737,12 @@ zero. Invalid `bool` or `char` representations inside an array or struct are
 diagnosed at the containing element or field.
 
 The current const ABI codec is deliberately limited to scalars, fixed arrays,
-and nominal structs recursively composed from those types. Nominal struct type
-and const arguments are substituted by declaration parameter kind and order;
-semantically equal const expressions and literal arguments identify the same
-concrete field type. A union containing pointers, vectors, nested unions, or
-other unsupported aggregate fields is rejected in a `const fn` declaration
-until const evaluation has an explicit storage or pointer-provenance model for
+nominal structs, and untagged unions recursively composed from those types.
+Nominal type and const arguments are substituted by declaration parameter kind
+and order; semantically equal const expressions and literal arguments identify
+the same concrete field type. A union containing pointers, vectors, or other
+unsupported aggregate fields is rejected in a `const fn` declaration until
+const evaluation has an explicit representation or pointer-provenance model for
 that field kind. Ordinary runtime unions retain the full semantics described in
 section 4.6.
 

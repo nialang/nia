@@ -13,7 +13,7 @@ use crate::{
         primitive_integer_layout, primitive_integer_range_for_target,
     },
 };
-use nia_const_eval::ConstError;
+use nia_const_eval::{ConstAbiType, ConstEndianness, ConstError};
 use nia_const_ir::{
     ConstAssignOp, ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstStringLiteral,
     ConstUnaryOp, ResolvedConstArrayElements, ResolvedConstArrayElementsKind, ResolvedConstAssign,
@@ -916,28 +916,26 @@ impl Analyzer<'_> {
             self.push_const_type_mismatch(span, "union");
             return;
         };
-        let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
+        let Some((_def_id, _args, _const_args)) = self.expected_nominal_parts(ty) else {
             return;
         };
-        let Some(signature) = self.union_signature_for(def_id) else {
+        let Some(target) =
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+        else {
             return;
         };
-        let Some(field_tys) = self.const_union_field_types(&signature, &args, &const_args) else {
-            return;
-        };
-        let last_written_field = value.last_written_field();
-        let Some(field_ty) = field_tys.get(&last_written_field).copied() else {
+        let Some((ConstAbiType::Union { fields, size }, _)) =
+            self.const_union_abi_type(span, ty, target)
+        else {
             self.push_const_type_mismatch(span, "union");
             return;
         };
-        match value.read(last_written_field) {
-            Ok(last_written_value) => {
-                self.validate_runtime_typed_value(span, &last_written_value, field_ty)
-            }
-            Err(message) => {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at(codes::CONST, span, message))
-            }
+        let Some(endianness) = ConstEndianness::from_target_name(&self.input.target.endian) else {
+            return;
+        };
+        if let Err(message) = value.validate_abi(&fields, size, endianness) {
+            self.diagnostics
+                .push(Diagnostic::user_error_at(codes::CONST, span, message));
         }
     }
 

@@ -159,6 +159,12 @@ union Payload {
     bytes: [2]u8,
     integer: u16,
     header: Header,
+    nested: Nested,
+}
+
+union Nested {
+    bytes: [2]u8,
+    integer: u16,
 }
 
 const fn inspect() u16 {

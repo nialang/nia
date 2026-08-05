@@ -624,13 +624,17 @@ impl<'a> BodyChecker<'a> {
                 args,
                 const_args,
             } => {
-                let Some(resolved) = self.resolved_struct_signature(def_id) else {
+                let fields = if let Some(resolved) = self.resolved_struct_signature(def_id) {
+                    resolved.signature.fields.clone()
+                } else if let Some(resolved) = self.resolved_union_signature(def_id) {
+                    resolved.signature.fields.clone()
+                } else {
                     visiting.remove(&ty);
                     return false;
                 };
                 let (substitutions, const_substitutions) =
                     self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
-                resolved.signature.fields.iter().all(|field| {
+                fields.iter().all(|field| {
                     let field_ty = self.substitute_generics_and_consts(
                         field.ty,
                         &substitutions,

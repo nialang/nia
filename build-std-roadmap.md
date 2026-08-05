@@ -3513,6 +3513,44 @@ always returns field offsets. Const-generic nominal structs are therefore
 closed for union Round 2d; nested union storage, vectors, and pointer provenance
 remain open representation rounds.
 
+Dual-stage const hardening progress (2026-08-05, nested union storage): an untagged
+union value is artifact storage, not a source-field construction history.
+`ConstUnionValue` no longer retains a `last_written_field`; that
+identity was only an escape hatch for rebuilding a const result as an ordinary
+field-based union literal and is not part of the language value model. Reads
+select a field schema and decode shared bytes, while writes replace
+only that field's described byte ranges.
+
+`ConstAbiType` now has a recursive union descriptor containing every field's ABI
+descriptor and the layout-owned storage size. Encoding a nested union copies
+its bytes and initialization bitmap after checking the descriptor, target
+endianness, and storage size. Decoding creates the same raw union storage without
+inventing an active field. This keeps nested arrays and structs compositional:
+their padding and a nested union's unwritten tail remain uninitialized through
+every enclosing aggregate.
+
+Whole const unions cross into runtime IR through a dedicated internal
+union-storage literal containing one optional value per artifact byte. This is
+distinct from the source `UnionLiteral`, which still evaluates its one selected
+field normally. Backend validation requires the storage literal's semantic
+type to be a concrete union and its byte count to equal the artifact union
+layout. LLVM lowering allocates that nominal union storage and stores only
+the initialized bytes through byte-addressed offsets; absent bytes receive no
+store and are never fabricated as zero. Direct aggregate destinations,
+indirect arguments, returns, expression temporaries, fingerprinting, reachability,
+and optimization traversal all recognize the storage literal as a
+side-effect-free leaf.
+
+Focused evaluator coverage fixes same-field nested round trips, retained wider
+tails after a smaller nested write, padding propagation, and uninitialized wider
+reads. Declaration checking recursively accepts both nominal struct and union
+schemas while retaining cycle rejection and the pointer/vector capability
+boundary. The driver and maintained executable exercise an imported generic
+nested union at comptime and runtime, materialize a whole const outer union as a
+runtime argument, then reinterpret it again to prove that the stage boundary
+preserves the exact byte state. This closes nested union storage Round 2e;
+vectors and pointer provenance remain later representation rounds.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

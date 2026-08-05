@@ -454,6 +454,12 @@ const compilePacketValue: pairs::Packet[u8, packetWidth, u16] = {
 };
 const compilePacketBytes: [5]u8 = pairs::encodePacket(compilePacketValue);
 const compilePacket: pairs::Packet[u8, 2, u16] = pairs::decodePacket(compilePacketBytes);
+const compileNestedSlot: pairs::OuterSlot[u32] = pairs::layeredSlot[u32](1144201745, 26197);
+const compileNestedBytes: [4]u8 = pairs::readLayeredBytes[u32](compileNestedSlot);
+
+fn materializedNestedSlot() pairs::OuterSlot[u32] {
+    compileNestedSlot
+}
 
 fn runtimeChecks(value: usize) bool {
     let values: [arrayLen]u8 = [0; arrayLen];
@@ -469,6 +475,12 @@ fn runtimeChecks(value: usize) bool {
         values: [2]u16[4386, 13124],
     });
     let runtimePacket = pairs::decodePacket(runtimePacketBytes);
+    let runtimeNestedSlot = pairs::layeredSlot[u32](1144201745, 26197);
+    let runtimeNestedBytes = pairs::readLayeredBytes[u32](runtimeNestedSlot);
+    let copiedNestedSlot: pairs::OuterSlot[u32] = compileNestedSlot;
+    let copiedNestedBytes = pairs::readLayeredBytes[u32](copiedNestedSlot);
+    let materializedNestedBytes = pairs::readLayeredBytes[u32](compileNestedSlot);
+    let returnedNestedBytes = pairs::readLayeredBytes[u32](materializedNestedSlot());
     double(value) == 14
         and width.doubled() == 14
         and width.increment() == 8
@@ -501,6 +513,14 @@ fn runtimeChecks(value: usize) bool {
         and compilePacket.values[1] == 13124
         and runtimePacketBytes[4] == compilePacketBytes[4]
         and runtimePacket.values[0] == compilePacket.values[0]
+        and compileNestedBytes[0] == 85
+        and compileNestedBytes[1] == 102
+        and compileNestedBytes[2] == 51
+        and compileNestedBytes[3] == 68
+        and runtimeNestedBytes[3] == compileNestedBytes[3]
+        and copiedNestedBytes[0] == compileNestedBytes[0]
+        and materializedNestedBytes[2] == compileNestedBytes[2]
+        and returnedNestedBytes[1] == compileNestedBytes[1]
         and values.len() == 23
 }
 
@@ -556,6 +576,16 @@ pub union PaddedBytes[T] {
 pub union PacketBytes[T, N: usize, U] {
     value: Packet[T, N, U],
     prefix: [5]u8,
+}
+
+pub union InnerSlot[T] {
+    wide: T,
+    narrow: u16,
+}
+
+pub union OuterSlot[T] {
+    inner: InnerSlot[T],
+    bytes: [4]u8,
 }
 
 extend[T] PairIter[T] : Iterator {
@@ -625,6 +655,16 @@ pub const fn encodePacket(value: Packet[u8, 2, u16]) [5]u8 {
 pub const fn decodePacket(bytes: [5]u8) Packet[u8, 2, u16] {
     let slot: PacketBytes[u8, 2, u16] = { prefix: bytes };
     slot.value
+}
+
+pub const fn layeredSlot[T](wide: T, narrow: u16) OuterSlot[T] {
+    let mut inner: InnerSlot[T] = { wide: wide };
+    inner.narrow = narrow;
+    { inner: inner }
+}
+
+pub const fn readLayeredBytes[T](slot: OuterSlot[T]) [4]u8 {
+    slot.bytes
 }
 "#,
     )

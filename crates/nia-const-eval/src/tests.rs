@@ -149,3 +149,227 @@ fn struct_union_write_clears_previously_initialized_padding() {
         "const union field reads uninitialized storage"
     );
 }
+
+#[test]
+fn nested_union_round_trip_preserves_raw_storage_and_wider_tail() {
+    let inner = sym("inner");
+    let bytes = sym("bytes");
+    let narrow = sym("narrow");
+    let wide = sym("wide");
+    let byte = ConstAbiType::Scalar(ConstScalarType::Integer {
+        bits: 8,
+        signed: false,
+    });
+    let inner_fields = BTreeMap::from([
+        (
+            narrow,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 16,
+                signed: false,
+            }),
+        ),
+        (
+            wide,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 32,
+                signed: false,
+            }),
+        ),
+    ]);
+    let mut inner_value = ConstUnionValue::new(
+        inner_fields.clone(),
+        4,
+        wide,
+        ConstValue::Int(IntConst::unsigned(0x4433_2211)),
+        ConstEndianness::Little,
+    )
+    .expect("initialize wide nested union field");
+    inner_value
+        .write(narrow, ConstValue::Int(IntConst::unsigned(0x6655)))
+        .expect("overwrite narrow nested union field");
+
+    let outer_fields = BTreeMap::from([
+        (
+            bytes,
+            ConstAbiType::Array {
+                element: Box::new(byte),
+                len: 4,
+            },
+        ),
+        (
+            inner,
+            ConstAbiType::Union {
+                fields: inner_fields,
+                size: 4,
+            },
+        ),
+    ]);
+    let outer = ConstUnionValue::new(
+        outer_fields,
+        4,
+        inner,
+        ConstValue::Union(inner_value),
+        ConstEndianness::Little,
+    )
+    .expect("initialize nested union field");
+
+    assert_eq!(
+        outer.read(bytes).expect("reinterpret nested storage"),
+        ConstValue::Array(
+            [0x55, 0x66, 0x33, 0x44]
+                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
+                .into(),
+        )
+    );
+    let ConstValue::Union(decoded_inner) =
+        outer.read(inner).expect("round-trip nested union storage")
+    else {
+        panic!("nested union field must decode as a union value");
+    };
+    assert_eq!(
+        decoded_inner.read(wide).expect("read retained wider tail"),
+        ConstValue::Int(IntConst::unsigned(0x4433_6655))
+    );
+}
+
+#[test]
+fn nested_union_propagates_uninitialized_tail() {
+    let inner = sym("inner");
+    let bytes = sym("bytes");
+    let narrow = sym("narrow");
+    let wide = sym("wide");
+    let byte = ConstAbiType::Scalar(ConstScalarType::Integer {
+        bits: 8,
+        signed: false,
+    });
+    let inner_fields = BTreeMap::from([
+        (
+            narrow,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 16,
+                signed: false,
+            }),
+        ),
+        (
+            wide,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits: 32,
+                signed: false,
+            }),
+        ),
+    ]);
+    let inner_value = ConstUnionValue::new(
+        inner_fields.clone(),
+        4,
+        narrow,
+        ConstValue::Int(IntConst::unsigned(0x2211)),
+        ConstEndianness::Little,
+    )
+    .expect("initialize narrow nested union field");
+    let outer = ConstUnionValue::new(
+        BTreeMap::from([
+            (
+                bytes,
+                ConstAbiType::Array {
+                    element: Box::new(byte),
+                    len: 4,
+                },
+            ),
+            (
+                inner,
+                ConstAbiType::Union {
+                    fields: inner_fields,
+                    size: 4,
+                },
+            ),
+        ]),
+        4,
+        inner,
+        ConstValue::Union(inner_value),
+        ConstEndianness::Little,
+    )
+    .expect("initialize nested union field");
+
+    assert_eq!(
+        outer
+            .read(bytes)
+            .expect_err("nested unwritten tail must remain uninitialized"),
+        "const union field reads uninitialized storage"
+    );
+}
+
+#[test]
+fn nested_union_propagates_struct_padding() {
+    let all = sym("all");
+    let inner = sym("inner");
+    let marker = sym("marker");
+    let padded = sym("padded");
+    let value = sym("value");
+    let byte = ConstAbiType::Scalar(ConstScalarType::Integer {
+        bits: 8,
+        signed: false,
+    });
+    let bytes = ConstAbiType::Array {
+        element: Box::new(byte.clone()),
+        len: 8,
+    };
+    let inner_fields = BTreeMap::from([
+        (all, bytes.clone()),
+        (
+            padded,
+            ConstAbiType::Struct {
+                fields: vec![
+                    ConstAbiField {
+                        name: value,
+                        offset: 0,
+                        ty: ConstAbiType::Scalar(ConstScalarType::Integer {
+                            bits: 32,
+                            signed: false,
+                        }),
+                    },
+                    ConstAbiField {
+                        name: marker,
+                        offset: 4,
+                        ty: byte,
+                    },
+                ],
+                size: 8,
+            },
+        ),
+    ]);
+    let inner_value = ConstUnionValue::new(
+        inner_fields.clone(),
+        8,
+        padded,
+        ConstValue::Struct(BTreeMap::from([
+            (marker, ConstValue::Int(IntConst::unsigned(0xaa))),
+            (value, ConstValue::Int(IntConst::unsigned(0x1122_3344))),
+        ])),
+        ConstEndianness::Little,
+    )
+    .expect("initialize padded nested union field");
+    let outer = ConstUnionValue::new(
+        BTreeMap::from([
+            (all, bytes),
+            (
+                inner,
+                ConstAbiType::Union {
+                    fields: inner_fields,
+                    size: 8,
+                },
+            ),
+        ]),
+        8,
+        inner,
+        ConstValue::Union(inner_value),
+        ConstEndianness::Little,
+    )
+    .expect("initialize outer union from padded nested storage");
+
+    assert_eq!(
+        outer
+            .read(all)
+            .expect_err("nested struct padding must remain uninitialized"),
+        "const union field reads uninitialized storage"
+    );
+}

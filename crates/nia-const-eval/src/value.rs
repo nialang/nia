@@ -69,6 +69,10 @@ pub enum ConstAbiType {
         fields: Vec<ConstAbiField>,
         size: usize,
     },
+    Union {
+        fields: BTreeMap<SymbolId, ConstAbiType>,
+        size: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +88,7 @@ impl ConstAbiType {
             Self::Scalar(scalar) => Some(scalar.byte_len()),
             Self::Array { element, len } => element.byte_len()?.checked_mul(*len),
             Self::Struct { size, .. } => Some(*size),
+            Self::Union { size, .. } => Some(*size),
         }
     }
 }
@@ -98,7 +103,6 @@ pub struct ConstUnionValue {
     fields: BTreeMap<SymbolId, ConstAbiType>,
     bytes: Vec<u8>,
     initialized: Vec<bool>,
-    last_written_field: SymbolId,
     endianness: ConstEndianness,
 }
 
@@ -114,7 +118,6 @@ impl ConstUnionValue {
             fields,
             bytes: vec![0; storage_size],
             initialized: vec![false; storage_size],
-            last_written_field: initial_field,
             endianness,
         };
         union.write(initial_field, value)?;
@@ -151,16 +154,7 @@ impl ConstUnionValue {
         }
         self.bytes[..encoded.bytes.len()].copy_from_slice(&encoded.bytes);
         self.initialized[..encoded.bytes.len()].copy_from_slice(&encoded.initialized);
-        self.last_written_field = field;
         Ok(())
-    }
-
-    pub fn last_written_field(&self) -> SymbolId {
-        self.last_written_field
-    }
-
-    pub fn fields(&self) -> &BTreeMap<SymbolId, ConstAbiType> {
-        &self.fields
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -169,6 +163,24 @@ impl ConstUnionValue {
 
     pub fn initialized(&self) -> &[bool] {
         &self.initialized
+    }
+
+    pub fn validate_abi(
+        &self,
+        fields: &BTreeMap<SymbolId, ConstAbiType>,
+        storage_size: usize,
+        endianness: ConstEndianness,
+    ) -> Result<(), String> {
+        if self.fields != *fields {
+            return Err("const union storage has the wrong field ABI".to_string());
+        }
+        if self.bytes.len() != storage_size || self.initialized.len() != storage_size {
+            return Err("const union storage has the wrong size".to_string());
+        }
+        if self.endianness != endianness {
+            return Err("const union storage has the wrong endianness".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -225,6 +237,16 @@ fn encode_abi_value(
         }
         (ConstAbiType::Struct { .. }, _) => {
             Err("const union field value does not match its struct type".to_string())
+        }
+        (ConstAbiType::Union { fields, size }, ConstValue::Union(value)) => {
+            value.validate_abi(fields, *size, endianness)?;
+            Ok(EncodedAbiValue {
+                bytes: value.bytes,
+                initialized: value.initialized,
+            })
+        }
+        (ConstAbiType::Union { .. }, _) => {
+            Err("const union field value does not match its union type".to_string())
         }
     }
 }
@@ -293,6 +315,17 @@ fn decode_abi_value(
                 );
             }
             Ok(ConstValue::Struct(values))
+        }
+        ConstAbiType::Union { fields, size } => {
+            if bytes.len() != *size {
+                return Err("const union field storage has the wrong length".to_string());
+            }
+            Ok(ConstValue::Union(ConstUnionValue {
+                fields: fields.clone(),
+                bytes: bytes.to_vec(),
+                initialized: initialized.to_vec(),
+                endianness,
+            }))
         }
     }
 }

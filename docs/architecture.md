@@ -1033,12 +1033,13 @@ without forcing anonymous data into the runtime type interner.
 
 Const unions use a separate storage value, not `ConstValue::Struct` with one
 field. `ConstValue::Union` contains target-ordered bytes, one initialized bit per
-byte, a stable const ABI descriptor for every supported field, and the most
-recently written field identity. A descriptor is a scalar, a recursively nested
-fixed array, or a nominal struct containing layout-owned field offsets and an
-object size. The identity supports diagnostics and runtime materialization; it
-does not restrict reads. Reads decode the requested field from the shared bytes,
-and writes replace only that field's byte range.
+byte, and a stable const ABI descriptor for every supported field. A descriptor
+is a scalar, a recursively nested fixed array, a nominal struct containing
+layout-owned field offsets and an object size, or another untagged union with
+its complete field schema and storage size. There is deliberately no active or
+last-written field identity: source construction history is not part of an
+untagged union value. Reads decode the requested field from the shared bytes,
+and writes replace only that field's described byte and initialization ranges.
 
 `nia-layout` owns the primitive layouts and the union max-size/max-alignment
 formula used to size this storage. `nia-const-check` maps substituted semantic
@@ -1056,17 +1057,25 @@ reuse `nia-layout`'s checked array-size fact, including const and layout-builtin
 lengths evaluated for the artifact pointer width. Nominal struct descriptors
 come from the substituted `nia-layout` instance rather than source field order.
 Encoding initializes each field's recursive byte range while leaving inter-field
-and trailing padding uninitialized. Decoding the struct reads only its fields;
+and trailing padding uninitialized. Nested union encoding and decoding copies
+both its bytes and initialization bitmap after checking its ABI schema, storage
+size, and target endianness. Decoding a struct reads only its fields;
 reinterpreting the same storage through a field that covers padding diagnoses an
-uninitialized read. When runtime code projects a field
-from a union `const`, body IR lowering reads that field from the same stored
-bytes and materializes the decoded scalar, array, or struct. When the whole supported
-union value must be materialized, the most recently written field becomes the
-ordinary runtime `UnionLiteral` initializer. Whole struct const values likewise
-materialize as ordinary `StructLiteral` expressions. Const-generic nominal
-structs, nested unions, pointers, and vectors remain a declaration-time const
-capability boundary until their substitution, storage, provenance, or lane
-representation has one explicit model.
+uninitialized read. When runtime code projects a field from a union `const`,
+body IR lowering reads that field from the same stored bytes and materializes
+the decoded scalar, array, struct, or nested union.
+
+Whole const unions use an internal `UnionStorageLiteral` rather than an ordinary
+source `UnionLiteral`. It carries one optional value per artifact byte through
+typed body IR and function IR. Backend validation requires a concrete nominal
+union and an exact artifact-layout byte count. LLVM lowering stores only present
+bytes into nominal union storage; absent bytes remain uninitialized rather than
+being fabricated as zero. This path is used for expression temporaries, direct
+aggregate destinations, indirect arguments, and returns, so crossing from
+comptime into runtime preserves storage without reconstructing a field. Whole
+struct const values still materialize as ordinary `StructLiteral` expressions.
+Pointers and vectors remain a declaration-time const capability boundary until
+their provenance or lane representation has one explicit model.
 
 Consumers outside `nia-const-check` should use the typed value surface's
 accessors for structural field and array element queries instead of duplicating

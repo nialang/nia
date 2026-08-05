@@ -477,6 +477,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }
@@ -1111,6 +1112,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::UnionStorageLiteral { .. }
             | FunctionExprKind::BuiltinValue(_) => {}
         }
     }

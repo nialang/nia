@@ -248,6 +248,9 @@ pub enum TypedExprKind {
         def_id: GlobalDefId,
         field: Box<TypedFieldInit>,
     },
+    UnionStorageLiteral {
+        bytes: Vec<Option<u8>>,
+    },
     Unary {
         op: UnaryOp,
         expr: Box<TypedExpr>,
