@@ -320,20 +320,25 @@ impl Parser {
                 is_variadic,
             })
         } else {
-            if self.eat(TokenKind::LBracket).is_some() {
-                let elem = self.parse_type_with_mode(mode)?;
-                self.expect(TokenKind::RBracket, "expected `]` in slice type")?;
-                Some(TypeKind::Slice {
+            let checkpoint = self.tokens.checkpoint();
+            let errors_len = self.errors.len();
+            if self.eat(TokenKind::LBracket).is_some()
+                && let Some(elem) = self.parse_type_with_mode(mode)
+                && self.eat(TokenKind::RBracket).is_some()
+                && !self.type_can_start()
+            {
+                return Some(TypeKind::Slice {
                     is_readonly,
                     elem: Box::new(elem),
-                })
-            } else {
-                let elem = self.parse_type_with_mode(mode)?;
-                Some(TypeKind::Pointer {
-                    is_readonly,
-                    elem: Box::new(elem),
-                })
+                });
             }
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            let elem = self.parse_type_with_mode(mode)?;
+            Some(TypeKind::Pointer {
+                is_readonly,
+                elem: Box::new(elem),
+            })
         }
     }
 

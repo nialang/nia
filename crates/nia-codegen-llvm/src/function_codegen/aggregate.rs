@@ -232,51 +232,131 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         relocation: &FunctionUnionRelocation,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let pointee = &relocation.pointee;
-        let value = match &pointee.kind {
-            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
-                let ty = self
-                    .module
-                    .llvm_basic_type(pointee.ty, pointee.span)?
-                    .into_int_type()?;
-                ty.const_u128(value.bits()).into()
-            }
-            FunctionExprKind::Integer(text) => {
-                self.emit_integer_literal(pointee.ty, pointee.span, text)?
-            }
-            FunctionExprKind::Float(text) => {
-                self.emit_float_literal(pointee.ty, pointee.span, text)?
-            }
-            FunctionExprKind::Char(value) => {
-                self.emit_char_literal(pointee.ty, pointee.span, *value)?
-            }
-            FunctionExprKind::ByteChar(text) => {
-                self.emit_byte_char_literal(pointee.ty, pointee.span, text)?
-            }
-            FunctionExprKind::Bool(value) => self
-                .module
-                .context
-                .bool_type()
-                .const_int(u64::from(*value), false)
-                .into(),
-            FunctionExprKind::Null => self
-                .module
-                .llvm_basic_type(pointee.ty, pointee.span)?
-                .into_pointer_type()?
-                .const_null()
-                .into(),
-            _ => {
-                return Err(self.error(
-                    pointee.span,
-                    "promoted allocation pointee is not yet a scalar LLVM constant",
-                ));
-            }
-        };
+        let value = self.emit_promoted_const_value(pointee)?;
         self.module.materialize_promoted_allocation(
             relocation.allocation,
             pointee.ty,
             value,
             pointee.span,
         )
+    }
+
+    fn emit_promoted_const_value(
+        &mut self,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        match &value.kind {
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(integer)) => {
+                let ty = self
+                    .module
+                    .llvm_basic_type(value.ty, value.span)?
+                    .into_int_type()?;
+                Ok(ty.const_u128(integer.bits()).into())
+            }
+            FunctionExprKind::Integer(text) => {
+                self.emit_integer_literal(value.ty, value.span, text)
+            }
+            FunctionExprKind::Float(text) => self.emit_float_literal(value.ty, value.span, text),
+            FunctionExprKind::Char(character) => {
+                self.emit_char_literal(value.ty, value.span, *character)
+            }
+            FunctionExprKind::ByteChar(text) => {
+                self.emit_byte_char_literal(value.ty, value.span, text)
+            }
+            FunctionExprKind::Bool(boolean) => Ok(self
+                .module
+                .context
+                .bool_type()
+                .const_int(u64::from(*boolean), false)
+                .into()),
+            FunctionExprKind::Null => Ok(self
+                .module
+                .llvm_basic_type(value.ty, value.span)?
+                .into_pointer_type()?
+                .const_null()
+                .into()),
+            FunctionExprKind::String(scalars) => {
+                self.emit_string_literal(value.ty, value.span, scalars)
+            }
+            FunctionExprKind::ByteString(bytes) => {
+                self.emit_byte_string_literal(value.ty, value.span, bytes)
+            }
+            FunctionExprKind::ArrayLiteral { elems } => {
+                self.emit_promoted_array_const(value, elems)
+            }
+            FunctionExprKind::StructLiteral { fields, .. } => {
+                self.emit_promoted_struct_const(value, fields)
+            }
+            _ => Err(self.error(
+                value.span,
+                "promoted allocation pointee is not yet an LLVM constant",
+            )),
+        }
+    }
+
+    fn emit_promoted_array_const(
+        &mut self,
+        expr: &FunctionExpr,
+        elems: &FunctionArrayElements,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Array { elem, .. }) = self.module.ty_kind(expr.ty).cloned() else {
+            return Err(self.error(expr.span, "promoted array initializer has a non-array type"));
+        };
+        let values = match elems {
+            FunctionArrayElements::List(values) => values
+                .iter()
+                .map(|value| self.emit_promoted_const_value(value))
+                .collect::<Result<Vec<_>, _>>()?,
+            FunctionArrayElements::Repeat { value, count } => {
+                let count = self.module.array_len(count, expr.span)?;
+                let count = usize::try_from(count)
+                    .map_err(|_| self.error(expr.span, "promoted array length is too large"))?;
+                let value = self.emit_promoted_const_value(value)?;
+                std::iter::repeat_n(value, count).collect()
+            }
+        };
+        self.module
+            .const_array_from_values_in_current(elem, &values, expr.span)
+    }
+
+    fn emit_promoted_struct_const(
+        &mut self,
+        expr: &FunctionExpr,
+        fields: &[FunctionFieldInit],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.module.ty_kind(expr.ty).cloned()
+        else {
+            return Err(self.error(expr.span, "promoted struct initializer is not nominal"));
+        };
+        if self.module.is_union_def(def_id) {
+            return Err(self.error(
+                expr.span,
+                "promoted union pointee requires relocation-aware constant storage",
+            ));
+        }
+        let physical_fields = self
+            .module
+            .physical_struct_fields(def_id, &args, &const_args, expr.span)?
+            .into_iter()
+            .map(|field| field.def_id)
+            .collect::<Vec<_>>();
+        let mut values = Vec::with_capacity(physical_fields.len());
+        for field_id in physical_fields {
+            let field = fields
+                .iter()
+                .find(|field| field.field == Some(field_id))
+                .ok_or_else(|| self.error(expr.span, "promoted struct field is missing"))?;
+            values.push(self.emit_promoted_const_value(&field.value)?);
+        }
+        let struct_ty = self
+            .module
+            .llvm_basic_type(expr.ty, expr.span)?
+            .into_struct_type()?;
+        Ok(struct_ty.const_named_struct(&values).into())
     }
 
     pub(super) fn emit_optional_null(
