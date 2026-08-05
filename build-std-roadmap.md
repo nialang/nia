@@ -3851,6 +3851,27 @@ linking. With scalar, aggregate, vector, nested-relocation, ZST, and direct
 array/string promotions all using one identity model, Round 2g3b is closed.
 Round 2g3c remains the imported/generic differential closeout.
 
+Dual-stage const hardening progress (2026-08-05, Round 2g3c imported/generic
+pointer differential): a public imported `PointerSlot[T]` now crosses generic
+whole-union arguments and returns, pointer dereference, and provenance equality
+through the same `const fn` bodies at comptime and runtime. The differential
+uses a `usize` instance at both stages, a `u32` instance only at comptime, and a
+`u64` instance only at runtime. Final backend-instance assertions prove the
+const-only target does not leak into codegen while both runtime targets remain
+reachable.
+
+The maintained native executable materializes two equal-valued promoted
+allocations defined by the imported module, proving same-origin reuse and
+distinct-origin inequality after generic calls, object emission, and linking.
+It also observes the pointee value after a whole-union round trip and proves
+that an equal-valued imported `static` address remains distinct from readonly
+promoted allocation provenance. Together with the local scalar, aggregate,
+vector, nested-relocation, zero-sized, and array/string coverage from Round
+2g3b, this closes Round 2g3 and the readonly pointer-provenance materialization
+boundary. Mutable pointer write-through remains the separate alias-aware place
+operation task; function pointers retain their separate const-callable
+capability boundary.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
