@@ -2139,6 +2139,15 @@ product. Compiler-emit records additionally bind the declared artifact,
 logical output, and current linker environment to a typed Driver link-cache
 reference. They do not copy executable bytes into the build cache.
 
+Generated module roots and generated module-map imports use the same manifest
+boundary as package sources. Producer closure validation proves that their bytes
+exist before the compiler action; the Driver then fingerprints the logical
+source identities and bytes actually consumed. Consequently, changing a
+generated root or import invalidates only compiler actions whose module closure
+contains it, while an unchanged output can preserve a consumer hit even if the
+producer recipe changed. The coordinator has no parallel generated-source
+fingerprint or recipe-coupled invalidation path.
+
 On an emit hit, the Driver validates the referenced product against the current
 toolchain, target, resolved linker bytes, default library paths, and structured
 link options before atomically restoring the requested output. Missing,

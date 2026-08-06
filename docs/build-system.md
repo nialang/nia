@@ -343,6 +343,15 @@ provider-demand plan validates its recorded source closure before restoring
 those demands, allowing a warm loader session to reconstruct the complete
 manifest across process and toolchain relocation.
 
+Build-rooted module roots and explicit module-map imports enter compiler-action
+identity through this same Driver source-input manifest. Their producer actions
+control scheduling and materialize the files, but producer recipes are not an
+additional compiler-input identity: if a recipe changes while its output bytes
+remain identical, the consuming compiler action may still hit. Changing either
+a generated root or generated import invalidates the exact dependent compiler
+closure as `Sources`; an unrelated package-source artifact remains reusable,
+and the converse holds for edits to that package source.
+
 Compiler-check records live under
 `.nia-cache/actions/compiler-checks/v1/`. Their identity includes the stable
 action key, module root and import mapping, target, optimization, runtime,

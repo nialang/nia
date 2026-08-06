@@ -4041,3 +4041,19 @@ protocol bypass. This closes Phase G's ordering-independent generated-input
 relationship. Generated/source invalidation precision, profile inheritance,
 package inputs, run/test/install relationships, and the remaining artifact
 surface remain open.
+
+Phase G progress (2026-08-06, generated/source invalidation closure): a real
+coordinator/Driver matrix now builds one artifact from a build-rooted generated
+root plus a build-rooted generated module import beside an independent artifact
+from a package source. Cold and warm execution is followed by isolated edits to
+the generated root, generated import, and package source. Each generated edit
+reports `Contents` only for its producer and `Sources` only for the consuming
+emit; the other producer and package artifact hit. The package edit invalidates
+only its own emit while both generated producers and their consumer hit. This
+proves that generated roots and imports enter the consumer fingerprint through
+the Driver `SourceInputManifest`, not through a coordinator-side surrogate.
+Producer recipe changes with byte-identical outputs intentionally preserve the
+consumer hit, matching content-addressed source semantics. This closes Phase
+G's generated/source invalidation-precision acceptance slice. Profile
+inheritance, package inputs, run/test/install relationships, and the remaining
+artifact surface remain open.
