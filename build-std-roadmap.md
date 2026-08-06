@@ -3979,9 +3979,9 @@ the host test also observes the exact on-disk UTF-8 bytes.
 This closes the reconstruction track's maintained vertical-workflow acceptance
 item and reconciles the stable matrix: receiver parsing and process-owned
 identity/spawn/wait causes were already completed by their earlier batches.
-Nominal validated UTF-8 storage, owned C-string design, filesystem roots/native
-representation/context, and facade/provider demand evidence remain separate
-open work; they are not hidden inside the workflow result.
+Nominal validated UTF-8 storage, owned C-string design, and filesystem
+roots/native representation/context remain separate open work; they are not
+hidden inside the workflow result.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
@@ -4004,3 +4004,16 @@ the ArrayList-for-in branch's exclusion of HashMap work. The process workflow's
 public generic parsing signatures intentionally retain `std/parse/core` as a
 semantic dependency; it is asserted as demanded rather than treated as an
 unrelated provider.
+
+Phase G progress (2026-08-06, multi-artifact host-tool closure): the maintained
+configured package now declares two independent executable artifacts with two
+distinct modules and output names. A host `sh` external command consumes both
+through typed `CommandArgument::artifactInput` values, while its generated
+outputs remain build-rooted and its package input remains separately declared.
+The plan and integration assertions verify both artifact emit producers are in
+the tool dependency closure, both outputs are published under their declared
+logical names, the host command cannot substitute an artifact handle, and both
+emitted artifacts execute successfully. This closes the first Phase G
+typed-graph/host-tool evidence slice; generated/source invalidation, profile
+inheritance, package inputs, run/test/install relationships, and the remaining
+artifact surface remain open.

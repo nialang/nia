@@ -7,8 +7,11 @@ fn configure(b: &mut build::Build) build::Error!void {
     let helperName = "helper";
     let helperPath = "deps/helper.nia";
     let srcMain = "src/main.nia";
+    let srcWorker = "src/worker.nia";
     let appName = "app";
+    let workerName = "worker";
     let outputName = "custom-app";
+    let workerOutputName = "custom-worker";
     let buildStepName = "build";
     let checkStepName = "check";
     let runStepName = "run";
@@ -23,7 +26,15 @@ fn configure(b: &mut build::Build) build::Error!void {
     let app = b.addExecutable(
         build::ExecutableOptions::init(&appName, rootModule).withOutputName(&outputName),
     ).?;
+    let workerModule = b.addModule(
+        build::ModuleOptions::init(&workerName, fs::PathView::init(&srcWorker)),
+    ).?;
+    let worker = b.addExecutable(
+        build::ExecutableOptions::init(&workerName, workerModule)
+            .withOutputName(&workerOutputName),
+    ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
+    _ = b.addEmitExecutableStep(&workerName, worker).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
     let runArguments: [1]&[char] = [&"roadmap"];
     let runStep = b.addRunExecutableStep(
@@ -32,12 +43,13 @@ fn configure(b: &mut build::Build) build::Error!void {
     ).?;
     let toolArguments = [
         build::CommandArgument::literal(&"-c"),
-        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
+        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
         build::CommandArgument::literal(&"nia-build-tool"),
         build::CommandArgument::packageInput(fs::PathView::init(&"tool-input.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
         build::CommandArgument::artifactInput(app),
+        build::CommandArgument::artifactInput(worker),
     ];
     let toolEnvironment = [
         build::CommandEnvironmentInput::init(&"MODE", &"fixture"),
