@@ -1,3 +1,5 @@
+using pkg::slice;
+
 pub enum BufferError: i32 {
     EndOfStream = 1,
     ShortWrite = 2,
@@ -30,6 +32,13 @@ pub trait Writer {
                 return self.shortWrite()!;
             }
             written += n;
+        }
+        !{}
+    }
+
+    fn writeUtf8(&mut self, text: &[char]) Error!void {
+        for &ch in text {
+            self.writeAll(ch.encodeUtf8().bytes()).?;
         }
         !{}
     }

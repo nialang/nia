@@ -1,6 +1,6 @@
 # Nia Standard Library Architecture
 
-Status: Phase C build-host foundation complete
+Status: Phase F build execution complete; standard-library reconstruction in progress
 
 The current standard library demonstrates usable capabilities, but most of its
 public APIs predate a deliberate stability review. Existing code is therefore
@@ -61,7 +61,7 @@ providers.
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
-| `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes exist | retire from BuildPlan boundary; continue lifecycle and raw-boundary audit before accepting the service facade |
+| `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
 | `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
 | `build` | graph declaration and execution | callback executor, raw argv, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
 
@@ -376,6 +376,14 @@ generalized over `Iterable` because a one-shot iterator cannot promise the
 required sizing pass, and no public text-conversion trait is justified merely
 to widen this operation.
 
+Byte-oriented `io::Writer` values expose `writeUtf8(text)` as the direct
+allocation-free scalar-text encoding boundary. It writes each scalar's UTF-8
+bytes through `writeAll` and preserves the writer's associated error instead of
+collapsing a filesystem, pipe, or bounded-buffer failure into
+`fmt::Error::Write`. Formatting remains the path for templates and value
+presentation; a caller writing already-constructed text does not need a dummy
+`"{}"` template or a one-element trait-object array.
+
 `PathView` remains a nominal borrowed scalar path and `PathBuf` owns a `String`.
 `PathBuf::fromString` is its ownership-transfer constructor. It does not expose
 a second raw-slice adoption path; callers that intentionally adopt an
@@ -389,7 +397,7 @@ conversion and returns `PathError::ContainsNul` or `PathError::TooLong`.
 `EncodedPath` has no public unchecked constructor. Former snake-case and
 duplicate copy, join, and encode entry points have no aliases.
 
-Initial convenience-trait dispositions are deliberately asymmetric. `Char` is
+The completed convenience-trait dispositions are deliberately asymmetric. `Char` is
 not a trait: checked scalar construction is `unicode::fromScalarValue`, backed
 by `std::builtin::charFromU32`, while `char.codepoint()` and
 `char.encodeUtf8()` provide inherent scalar operations.
@@ -404,21 +412,21 @@ ordinary extension priority and array-pointer receiver coercion without public
 `Ptr`/`PtrMut` traits or associated `Target` projections. Runtime and const
 evaluation share the same non-empty projection contract; empty const-slice
 projection remains blocked until const pointers can represent an allocation
-base without fabricating an element. Each remaining migration must trace
-symbol identity, type/projection solving, const evaluation, reachability,
-backend dispatch, and LLVM before deleting its builtin declaration.
+base without fabricating an element. The completed audits traced symbol
+identity, type/projection solving, const evaluation, reachability, backend
+dispatch, and LLVM before deleting each builtin declaration.
 
 ### 4.1 Text, Path, And Process Error-Flow Matrix
 
 | Role | Current public representation | Conversion boundary | Current failure owner | Reconstruction status |
 | --- | --- | --- | --- | --- |
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
-| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | name, mutation, equality/search/split/replacement/join/hash, borrowed map lookup, and unmanaged allocator protocol accepted; parsing vocabulary and the complete vertical workflow remain open |
-| arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers | owning I/O/process API | retained as non-text; no implicit UTF-8 meaning |
-| UTF-8 sequence | borrowed bytes decoded one scalar at a time | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8` | `Utf8DecodeError`, `TextError` | scalar and owned whole-buffer conversion accepted; nominal validated view remains open |
+| owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | naming, mutation, relations, collections, receiver parsing, unmanaged ownership, and the complete vertical workflow accepted |
+| arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
+| UTF-8 sequence | borrowed bytes decoded one scalar at a time or streamed from scalar text | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8`, `Writer::writeUtf8` | `Utf8DecodeError`, `TextError`, or the concrete writer error | scalar decode, owned whole-buffer decode, transactional append, and allocation-free stream encoding accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
-| process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, and pipe ownership accepted; process-owned identity/spawn/wait causes remain open |
+| process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
 the sum of each scalar's encoded `Utf8Scalar::byteLen()` and is not
