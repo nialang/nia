@@ -90,6 +90,16 @@ facades stay shallow until concrete paths or provider demands activate them.
 Semantic provider activation supplies that provider's own import scope without
 turning semantic-only dependencies into body-check or backend work.
 
+Implicit `for` trait lookup follows the same closure rule. A facade that is only
+semantic-selected as a visibility scaffold does not trigger a sibling-provider
+scan; an implicit `Iterable`/`Iterator` search stays on a top-level branch whose
+used paths are actually processed. This preserves independent package-root
+range lookup while keeping a selected `ArrayList` branch from activating the
+HashMap subtree. Body checking still publishes target-aware trait demands when
+the iterable type is known. Compiler error-recovery types never publish
+provider demands, so an early failed lookup cannot leave a permanent unknown
+target that widens later fixpoint rounds.
+
 ## 4. API Review Rules
 
 Every reviewed API receives one or more findings:

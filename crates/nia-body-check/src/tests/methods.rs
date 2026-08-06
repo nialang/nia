@@ -60,6 +60,24 @@ fn main(value: Value) i32 {
 }
 
 #[test]
+fn error_receivers_do_not_emit_provider_demands() {
+    let checked = pipeline_without_visible_extensions(
+        r#"
+fn main() void {
+    missing.missing();
+}
+"#,
+    );
+
+    assert!(!checked.diagnostics.is_empty());
+    assert!(
+        checked.provider_demands.is_empty(),
+        "{:?}",
+        checked.provider_demands
+    );
+}
+
+#[test]
 fn method_candidate_expected_context_does_not_reject_nested_calls() {
     let checked = pipeline(
         r#"

@@ -220,11 +220,17 @@ impl ProviderSummary {
 
     pub fn defines_trait_impl(
         &self,
+        target_type_name: Option<&SymbolId>,
         trait_name: &SymbolId,
         associated_name: Option<&SymbolId>,
     ) -> bool {
         self.providers.iter().any(|provider| {
-            provider
+            target_type_name.is_none_or(|target_type_name| {
+                provider
+                    .target
+                    .ty
+                    .may_match_demand_nominal_name(target_type_name)
+            }) && provider
                 .trait_ref
                 .as_ref()
                 .is_some_and(|trait_ref| trait_ref.may_match_trait_name(trait_name))
@@ -503,9 +509,10 @@ extend Widget : Hash {
 "#,
         );
 
-        assert!(summary.defines_trait_impl(&sym("Hash"), None));
-        assert!(summary.defines_trait_impl(&sym("Hash"), Some(&sym("hash"))));
-        assert!(!summary.defines_trait_impl(&sym("Hash"), Some(&sym("finish"))));
+        assert!(summary.defines_trait_impl(None, &sym("Hash"), None));
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Hash"), Some(&sym("hash"))));
+        assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Hash"), None));
+        assert!(!summary.defines_trait_impl(None, &sym("Hash"), Some(&sym("finish"))));
         assert_eq!(summary.trait_impl_index_names(), vec![sym("Hash")]);
     }
 
@@ -714,8 +721,8 @@ extend SpawnError : error::IntoError {
 "#,
         );
 
-        assert!(summary.defines_trait_impl(&sym("IntoError"), None));
-        assert!(!summary.defines_trait_impl(&sym("Iterable"), None));
+        assert!(summary.defines_trait_impl(None, &sym("IntoError"), None));
+        assert!(!summary.defines_trait_impl(None, &sym("Iterable"), None));
     }
 
     fn summary_for(source: &str) -> ProviderSummary {

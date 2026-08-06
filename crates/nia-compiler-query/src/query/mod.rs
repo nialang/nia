@@ -704,8 +704,17 @@ fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerpri
             }
             builder.write_u64(method_name.raw());
         }
-        crate::ProviderRequest::TraitImpl { trait_name } => {
+        crate::ProviderRequest::TraitImpl {
+            target_type_name,
+            trait_name,
+        } => {
             builder.write_u8(1);
+            if let Some(target_type_name) = target_type_name {
+                builder.write_u8(1);
+                builder.write_u64(target_type_name.raw());
+            } else {
+                builder.write_u8(0);
+            }
             builder.write_u64(trait_name.raw());
         }
         crate::ProviderRequest::ModuleSemantic { module_path } => {

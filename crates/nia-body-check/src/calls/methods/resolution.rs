@@ -42,9 +42,10 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         method_name: SymbolId,
     ) {
-        let target_type_name = self
-            .receiver_base_type(receiver_ty)
-            .and_then(|base| self.definition_name(base.def_id));
+        if self.provider_demand_target_is_error(receiver_ty) {
+            return;
+        }
+        let target_type_name = self.provider_target_type_name(receiver_ty);
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
             request: crate::ProviderRequest::Method {
@@ -54,7 +55,11 @@ impl<'a> BodyChecker<'a> {
         });
     }
 
-    pub(crate) fn record_trait_provider_demand(&self, trait_id: TraitId) {
+    pub(crate) fn record_trait_provider_demand(&self, self_ty: InternedTyId, trait_id: TraitId) {
+        if self.provider_demand_target_is_error(self_ty) {
+            return;
+        }
+        let target_type_name = self.provider_target_type_name(self_ty);
         let trait_name = match trait_id {
             TraitId::Source(def_id) => {
                 let Some(name) = self.definition_name(def_id) else {
@@ -66,8 +71,29 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
-            request: crate::ProviderRequest::TraitImpl { trait_name },
+            request: crate::ProviderRequest::TraitImpl {
+                target_type_name,
+                trait_name,
+            },
         });
+    }
+
+    fn provider_target_type_name(&self, ty: InternedTyId) -> Option<SymbolId> {
+        match self.interner.get(ty) {
+            Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),
+            Some(TyKind::Nominal { def_id, .. }) => self.definition_name(*def_id),
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                self.provider_target_type_name(*elem)
+            }
+            _ => None,
+        }
+    }
+
+    fn provider_demand_target_is_error(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(ty),
+            Some(TyKind::Error | TyKind::ConstOnly)
+        )
     }
 
     pub(in crate::calls) fn record_semantic_provider_module(&self, module_id: nia_ids::ModuleId) {

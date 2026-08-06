@@ -33,9 +33,9 @@ use crate::used_paths::{
 
 const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM02";
 const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF02";
-const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD02";
+const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD03";
 const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS03";
-const PROVIDER_DEMAND_PLAN_MAGIC: &[u8; 8] = b"NIAFPD02";
+const PROVIDER_DEMAND_PLAN_MAGIC: &[u8; 8] = b"NIAFPD03";
 const PUBLIC_SURFACE_FACTS_MAGIC: &[u8; 8] = b"NIAFPF01";
 const FRONTEND_CACHE_SCHEMA: &str = "v4";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
@@ -763,7 +763,11 @@ fn encode_provider_demand_plan(
                 demand_symbols.extend(target_type_name);
                 demand_symbols.insert(method_name);
             }
-            ProviderRequest::TraitImpl { trait_name } => {
+            ProviderRequest::TraitImpl {
+                target_type_name,
+                trait_name,
+            } => {
+                demand_symbols.extend(target_type_name);
                 demand_symbols.insert(trait_name);
             }
             ProviderRequest::ModuleSemantic { .. } | ProviderRequest::ModuleBody { .. } => {}
@@ -788,8 +792,12 @@ fn encode_provider_demand_plan(
                 write_optional_symbol(&mut payload, *target_type_name);
                 payload.extend_from_slice(&method_name.raw().to_le_bytes());
             }
-            ProviderRequest::TraitImpl { trait_name } => {
+            ProviderRequest::TraitImpl {
+                target_type_name,
+                trait_name,
+            } => {
                 payload.push(1);
+                write_optional_symbol(&mut payload, *target_type_name);
                 payload.extend_from_slice(&trait_name.raw().to_le_bytes());
             }
             ProviderRequest::ModuleSemantic { module_path } => {
@@ -873,9 +881,14 @@ fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProviderDemandPl
                 }
             }
             1 => {
+                let target_type_name = read_optional_symbol(&mut cursor)?;
                 let trait_name = read_symbol(&mut cursor)?;
+                demand_symbols.extend(target_type_name);
                 demand_symbols.insert(trait_name);
-                ProviderRequest::TraitImpl { trait_name }
+                ProviderRequest::TraitImpl {
+                    target_type_name,
+                    trait_name,
+                }
             }
             2 => ProviderRequest::ModuleSemantic {
                 module_path: SourcePath::from_normalized_unchecked(read_canonical_source_path(
@@ -950,9 +963,13 @@ fn remap_provider_demands(
                     target_type_name,
                     method_name,
                 },
-                ProviderRequest::TraitImpl { trait_name } => {
-                    ProviderRequest::TraitImpl { trait_name }
-                }
+                ProviderRequest::TraitImpl {
+                    target_type_name,
+                    trait_name,
+                } => ProviderRequest::TraitImpl {
+                    target_type_name,
+                    trait_name,
+                },
                 ProviderRequest::ModuleSemantic { module_path } => {
                     ProviderRequest::ModuleSemantic {
                         module_path: resolve_cached_source_path(
@@ -1047,12 +1064,17 @@ fn compare_provider_requests(
                 .then_with(|| left_method.raw().cmp(&right_method.raw())),
             (
                 ProviderRequest::TraitImpl {
+                    target_type_name: left_target,
                     trait_name: left_trait,
                 },
                 ProviderRequest::TraitImpl {
+                    target_type_name: right_target,
                     trait_name: right_trait,
                 },
-            ) => left_trait.raw().cmp(&right_trait.raw()),
+            ) => left_target
+                .map(SymbolId::raw)
+                .cmp(&right_target.map(SymbolId::raw))
+                .then_with(|| left_trait.raw().cmp(&right_trait.raw())),
             (
                 ProviderRequest::ModuleSemantic {
                     module_path: left_path,
@@ -2050,8 +2072,12 @@ fn write_used_module_path_processing(encoded: &mut Vec<u8>, processing: &UsedMod
         UsedModulePathProcessing::Always => encoded.push(1),
         UsedModulePathProcessing::IfSelectedItem => encoded.push(2),
         UsedModulePathProcessing::IfProvidesExtensions => encoded.push(3),
-        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
+        UsedModulePathProcessing::IfProvidesTraitImpl {
+            target_type_name,
+            trait_name,
+        } => {
             encoded.push(4);
+            write_optional_symbol(encoded, *target_type_name);
             encoded.extend_from_slice(&trait_name.raw().to_le_bytes());
         }
         UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
@@ -2078,6 +2104,7 @@ fn read_used_module_path_processing(
         2 => Some(UsedModulePathProcessing::IfSelectedItem),
         3 => Some(UsedModulePathProcessing::IfProvidesExtensions),
         4 => Some(UsedModulePathProcessing::IfProvidesTraitImpl {
+            target_type_name: read_optional_symbol(cursor)?,
             trait_name: read_symbol(cursor)?,
         }),
         5 => Some(UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
@@ -2384,8 +2411,14 @@ fn collect_used_module_path_symbols(path: &UsedModulePath, symbols: &mut BTreeSe
         | UsedModulePathProcessing::Always
         | UsedModulePathProcessing::IfSelectedItem
         | UsedModulePathProcessing::IfProvidesExtensions => {}
-        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name }
-        | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
+        UsedModulePathProcessing::IfProvidesTraitImpl {
+            target_type_name,
+            trait_name,
+        } => {
+            symbols.extend(*target_type_name);
+            symbols.insert(*trait_name);
+        }
+        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
             symbols.insert(*trait_name);
         }
         UsedModulePathProcessing::IfProvidesTraitMethod {

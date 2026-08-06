@@ -23,6 +23,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
         UsedModulePathProcessing::IfSelectedItem,
         UsedModulePathProcessing::IfProvidesExtensions,
         UsedModulePathProcessing::IfProvidesTraitImpl {
+            target_type_name: None,
             trait_name: sym("TraitA"),
         },
         UsedModulePathProcessing::IfProvidesImplicitTraitImpl {

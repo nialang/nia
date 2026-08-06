@@ -246,6 +246,7 @@ mod tests {
         let replacement = ProviderDemand {
             source_path: SourcePath::new("main.nia"),
             request: ProviderRequest::TraitImpl {
+                target_type_name: None,
                 trait_name: SymbolId::default(),
             },
         };
@@ -262,6 +263,7 @@ mod tests {
                 demands: HashSet::from([ProviderDemand {
                     source_path: SourcePath::new("main.nia"),
                     request: ProviderRequest::TraitImpl {
+                        target_type_name: None,
                         trait_name: SymbolId::default(),
                     },
                 }])

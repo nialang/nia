@@ -130,7 +130,10 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
         },
         ProviderDemand {
             source_path: entry.clone(),
-            request: nia_compiler_query::ProviderRequest::TraitImpl { trait_name },
+            request: nia_compiler_query::ProviderRequest::TraitImpl {
+                target_type_name: Some(target),
+                trait_name,
+            },
         },
         ProviderDemand {
             source_path: entry.clone(),

@@ -348,7 +348,7 @@ impl<'a> BodyChecker<'a> {
         };
         let resolution = self.resolve_trait_obligation(&obligations, &required);
         if matches!(resolution, TraitResolution::Unsatisfied) {
-            self.record_trait_provider_demand(trait_id);
+            self.record_trait_provider_demand(self_ty, trait_id);
         }
         self.trait_obligation_resolution_cache
             .insert(key, resolution.clone());

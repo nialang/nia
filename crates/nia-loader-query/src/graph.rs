@@ -179,9 +179,9 @@ fn build_module_graph(
             )?;
         }
         if should_process_used_module_paths(db.context(), &node) {
-            for path in &declarations.semantic.used_module_paths {
+            for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
                 record_traversal_diagnostic(
-                    add_used_module_path(db, &mut graph, node.id, path),
+                    add_used_module_path(db, &mut graph, node.id, &path),
                     &mut fresh_diagnostics,
                     &node.path,
                 )?;
@@ -255,8 +255,8 @@ fn mark_semantic_used_paths_and_process(
             graph.intern_package_root(package, path.clone());
         }
     }
-    for path in &declarations.semantic.used_module_paths {
-        add_semantic_used_module_path(db, graph, module_id, path)?;
+    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+        add_semantic_used_module_path(db, graph, module_id, &path)?;
     }
     Ok(())
 }
@@ -315,11 +315,31 @@ fn apply_provider_demands(
     provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
 ) -> QueryResult<()> {
-    let demands = provider_demands
+    let mut demands = provider_demands
         .iter()
         .filter(|demand| demand.source_path.identity() == node.path.identity())
         .cloned()
         .collect::<Vec<_>>();
+    demands.sort_unstable_by_key(|demand| match &demand.request {
+        nia_compiler_query::ProviderRequest::ModuleSemantic { .. }
+        | nia_compiler_query::ProviderRequest::ModuleBody { .. } => 0,
+        nia_compiler_query::ProviderRequest::Method {
+            target_type_name: Some(_),
+            ..
+        }
+        | nia_compiler_query::ProviderRequest::TraitImpl {
+            target_type_name: Some(_),
+            ..
+        } => 1,
+        nia_compiler_query::ProviderRequest::Method {
+            target_type_name: None,
+            ..
+        }
+        | nia_compiler_query::ProviderRequest::TraitImpl {
+            target_type_name: None,
+            ..
+        } => 2,
+    });
     for demand in demands {
         if let nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } = demand.request
         {
@@ -339,9 +359,13 @@ fn apply_provider_demands(
                     target_type_name,
                     associated_name: method_name,
                 },
-                nia_compiler_query::ProviderRequest::TraitImpl { trait_name } => {
-                    UsedModulePathProcessing::IfProvidesTraitImpl { trait_name }
-                }
+                nia_compiler_query::ProviderRequest::TraitImpl {
+                    target_type_name,
+                    trait_name,
+                } => UsedModulePathProcessing::IfProvidesTraitImpl {
+                    target_type_name,
+                    trait_name,
+                },
                 nia_compiler_query::ProviderRequest::ModuleSemantic { .. } => continue,
                 nia_compiler_query::ProviderRequest::ModuleBody { .. } => continue,
             };
@@ -427,8 +451,8 @@ fn activate_package_facade(
             graph.intern_package_root(package, path.clone());
         }
     }
-    for path in &declarations.semantic.used_module_paths {
-        add_used_module_path(db, graph, root, path)?;
+    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+        add_used_module_path(db, graph, root, &path)?;
     }
     Ok(())
 }
@@ -467,10 +491,23 @@ pub(crate) fn mark_process_used_paths_and_process(
             graph.intern_package_root(package, path.clone());
         }
     }
-    for path in &declarations.semantic.used_module_paths {
-        add_used_module_path(db, graph, module_id, path)?;
+    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+        add_used_module_path(db, graph, module_id, &path)?;
     }
     Ok(())
+}
+
+fn ordered_used_module_paths(paths: &[UsedModulePath]) -> Vec<UsedModulePath> {
+    let mut ordered = paths.to_vec();
+    ordered.sort_unstable_by_key(|path| match path.processing() {
+        UsedModulePathProcessing::Never | UsedModulePathProcessing::Always => 0_u8,
+        UsedModulePathProcessing::IfSelectedItem => 1,
+        UsedModulePathProcessing::IfProvidesExtensions => 2,
+        UsedModulePathProcessing::IfProvidesTraitImpl { .. }
+        | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
+        | UsedModulePathProcessing::IfProvidesTraitMethod { .. } => 3,
+    });
+    ordered
 }
 
 pub(crate) fn add_visible_declared_module_path(
