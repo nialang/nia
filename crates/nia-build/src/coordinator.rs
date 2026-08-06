@@ -3317,6 +3317,138 @@ mod tests {
         .unwrap()
     }
 
+    fn mixed_generated_source_emit_plan(
+        invocation: &BuildInvocation,
+        generated_body: &str,
+        generated_helper_value: i32,
+    ) -> BuildPlan {
+        let generated_module = ModuleKey::new(PackageKey::root(), "generated").unwrap();
+        let stable_module = ModuleKey::new(PackageKey::root(), "stable").unwrap();
+        let generated_artifact = ArtifactKey::new(PackageKey::root(), "generated").unwrap();
+        let stable_artifact = ArtifactKey::new(PackageKey::root(), "stable").unwrap();
+        let host = target_spec(invocation.toolchain.host_target());
+        let artifact_target = target_spec(invocation.toolchain.artifact_target());
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: host,
+            artifact_target: artifact_target.clone(),
+            modules: vec![
+                PlanModule {
+                    key: generated_module.clone(),
+                    root_source: LogicalPath::new(LogicalPathRoot::Build, "generated/main.nia")
+                        .unwrap(),
+                    optimization: OptimizationMode::O2,
+                    imports: vec![ModuleImport {
+                        name: "helper".to_string(),
+                        path: LogicalPath::new(LogicalPathRoot::Build, "generated/helper.nia")
+                            .unwrap(),
+                    }],
+                },
+                PlanModule {
+                    key: stable_module.clone(),
+                    root_source: LogicalPath::new(
+                        LogicalPathRoot::Package(PackageKey::root()),
+                        "src/stable.nia",
+                    )
+                    .unwrap(),
+                    optimization: OptimizationMode::O2,
+                    imports: Vec::new(),
+                },
+            ],
+            artifacts: vec![
+                PlanArtifact {
+                    key: generated_artifact.clone(),
+                    root_module: generated_module,
+                    output: LogicalPath::new(LogicalPathRoot::Build, "bin/generated").unwrap(),
+                    runtime: Runtime::Freestanding,
+                },
+                PlanArtifact {
+                    key: stable_artifact.clone(),
+                    root_module: stable_module,
+                    output: LogicalPath::new(LogicalPathRoot::Build, "bin/stable").unwrap(),
+                    runtime: Runtime::Freestanding,
+                },
+            ],
+            actions: vec![
+                PlanAction {
+                    key: action("all"),
+                    kind: ActionKind::Aggregate,
+                },
+                PlanAction {
+                    key: action("emit-generated"),
+                    kind: ActionKind::CompilerEmit {
+                        artifact: generated_artifact,
+                        target: artifact_target.clone(),
+                    },
+                },
+                PlanAction {
+                    key: action("emit-stable"),
+                    kind: ActionKind::CompilerEmit {
+                        artifact: stable_artifact,
+                        target: artifact_target,
+                    },
+                },
+                PlanAction {
+                    key: action("generate-root"),
+                    kind: ActionKind::GeneratedFile {
+                        output: LogicalPath::new(LogicalPathRoot::Build, "generated/main.nia")
+                            .unwrap(),
+                        contents: [
+                            "using helper;\n",
+                            &freestanding_source(&format!("_ = helper::value(); {generated_body}")),
+                        ]
+                        .concat()
+                        .into_bytes(),
+                    },
+                },
+                PlanAction {
+                    key: action("generate-helper"),
+                    kind: ActionKind::GeneratedFile {
+                        output: LogicalPath::new(LogicalPathRoot::Build, "generated/helper.nia")
+                            .unwrap(),
+                        contents: format!(
+                            "pub fn value() i32 {{\n    {generated_helper_value}\n}}\n"
+                        )
+                        .into_bytes(),
+                    },
+                },
+            ],
+            steps: vec![
+                PlanStep {
+                    key: step("all"),
+                    action: action("all"),
+                    dependencies: vec![step("emit-generated"), step("emit-stable")],
+                },
+                PlanStep {
+                    key: step("emit-generated"),
+                    action: action("emit-generated"),
+                    dependencies: vec![step("generate-root"), step("generate-helper")],
+                },
+                PlanStep {
+                    key: step("emit-stable"),
+                    action: action("emit-stable"),
+                    dependencies: Vec::new(),
+                },
+                PlanStep {
+                    key: step("generate-root"),
+                    action: action("generate-root"),
+                    dependencies: Vec::new(),
+                },
+                PlanStep {
+                    key: step("generate-helper"),
+                    action: action("generate-helper"),
+                    dependencies: Vec::new(),
+                },
+            ],
+            default_step: Some(step("all")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
     fn write_compiler_check_source(invocation: &BuildInvocation, source: &str) {
         let path = invocation.package_root.join("src/main.nia");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -3333,6 +3465,15 @@ mod tests {
         assert_eq!(report.action_cache.len(), 1);
         assert_eq!(report.action_cache[0].action, action("emit"));
         &report.action_cache[0].outcome
+    }
+
+    fn cache_outcome<'a>(report: &'a ExecutionReport, name: &str) -> &'a ActionCacheOutcome {
+        &report
+            .action_cache
+            .iter()
+            .find(|entry| entry.action.name() == name)
+            .unwrap_or_else(|| panic!("missing action-cache outcome for `{name}`"))
+            .outcome
     }
 
     fn freestanding_source(body: &str) -> String {
@@ -3817,6 +3958,99 @@ mod tests {
             only_compiler_emit_outcome(&changed_artifact),
             &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
                 crate::ActionCacheInvalidation::Artifact,
+            ]))
+        );
+    }
+
+    #[test]
+    fn generated_and_package_source_edits_invalidate_only_their_compiler_closures() {
+        let invocation = test_invocation();
+        let stable_path = invocation.package_root.join("src/stable.nia");
+        fs::create_dir_all(stable_path.parent().unwrap()).unwrap();
+        fs::write(&stable_path, freestanding_source("!{}")).unwrap();
+        let baseline = mixed_generated_source_emit_plan(&invocation, "!{}", 1);
+
+        execute_build_plan(&baseline, &invocation).unwrap();
+        let warm = execute_build_plan(&baseline, &invocation).unwrap();
+        for name in [
+            "generate-root",
+            "generate-helper",
+            "emit-generated",
+            "emit-stable",
+        ] {
+            assert_eq!(cache_outcome(&warm, name), &ActionCacheOutcome::Hit);
+        }
+
+        let changed_root =
+            mixed_generated_source_emit_plan(&invocation, "let value = 1; _ = value; !{}", 1);
+        let root_report = execute_build_plan(&changed_root, &invocation).unwrap();
+        assert_eq!(
+            cache_outcome(&root_report, "generate-root"),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Contents,
+            ]))
+        );
+        assert_eq!(
+            cache_outcome(&root_report, "generate-helper"),
+            &ActionCacheOutcome::Hit
+        );
+        assert_eq!(
+            cache_outcome(&root_report, "emit-generated"),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Sources,
+            ]))
+        );
+        assert_eq!(
+            cache_outcome(&root_report, "emit-stable"),
+            &ActionCacheOutcome::Hit
+        );
+
+        let changed_import =
+            mixed_generated_source_emit_plan(&invocation, "let value = 1; _ = value; !{}", 2);
+        let import_report = execute_build_plan(&changed_import, &invocation).unwrap();
+        assert_eq!(
+            cache_outcome(&import_report, "generate-root"),
+            &ActionCacheOutcome::Hit
+        );
+        assert_eq!(
+            cache_outcome(&import_report, "generate-helper"),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Contents,
+            ]))
+        );
+        assert_eq!(
+            cache_outcome(&import_report, "emit-generated"),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Sources,
+            ]))
+        );
+        assert_eq!(
+            cache_outcome(&import_report, "emit-stable"),
+            &ActionCacheOutcome::Hit
+        );
+
+        fs::write(
+            stable_path,
+            freestanding_source("let value = 2; _ = value; !{}"),
+        )
+        .unwrap();
+        let source_report = execute_build_plan(&changed_import, &invocation).unwrap();
+        assert_eq!(
+            cache_outcome(&source_report, "generate-root"),
+            &ActionCacheOutcome::Hit
+        );
+        assert_eq!(
+            cache_outcome(&source_report, "generate-helper"),
+            &ActionCacheOutcome::Hit
+        );
+        assert_eq!(
+            cache_outcome(&source_report, "emit-generated"),
+            &ActionCacheOutcome::Hit
+        );
+        assert_eq!(
+            cache_outcome(&source_report, "emit-stable"),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Sources,
             ]))
         );
     }
