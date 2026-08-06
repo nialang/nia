@@ -155,6 +155,36 @@ pub(super) fn pipeline(source: &str) -> TestBodyCheck {
     pipeline_with_values(source, |_, _, _| {})
 }
 
+const LEN_PROVIDER_SOURCE: &str = r#"
+trait Len {
+    const fn len(&self) usize;
+}
+
+extend[T, N: usize] [N]T : Len {
+    const fn len(&self) usize {
+        N
+    }
+}
+
+extend[T] [T] : Len {
+    const fn len(&self) usize {
+        sliceLen(&self)
+    }
+}
+
+@[builtin("sliceLen")]
+const fn sliceLen[T](value: &[T]) usize;
+"#;
+
+pub(super) fn source_with_len_provider(source: &str) -> String {
+    format!("{source}\n{LEN_PROVIDER_SOURCE}")
+}
+
+pub(super) fn pipeline_with_len_provider(source: &str) -> TestBodyCheck {
+    let source = source_with_len_provider(source);
+    pipeline(&source)
+}
+
 pub(super) fn pipeline_without_visible_extensions(source: &str) -> TestBodyCheck {
     pipeline_with_options(
         source,
@@ -237,8 +267,14 @@ fn pipeline_with_options(
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     let active_item_tree = active_item_tree(&module);
-    let semantic_uses =
-        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
+    let semantic_uses = semantic_use_table(
+        module_id,
+        &values,
+        &locals,
+        &type_resolved,
+        &lowered,
+        &active_item_tree,
+    );
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
@@ -323,69 +359,18 @@ fn pipeline_with_options(
         "{:?}",
         normalization.diagnostics
     );
-    let mut extensions = VisibleExtensionMethods::default();
-    if include_visible_extensions {
-        for item in &module.items {
-            let nia_ast::ItemKind::Extend(extend) = &item.kind else {
-                continue;
-            };
-            let Some(target_ty) = lowered.ty_for_key(&extend.target.node_key) else {
-                continue;
-            };
-            let target_ty = normalization.normalize(target_ty);
-            let extend_generics = nia_ast::generic_param_names(&extend.generics);
-            let Some(impl_signature) = signatures.trait_impls.iter().find(|signature| {
-                signature.generics == extend_generics
-                    && normalization.normalize(signature.target_ty) == target_ty
-            }) else {
-                continue;
-            };
-            for method in &extend.methods {
-                let Some(method_id) = defs.def_nodes.get(&method.function.node_key) else {
-                    continue;
-                };
-                let Some(method_def) = defs.defs.get(method_id) else {
-                    continue;
-                };
-                if method_def.kind != DefKind::Method {
-                    continue;
-                }
-                let mut effective_generics = extend_generics.clone();
-                effective_generics.extend(method_def.generics.iter().cloned());
-                let mut effective_const_generics = impl_signature
-                    .generic_params
-                    .iter()
-                    .filter_map(|generic| {
-                        matches!(
-                            generic.kind,
-                            nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                        )
-                        .then_some(generic.name)
-                    })
-                    .collect::<Vec<_>>();
-                effective_const_generics.extend(method_def.const_generic_names());
-                extensions.insert(
-                    impl_signature.impl_id,
-                    target_ty,
-                    VisibleExtensionMethod {
-                        name: method_def.name,
-                        def_id: GlobalDefId {
-                            module_id,
-                            def_id: method_id,
-                        },
-                        impl_id: impl_signature.impl_id,
-                        effective_generics,
-                        effective_const_generics,
-                        trait_id: None,
-                        trait_args: Vec::new(),
-                        where_predicates: Vec::new(),
-                        is_callable: true,
-                        is_trait_witness: false,
-                    },
-                );
-            }
-        }
-    }
+    let extensions = include_visible_extensions
+        .then(|| {
+            visible_extension_methods(
+                module_id,
+                &module,
+                &defs,
+                &lowered,
+                &signatures,
+                &normalization,
+            )
+        })
+        .unwrap_or_default();
     let layouts = nia_layout::compute_layouts(
         &type_store,
         &defs,
@@ -437,6 +422,78 @@ fn pipeline_with_options(
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
     let item_tree = ModuleItemTree::from_module(module);
     ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default())
+}
+
+pub(super) fn visible_extension_methods(
+    module_id: ModuleId,
+    module: &nia_ast::Module,
+    defs: &nia_defs::DefCollection,
+    lowered: &nia_type_lower::TypeLowering,
+    signatures: &nia_item_signatures::ItemSignatures,
+    normalization: &nia_type_normalize::TypeNormalization,
+) -> VisibleExtensionMethods {
+    let mut extensions = VisibleExtensionMethods::default();
+    for item in &module.items {
+        let nia_ast::ItemKind::Extend(extend) = &item.kind else {
+            continue;
+        };
+        let Some(target_ty) = lowered.ty_for_key(&extend.target.node_key) else {
+            continue;
+        };
+        let target_ty = normalization.normalize(target_ty);
+        let extend_generics = nia_ast::generic_param_names(&extend.generics);
+        let Some(impl_signature) = signatures.trait_impls.iter().find(|signature| {
+            signature.generics == extend_generics
+                && normalization.normalize(signature.target_ty) == target_ty
+        }) else {
+            continue;
+        };
+        for method in &extend.methods {
+            let Some(method_id) = defs.def_nodes.get(&method.function.node_key) else {
+                continue;
+            };
+            let Some(method_def) = defs.defs.get(method_id) else {
+                continue;
+            };
+            if method_def.kind != DefKind::Method {
+                continue;
+            }
+            let mut effective_generics = extend_generics.clone();
+            effective_generics.extend(method_def.generics.iter().cloned());
+            let mut effective_const_generics = impl_signature
+                .generic_params
+                .iter()
+                .filter_map(|generic| {
+                    matches!(
+                        generic.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    )
+                    .then_some(generic.name)
+                })
+                .collect::<Vec<_>>();
+            effective_const_generics.extend(method_def.const_generic_names());
+            extensions.insert(
+                impl_signature.impl_id,
+                target_ty,
+                VisibleExtensionMethod {
+                    name: method_def.name,
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: method_id,
+                    },
+                    impl_id: impl_signature.impl_id,
+                    effective_generics,
+                    effective_const_generics,
+                    trait_id: None,
+                    trait_args: Vec::new(),
+                    where_predicates: Vec::new(),
+                    is_callable: true,
+                    is_trait_witness: false,
+                },
+            );
+        }
+    }
+    extensions
 }
 
 fn single_module_trait_impls(
@@ -493,6 +550,7 @@ pub(super) fn semantic_use_table(
     module_id: ModuleId,
     values: &nia_value_resolve::ValueResolution,
     locals: &nia_local_resolve::LocalResolution,
+    type_resolution: &nia_type_resolve::TypeResolution,
     type_lowering: &nia_type_lower::TypeLowering,
     active_item_tree: &ActiveModuleItemTree,
 ) -> SemanticUseTable {
@@ -550,6 +608,12 @@ pub(super) fn semantic_use_table(
     );
     builder.extend_node_type_uses(
         type_lowering.versioned_type_uses_from_active_item_tree(active_item_tree),
+    );
+    builder.extend_node_const_generic_uses(
+        type_resolution
+            .node_const_generic_names
+            .iter()
+            .map(|(key, name)| (key.clone(), *name)),
     );
     builder.finish()
 }

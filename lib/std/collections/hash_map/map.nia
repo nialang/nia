@@ -736,7 +736,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 },
                 err! => {
                     if not keysLayout.isEmpty() {
-                        let keyBlock = mem::Block::init(self.keys.ptr_mut() as &mut u8, keysLayout);
+                        let keyBlock = mem::Block::init(self.keys.ptrMut() as &mut u8, keysLayout);
                         switch allocator.free(keyBlock) {
                             !ok => {
                                 _ = ok;
@@ -768,7 +768,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         let mut firstError: ?mem::Error = null;
         if self.ctrl.len() != 0 {
             let layout = mem::Layout::array[u8](self.ctrl.len()).?;
-            switch allocator.free(mem::Block::init(self.ctrl.ptr_mut() as &mut u8, layout)) {
+            switch allocator.free(mem::Block::init(self.ctrl.ptrMut() as &mut u8, layout)) {
                 !ok => {
                     _ = ok;
                 },
@@ -780,7 +780,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.keys.len() != 0 {
             let layout = mem::Layout::array[K](self.bucketCount).?;
             if not layout.isEmpty() {
-                switch allocator.free(mem::Block::init(self.keys.ptr_mut() as &mut u8, layout)) {
+                switch allocator.free(mem::Block::init(self.keys.ptrMut() as &mut u8, layout)) {
                     !ok => {
                         _ = ok;
                     },
@@ -800,7 +800,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.values.len() != 0 {
             let layout = mem::Layout::array[V](self.bucketCount).?;
             if not layout.isEmpty() {
-                switch allocator.free(mem::Block::init(self.values.ptr_mut() as &mut u8, layout)) {
+                switch allocator.free(mem::Block::init(self.values.ptrMut() as &mut u8, layout)) {
                     !ok => {
                         _ = ok;
                     },

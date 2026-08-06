@@ -781,6 +781,38 @@ impl ResolvedConstEnv for Analyzer<'_> {
                         want_start,
                     );
                 }
+                if let Some((mutable, _)) =
+                    self.resolved_const_slice_pointer_method(callee, generic_args, arg_exprs)
+                {
+                    let [receiver] = args.as_slice() else {
+                        return Err(ConstError {
+                            span,
+                            message: "const slice pointer method requires one receiver".to_string(),
+                        });
+                    };
+                    let ConstValue::Pointer(pointer) = receiver else {
+                        return Err(ConstError {
+                            span,
+                            message: "const slice pointer method requires a slice pointer"
+                                .to_string(),
+                        });
+                    };
+                    if matches!(
+                        self.dereference_const_pointer(span, pointer)?,
+                        ConstValue::Array(values) if values.is_empty()
+                    ) {
+                        return Err(ConstError {
+                            span,
+                            message: "const slice pointer method cannot project an empty slice"
+                                .to_string(),
+                        });
+                    }
+                    return nia_const_eval::eval_const_slice_pointer_value(
+                        span,
+                        receiver.clone(),
+                        mutable,
+                    );
+                }
                 return Err(ConstError {
                     span,
                     message: "const expression can only call `const fn`".to_string(),

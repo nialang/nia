@@ -438,7 +438,7 @@ fn read_ptr(xs: &[u8]) &u8 {
 }
 
 fn write_ptr(xs: &mut [u8]) &mut u8 {
-    xs.ptr_mut()
+    xs.ptrMut()
 }
 
 fn main() usize {

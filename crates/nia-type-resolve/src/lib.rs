@@ -1579,8 +1579,6 @@ fn builtin_trait_for_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
         known::INDEX_MUT_TRAIT => BuiltinTrait::IndexMut,
         known::SLICE_TRAIT => BuiltinTrait::Slice,
         known::SLICE_MUT_TRAIT => BuiltinTrait::SliceMut,
-        known::PTR_TRAIT => BuiltinTrait::Ptr,
-        known::PTR_MUT_TRAIT => BuiltinTrait::PtrMut,
         known::ITERABLE_TRAIT => BuiltinTrait::Iterable,
         known::ITERATOR_TRAIT => BuiltinTrait::Iterator,
         known::SIMD_TRAIT => BuiltinTrait::Simd,

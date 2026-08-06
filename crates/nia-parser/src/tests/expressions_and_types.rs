@@ -207,6 +207,23 @@ fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
 }
 
 #[test]
+fn rejects_removed_at_prefixed_builtin_call_syntax() {
+    let (_, errors) = parse_module(
+        r#"
+fn size() usize {
+    @size[usize]()
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected expression")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn parses_typed_aggregate_literals() {
     let (module, errors) = parse_module(
         r#"

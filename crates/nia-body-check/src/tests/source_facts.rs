@@ -58,8 +58,14 @@ fn main() i32 {
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
-    let semantic_uses =
-        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
+    let semantic_uses = semantic_use_table(
+        module_id,
+        &values,
+        &locals,
+        &type_resolved,
+        &lowered,
+        &active_item_tree,
+    );
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
@@ -180,7 +186,7 @@ fn records_body_facts_by_red_child_path_origins() {
         id: SourceId(8),
         revision: SourceRevision(2),
     };
-    let syntax = nia_syntax::parse_source(
+    let source = source_with_len_provider(
         r#"
 struct Pair {
     a: u8,
@@ -206,8 +212,8 @@ fn main() i32 {
     q + n as i32 + s as i32 + literal_slice.len() as i32 + t as i32 + p as i32
 }
 "#,
-        Some(version),
     );
+    let syntax = nia_syntax::parse_source(&source, Some(version));
     let symbols = SymbolTable::new();
     let (module, parse_errors, origins) =
         nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
@@ -231,8 +237,14 @@ fn main() i32 {
         &origins,
     );
     let active_item_tree = active_item_tree(&module);
-    let semantic_uses =
-        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
+    let semantic_uses = semantic_use_table(
+        module_id,
+        &values,
+        &locals,
+        &type_resolved,
+        &lowered,
+        &active_item_tree,
+    );
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
@@ -296,6 +308,14 @@ fn main() i32 {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
+    let extensions = visible_extension_methods(
+        module_id,
+        &module,
+        &defs,
+        &lowered,
+        &signatures,
+        &normalization,
+    );
     let layouts = nia_layout::compute_layouts(
         &type_store,
         &defs,
@@ -323,7 +343,7 @@ fn main() i32 {
         const_eval,
         const_module: &const_module.module,
         layouts: &layouts,
-        extensions: &VisibleExtensionMethods::default(),
+        extensions: &extensions,
         lazy_extensions: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program: BodyProgramContext::empty(),

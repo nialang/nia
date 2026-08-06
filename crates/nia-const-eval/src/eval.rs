@@ -1,6 +1,7 @@
 use crate::{
-    ConstCommonEnv, ConstEnumPayload, ConstError, ConstRangeValue, ConstValue, EarlyConstEnv,
-    ResolvedConstCallOutput, ResolvedConstEnv, ResolvedConstPlace, ResolvedConstPlaceElem,
+    ConstCommonEnv, ConstEnumPayload, ConstError, ConstPointerPathElem, ConstPointerValue,
+    ConstRangeValue, ConstValue, EarlyConstEnv, ResolvedConstCallOutput, ResolvedConstEnv,
+    ResolvedConstPlace, ResolvedConstPlaceElem,
     literals::{
         bytes_to_array, char_array_to_string, checked_shift, checked_shift_u128,
         const_error_message, decode_byte_char_literal, decode_char_literal,
@@ -916,6 +917,61 @@ pub fn eval_const_range_bound_value(
         });
     };
     Ok(ConstValue::Int(bound))
+}
+
+pub fn eval_const_slice_pointer_value(
+    span: Span,
+    value: ConstValue,
+    mutable: bool,
+) -> Result<ConstValue, ConstError> {
+    let ConstValue::Pointer(pointer) = value else {
+        return Err(ConstError {
+            span,
+            message: "const slice pointer method requires a slice pointer".to_string(),
+        });
+    };
+    match pointer {
+        ConstPointerValue::Frozen {
+            origin,
+            is_readonly,
+            pointee,
+        } => {
+            if mutable && is_readonly {
+                return Err(ConstError {
+                    span,
+                    message: "const mutable slice pointer requires a mutable slice".to_string(),
+                });
+            }
+            let ConstValue::Array(values) = *pointee else {
+                return Err(ConstError {
+                    span,
+                    message: "const slice pointer method requires an array-backed slice"
+                        .to_string(),
+                });
+            };
+            let Some(first) = values.into_iter().next() else {
+                return Err(ConstError {
+                    span,
+                    message: "const slice pointer method cannot project an empty slice".to_string(),
+                });
+            };
+            Ok(ConstValue::Pointer(ConstPointerValue::Frozen {
+                origin,
+                is_readonly: !mutable,
+                pointee: Box::new(first),
+            }))
+        }
+        ConstPointerValue::Place {
+            allocation,
+            mut path,
+        } => {
+            path.push(ConstPointerPathElem::Index(0));
+            Ok(ConstValue::Pointer(ConstPointerValue::Place {
+                allocation,
+                path,
+            }))
+        }
+    }
 }
 
 fn eval_const_switch_expr_flow(

@@ -67,8 +67,6 @@ pub using place::{
     Index,
     IndexMut,
     Len,
-    Ptr,
-    PtrMut,
     Slice,
     SliceMut,
 };

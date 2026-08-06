@@ -141,9 +141,10 @@ formatting traits does not by itself establish a coherent string API.
 
 Compiler-known traits receive the same scrutiny. Operators and structural place
 semantics may require compiler participation, but convenience methods do not
-automatically require builtin trait identity. The completed `Char`, `Len`, and
-range-bound audits removed those identities; `Ptr` and `PtrMut` retain their
-current status only until their dependency-complete audits settle it.
+automatically require builtin trait identity. The completed `Char`, `Len`,
+range-bound, and slice-pointer audits removed those identities. Slice
+data-pointer projection remains a narrow compiler operation, not a
+user-implementable capability trait.
 
 The current audit sets this design direction:
 
@@ -398,9 +399,13 @@ representation intrinsic `sliceLen`; user implementations use the same trait
 selection path. `start()`/`end()` are inherent compiler-backed accessors only
 on structural range shapes that contain the requested bound; ordinary visible
 extensions take priority and no public `Start`/`End` traits exist.
-`Ptr`/`PtrMut` need compiler-created data-pointer implementations, but that does
-not by itself require builtin trait identity. Each remaining migration must
-trace symbol identity, type/projection solving, const evaluation, reachability,
+`ptr()`/`ptrMut()` are inherent only on slice representation shapes. They retain
+ordinary extension priority and array-pointer receiver coercion without public
+`Ptr`/`PtrMut` traits or associated `Target` projections. Runtime and const
+evaluation share the same non-empty projection contract; empty const-slice
+projection remains blocked until const pointers can represent an allocation
+base without fabricating an element. Each remaining migration must trace
+symbol identity, type/projection solving, const evaluation, reachability,
 backend dispatch, and LLVM before deleting its builtin declaration.
 
 ### 4.1 Text, Path, And Process Error-Flow Matrix

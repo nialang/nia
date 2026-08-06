@@ -116,7 +116,7 @@ fn end_of_stream(&self) Error {
 }
 
 #[test]
-fn local_types_shadow_builtin_trait_fallback_names() {
+fn local_ptr_type_names_resolve_as_ordinary_definitions() {
     let resolved = resolve_source(
         r#"
 type Ptr[T] = &T;
@@ -136,12 +136,6 @@ value
             .node_type_names
             .values()
             .any(|resolution| matches!(resolution, TypeNameResolution::Def(_)))
-    );
-    assert!(
-        !resolved.node_type_names.values().any(|resolution| matches!(
-            resolution,
-            TypeNameResolution::BuiltinTrait(BuiltinTrait::Ptr)
-        ))
     );
 }
 

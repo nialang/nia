@@ -52,7 +52,7 @@ const fn callsRuntime() usize {
 }
 
 #[test]
-fn const_declaration_filter_rejects_runtime_only_builtin_methods() {
+fn const_declaration_filter_accepts_slice_pointer_methods() {
     let checked = pipeline_const_declarations(
         r#"
 const fn pointer(values: [2]usize) usize {
@@ -64,13 +64,7 @@ const fn pointer(values: [2]usize) usize {
 "#,
     );
 
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("builtin method `ptr` is not available during const evaluation")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]

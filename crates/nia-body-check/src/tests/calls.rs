@@ -67,7 +67,7 @@ fn main(flag: bool) i32 {
 
 #[test]
 fn checks_aggregate_literals_from_call_argument_context() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 struct Item {
     value: i32,

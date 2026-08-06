@@ -301,8 +301,6 @@ pub enum BuiltinTrait {
     IndexMut,
     Slice,
     SliceMut,
-    Ptr,
-    PtrMut,
     Iterable,
     Iterator,
     Simd,
@@ -594,8 +592,6 @@ pub enum BuiltinTraitMethod {
     IndexMut,
     Slice,
     SliceMut,
-    Ptr,
-    PtrMut,
     IterableIter,
     IteratorNext,
 }
@@ -815,26 +811,6 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
-            Self::Ptr,
-            BuiltinTraitMethodDescriptor::place(
-                "ptr",
-                BuiltinTrait::Ptr,
-                1,
-                ReceiverKind::RefReadOnly,
-                None,
-            ),
-        ),
-        (
-            Self::PtrMut,
-            BuiltinTraitMethodDescriptor::place(
-                "ptr_mut",
-                BuiltinTrait::PtrMut,
-                1,
-                ReceiverKind::Ref,
-                None,
-            ),
-        ),
-        (
             Self::IterableIter,
             BuiltinTraitMethodDescriptor::method(
                 "iter",
@@ -928,7 +904,7 @@ impl BuiltinTraitMethod {
             | Self::SliceMut
             | Self::IterableIter
             | Self::IteratorNext => true,
-            Self::DerefMut | Self::Ptr | Self::PtrMut => false,
+            Self::DerefMut => false,
         }
     }
 }
@@ -1021,8 +997,6 @@ impl BuiltinTrait {
     const INDEX_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IndexMut];
     const SLICE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Slice];
     const SLICE_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceMut];
-    const PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Ptr];
-    const PTR_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::PtrMut];
     const ITERABLE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IterableIter];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
@@ -1046,17 +1020,13 @@ impl BuiltinTrait {
         trait_id: Self::Slice,
         preserves_trait_args: true,
     }];
-    const PTR_MUT_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::Ptr,
-        preserves_trait_args: false,
-    }];
     const SIMD_MASK_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
         trait_id: Self::Simd,
         preserves_trait_args: false,
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 27] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -1080,8 +1050,6 @@ impl BuiltinTrait {
         Self::IndexMut,
         Self::Slice,
         Self::SliceMut,
-        Self::Ptr,
-        Self::PtrMut,
         Self::Iterable,
         Self::Iterator,
         Self::Simd,
@@ -1272,22 +1240,6 @@ impl BuiltinTrait {
             &Self::OUTPUT_ASSOC_TYPES,
             &Self::SLICE_MUT_METHODS,
             &Self::SLICE_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::Ptr,
-            "Ptr",
-            0,
-            &Self::TARGET_ASSOC_TYPES,
-            &Self::PTR_METHODS,
-            &Self::NO_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::PtrMut,
-            "PtrMut",
-            0,
-            &Self::TARGET_ASSOC_TYPES,
-            &Self::PTR_MUT_METHODS,
-            &Self::PTR_MUT_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Iterable,

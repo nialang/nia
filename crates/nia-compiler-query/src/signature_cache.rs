@@ -43,7 +43,7 @@ mod storage;
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR002";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL002";
-const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI006";
+const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI007";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
@@ -2627,8 +2627,6 @@ fn builtin_trait_tag(value: BuiltinTrait) -> u8 {
         BuiltinTrait::IndexMut => 20,
         BuiltinTrait::Slice => 21,
         BuiltinTrait::SliceMut => 22,
-        BuiltinTrait::Ptr => 23,
-        BuiltinTrait::PtrMut => 24,
         BuiltinTrait::Iterable => 28,
         BuiltinTrait::Iterator => 29,
         BuiltinTrait::Simd => 30,
@@ -2661,8 +2659,6 @@ fn read_builtin_trait(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinTrait> {
         20 => BuiltinTrait::IndexMut,
         21 => BuiltinTrait::Slice,
         22 => BuiltinTrait::SliceMut,
-        23 => BuiltinTrait::Ptr,
-        24 => BuiltinTrait::PtrMut,
         28 => BuiltinTrait::Iterable,
         29 => BuiltinTrait::Iterator,
         30 => BuiltinTrait::Simd,
@@ -2891,8 +2887,7 @@ mod tests {
 
     #[test]
     fn builtin_trait_cache_tags_keep_removed_slots_invalid() {
-        assert_eq!(builtin_trait_tag(BuiltinTrait::PtrMut), 24);
-        for tag in [25_u8, 26, 27] {
+        for tag in [23_u8, 24, 25, 26, 27] {
             assert_eq!(read_builtin_trait(&mut Cursor::new([tag].as_slice())), None);
         }
     }

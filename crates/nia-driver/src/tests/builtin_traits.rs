@@ -475,31 +475,21 @@ fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
 }
 
 #[test]
-fn len_method_and_builtin_ptr_traits_model_arrays_and_slices() {
-    let root = temp_dir("len_method_and_builtin_ptr_traits_model_arrays_and_slices");
+fn len_and_inherent_pointer_methods_model_arrays_and_slices() {
+    let root = temp_dir("len_and_inherent_pointer_methods_model_arrays_and_slices");
     write(
         &root.join("main.nia"),
         r##"
-fn ptr_read_value[S](slice: S) [S as Ptr]::Target
-where S: Ptr {
-    let mut ptr = slice.ptr();
-    ptr.*
-}
-
-fn ptr_value[S](slice: S) [S as PtrMut]::Target
-where S: PtrMut {
-    let mut ptr = slice.ptr_mut();
-    ptr.*
-}
-
 fn main(slice: & [usize], slice_mut: &mut [usize]) usize {
     let mut array: [4]i32 = [1, 2, 3, 4];
     let mut literal_ptr = (&b"nia\0").ptr();
+    let mut read_ptr = slice.ptr();
+    let mut write_ptr = slice_mut.ptrMut();
     array.len()
         + slice.len()
         + slice_mut.len()
-        + ptr_read_value(slice)
-        + ptr_value(slice_mut)
+        + read_ptr.*
+        + write_ptr.*
         + literal_ptr[0] as usize
 }
 "##,
@@ -510,8 +500,8 @@ fn main(slice: & [usize], slice_mut: &mut [usize]) usize {
 }
 
 #[test]
-fn builtin_ptr_traits_do_not_apply_to_arrays() {
-    let root = temp_dir("builtin_ptr_traits_do_not_apply_to_arrays");
+fn inherent_pointer_methods_do_not_apply_to_array_values() {
+    let root = temp_dir("inherent_pointer_methods_do_not_apply_to_array_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -519,6 +509,7 @@ fn main() i32 {
     let mut array: [4]i32 = [1, 2, 3, 4];
     array.ptr().*
 }
+
 "#,
     );
 
@@ -528,6 +519,55 @@ fn main() i32 {
             .diagnostic
             .summary
             .contains("field access base is not a struct or union value or pointer")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn ordinary_slice_extensions_take_priority_over_pointer_fallbacks() {
+    let root = temp_dir("ordinary_slice_extensions_take_priority_over_pointer_fallbacks");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend[T] [T] {
+    fn ptr(&self) usize {
+        41usize
+    }
+
+    fn ptrMut(&mut self) usize {
+        42usize
+    }
+}
+
+fn main(read: &[usize], write: &mut [usize]) usize {
+    read.ptr() + write.ptrMut()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn readonly_slices_cannot_call_mutable_pointer_projection() {
+    let root = temp_dir("readonly_slices_cannot_call_mutable_pointer_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main(values: &[usize]) usize {
+    values.ptrMut().*
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("slice method `ptrMut` requires a writable slice")),
         "{:?}",
         program.diagnostics
     );
@@ -794,14 +834,6 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
     write(
         &root.join("main.nia"),
         r#"
-extend[T] [T] : Ptr {
-    type Target = T;
-
-    fn ptr(& self) & T {
-        self.ptr()
-    }
-}
-
 extend[T] [4]T : Slice[..] {
     type Output = & [T];
 

@@ -919,8 +919,9 @@ uses `nia-const-eval` to check and collect current compile-time values. It
 owns `const` binding dependency resolution, cycle diagnostics, enum
 discriminant values, and array length values that depend on local or imported
 const bindings or imported `const fn` calls.
-Layout builtins such as `@size[T]()` and `@align[T]()` consume those evaluated
-array lengths through narrow lookup closures while computing layouts; they do
+Layout builtins such as `std::builtin::size[T]()` and
+`std::builtin::align[T]()` consume those evaluated array lengths through narrow
+lookup closures while computing layouts; they do
 not construct ad hoc `ConstCheck` result tables for layout queries.
 
 This crate is the semantic boundary for current compile-time value requirements.
@@ -982,7 +983,8 @@ types, for example `E!T` can type `!value` when `E` is already concrete, while
 still refusing to invent the missing half of an error union from the value
 shape alone.
 
-File embedding is part of the same semantic boundary. The `@embed("path")`
+File embedding is part of the same semantic boundary. The
+`std::builtin::embed("path")`
 builtin is lowered into `nia-const-ir`, evaluated by `nia-const-eval`
 through the caller-provided const environment, and resolved by
 `nia-const-check` against the `SourcePath` of the module currently

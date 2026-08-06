@@ -195,8 +195,6 @@ fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> SymbolId {
         BuiltinTraitMethod::IndexMut => known::INDEX_MUT,
         BuiltinTraitMethod::Slice => known::SLICE,
         BuiltinTraitMethod::SliceMut => known::SLICE_MUT,
-        BuiltinTraitMethod::Ptr => known::PTR,
-        BuiltinTraitMethod::PtrMut => known::PTR_MUT,
         BuiltinTraitMethod::IterableIter => known::ITER_METHOD,
         BuiltinTraitMethod::IteratorNext => known::NEXT,
     }
@@ -997,6 +995,8 @@ fn builtin_method_trait(
 ) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
     match method {
         nia_body_ir::BuiltinMethod::SliceLen
+        | nia_body_ir::BuiltinMethod::SlicePtr
+        | nia_body_ir::BuiltinMethod::SlicePtrMut
         | nia_body_ir::BuiltinMethod::Start
         | nia_body_ir::BuiltinMethod::End => None,
         nia_body_ir::BuiltinMethod::Iter => {

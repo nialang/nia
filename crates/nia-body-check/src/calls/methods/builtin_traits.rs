@@ -563,20 +563,6 @@ impl<'a> BodyChecker<'a> {
                 });
                 self.normalize_projection(output)
             }
-            BuiltinTrait::Ptr | BuiltinTrait::PtrMut => {
-                let target = self.interner.intern(TyKind::Projection {
-                    self_ty,
-                    trait_id: TraitId::Builtin(trait_id),
-                    trait_args: Vec::new(),
-                    trait_const_args: Vec::new(),
-                    name: known::TARGET,
-                });
-                let target = self.normalize_projection(target);
-                self.interner.intern(TyKind::Pointer {
-                    is_readonly: matches!(trait_id, BuiltinTrait::Ptr),
-                    elem: target,
-                })
-            }
             BuiltinTrait::Iterator => {
                 let item = self.interner.intern(TyKind::Projection {
                     self_ty,

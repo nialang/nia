@@ -188,7 +188,7 @@ fn main(values: &mut [i32]) bool {
 
 #[test]
 fn pointer_arrays_can_call_slice_extension_methods() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 trait SliceMetric {
     fn metric(&self) i32;
