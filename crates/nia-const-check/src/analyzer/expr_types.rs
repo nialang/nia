@@ -447,6 +447,15 @@ impl Analyzer<'_> {
                 {
                     return bound.or(expected);
                 }
+                if let Some((mutable, elem)) =
+                    self.resolved_const_slice_pointer_method(callee, generic_args, args)
+                {
+                    let output = self.intern_current_ty(TyKind::Pointer {
+                        is_readonly: !mutable,
+                        elem,
+                    })?;
+                    return Some(output);
+                }
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::CONST,
                     span,

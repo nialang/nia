@@ -179,7 +179,7 @@ fn main() u8 {
 
 #[test]
 fn materializes_runtime_uses_of_const_string_values() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 const default_value = b"default\0";
 const text_value = "nia";
@@ -286,7 +286,7 @@ fn typed_expr_contains_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
 
 #[test]
 fn materializes_const_byte_string_call_arguments() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 const default_value = b"default\0";
 
@@ -304,7 +304,7 @@ fn main() usize {
 
 #[test]
 fn checks_slices_len_ptr_and_indexing() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 fn read(xs: & [i32]) i32 {
     xs[0]
@@ -578,7 +578,7 @@ fn main() void {
 
 #[test]
 fn checks_mutable_slice_iteration() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 struct SliceIterMut[T]
 where T: Sized
@@ -616,7 +616,7 @@ extend[T] [T]
 where T: Sized
 {
     fn iter_mut(&mut self) SliceIterMut[T] {
-        SliceIterMut[T]::from_raw_parts(self.ptr_mut(), self.len())
+        SliceIterMut[T]::from_raw_parts(self.ptrMut(), self.len())
     }
 }
 

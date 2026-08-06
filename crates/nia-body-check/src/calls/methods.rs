@@ -184,10 +184,11 @@ impl<'a> BodyChecker<'a> {
         if candidates.is_empty()
             && trait_candidates.is_empty()
             && dynamic_candidates.is_empty()
-            && crate::symbols::builtin_trait_method_symbol(*name).is_some()
+            && (crate::symbols::builtin_trait_method_symbol(*name).is_some()
+                || matches!(*name, known::PTR | known::PTR_MUT))
         {
             call_receiver_ty = self
-                .builtin_place_method_receiver_coercion(receiver, name, actual_receiver_ty)
+                .builtin_method_receiver_coercion(receiver, name, actual_receiver_ty)
                 .unwrap_or(receiver_ty);
         }
         MethodReceiverResolution {
@@ -287,6 +288,11 @@ impl<'a> BodyChecker<'a> {
         }
         if viable_candidates.is_empty()
             && let Some(return_ty) = self.check_builtin_range_method(&call, receiver_ty)
+        {
+            return Some(return_ty);
+        }
+        if viable_candidates.is_empty()
+            && let Some(return_ty) = self.check_builtin_slice_pointer_method(&call, receiver_ty)
         {
             return Some(return_ty);
         }
@@ -542,7 +548,10 @@ impl<'a> BodyChecker<'a> {
         let has_bound = match method {
             BuiltinMethod::Start => kind.has_start_bound(),
             BuiltinMethod::End => kind.has_end_bound(),
-            BuiltinMethod::SliceLen | BuiltinMethod::Iter => false,
+            BuiltinMethod::SliceLen
+            | BuiltinMethod::SlicePtr
+            | BuiltinMethod::SlicePtrMut
+            | BuiltinMethod::Iter => false,
         };
         if !has_bound {
             return None;
@@ -575,6 +584,69 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::BuiltinMethod { method, self_ty },
         );
         Some(bound)
+    }
+
+    fn check_builtin_slice_pointer_method(
+        &mut self,
+        call: &MethodCall<'_>,
+        receiver_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let (method, mutable) = match *call.name {
+            known::PTR => (BuiltinMethod::SlicePtr, false),
+            known::PTR_MUT => (BuiltinMethod::SlicePtrMut, true),
+            _ => return None,
+        };
+        let self_ty = self.normalization.normalize(receiver_ty);
+        let TyKind::Slice { is_readonly, elem } = self.interner.get(self_ty).cloned()? else {
+            return None;
+        };
+        if mutable && is_readonly {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call.span,
+                "slice method `ptrMut` requires a writable slice",
+            ));
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        if call.type_args.is_some_and(|args| !args.is_empty()) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call.span,
+                format!(
+                    "slice method `{}` does not accept generic arguments",
+                    self.symbol_name(*call.name)
+                ),
+            ));
+        }
+        self.check_call_arg_count(call.span, call.args.len(), 0, false);
+        for arg in call.args {
+            self.check_expr(arg);
+        }
+        self.check_receiver_match(
+            call.receiver,
+            call.actual_receiver_ty,
+            if mutable {
+                ReceiverKind::Ref
+            } else {
+                ReceiverKind::RefReadOnly
+            },
+        );
+        let output = self.interner.intern(TyKind::Pointer {
+            is_readonly: !mutable,
+            elem,
+        });
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, output, "slice pointer method call");
+        }
+        self.record_resolved_node_call(
+            call.span,
+            call.node_key,
+            ResolvedCall::BuiltinMethod { method, self_ty },
+        );
+        Some(output)
     }
 
     fn dynamic_trait_object_receiver_ty(
@@ -642,16 +714,13 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn builtin_place_method_receiver_coercion(
+    fn builtin_method_receiver_coercion(
         &mut self,
         receiver: &Expr,
         name: &SymbolId,
         receiver_ty: InternedTyId,
     ) -> Option<InternedTyId> {
-        let method = crate::symbols::builtin_trait_method_symbol(*name)?;
-        if !method.is_place_method() {
-            return None;
-        }
+        let trait_method = crate::symbols::builtin_trait_method_symbol(*name);
         let receiver_ty = self.normalization.normalize(receiver_ty);
         let Some(TyKind::Pointer {
             is_readonly,
@@ -664,14 +733,14 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::Array { elem, .. }) = self.interner.get(array_ty).cloned() else {
             return None;
         };
-        let slice_is_readonly = match method {
-            BuiltinTraitMethod::SliceMut | BuiltinTraitMethod::PtrMut => {
+        let slice_is_readonly = match (trait_method, *name) {
+            (Some(BuiltinTraitMethod::SliceMut), _) | (_, known::PTR_MUT) => {
                 if is_readonly {
                     return None;
                 }
                 false
             }
-            BuiltinTraitMethod::Slice | BuiltinTraitMethod::Ptr => true,
+            (Some(BuiltinTraitMethod::Slice), _) | (_, known::PTR) => true,
             _ => return None,
         };
         let slice_ty = self.interner.intern(TyKind::Slice {

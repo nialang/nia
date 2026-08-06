@@ -1212,6 +1212,8 @@ fn builtin_method_trait(
 ) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
     match method {
         FunctionBuiltinMethod::SliceLen
+        | FunctionBuiltinMethod::SlicePtr
+        | FunctionBuiltinMethod::SlicePtrMut
         | FunctionBuiltinMethod::Start
         | FunctionBuiltinMethod::End => None,
         FunctionBuiltinMethod::Iter => {

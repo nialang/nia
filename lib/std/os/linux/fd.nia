@@ -28,7 +28,7 @@ extend FileDescriptor {
     }
 
     pub fn read_some(&self, bytes: &mut [u8]) Errno!usize {
-        let ptr = bytes.ptr_mut();
+        let ptr = bytes.ptrMut();
         let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
             ret.syscall_error()!
@@ -107,7 +107,7 @@ extend FileDescriptor {
         let ret = syscall::syscall3(
             syscall::getdents64,
             self.fd as usize,
-            buffer.ptr_mut() as usize,
+            buffer.ptrMut() as usize,
             buffer.len(),
         );
         if ret < 0 {
@@ -142,7 +142,7 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
     }
     let ret = syscall::syscall2(
         syscall::getcwd,
-        buffer.ptr_mut() as usize,
+        buffer.ptrMut() as usize,
         buffer.len(),
     );
     if ret < 0 {

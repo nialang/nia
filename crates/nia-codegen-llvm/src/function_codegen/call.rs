@@ -5,7 +5,7 @@ use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, F
 use nia_ids::{InternedTyId, ReceiverKind};
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TyKind, TypeEquivalence};
+use nia_ty::{TyKind, TypeEquivalence};
 
 use super::{FunctionCodegen, callee_is_extern};
 
@@ -85,6 +85,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 nia_function_ir::FunctionBuiltinMethod::SliceLen => {
                     self.emit_builtin_len_method(expr.span, *self_ty, receiver)
                 }
+                nia_function_ir::FunctionBuiltinMethod::SlicePtr
+                | nia_function_ir::FunctionBuiltinMethod::SlicePtrMut => {
+                    self.emit_builtin_ptr_method(expr.span, *self_ty, receiver)
+                }
                 nia_function_ir::FunctionBuiltinMethod::Start => self.emit_range_bound(
                     expr.span,
                     receiver,
@@ -98,23 +102,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 nia_function_ir::FunctionBuiltinMethod::Iter => Err(self.error(
                     expr.span,
                     "`iter` builtin method must be resolved before LLVM codegen",
-                )),
-            };
-        }
-        if let FunctionCallee::BuiltinPlaceMethod {
-            trait_id,
-            self_ty,
-            receiver,
-            ..
-        } = callee
-        {
-            return match trait_id {
-                BuiltinTrait::Ptr | BuiltinTrait::PtrMut => {
-                    self.emit_builtin_ptr_method(expr.span, *self_ty, receiver)
-                }
-                _ => Err(self.error(
-                    expr.span,
-                    "unsupported builtin place method reached LLVM codegen",
                 )),
             };
         }
@@ -201,12 +188,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match self.module.ty_kind(self_ty) {
             Some(TyKind::Slice { .. }) => {
                 let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;
-                let slice = slice.into_struct_value().map_err(|_| {
-                    self.error(span, "`PtrMut.ptr_mut` receiver is not a slice value")
-                })?;
+                let slice = slice
+                    .into_struct_value()
+                    .map_err(|_| self.error(span, "slice pointer receiver is not a slice value"))?;
                 self.extract_slice_ptr(span, slice).map(Into::into)
             }
-            _ => Err(self.error(span, "`PtrMut.ptr_mut` requires a slice")),
+            _ => Err(self.error(span, "slice pointer method requires a slice")),
         }
     }
 

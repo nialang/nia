@@ -306,8 +306,6 @@ where
                 self.can_be_array_pointer_or_slice(self_ty, true)
                     && self.can_be_usize_range(range_ty)
             }
-            BuiltinTrait::Ptr => self.can_be_slice(self_ty, false),
-            BuiltinTrait::PtrMut => self.can_be_slice(self_ty, true),
             BuiltinTrait::Iterable => false,
             BuiltinTrait::Iterator => false,
             BuiltinTrait::Simd => self.can_be_simd(self_ty),
@@ -524,14 +522,6 @@ where
                 | TyKind::VolatilePointer { is_readonly, .. }
                 | TyKind::Slice { is_readonly, .. },
             ) => !mutable || !*is_readonly,
-            _ => false,
-        }
-    }
-
-    fn can_be_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
-        match self.type_store.get(self.normalize(ty)) {
-            Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Slice { is_readonly, .. }) => !mutable || !*is_readonly,
             _ => false,
         }
     }
@@ -916,12 +906,6 @@ impl TraitSolver<'_> {
                 self.is_usize_range(*range_ty)
                     && self.intrinsic_slice_output_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::Ptr => {
-                goal.trait_args.is_empty() && self.intrinsic_ptr_target_ty(self_ty, false).is_some()
-            }
-            BuiltinTrait::PtrMut => {
-                goal.trait_args.is_empty() && self.intrinsic_ptr_target_ty(self_ty, true).is_some()
-            }
             BuiltinTrait::Iterable => {
                 goal.trait_args.is_empty()
                     && !matches!(
@@ -1029,14 +1013,6 @@ impl TraitSolver<'_> {
                 };
                 self.is_usize_range(*range_ty).then_some(())?;
                 self.intrinsic_slice_output_ty(self_ty, true)
-            }
-            (BuiltinTrait::Ptr, BuiltinAssociatedType::Target) => {
-                trait_args.is_empty().then_some(())?;
-                self.intrinsic_ptr_target_ty(self_ty, false)
-            }
-            (BuiltinTrait::PtrMut, BuiltinAssociatedType::Target) => {
-                trait_args.is_empty().then_some(())?;
-                self.intrinsic_ptr_target_ty(self_ty, true)
             }
             (BuiltinTrait::Iterable, BuiltinAssociatedType::Item) => {
                 trait_args.is_empty().then_some(())?;
@@ -1193,24 +1169,6 @@ impl TraitSolver<'_> {
                 is_readonly: true,
                 elem: *elem,
             })),
-            _ => None,
-        }
-    }
-
-    pub fn intrinsic_ptr_target_ty(
-        &mut self,
-        self_ty: InternedTyId,
-        require_mutable: bool,
-    ) -> Option<InternedTyId> {
-        match self.kind(self_ty) {
-            Some(TyKind::Slice {
-                is_readonly: false,
-                elem,
-            }) => Some(*elem),
-            Some(TyKind::Slice {
-                is_readonly: true,
-                elem,
-            }) if !require_mutable => Some(*elem),
             _ => None,
         }
     }

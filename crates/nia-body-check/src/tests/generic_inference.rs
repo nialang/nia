@@ -212,7 +212,7 @@ fn main(count: usize) usize {
 
 #[test]
 fn infers_generic_function_input_from_where_predicate_impl_candidates() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 trait DecodeFrom[Input] {
     fn decode(input: Input) Self;
@@ -261,7 +261,7 @@ fn main() i32 {
 
 #[test]
 fn resolves_receiver_parse_facade_through_result_protocol() {
-    let checked = pipeline(
+    let checked = pipeline_with_len_provider(
         r#"
 trait From[Input] {
     fn from(input: Input) i32!Self;

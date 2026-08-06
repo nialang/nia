@@ -60,20 +60,7 @@ fn std_builtin_source_declarations_match_rust_descriptors() {
     assert_eq!(actual_consts, expected_consts);
 
     let expected_extends = [
-        "i8",
-        "i16",
-        "i32",
-        "i64",
-        "i128",
-        "isize",
-        "slice.Ptr",
-        "slice.PtrMut",
-        "u8",
-        "u16",
-        "u32",
-        "u64",
-        "u128",
-        "usize",
+        "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();

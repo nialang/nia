@@ -597,6 +597,8 @@ pub struct FunctionBuiltinOperator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBuiltinMethod {
     SliceLen,
+    SlicePtr,
+    SlicePtrMut,
     Start,
     End,
     Iter,

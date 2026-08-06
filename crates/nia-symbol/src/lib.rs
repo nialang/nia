@@ -153,8 +153,6 @@ pub mod known {
     known_symbol!(INDEX_MUT_TRAIT, "IndexMut");
     known_symbol!(SLICE_TRAIT, "Slice");
     known_symbol!(SLICE_MUT_TRAIT, "SliceMut");
-    known_symbol!(PTR_TRAIT, "Ptr");
-    known_symbol!(PTR_MUT_TRAIT, "PtrMut");
     known_symbol!(LEN_TYPE, "Len");
     known_symbol!(ITERABLE_TRAIT, "Iterable");
     known_symbol!(ITERATOR_TRAIT, "Iterator");
@@ -187,7 +185,7 @@ pub mod known {
     known_symbol!(SLICE, "slice");
     known_symbol!(SLICE_MUT, "slice_mut");
     known_symbol!(PTR, "ptr");
-    known_symbol!(PTR_MUT, "ptr_mut");
+    known_symbol!(PTR_MUT, "ptrMut");
     known_symbol!(LEN, "len");
     known_symbol!(END, "end");
     known_symbol!(ITER_METHOD, "iter");
@@ -312,8 +310,6 @@ pub mod known {
         (INDEX_MUT_TRAIT, "IndexMut"),
         (SLICE_TRAIT, "Slice"),
         (SLICE_MUT_TRAIT, "SliceMut"),
-        (PTR_TRAIT, "Ptr"),
-        (PTR_MUT_TRAIT, "PtrMut"),
         (LEN_TYPE, "Len"),
         (ITERABLE_TRAIT, "Iterable"),
         (ITERATOR_TRAIT, "Iterator"),
@@ -345,7 +341,7 @@ pub mod known {
         (SLICE, "slice"),
         (SLICE_MUT, "slice_mut"),
         (PTR, "ptr"),
-        (PTR_MUT, "ptr_mut"),
+        (PTR_MUT, "ptrMut"),
         (LEN, "len"),
         (END, "end"),
         (ITER_METHOD, "iter"),
@@ -520,8 +516,6 @@ impl ToSymbolId for nia_ids::BuiltinTraitMethod {
             Self::IndexMut => known::INDEX_MUT,
             Self::Slice => known::SLICE,
             Self::SliceMut => known::SLICE_MUT,
-            Self::Ptr => known::PTR,
-            Self::PtrMut => known::PTR_MUT,
             Self::IterableIter => known::ITER_METHOD,
             Self::IteratorNext => known::NEXT,
         }
@@ -554,8 +548,6 @@ impl ToSymbolId for nia_ids::BuiltinTrait {
             Self::IndexMut => known::INDEX_MUT_TRAIT,
             Self::Slice => known::SLICE_TRAIT,
             Self::SliceMut => known::SLICE_MUT_TRAIT,
-            Self::Ptr => known::PTR_TRAIT,
-            Self::PtrMut => known::PTR_MUT_TRAIT,
             Self::Iterable => known::ITERABLE_TRAIT,
             Self::Iterator => known::ITERATOR_TRAIT,
             Self::Simd => known::SIMD_TRAIT,

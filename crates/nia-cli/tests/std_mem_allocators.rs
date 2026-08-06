@@ -599,7 +599,7 @@ extend CountingAllocator : mem::Allocator {
         if layout.isEmpty() {
             return !mem::Block::init(layout.align() as &mut u8, layout);
         }
-        let base = self.buffer.ptr_mut() as usize;
+        let base = self.buffer.ptrMut() as usize;
         let current = base + self.end_index;
         let aligned = switch current.align_forward(layout.align()) {
             ?value => { value },

@@ -1252,6 +1252,8 @@ impl FunctionLowerer<'_> {
     fn lower_builtin_method(method: BuiltinMethod) -> FunctionBuiltinMethod {
         match method {
             BuiltinMethod::SliceLen => FunctionBuiltinMethod::SliceLen,
+            BuiltinMethod::SlicePtr => FunctionBuiltinMethod::SlicePtr,
+            BuiltinMethod::SlicePtrMut => FunctionBuiltinMethod::SlicePtrMut,
             BuiltinMethod::Start => FunctionBuiltinMethod::Start,
             BuiltinMethod::End => FunctionBuiltinMethod::End,
             BuiltinMethod::Iter => FunctionBuiltinMethod::Iter,

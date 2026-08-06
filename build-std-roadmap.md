@@ -441,7 +441,7 @@ not a search-and-replace in `lib/std/builtin/place.nia`:
 | --- | --- | --- |
 | `Len` | array length and slice metadata | accepted as an ordinary demand-loaded source trait; only slice metadata reading remains intrinsic |
 | `Start` / `End` | range field projection | accepted as inherent structural-range methods; public trait identities removed |
-| `Ptr` / `PtrMut` | slice data-pointer projection and associated target | may retain intrinsic impl bodies, but builtin trait identity is unproven |
+| `Ptr` / `PtrMut` | slice data-pointer projection and associated target | accepted as inherent `ptr()` / `ptrMut()` slice operations; public trait identities removed |
 | `Char` | checked `u32` to `char` conversion | move to reviewed Unicode/inherent API; builtin trait identity is unjustified |
 
 For each trait, the audit traces parser/symbol identity, type resolution,
@@ -3901,8 +3901,8 @@ equality uses evaluated const values rather than const-expression identity.
 Array-length inference evaluates layout builtins through the same layout query
 in both const and runtime calls, and generic completeness checks keep type and
 const substitution maps distinct. Thus a `[N]T` parameter can infer `N` from
-`[@size[Header]()]u8` whether its `const fn` call is executed at comptime or
-lowered as an ordinary runtime instance. Const extension calls also establish
+`[std::builtin::size[Header]()]u8` whether its `const fn` call is executed at
+comptime or lowered as an ordinary runtime instance. Const extension calls also establish
 the owner module type context, normalize
 pointer/slice receivers to their self target, recover an implicit receiver's
 type from the visible extension target, and type const references with the same
@@ -3937,8 +3937,24 @@ reachability owners, and backend trait witnesses were removed. Const and
 runtime calls share the same range-shape rules, while the remaining internal
 `Start`/`End` method operations only project the representation. Persistent
 signature-cache tags 26 and 27 remain invalid rather than being reused.
-`Ptr`/`PtrMut` are now the next dependency-complete audit; no managed wrapper
-or compatibility identity is introduced by this batch.
+The subsequent slice-pointer audit selected inherent compiler-backed `ptr()`
+and `ptrMut()` methods. `ptr()` returns `&T` for read-only or writable slices;
+`ptrMut()` returns `&mut T` only for writable slices. Ordinary visible
+extensions remain higher priority, and array pointers retain the existing
+receiver-to-slice coercion without making array values implement a pointer
+capability. Public `Ptr`/`PtrMut` traits, associated `Target` projections,
+source impl declarations, solver proofs, reachability owners, and backend trait
+witnesses were removed. The internal operations are named `SlicePtr` and
+`SlicePtrMut`, and persistent signature-cache tags 23 and 24 remain invalid.
+
+Const evaluation now projects non-empty frozen and place-backed slices through
+the same method surface. It preserves frozen allocation identity or appends an
+element-index path to live place provenance. Empty const slices remain an
+explicit representation task: the current const pointer value cannot encode an
+allocation-base/dangling element pointer, so evaluation rejects the operation
+rather than fabricating a `T`. Runtime empty-slice projection remains valid as
+a pointer value but cannot be dereferenced. No snake_case alias or compatibility
+trait is introduced.
 
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary

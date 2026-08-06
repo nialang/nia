@@ -42,20 +42,6 @@ pub trait SliceMut[R] : Slice[R] {
     fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
-@[builtin("Ptr")]
-pub trait Ptr {
-    type Target;
-
-    fn ptr(&self) &[Self as Ptr]::Target;
-}
-
-@[builtin("PtrMut")]
-pub trait PtrMut : Ptr {
-    type Target;
-
-    fn ptr_mut(&mut self) &mut [Self as PtrMut]::Target;
-}
-
 pub trait Len {
     const fn len(&self) usize;
 }
@@ -74,17 +60,3 @@ extend[T] [T] : Len {
 
 @[builtin("sliceLen")]
 const fn sliceLen[T](value: &[T]) usize;
-
-@[builtin("slice.Ptr")]
-extend[T] [T] : Ptr {
-    type Target = T;
-
-    fn ptr(&self) &T;
-}
-
-@[builtin("slice.PtrMut")]
-extend[T] [T] : PtrMut {
-    type Target = T;
-
-    fn ptr_mut(&mut self) &mut T;
-}

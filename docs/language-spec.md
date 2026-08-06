@@ -1360,9 +1360,11 @@ Invalid names, types, imports, or calls in inactive code are not diagnosed for
 that target. Multi-target validation is expected to run the compiler for each
 target a project supports.
 
-Attributes are intentionally separate from builtin expressions. `@foo` remains
-reserved for builtin expression forms such as `@size[T]()` and `@error(...)`.
-AST attributes must use the bracketed `@[...]` form.
+Attributes are the only source syntax introduced by `@`. A bare `@foo` is not
+an expression form; compiler-backed functions are declared by `std::builtin`
+and called through ordinary paths such as `std::builtin::size[T]()`. The
+standard-library declarations use `@[builtin(...)]` to identify their compiler
+contract, while every AST attribute uses the bracketed `@[...]` form.
 
 The compiler also injects a reserved `builtin` module root. It is a normal
 module for name resolution and imports, but its source is generated from the
@@ -2343,70 +2345,79 @@ _ = log("done");  // allowed even if log returns void
 abort();          // allowed if abort returns never
 ```
 
-### 8.7 Builtins
+### 8.7 Compiler-Backed Operations
 
-Nia provides a small builtin surface:
+Nia exposes compiler-backed operations as ordinary declarations in
+`std::builtin`. Call sites use normal path, generic-argument, and call syntax;
+there is no separate `@name(...)` builtin expression syntax. The compiler
+recognizes the standard-library declarations through their internal
+`@[builtin(...)]` contract.
+
+The current surface is:
 
 ```nia
-@size[T]()
-@align[T]()
-@offset[T]("field")
-@error("message")
-@embed("path")
+std::builtin::size[T]()
+std::builtin::align[T]()
+std::builtin::offset[T]("field")
+std::builtin::error("message")
+std::builtin::embed("path")
 value.len()
 range.start()
 range.end()
 slice.ptr()
-slice.ptr_mut()
-@load_unaligned[T](ptr)
-@splat[Vec](value)
-@extract(vector, index)
-@insert(vector, index, value)
-@bitmask(mask)
-@ctz[T](value)
-@clz[T](value)
-@popcount[T](value)
-@atomic_load[T](ptr, order)
-@atomic_store[T](ptr, value, order)
-@atomic_rmw[T](ptr, op, value, order)
-@cmpxchg_strong[T](ptr, expected, desired, success, failure)
-@cmpxchg_weak[T](ptr, expected, desired, success, failure)
-@fence(order)
-@asm({...})
+slice.ptrMut()
+std::builtin::load_unaligned[T](ptr)
+std::builtin::splat[Vec](value)
+std::builtin::extract(vector, index)
+std::builtin::insert(vector, index, value)
+std::builtin::bitmask(mask)
+std::builtin::ctz[T](value)
+std::builtin::clz[T](value)
+std::builtin::popcount[T](value)
+std::builtin::atomic_load[T](ptr, order)
+std::builtin::atomic_store[T](ptr, value, order)
+std::builtin::atomic_rmw[T](ptr, op, value, order)
+std::builtin::cmpxchg_strong[T](ptr, expected, desired, success, failure)
+std::builtin::cmpxchg_weak[T](ptr, expected, desired, success, failure)
+std::builtin::fence(order)
+std::builtin::asm({...})
 ```
 
-`@size[T]()` returns the ABI size of `T` in bytes as `usize`.
+`std::builtin::size[T]()` returns the ABI size of `T` in bytes as `usize`.
 
-`@align[T]()` returns the ABI alignment of `T` in bytes as `usize`.
+`std::builtin::align[T]()` returns the ABI alignment of `T` in bytes as
+`usize`.
 
-`@offset[T]("field")` returns the ABI byte offset of a struct or union field
-as `usize`. The field name must be a string literal. For unions, every field
-has offset `0`.
+`std::builtin::offset[T]("field")` returns the ABI byte offset of a struct or
+union field as `usize`. The field name must be a string literal. For unions,
+every field has offset `0`.
 
-`@embed("path")` reads a file during compile-time evaluation and returns its
-contents as a byte array value. The path argument must be a string literal and
-is resolved relative to the source file that contains the `@embed` call, not the
-process working directory. `@embed` is only valid in a `const` expression
-context; it does not parse or macro-expand the embedded bytes.
+`std::builtin::embed("path")` reads a file during compile-time evaluation and
+returns its contents as a byte array value. The path argument must be a string
+literal and is resolved relative to the source file that contains the call,
+not the process working directory. `std::builtin::embed` is only valid in a
+`const` expression context; it does not parse or macro-expand the embedded
+bytes.
 
-`@size[T]()` and `@align[T]()` require `T: Sized`. For concrete layout-known
-types this predicate is compiler-proven. In generic code it must be written in
-the `where` clause:
+`std::builtin::size[T]()` and `std::builtin::align[T]()` require `T: Sized`.
+For concrete layout-known types this predicate is compiler-proven. In generic
+code it must be written in the `where` clause:
 
 ```nia
 fn bytes[T]() usize
 where T: Sized {
-    @size[T]() + @align[T]()
+    std::builtin::size[T]() + std::builtin::align[T]()
 }
 ```
 
-When their type argument is concrete, `@size[T]()`, `@align[T]()`, and
-`@offset[T]("field")` are compile-time known values and may appear in ordinary
-expressions. `@size[T]()` and `@align[T]()` may also appear in array lengths and
-static initializers. In generic code these builtins remain layout values until
-the generic function is instantiated. A concrete layout-builtin array length
-participates in const-generic inference just like a literal or evaluated const
-expression, with the same result for compile-time and runtime calls.
+When their type argument is concrete, `std::builtin::size[T]()`,
+`std::builtin::align[T]()`, and `std::builtin::offset[T]("field")` are
+compile-time known values and may appear in ordinary expressions. `size` and
+`align` may also appear in array lengths and static initializers. In generic
+code these calls remain layout values until the generic function is
+instantiated. A concrete layout-builtin array length participates in
+const-generic inference just like a literal or evaluated const expression,
+with the same result for compile-time and runtime calls.
 
 `value.len()` calls the ordinary source-defined `Len` trait method. The loader
 makes `Len` available as a demand-loaded prelude trait when source uses the
@@ -2423,21 +2434,27 @@ requested bound and return that bound's integer type. They do not introduce a
 trait obligation or an associated `Output` type; ordinary visible extensions
 remain higher-priority method candidates.
 
-`slice.ptr()` and `slice.ptr_mut()` call the built-in `Ptr`
-and `PtrMut` trait methods. `&[T]` and `&mut [T]` have compiler-proven
-`Ptr` implementations. Mutable slices also have compiler-proven
-`PtrMut` implementations, whose `ptr_mut()` method returns `&mut T`. Arrays
-intentionally do not implement `Ptr` or `PtrMut`; form a slice first
-with `&array[..]`. A pointer to an array may coerce to a slice at the receiver
-of these built-in place methods, so `b"name\0".ptr()` is valid and
-explicitly produces a pointer to the first byte. User types may implement these
-traits for custom contiguous storage abstractions, but may not overlap
-compiler-proven slice implementations.
+`slice.ptr()` and `slice.ptrMut()` are inherent compiler-backed projections of
+slice data pointers. `ptr()` accepts read-only or writable slices and returns
+`&T`; `ptrMut()` requires a writable slice and returns `&mut T`. They introduce
+no trait obligation or associated `Target` projection. Ordinary visible
+extensions named `ptr` or `ptrMut` remain higher-priority method candidates.
 
-`@load_unaligned[T](ptr)` reads a `T` from a byte pointer with alignment 1.
-`ptr` must have type `&u8` or `&mut u8`, and `T` must be `Sized`. The caller is
-responsible for ensuring that at least `@size[T]()` readable bytes are available
-at `ptr`; the builtin only relaxes alignment, not bounds or initialization.
+Array values do not expose these methods. An existing `&[N]T` or `&mut [N]T`
+receiver may use the ordinary array-pointer-to-slice coercion, so
+`b"name\0".ptr()` is valid and explicitly produces a pointer to the first
+byte. Runtime projection also preserves the slice data pointer for an empty
+slice, although dereferencing it is invalid. During const evaluation, non-empty
+array-backed slices preserve frozen or place provenance and may use both
+methods. Empty const slices are currently rejected because the const pointer
+representation cannot yet encode an allocation-base/dangling element pointer;
+the evaluator must not fabricate a pointee value.
+
+`std::builtin::load_unaligned[T](ptr)` reads a `T` from a byte pointer with
+alignment 1. `ptr` must have type `&u8` or `&mut u8`, and `T` must be `Sized`.
+The caller is responsible for ensuring that at least
+`std::builtin::size[T]()` readable bytes are available at `ptr`; the operation
+only relaxes alignment, not bounds or initialization.
 
 `std::builtin::memcpy[T](destination, source)` and
 `std::builtin::memmove[T](destination, source)` copy the common slice prefix as
@@ -2451,12 +2468,13 @@ uses `slice.copyFrom`, whose count result exposes short copies and whose
 implementation selects the overlap-safe primitive.
 
 SIMD vector builtins operate on primitive vector types such as `u8x16` and
-`boolx16`. `@splat[Vec](value)` constructs a vector whose lanes all contain
-`value`; `Vec` must be a SIMD vector type and `value` must have its lane type.
-`@extract(vector, index)` reads one lane, and `@insert(vector, index, value)`
-returns a copy of `vector` with one lane replaced. Lane indexes are integer
-values. An out-of-range index is a const diagnostic during constant evaluation
-and traps before accessing a lane at runtime.
+`boolx16`. `std::builtin::splat[Vec](value)` constructs a vector whose lanes all
+contain `value`; `Vec` must be a SIMD vector type and `value` must have its lane
+type. `std::builtin::extract(vector, index)` reads one lane, and
+`std::builtin::insert(vector, index, value)` returns a copy of `vector` with one
+lane replaced. Lane indexes are integer values. An out-of-range index is a
+const diagnostic during constant evaluation and traps before accessing a lane
+at runtime.
 
 Vector storage uses its native bit width. The store width is the byte-rounded
 total lane width, including one bit per boolean mask lane. Its ABI alignment is
@@ -2465,9 +2483,9 @@ that alignment. `splat`, `extract`, `insert`, and `bitmask` are dual-stage
 `const fn` builtins: the same operation may execute during constant evaluation
 or lower to runtime SIMD instructions.
 
-Vector comparisons return boolean mask vectors such as `boolx16`. `@bitmask`
-packs a boolean mask vector into `usize`, with lane 0 in the least significant
-bit. It currently supports masks up to 64 lanes.
+Vector comparisons return boolean mask vectors such as `boolx16`.
+`std::builtin::bitmask` packs a boolean mask vector into `usize`, with lane 0 in
+the least significant bit. It currently supports masks up to 64 lanes.
 
 Integer-vector addition, subtraction, multiplication, and negation apply the
 scalar checked operation independently to every lane. If any lane's
@@ -2485,11 +2503,12 @@ shift also traps when any lane's mathematical result is not representable.
 Right shift is arithmetic for signed lane types and logical for unsigned lane
 types. Boolean mask vectors do not support shifts.
 
-Bit-counting builtins operate on integer primitive types. `@ctz[T](value)`
-returns the number of trailing zero bits, `@clz[T](value)` returns the number
-of leading zero bits, and `@popcount[T](value)` returns the number of set bits.
-The argument and result both have type `T`. `@ctz[T](0)` and `@clz[T](0)` are
-defined to return the bit width of `T`.
+Bit-counting builtins operate on integer primitive types.
+`std::builtin::ctz[T](value)` returns the number of trailing zero bits,
+`std::builtin::clz[T](value)` returns the number of leading zero bits, and
+`std::builtin::popcount[T](value)` returns the number of set bits. The argument
+and result both have type `T`. `std::builtin::ctz[T](0)` and
+`std::builtin::clz[T](0)` are defined to return the bit width of `T`.
 
 Atomic builtins provide the low-level primitive operations behind `std::atomic`.
 Their `order` and `op` arguments must be compile-time integer constants. The
@@ -2501,12 +2520,13 @@ rmw op:   Xchg=0, Add=1, Sub=2, And=3, Nand=4, Or=5, Xor=6,
           Max=7, Min=8, UMax=9, UMin=10
 ```
 
-`@atomic_load[T]` takes `&T` or `&mut T` and returns `T`.
-`@atomic_store[T]` takes `&mut T` and returns `void`.
-`@atomic_rmw[T]` takes `&mut T`, applies an atomic read-modify-write operation,
-and returns the previous value. `@cmpxchg_strong[T]` and
-`@cmpxchg_weak[T]` return `null` on success or `?old_value` on failure.
-`@fence(order)` emits an atomic fence and returns `void`.
+`std::builtin::atomic_load[T]` takes `&T` or `&mut T` and returns `T`.
+`std::builtin::atomic_store[T]` takes `&mut T` and returns `void`.
+`std::builtin::atomic_rmw[T]` takes `&mut T`, applies an atomic
+read-modify-write operation, and returns the previous value.
+`std::builtin::cmpxchg_strong[T]` and `std::builtin::cmpxchg_weak[T]` return
+`null` on success or `?old_value` on failure. `std::builtin::fence(order)` emits
+an atomic fence and returns `void`.
 
 The current supported atomic value types are bool, integer, enum, and ordinary
 object pointer types whose width does not exceed the target pointer width.
@@ -2519,15 +2539,15 @@ cmpxchg failure orderings allow Monotonic, Acquire, and SeqCst and must not be
 stronger than the success ordering; fences allow Acquire, Release, AcqRel, and
 SeqCst.
 
-`@asm({...})` is the inline assembly escape hatch for syscalls, special
-registers, port I/O, CPU instructions, and freestanding runtime glue. Its
-argument must be a struct-literal configuration. It returns `void`. The fields
-are compiler-consumed metadata, not a runtime struct:
+`std::builtin::asm({...})` is the inline assembly escape hatch for syscalls,
+special registers, port I/O, CPU instructions, and freestanding runtime glue.
+Its argument must be a struct-literal configuration. It returns `void`. The
+fields are compiler-consumed metadata, not a runtime struct:
 
 ```nia
 fn syscall1(sys_num: usize, arg1: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -2859,8 +2879,8 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 `shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
-`Sized`, `Deref`, `DerefMut`, `Index`, `IndexMut`, `Slice`, `SliceMut`, `Ptr`,
-and `PtrMut` are also builtin capability traits. Their names and required
+`Sized`, `Deref`, `DerefMut`, `Index`, `IndexMut`, `Slice`, and `SliceMut` are
+also builtin capability traits. Their names and required
 members are fixed by the language:
 
 ```nia
@@ -2896,16 +2916,6 @@ trait SliceMut[R] : Slice[R] {
     fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
-trait Ptr {
-    type Target;
-    fn ptr(&self) &[Self as Ptr]::Target;
-}
-
-trait PtrMut : Ptr {
-    type Target;
-    fn ptr_mut(&mut self) &mut [Self as PtrMut]::Target;
-}
-
 ```
 
 The compiler proves builtin implementations for primitive operations,
@@ -2914,10 +2924,10 @@ to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
 container may implement `Slice[..]`, but `[N]T` may not provide a manual
 `Slice[..]` implementation because array slicing is already
-compiler-proven. Range bound access is instead an inherent operation limited to
-the structural range shapes described above. Range-like user types expose
-their own ordinary inherent or trait methods without claiming a language-owned
-`Start` or `End` capability.
+compiler-proven. Range bound and slice data-pointer access are instead inherent
+operations limited to their structural representation shapes. User types
+expose their own ordinary inherent or trait methods without claiming
+language-owned `Start`/`End` or `Ptr`/`PtrMut` capabilities.
 
 Index expressions lower through `Index` or `IndexMut`; slice expressions
 lower through `Slice` or `SliceMut`. Native array, pointer, and slice
@@ -3448,7 +3458,9 @@ A conforming Nia compiler supports:
 - the three `for` forms;
 - `defer`;
 - `switch` and enum exhaustiveness checks;
-- `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.ptr()`, and `@asm({...})`;
+- `std::builtin::size[T]()`, `std::builtin::align[T]()`, `value.len()`,
+  `range.start()`, `range.end()`, `slice.ptr()`, `slice.ptrMut()`, and
+  `std::builtin::asm({...})`;
 - explicit `module` declarations, module-map package roots, and `using`;
 - global static storage from top-level `static mut` and `static`;
 - top-level `pub` visibility;

@@ -7,7 +7,7 @@ use nia_function_ir::{
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, ConstGenericValue, TyKind};
+use nia_ty::{ConstGenericValue, TyKind};
 
 use super::{BackendValidator, FunctionInstanceRef};
 
@@ -513,15 +513,13 @@ impl BackendValidator<'_> {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
-                if !matches!(trait_id, BuiltinTrait::Ptr | BuiltinTrait::PtrMut) {
-                    self.diagnostics.push(Diagnostic::internal_error_at(
-                        nia_diagnostic::codes::INVALID_BACKEND_IR,
-                        span,
-                        format!(
-                            "backend IR call contains unresolved builtin place method {trait_id:?}::{method:?}"
-                        ),
-                    ));
-                }
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    format!(
+                        "backend IR call contains unresolved builtin place method {trait_id:?}::{method:?}"
+                    ),
+                ));
             }
             FunctionCallee::TraitMethod {
                 trait_id,

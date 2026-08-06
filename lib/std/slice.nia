@@ -226,7 +226,7 @@ where T: Sized
     }
 
     pub fn iterMut(&mut self) SliceIterMut[T] {
-        SliceIterMut[T]::fromRawParts(self.ptr_mut(), self.len())
+        SliceIterMut[T]::fromRawParts(self.ptrMut(), self.len())
     }
 }
 

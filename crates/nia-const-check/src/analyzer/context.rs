@@ -519,6 +519,34 @@ impl Analyzer<'_> {
         Some((want_start, bound))
     }
 
+    pub(super) fn resolved_const_slice_pointer_method(
+        &mut self,
+        callee: &ResolvedConstExpr,
+        generic_args: &[ResolvedConstGenericArg],
+        args: &[ResolvedConstExpr],
+    ) -> Option<(bool, InternedTyId)> {
+        if !generic_args.is_empty() || !args.is_empty() {
+            return None;
+        }
+        let ResolvedConstExprKind::Method { receiver, name } = callee.kind() else {
+            return None;
+        };
+        let mutable = match *name {
+            nia_symbol::known::PTR => false,
+            nia_symbol::known::PTR_MUT => true,
+            _ => return None,
+        };
+        let receiver_ty = self.resolved_const_arg_runtime_type(receiver, None)?;
+        let TyKind::Slice { is_readonly, elem } = self.ty_kind(receiver_ty)? else {
+            return None;
+        };
+        if mutable && is_readonly {
+            return None;
+        }
+        let elem = self.type_for_module_or_none(elem, self.current_execution_module_id())?;
+        Some((mutable, elem))
+    }
+
     fn const_method_target_tys(&self, receiver_ty: InternedTyId) -> Vec<InternedTyId> {
         let mut targets = vec![receiver_ty];
         loop {

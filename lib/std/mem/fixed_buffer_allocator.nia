@@ -90,7 +90,7 @@ extend FixedBufferAllocator : Allocator {
             return !Block::empty(layout);
         }
 
-        let base = self.buffer.ptr_mut() as usize;
+        let base = self.buffer.ptrMut() as usize;
         let current = switch base.checked_add(self.endIndex) {
             ?value => {
                 value

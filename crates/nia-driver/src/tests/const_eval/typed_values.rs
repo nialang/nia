@@ -835,6 +835,101 @@ fn main() i32 {
 }
 
 #[test]
+fn const_slice_pointer_methods_project_the_first_element() {
+    let root = temp_dir("const_slice_pointer_methods_project_the_first_element");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn first(values: &[usize]) usize {
+    let mut ptr = values.ptr();
+    ptr.*
+}
+
+const fn first_mut(values: &mut [usize]) usize {
+    let mut ptr = values.ptrMut();
+    ptr.*
+}
+
+const fn read_array(values: [3]usize) usize {
+    first(&values[..])
+}
+
+const fn read_mut_array() usize {
+    let mut values: [2]usize = [4, 5];
+    first_mut(&mut values[..])
+}
+
+const n: usize = read_array([7usize, 8usize, 9usize]) + read_mut_array();
+
+fn main() i32 {
+    let mut values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_extension_takes_priority_over_slice_pointer_fallback() {
+    let root = temp_dir("const_extension_takes_priority_over_slice_pointer_fallback");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend[T] [T] {
+    const fn ptr(&self) usize {
+        6usize
+    }
+}
+
+const fn projected(values: [2]usize) usize {
+    (&values[..]).ptr()
+}
+
+const n: usize = projected([1usize, 2usize]);
+
+fn main() i32 {
+    let mut values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_pointer_projection_rejects_empty_slice_without_fabricating_provenance() {
+    let root =
+        temp_dir("const_pointer_projection_rejects_empty_slice_without_fabricating_provenance");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn project() usize {
+    let values: [0]usize = [];
+    let pointer = (&values[..]).ptr();
+    0usize
+}
+
+const n: usize = project();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("const slice pointer method cannot project an empty slice")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_extension_takes_priority_over_builtin_range_method() {
     let root = temp_dir("const_extension_takes_priority_over_builtin_range_method");
     write(
