@@ -3,6 +3,7 @@ use super::common::*;
 
 use nia_imports::{ModuleMap, SourcePath};
 use nia_loader_query::load_program;
+use std::collections::BTreeSet;
 use std::{fs, path::Path, sync::Arc};
 
 trait TestModulePath {
@@ -69,6 +70,17 @@ fn toolchain_identity(identity: &str) -> Option<String> {
     identity
         .starts_with("toolchain:/")
         .then(|| identity.to_string())
+}
+
+fn assert_same_compiler_work(label: &str, broad: &[String], narrow: &[String]) {
+    let broad = broad.iter().collect::<BTreeSet<_>>();
+    let narrow = narrow.iter().collect::<BTreeSet<_>>();
+    let broad_only = broad.difference(&narrow).copied().collect::<Vec<_>>();
+    let narrow_only = narrow.difference(&broad).copied().collect::<Vec<_>>();
+    assert!(
+        broad_only.is_empty() && narrow_only.is_empty(),
+        "public import spelling changed {label} std work:\n  broad only: {broad_only:#?}\n  narrow only: {narrow_only:#?}"
+    );
 }
 
 #[test]
@@ -964,6 +976,185 @@ fn consume(values: ArrayList[i32]) usize {
         toolchain_compiler_work(&narrow),
         "public import spelling must not change semantic, body, or backend std work"
     );
+}
+
+#[test]
+fn equivalent_text_workflow_imports_select_only_demanded_compiler_work() {
+    let root = temp_dir("equivalent_text_workflow_imports_select_only_demanded_compiler_work");
+    let broad_path = root.join("broad.nia");
+    let narrow_path = root.join("narrow.nia");
+    write(
+        &broad_path,
+        r#"
+using std::string;
+using std::fmt;
+using std::fs;
+using std::io;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let mut allocationStorage: [512]u8 = [0; 512];
+    let mut fixed = mem::FixedBufferAllocator::init(&mut allocationStorage[..]);
+    let allocator: &mut mem::Allocator = &mut fixed;
+
+    let mut text = string::String::fromSlice(allocator, &"Nia λ").exit().?;
+    defer text.deinit(allocator).exit().?;
+    let answer = 42;
+    let formatArgs: [1]&fmt::Format = [&answer];
+    switch text.appendFormat(allocator, &" {}", &formatArgs) {
+        !ok => { _ = ok; },
+        error! => {
+            _ = error;
+            return process::exit(1)!;
+        },
+    }
+
+    let pathText = string::String::fromSlice(allocator, &"workflow-λ.txt").exit().?;
+    let mut path = fs::PathBuf::fromString(pathText);
+    defer path.deinit(allocator).exit().?;
+
+    let mut file = fs::File::create(path.view(), fs::CreateOptions::init()).exit().?;
+    let mut fileOpen = true;
+    defer if fileOpen {
+        file.close().exit().?;
+    };
+    let mut fileBuffer: [16]u8 = [0; 16];
+    let mut writer: io::FileWriter = file.writer(&mut fileBuffer[..]).exit().?;
+    writer.writeUtf8(text.text()).exit().?;
+    writer.flush().exit().?;
+    file.close().exit().?;
+    fileOpen = false;
+
+    let arguments: [1]&[char] = [path.text()];
+    let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Ignore);
+    let term = command.run().exit().?;
+    if not term.succeeded() {
+        return process::exit(2)!;
+    }
+    !{}
+}
+"#,
+    );
+    write(
+        &narrow_path,
+        r#"
+using std::{PathBuf, PathView, String};
+using std::fmt::Format;
+using std::fs::{CreateOptions, File};
+using std::io::{FileWriter, Writer};
+using std::mem::{Allocator, FixedBufferAllocator};
+using std::process::{Command, ExitCode, Init, StdIo, exit};
+
+pub fn main(init: Init) ExitCode!void {
+    let mut allocationStorage: [512]u8 = [0; 512];
+    let mut fixed = FixedBufferAllocator::init(&mut allocationStorage[..]);
+    let allocator: &mut Allocator = &mut fixed;
+
+    let mut text = String::fromSlice(allocator, &"Nia λ").exit().?;
+    defer text.deinit(allocator).exit().?;
+    let answer = 42;
+    let formatArgs: [1]&Format = [&answer];
+    switch text.appendFormat(allocator, &" {}", &formatArgs) {
+        !ok => { _ = ok; },
+        error! => {
+            _ = error;
+            return exit(1)!;
+        },
+    }
+
+    let pathText = String::fromSlice(allocator, &"workflow-λ.txt").exit().?;
+    let mut path = PathBuf::fromString(pathText);
+    defer path.deinit(allocator).exit().?;
+
+    let mut file = File::create(path.view(), CreateOptions::init()).exit().?;
+    let mut fileOpen = true;
+    defer if fileOpen {
+        file.close().exit().?;
+    };
+    let mut fileBuffer: [16]u8 = [0; 16];
+    let mut writer: FileWriter = file.writer(&mut fileBuffer[..]).exit().?;
+    writer.writeUtf8(text.text()).exit().?;
+    writer.flush().exit().?;
+    file.close().exit().?;
+    fileOpen = false;
+
+    let arguments: [1]&[char] = [path.text()];
+    let command = Command::init(PathView::init(&"/bin/cat"), init.env())
+        .withArguments(&arguments)
+        .withStdout(StdIo::Ignore);
+    let term = command.run().exit().?;
+    if not term.succeeded() {
+        return exit(2)!;
+    }
+    !{}
+}
+"#,
+    );
+
+    let broad = codegen_program(broad_path.to_string_lossy().into_owned());
+    let narrow = codegen_program(narrow_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&broad.diagnostics);
+    assert_no_error_diagnostics(&narrow.diagnostics);
+    let broad_work = toolchain_compiler_work(&broad);
+    let narrow_work = toolchain_compiler_work(&narrow);
+    let unrelated = broad_work
+        .0
+        .iter()
+        .enumerate()
+        .map(|(_, module)| ("semantic", module))
+        .chain(
+            broad_work
+                .1
+                .iter()
+                .enumerate()
+                .map(|(_, module)| ("body", module)),
+        )
+        .chain(
+            broad_work
+                .2
+                .iter()
+                .enumerate()
+                .map(|(_, module)| ("backend", module)),
+        )
+        .filter(|(_, module)| {
+            module.starts_with("toolchain:/std/build")
+                || module.starts_with("toolchain:/std/collections/hash_map")
+                || (module.starts_with("toolchain:/std/parse")
+                    && *module != "toolchain:/std/parse/core.nia")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        unrelated.is_empty(),
+        "text workflow selected unrelated compiler work: {unrelated:#?}"
+    );
+    assert_same_compiler_work("semantic", &broad_work.0, &narrow_work.0);
+    assert_same_compiler_work("body", &broad_work.1, &narrow_work.1);
+    assert_same_compiler_work("backend", &broad_work.2, &narrow_work.2);
+
+    for demanded in [
+        "toolchain:/std/string.nia",
+        "toolchain:/std/unicode.nia",
+        "toolchain:/std/fmt/template.nia",
+        "toolchain:/std/fs/path.nia",
+        "toolchain:/std/fs/file.nia",
+        "toolchain:/std/io/file_adapter.nia",
+        "toolchain:/std/process/command.nia",
+        "toolchain:/std/parse/core.nia",
+    ] {
+        assert!(
+            broad_work
+                .0
+                .iter()
+                .chain(&broad_work.1)
+                .chain(&broad_work.2)
+                .any(|module| module == demanded),
+            "text workflow did not select demanded provider {demanded}: {broad_work:#?}"
+        );
+    }
 }
 
 #[test]

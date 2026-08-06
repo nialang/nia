@@ -77,6 +77,7 @@ pub enum ProviderRequest {
         method_name: SymbolId,
     },
     TraitImpl {
+        target_type_name: Option<SymbolId>,
         trait_name: SymbolId,
     },
     ModuleSemantic {

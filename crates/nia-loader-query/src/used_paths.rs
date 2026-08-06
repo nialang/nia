@@ -147,7 +147,10 @@ impl QualifiedPathModuleCollector<'_> {
         };
         self.collect_path_segments_with_processing(
             segments,
-            UsedModulePathProcessing::IfProvidesTraitImpl { trait_name },
+            UsedModulePathProcessing::IfProvidesTraitImpl {
+                target_type_name: None,
+                trait_name,
+            },
         );
     }
 
@@ -248,8 +251,6 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
         if let StmtKind::ForIn(_) = &stmt.kind {
             self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
             self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterator.symbol_id());
-            walk_stmt(self, stmt);
-            return;
         }
         walk_stmt(self, stmt);
     }
@@ -942,6 +943,7 @@ pub(crate) enum UsedModulePathProcessing {
     IfSelectedItem,
     IfProvidesExtensions,
     IfProvidesTraitImpl {
+        target_type_name: Option<SymbolId>,
         trait_name: SymbolId,
     },
     IfProvidesImplicitTraitImpl {

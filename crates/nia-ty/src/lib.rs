@@ -825,6 +825,29 @@ impl PrimitiveTy {
         })
     }
 
+    pub fn symbol_id(self) -> SymbolId {
+        match self {
+            Self::I8 => nia_symbol::known::I8,
+            Self::I16 => nia_symbol::known::I16,
+            Self::I32 => nia_symbol::known::I32,
+            Self::I64 => nia_symbol::known::I64,
+            Self::I128 => nia_symbol::known::I128,
+            Self::Isize => nia_symbol::known::ISIZE,
+            Self::U8 => nia_symbol::known::U8,
+            Self::U16 => nia_symbol::known::U16,
+            Self::U32 => nia_symbol::known::U32,
+            Self::U64 => nia_symbol::known::U64,
+            Self::U128 => nia_symbol::known::U128,
+            Self::Usize => nia_symbol::known::USIZE,
+            Self::F32 => nia_symbol::known::F32,
+            Self::F64 => nia_symbol::known::F64,
+            Self::Bool => nia_symbol::known::BOOL,
+            Self::Char => nia_symbol::known::CHAR,
+            Self::Void => nia_symbol::known::VOID,
+            Self::Never => nia_symbol::known::NEVER,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::I8 => "i8",

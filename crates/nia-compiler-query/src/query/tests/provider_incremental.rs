@@ -342,6 +342,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
     let trait_impl = crate::ProviderDemand {
         source_path: SourcePath::new("provider.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_type_name: Some(sym("Thing")),
             trait_name: sym("Display"),
         },
     };
@@ -480,6 +481,7 @@ fn provider_worklist_accumulates_until_consumed() {
     let second_demand = crate::ProviderDemand {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_type_name: None,
             trait_name: SymbolId::default(),
         },
     };
@@ -529,12 +531,14 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
     let stale = crate::ProviderDemand {
         source_path: SourcePath::new("stale.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_type_name: None,
             trait_name: sym("Stale"),
         },
     };
     let current = crate::ProviderDemand {
         source_path: SourcePath::new("current.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_type_name: None,
             trait_name: sym("Current"),
         },
     };

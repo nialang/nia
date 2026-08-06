@@ -3986,3 +3986,21 @@ open work; they are not hidden inside the workflow result.
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.
+
+Standard-library reconstruction progress (2026-08-06, target-aware provider
+demand and implicit-trait closure): body-check method and trait demands now carry
+the resolved primitive/nominal target name, including pointer receivers, and
+provider summaries match both target and trait before selecting a reexported
+implementation. Demand fingerprints, persistent plans, used-path processing,
+and module-dependency cache formats were advanced together without retaining an
+old encoding. Implicit `Iterable`/`Iterator` lookup now follows a processed
+top-level facade branch; a shallow semantic facade cannot widen the search to
+all sibling providers, while package-root range lookup and process-owned
+iterator lookup remain supported. `TyKind::Error` and `ConstOnly` are excluded
+from provider-demand publication so transient error recovery cannot poison the
+incremental demand set with an unknown target. Focused loader and Driver tests
+cover broad/narrow text workflows, semantic/body/backend closure equality, and
+the ArrayList-for-in branch's exclusion of HashMap work. The process workflow's
+public generic parsing signatures intentionally retain `std/parse/core` as a
+semantic dependency; it is asserted as demanded rather than treated as an
+unrelated provider.

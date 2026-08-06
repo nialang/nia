@@ -52,6 +52,7 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
             segments: vec![sym("four")],
             include_declared_children: false,
             processing: UsedModulePathProcessing::IfProvidesTraitImpl {
+                target_type_name: None,
                 trait_name: sym("Trait"),
             },
         },
