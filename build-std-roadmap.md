@@ -4017,3 +4017,27 @@ emitted artifacts execute successfully. This closes the first Phase G
 typed-graph/host-tool evidence slice; generated/source invalidation, profile
 inheritance, package inputs, run/test/install relationships, and the remaining
 artifact surface remain open.
+
+Phase G progress (2026-08-06, generated-source producer closure): build-rooted
+module roots and imports now have one explicit source-root API:
+`ModuleOptions::fromBuild` and `ModuleImport::fromBuild`. Builder validation
+resolves every such path to the exact `GeneratedFile` or external-command
+output, pre-reserves dependency storage, and adds the producer edge to every
+compiler check/emit step after graph construction. Producer declaration order
+therefore has no semantic role, and a missing or ambiguous producer is rejected
+before encoding. Frozen-plan validation independently rejects missing producers
+and producers outside the transitive consumer closure, including hand-authored
+module-map inputs. Artifact-root commands and generated compiler inputs share
+one dependency-action closure traversal rather than maintaining divergent
+reachability rules.
+
+The maintained configured package now generates both an executable root source
+and an imported helper after their compiler consumers are declared. Its
+canonical plan proves the exact `build -> generate-helper`,
+`check -> generate-helper`, and `worker -> generate-worker` edges; both emitted
+artifacts execute successfully. Focused plan tests cover missing producers,
+closure omission, exact-path mismatch, valid root/import edges, and corrupt
+protocol bypass. This closes Phase G's ordering-independent generated-input
+relationship. Generated/source invalidation precision, profile inheritance,
+package inputs, run/test/install relationships, and the remaining artifact
+surface remain open.

@@ -2601,7 +2601,9 @@ mod tests {
     fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
         let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
         let check = action("check");
+        let generate = action("generate");
         let check_step = step("check");
+        let generate_step = step("generate");
         let plan = BuildPlan::freeze(BuildPlanDraft {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
@@ -2623,19 +2625,36 @@ mod tests {
                 }],
             }],
             artifacts: Vec::new(),
-            actions: vec![PlanAction {
-                key: check.clone(),
-                kind: ActionKind::CompilerCheck {
-                    module: module.clone(),
-                    target: target(),
-                    runtime: Runtime::Freestanding,
+            actions: vec![
+                PlanAction {
+                    key: check.clone(),
+                    kind: ActionKind::CompilerCheck {
+                        module: module.clone(),
+                        target: target(),
+                        runtime: Runtime::Freestanding,
+                    },
                 },
-            }],
-            steps: vec![PlanStep {
-                key: check_step.clone(),
-                action: check,
-                dependencies: Vec::new(),
-            }],
+                PlanAction {
+                    key: generate.clone(),
+                    kind: ActionKind::GeneratedFile {
+                        output: LogicalPath::new(LogicalPathRoot::Build, "generated/root.nia")
+                            .unwrap(),
+                        contents: b"pub fn generated() void {}\n".to_vec(),
+                    },
+                },
+            ],
+            steps: vec![
+                PlanStep {
+                    key: check_step.clone(),
+                    action: check,
+                    dependencies: vec![generate_step.clone()],
+                },
+                PlanStep {
+                    key: generate_step,
+                    action: generate,
+                    dependencies: Vec::new(),
+                },
+            ],
             default_step: Some(check_step.clone()),
             selected_step: Some(check_step),
         })

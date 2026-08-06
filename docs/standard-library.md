@@ -566,6 +566,16 @@ deep-copies them; a view supplied by runner-local decoding storage is never
 retained. The backing `TargetStorage` and executable target role are
 package-private implementation details, not a second public target model.
 
+Build modules preserve the root of every source path. `ModuleOptions::init` and
+`ModuleImport::init` describe package-rooted sources; their `fromBuild`
+counterparts take `BuildPathView` and describe generated sources under the
+build root. These are typed logical identities, not path spelling aliases.
+After configuration, `Build::validatePlan` resolves every build-rooted root or
+import to one exact generated-file or external-command output and atomically
+reserves and adds the missing compiler dependency edges. The Rust freeze
+boundary repeats the producer-closure validation for decoded or hand-authored
+plans.
+
 The build API can declare a distinct artifact target. The runner retains and
 encodes that descriptor, while the Rust coordinator executes typed compiler
 actions through a target-specific Driver; no callback executor or reconstructed

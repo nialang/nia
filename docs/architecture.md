@@ -2164,7 +2164,13 @@ The current `std::build` surface is intentionally small:
 `addModule(ModuleOptions::init(name, rootSource))` records a package-rooted
 source module, while `ModuleOptions::fromBuild(name,
 BuildPathView::init(path))` records a build-rooted source such as generated
-code. `addExecutable(ExecutableOptions::init(name, rootModule))` records a
+code. `ModuleImport::init(name, path)` records a package-rooted module-map
+entry; `ModuleImport::fromBuild(name, BuildPathView::init(path))` records a
+build-rooted generated entry. Every build-rooted root source or import has one
+exact generated-file or external-command output producer. Builder validation
+adds that producer edge to every compiler check/emit step after configuration,
+so producer declaration order is irrelevant and missing/ambiguous ownership is
+rejected. `addExecutable(ExecutableOptions::init(name, rootModule))` records a
 script-owned executable artifact. `ModuleOptions::withOptimization`,
 `ExecutableOptions::withOutputName`, and `ExecutableOptions::withRuntime`
 customize those records without exposing raw compiler argv assembly.
@@ -2176,7 +2182,10 @@ artifact paths cannot escape the build directory.
 `addAggregateStep(name)` groups dependencies without work of its own.
 `addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
 publishes the supplied bytes under `.nia-build/`; generated consumers refer to
-that output through its build-rooted logical identity.
+that output through its build-rooted logical identity. Frozen-plan validation
+independently resolves the exact output owner and requires its step in every
+consumer dependency closure; an old file in the build directory is never a
+substitute for a producer edge.
 `addRunExecutableStep(name, RunOptions::init(executable))` records an
 outputless external-command action using the executable's Artifact-root path and
 automatically depends on its existing emit producer; plan freeze verifies that

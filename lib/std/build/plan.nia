@@ -213,7 +213,11 @@ extend PlanEncoder {
         self.writeCount(moduleRecord.imports.len()).?;
         for &import in moduleRecord.imports.iter() {
             self.writeString(import.name.text()).?;
-            self.writePackagePath(import.path.view()).?;
+            switch import.sourceRoot {
+                ModuleSourceRoot::Package => self.writePackagePath(import.path.view()).?,
+                ModuleSourceRoot::Build => self.writeBuildPath(import.path.text()).?,
+                _ => return invalidPlan(),
+            }
         }
         !{}
     }

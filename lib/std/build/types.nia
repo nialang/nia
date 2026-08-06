@@ -225,12 +225,14 @@ pub struct Module {
 
 pub struct ModuleImport {
     name: &[char],
+    sourceRoot: ModuleSourceRoot,
     path: fs::PathView,
 }
 
 pub struct OwnedModuleImport {
     index: usize,
     name: string::String,
+    sourceRoot: ModuleSourceRoot,
     path: fs::PathBuf,
 }
 

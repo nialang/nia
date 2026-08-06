@@ -87,7 +87,11 @@ artifact, action, and step keys combine a package key with a validated visible
 name. Package-rooted logical paths also carry their package key, preventing
 equal relative paths in different packages from aliasing. Freeze canonicalizes
 node and reference order and validates references, cycles, output roots, and
-single-producer ownership before returning an immutable value.
+single-producer ownership before returning an immutable value. Build-rooted
+module roots and imports are generated inputs: freeze resolves their exact
+generated-file or external-command output owner and rejects a compiler
+check/emit step unless that producer is in its transitive dependency closure.
+Artifact-root command inputs use the same dependency-action closure traversal.
 
 The binary codec uses `ToolchainLayout`'s build-protocol schema as its sole
 version source. It bounds the full envelope, collection counts, strings, and
@@ -116,6 +120,11 @@ traversal and executes a shared action at most once. Aggregate actions are
 no-ops; compiler check and executable emission call `nia-driver` directly with
 typed module maps, optimization, runtime, target, cache, and output values.
 Generated-file actions publish declared bytes atomically under the build root.
+`ModuleOptions::fromBuild` and `ModuleImport::fromBuild` expose generated root
+sources and imports without treating them as package files. Builder validation
+adds their exact producer edges after all steps have been declared, making the
+graph independent of declaration order; freeze repeats the closure check at the
+protocol boundary.
 `addRunExecutableStep` requires an existing emit step for the declared artifact,
 adds that producer dependency, and encodes the artifact as an external-command
 program with a package-root working directory and no declared outputs. Freeze

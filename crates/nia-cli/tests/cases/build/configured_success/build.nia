@@ -5,9 +5,9 @@ using std::io;
 
 fn configure(b: &mut build::Build) build::Error!void {
     let helperName = "helper";
-    let helperPath = "deps/helper.nia";
+    let helperPath = "generated/helper.nia";
     let srcMain = "src/main.nia";
-    let srcWorker = "src/worker.nia";
+    let generatedWorker = "generated/worker.nia";
     let appName = "app";
     let workerName = "worker";
     let outputName = "custom-app";
@@ -16,8 +16,13 @@ fn configure(b: &mut build::Build) build::Error!void {
     let checkStepName = "check";
     let runStepName = "run";
     let toolStepName = "tool";
+    let generateWorkerStepName = "generate-worker";
+    let generateHelperStepName = "generate-helper";
     let imports = [
-        build::ModuleImport::init(&helperName, fs::PathView::init(&helperPath)),
+        build::ModuleImport::fromBuild(
+            &helperName,
+            build::BuildPathView::init(&helperPath),
+        ),
     ];
     let rootModule = b.addModule(
         build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))
@@ -27,7 +32,10 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::ExecutableOptions::init(&appName, rootModule).withOutputName(&outputName),
     ).?;
     let workerModule = b.addModule(
-        build::ModuleOptions::init(&workerName, fs::PathView::init(&srcWorker)),
+        build::ModuleOptions::fromBuild(
+            &workerName,
+            build::BuildPathView::init(&generatedWorker),
+        ),
     ).?;
     let worker = b.addExecutable(
         build::ExecutableOptions::init(&workerName, workerModule)
@@ -36,6 +44,16 @@ fn configure(b: &mut build::Build) build::Error!void {
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
+    _ = b.addGeneratedFileStep(
+        &generateWorkerStepName,
+        build::BuildPathView::init(&generatedWorker),
+        &b"using std::process;\n\npub fn main(init: process::Init) process::ExitCode!void {\n    _ = init;\n    !{}\n}\n"[..],
+    ).?;
+    _ = b.addGeneratedFileStep(
+        &generateHelperStepName,
+        build::BuildPathView::init(&helperPath),
+        &b"pub fn value() i32 {\n    7\n}\n"[..],
+    ).?;
     let runArguments: [1]&[char] = [&"roadmap"];
     let runStep = b.addRunExecutableStep(
         &runStepName,

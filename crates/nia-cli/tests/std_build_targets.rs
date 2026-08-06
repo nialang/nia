@@ -128,6 +128,22 @@ fn rejectsForeignStep(result: build::Error!void) bool {
     }
 }
 
+fn rejectsInvalidPlanModule(result: build::Error!void, index: usize) bool {
+    switch result {
+        !ok => {
+            _ = ok;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Module(actual),
+            } => actual == index,
+            _ => false,
+        },
+    }
+}
+
 fn rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) bool {
     switch result {
         !handle => {
@@ -310,6 +326,26 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not rejectsForeignStep(api.setDefaultStep(otherStep)) {
         return process::exit(7)!;
+    }
+
+    let mut missingProducer = initBuild(init, &mut allocator).exit().?;
+    defer missingProducer.deinit().exit().?;
+    let generatedModule = missingProducer.addModule(
+        build::ModuleOptions::fromBuild(
+            &"generated",
+            build::BuildPathView::init(&"generated/root.nia"),
+        ),
+    ).exit().?;
+    let generatedExecutable = missingProducer.addExecutable(
+        build::ExecutableOptions::init(&"generated-app", generatedModule),
+    ).exit().?;
+    let generatedEmit = missingProducer.addEmitExecutableStep(
+        &"generated-emit",
+        generatedExecutable,
+    ).exit().?;
+    missingProducer.setDefaultStep(generatedEmit).exit().?;
+    if not rejectsInvalidPlanModule(missingProducer.validatePlan(), 0usize) {
+        return process::exit(16)!;
     }
     api.validatePlan().exit().?;
     !{}
