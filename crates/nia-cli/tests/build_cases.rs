@@ -202,13 +202,13 @@ fn assert_configured_build_success(
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.steps_executed\":3")),
+            .any(|line| line.contains("\"build.steps_executed\":4")),
         "{stderr}"
     );
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.actions_executed\":3")),
+            .any(|line| line.contains("\"build.actions_executed\":4")),
         "{stderr}"
     );
     assert!(
@@ -223,11 +223,16 @@ fn assert_configured_build_success(
     assert_eq!(plan.schema_version(), nia_build::BUILD_PLAN_SCHEMA_VERSION);
     assert_eq!(plan.root_package().as_str(), "root");
     assert_eq!(plan.packages().len(), 1);
-    assert_eq!(plan.modules().len(), 1);
+    assert_eq!(plan.modules().len(), 2);
     assert_eq!(plan.modules()[0].key.name(), "app");
     assert_eq!(
         plan.modules()[0].root_source.protocol_path(),
         "src/main.nia"
+    );
+    assert_eq!(plan.modules()[1].key.name(), "worker");
+    assert_eq!(
+        plan.modules()[1].root_source.protocol_path(),
+        "src/worker.nia"
     );
     assert_eq!(plan.modules()[0].imports.len(), 1);
     assert_eq!(plan.modules()[0].imports[0].name, "helper");
@@ -235,11 +240,14 @@ fn assert_configured_build_success(
         plan.modules()[0].imports[0].path.protocol_path(),
         "deps/helper.nia"
     );
-    assert_eq!(plan.artifacts().len(), 1);
+    assert_eq!(plan.artifacts().len(), 2);
     assert_eq!(plan.artifacts()[0].key.name(), "app");
     assert_eq!(plan.artifacts()[0].root_module.name(), "app");
     assert_eq!(plan.artifacts()[0].output.protocol_path(), "custom-app");
-    assert_eq!(plan.actions().len(), 4);
+    assert_eq!(plan.artifacts()[1].key.name(), "worker");
+    assert_eq!(plan.artifacts()[1].root_module.name(), "worker");
+    assert_eq!(plan.artifacts()[1].output.protocol_path(), "custom-worker");
+    assert_eq!(plan.actions().len(), 5);
     assert!(matches!(
         plan.actions()[0].kind,
         nia_build::ActionKind::CompilerEmit { .. }
@@ -330,7 +338,7 @@ fn assert_configured_build_success(
                 &[
                     nia_build::CommandArgument::Literal("-c".to_string()),
                     nia_build::CommandArgument::Literal(
-                        "test \"$MODE\" = fixture && test -s \"$4\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
+                        "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
                             .to_string()
                     ),
                     nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
@@ -338,6 +346,7 @@ fn assert_configured_build_success(
                     nia_build::CommandArgument::OutputPath(outputs[1].clone()),
                     nia_build::CommandArgument::OutputPath(outputs[0].clone()),
                     nia_build::CommandArgument::InputPath(inputs[1].clone()),
+                    nia_build::CommandArgument::InputPath(inputs[2].clone()),
                 ]
             );
             assert!(matches!(
@@ -352,7 +361,7 @@ fn assert_configured_build_success(
                     value: Some("fixture".to_string()),
                 }]
             );
-            assert_eq!(inputs.len(), 2);
+            assert_eq!(inputs.len(), 3);
             assert!(matches!(
                 inputs[0].root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
@@ -363,6 +372,11 @@ fn assert_configured_build_success(
                 nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
             ));
             assert!(inputs[1].components().is_empty());
+            assert!(matches!(
+                inputs[2].root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+            ));
+            assert!(inputs[2].components().is_empty());
             assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),
@@ -373,7 +387,7 @@ fn assert_configured_build_success(
         }
         other => panic!("expected staged external tool action, found {other:?}"),
     }
-    assert_eq!(plan.steps().len(), 4);
+    assert_eq!(plan.steps().len(), 5);
     let run_step = plan
         .steps()
         .iter()
@@ -398,7 +412,7 @@ fn assert_configured_build_success(
             .iter()
             .map(nia_build::StepKey::name)
             .collect::<Vec<_>>(),
-        ["build", "run"]
+        ["build", "run", "worker"]
     );
     assert_eq!(
         plan.default_step().map(nia_build::StepKey::name),
@@ -410,6 +424,8 @@ fn assert_configured_build_success(
     );
     assert!(workspace.join(".nia-build/custom-app").is_file());
     assert!(!workspace.join(".nia-build/app").exists());
+    assert!(workspace.join(".nia-build/custom-worker").is_file());
+    assert!(!workspace.join(".nia-build/worker").exists());
     assert_eq!(
         std::fs::read(workspace.join(".nia-build/transformed.txt")).unwrap(),
         b"ROADMAP\n"
@@ -431,6 +447,12 @@ fn assert_configured_build_success(
         Command::new(workspace.join(".nia-build/custom-app"))
             .arg("roadmap")
             .status_timeout("run configured build target")
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        Command::new(workspace.join(".nia-build/custom-worker"))
+            .status_timeout("run configured worker artifact")
             .code(),
         Some(0)
     );

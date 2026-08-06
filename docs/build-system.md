@@ -492,13 +492,14 @@ release trend.
 
 A 2026-08-02 copied production-path `configured_success` integration sample
 exercises the external-command cache together with compiler emit, a real
-generated runner, and two staged command outputs. It used the same unoptimized
-test-profile compiler. The cold run took 119.939 seconds: 108.052 seconds
-compiled the runner and 11.876 seconds executed the plan. The unchanged run
-reported two of two build-action cache hits, reduced plan execution to 0.728
-seconds, and restored both command outputs correctly. Its 39.030-second total
-remained dominated by 38.294 seconds of runner compilation. This sample proves
-the process-execution cut but is not release performance evidence.
+generated runner, two executable artifacts, and two staged command outputs. It
+used the same unoptimized test-profile compiler. The cold run took 119.939
+seconds: 108.052 seconds compiled the runner and 11.876 seconds executed the
+plan. The unchanged run reported two of two build-action cache hits, reduced
+plan execution to 0.728 seconds, and restored both command outputs correctly.
+Its 39.030-second total remained dominated by 38.294 seconds of runner
+compilation. This sample proves the process-execution cut but is not release
+performance evidence.
 
 This measurement exposed a cache correctness boundary. Codegen partition
 definition membership must be canonicalized by stable source definition
@@ -508,7 +509,7 @@ persisted extension-trait-solving product was removed after it failed to cut the
 end-to-end dependency chain and could perturb downstream definition identity;
 the typed in-session query remains the semantic owner.
 
-The 14-case CLI build suite is a correctness gate, not the performance
+The 15-case CLI build suite is a correctness gate, not the performance
 baseline. Every fixture is an independent libtest case with an isolated scoped
 workspace and cache. Runner-only contracts reserve one compiler slot; cases
 that execute a nested compiler action reserve the conservative build weight.

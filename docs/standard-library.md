@@ -100,6 +100,12 @@ the iterable type is known. Compiler error-recovery types never publish
 provider demands, so an early failed lookup cannot leave a permanent unknown
 target that widens later fixpoint rounds.
 
+The provider-demand contract is also covered by the maintained build-host
+workflow: equivalent broad and narrow public imports select the same semantic,
+body, and backend work, and implicit collection iteration does not activate an
+unrelated sibling provider. The remaining text/path rows below are independent
+API-design work.
+
 ## 4. API Review Rules
 
 Every reviewed API receives one or more findings:
@@ -433,7 +439,7 @@ dispatch, and LLVM before deleting each builtin declaration.
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
 | owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | naming, mutation, relations, collections, receiver parsing, unmanaged ownership, and the complete vertical workflow accepted |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
-| UTF-8 sequence | borrowed bytes decoded one scalar at a time or streamed from scalar text | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8`, `Writer::writeUtf8` | `Utf8DecodeError`, `TextError`, or the concrete writer error | scalar decode, owned whole-buffer decode, transactional append, and allocation-free stream encoding accepted; nominal validated view remains open |
+| UTF-8 sequence | borrowed bytes decoded one scalar at a time or streamed from scalar text | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8`, `Writer::writeUtf8` | `Utf8DecodeError`, `TextError`, or the concrete writer error | scalar decode, owned whole-buffer decode, transactional append, allocation-free stream encoding, and provider-closure evidence accepted; nominal validated view remains open |
 | C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
