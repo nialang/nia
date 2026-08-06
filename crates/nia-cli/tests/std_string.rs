@@ -427,6 +427,206 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_text_composes_with_files_and_processes() {
+    let root = temp_dir("emit_exe_std_text_composes_with_files_and_processes");
+    let data_path = root.join("nia-工作流-42.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::fmt;
+using std::fs;
+using std::io;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let mut pageAllocator = mem::PageAllocator::init();
+    let page: &mut mem::Allocator = &mut pageAllocator;
+
+    let input: [6]u8 = [0xe4u8, 0xbdu8, 0xa0u8, 0xe5u8, 0xa5u8, 0xbdu8];
+    let mut content = switch std::String::fromUtf8(page, &input) {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(1)!;
+        },
+    };
+    defer content.deinit(page).exit().?;
+    content.append(page, &" / Nia").exit().?;
+    let answer = 42;
+    let contentArgs: [1]&fmt::Format = [&answer];
+    switch content.appendFormat(page, &" #{}", &contentArgs) {
+        !ok => { _ = ok; },
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+    }
+
+    let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    switch std::String::fromUtf8(page, &truncated) {
+        !value => {
+            let mut unexpected = value;
+            unexpected.deinit(page).exit().?;
+            return process::exit(3)!;
+        },
+        std::TextError::InvalidUtf8(std::unicode::Utf8DecodeError::Truncated)! => {},
+        error! => {
+            _ = error;
+            return process::exit(4)!;
+        },
+    }
+
+    let invalid: [1]u8 = [0xffu8];
+    switch std::String::fromUtf8(page, &invalid) {
+        !value => {
+            let mut unexpected = value;
+            unexpected.deinit(page).exit().?;
+            return process::exit(5)!;
+        },
+        std::TextError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
+        error! => {
+            _ = error;
+            return process::exit(6)!;
+        },
+    }
+
+    let mut tinyStorage: [1]u8 = [0];
+    let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
+    switch std::String::fromUtf8(&mut tiny, &b"allocation") {
+        !value => {
+            let mut unexpected = value;
+            unexpected.deinit(&mut tiny).exit().?;
+            return process::exit(7)!;
+        },
+        std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(8)!;
+        },
+    }
+
+    let mut pathText = std::String::fromSlice(page, &"nia-工作流-").exit().?;
+    let mut pathTextTransferred = false;
+    defer if not pathTextTransferred {
+        pathText.deinit(page).exit().?;
+    };
+    let pathArgs: [1]&fmt::Format = [&answer];
+    switch pathText.appendFormat(page, &"{}.txt", &pathArgs) {
+        !ok => { _ = ok; },
+        error! => {
+            _ = error;
+            return process::exit(9)!;
+        },
+    }
+    let mut path = fs::PathBuf::fromString(pathText);
+    pathTextTransferred = true;
+    defer path.deinit(page).exit().?;
+
+    let mut file = fs::File::create(path.view(), fs::CreateOptions::init()).exit().?;
+    let mut fileOpen = true;
+    defer if fileOpen {
+        file.close().exit().?;
+    };
+    let mut fileBuffer: [5]u8 = [0; 5];
+    let mut writer = file.writer(&mut fileBuffer[..]).exit().?;
+    writer.writeUtf8(content.text()).exit().?;
+    writer.flush().exit().?;
+    file.close().exit().?;
+    fileOpen = false;
+
+    let missingCommand = process::Command::init(
+        fs::PathView::init(&"/definitely/missing/nia-text-workflow"),
+        init.env(),
+    );
+    switch missingCommand.run() {
+        !term => {
+            _ = term;
+            return process::exit(12)!;
+        },
+        process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound))! => {},
+        error! => {
+            _ = error;
+            return process::exit(13)!;
+        },
+    }
+
+    let arguments: [1]&[char] = [path.text()];
+    let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Pipe);
+    let mut child = command.spawn().exit().?;
+    let mut childLive = true;
+    defer if childLive {
+        let term = child.kill().exit().?;
+        _ = term;
+    };
+    let mut stdout = switch child.takeStdout() {
+        ?value => value,
+        null => return process::exit(14)!,
+    };
+    let mut stdoutOpen = true;
+    defer if stdoutOpen {
+        stdout.close().exit().?;
+    };
+    let mut readBuffer: [5]u8 = [0; 5];
+    let mut encoded: [16]u8 = [0; 16];
+    {
+        let mut reader = stdout.buffered(&mut readBuffer[..]);
+        reader.readExact(&mut encoded[..]).exit().?;
+    }
+    stdout.close().exit().?;
+    stdoutOpen = false;
+    let term = child.wait().exit().?;
+    childLive = false;
+    if not term.succeeded() {
+        return process::exit(15)!;
+    }
+
+    let mut roundTrip = switch std::String::fromUtf8(page, &encoded) {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(16)!;
+        },
+    };
+    defer roundTrip.deinit(page).exit().?;
+    if not roundTrip.equals(content.text()) or not roundTrip.equals(&"你好 / Nia #42") {
+        return process::exit(17)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write text workflow source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile end-to-end std text workflow");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run end-to-end std text workflow");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(
+        std::fs::read(&data_path).expect("read text workflow output"),
+        "你好 / Nia #42".as_bytes()
+    );
+}
+
+#[test]
 fn check_std_path_buf_does_not_adopt_raw_owned_text() {
     let root = temp_dir("check_std_path_buf_does_not_adopt_raw_owned_text");
     let main = root.join("main.nia");

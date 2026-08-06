@@ -3956,6 +3956,33 @@ rather than fabricating a `T`. Runtime empty-slice projection remains valid as
 a pointer value but cannot be dereferenced. No snake_case alias or compatibility
 trait is introduced.
 
+Standard-library reconstruction progress (2026-08-06, complete text workflow
+batch): `io::Writer` now exposes `writeUtf8(text)` as the direct streaming
+boundary from borrowed scalar text to UTF-8 bytes. The operation allocates no
+temporary storage and retains the writer's associated error, unlike routing an
+already-constructed string through a dummy formatting template and collapsing
+the concrete I/O cause into `fmt::Error::Write`. Its implementation uses direct
+slice iteration and `char.encodeUtf8()`; the defining narrow provider declares
+its slice dependency explicitly.
+
+One maintained emitted program now composes the reviewed surface end to end. It
+decodes non-ASCII UTF-8 into owned `String`, mutates and formats that value,
+transfers a separately formatted `String` into a Unicode `PathBuf`, writes the
+content through a real file writer, passes the borrowed path through typed
+`Command` UTF-8 lowering, reads the file through a piped `/bin/cat`, and decodes
+and compares the returned bytes. Exact `Truncated`, `InvalidLeadingByte`,
+`OutOfMemory`, and spawn-exec `NotFound` causes are matched without collapsing
+their domains. Conditional propagating defers cover pre-transfer path text, the
+file handle, child pipe, running child, returned text, path, and source text;
+the host test also observes the exact on-disk UTF-8 bytes.
+
+This closes the reconstruction track's maintained vertical-workflow acceptance
+item and reconciles the stable matrix: receiver parsing and process-owned
+identity/spawn/wait causes were already completed by their earlier batches.
+Nominal validated UTF-8 storage, owned C-string design, filesystem roots/native
+representation/context, and facade/provider demand evidence remain separate
+open work; they are not hidden inside the workflow result.
+
 This sequencing turns Nia's current experimental build bootstrap into a real
 toolchain without discarding the valuable fact that build scripts are ordinary
 Nia programs and can use a carefully layered standard library.

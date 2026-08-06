@@ -23,6 +23,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(1)!; },
     }
+    switch stdout.writeUtf8(&"lambda: λ\n") {
+        !ok => { _ = ok; },
+        error! => { return process::exit(2)!; },
+    }
+    let mut storage: [1]u8 = [0];
+    let mut bounded = io::FixedBufferWriter::init(&mut storage[..]);
+    switch bounded.writeUtf8(&"λ") {
+        !ok => {
+            _ = ok;
+            return process::exit(3)!;
+        },
+        io::BufferError::NoSpace! => {},
+        error! => {
+            _ = error;
+            return process::exit(4)!;
+        },
+    }
     !{}
 }
 "#,
@@ -45,7 +62,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "nia\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "nia\nlambda: λ\n");
 }
 
 #[test]
