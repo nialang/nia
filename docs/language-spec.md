@@ -3561,6 +3561,12 @@ package-rooted source module and returns a module handle.
 `ModuleOptions::fromBuild(name, BuildPathView::init(path))` instead declares a
 build-rooted source, including a source produced by a generated-file action,
 without aliasing its logical identity as a package path.
+`ModuleImport::init(name, path)` records a package-rooted import, while
+`ModuleImport::fromBuild(name, BuildPathView::init(path))` records a
+build-rooted generated import. Every build-rooted root source or import must
+match exactly one generated-file or external-command output. Plan validation
+adds that producer to every compiler check/emit consumer independently of
+declaration order; a missing or ambiguous producer is invalid.
 `ModuleOptions::withOptimization(mode)` overrides the default optimization
 mode. `Build::addExecutable(ExecutableOptions::init(name, rootModule))`
 declares an executable artifact and returns an executable handle;
@@ -3574,6 +3580,10 @@ a graph step that emits the artifact to
 `Build::addAggregateStep(name)` declares a dependency-only graph node.
 `Build::addGeneratedFileStep(name, BuildPathView::init(path), contents)`
 declares atomic publication of the supplied bytes under `.nia-build/`.
+The frozen-plan validator independently requires the exact producer action to
+be reachable through each consuming compiler step's dependency closure, so
+hand-authored protocol data cannot make compilation depend on a pre-existing
+file or step ordering.
 `Build::addRunExecutableStep(name, RunOptions::init(executable))` declares an
 outputless external-command action whose program is the typed executable
 artifact and whose working directory is the package root. The executable must

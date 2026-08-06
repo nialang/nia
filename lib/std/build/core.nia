@@ -512,9 +512,167 @@ extend Build {
                 }
             },
         }
+        self.ensureGeneratedModuleDependencies().?;
         self.validateDependencyGraph().?;
         self.planValidated = true;
         !{}
+    }
+
+    fn ensureGeneratedModuleDependencies(&mut self) Error!void {
+        let mut missingCount: usize = 0;
+        let mut index: usize = 0;
+        while index < self.steps.len() {
+            missingCount += self.missingGeneratedDependenciesForStep(index).?;
+            index += 1;
+        }
+        self.dependencies.reserve(
+            self.allocator,
+            missingCount,
+        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        index = 0;
+        while index < self.steps.len() {
+            self.addGeneratedDependenciesForStep(index).?;
+            index += 1;
+        }
+        !{}
+    }
+
+    fn compilerModuleIndexForStep(&self, index: usize) ?usize {
+        let step = self.steps.asSlice()[index];
+        switch step.kind {
+            StepKind::CheckExecutable => ?self.executables.asSlice()[
+                step.payload.executable.target.index()
+            ].rootModule.index(),
+            StepKind::EmitExecutable => ?self.executables.asSlice()[
+                step.payload.executable.target.index()
+            ].rootModule.index(),
+            _ => null,
+        }
+    }
+
+    fn missingGeneratedDependenciesForStep(&self, index: usize) Error!usize {
+        let moduleIndex = switch self.compilerModuleIndexForStep(index) {
+            ?moduleIndex => moduleIndex,
+            null => return !0,
+        };
+        let moduleRecord = self.modules.asSlice()[moduleIndex];
+        let mut count: usize = 0;
+        if moduleRecord.sourceRoot == ModuleSourceRoot::Build {
+            let producer = self.requireGeneratedSourceProducer(
+                moduleRecord.rootSource.text(),
+                index,
+                moduleIndex,
+            ).?;
+            if not self.hasDependency(index, producer.index()) {
+                count += 1;
+            }
+        }
+        for &import in moduleRecord.imports.iter() {
+            if import.sourceRoot == ModuleSourceRoot::Build {
+                let producer = self.requireGeneratedSourceProducer(
+                    import.path.text(),
+                    index,
+                    moduleIndex,
+                ).?;
+                if not self.hasDependency(index, producer.index()) {
+                    count += 1;
+                }
+            }
+        }
+        !count
+    }
+
+    fn addGeneratedDependenciesForStep(&mut self, index: usize) Error!void {
+        let moduleIndex = switch self.compilerModuleIndexForStep(index) {
+            ?moduleIndex => moduleIndex,
+            null => return !{},
+        };
+        let moduleRecord = self.modules.asSlice()[moduleIndex];
+        if moduleRecord.sourceRoot == ModuleSourceRoot::Build {
+            let producer = self.requireGeneratedSourceProducer(
+                moduleRecord.rootSource.text(),
+                index,
+                moduleIndex,
+            ).?;
+            self.dependOn(StepHandle::init(self.ownerId, index), producer).?;
+        }
+        let mut importIndex: usize = 0;
+        while importIndex < moduleRecord.imports.len() {
+            let import = moduleRecord.imports.asSlice()[importIndex];
+            if import.sourceRoot == ModuleSourceRoot::Build {
+                let producer = self.requireGeneratedSourceProducer(
+                    import.path.text(),
+                    index,
+                    moduleIndex,
+                ).?;
+                self.dependOn(StepHandle::init(self.ownerId, index), producer).?;
+            }
+            importIndex += 1;
+        }
+        !{}
+    }
+
+    fn requireGeneratedSourceProducer(
+        &self,
+        path: &[char],
+        consumerIndex: usize,
+        moduleIndex: usize,
+    ) Error!StepHandle {
+        switch self.findGeneratedSourceProducer(path, consumerIndex) {
+            ?producer => !producer,
+            null => Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Module(moduleIndex),
+            }!,
+        }
+    }
+
+    fn hasDependency(&self, stepIndex: usize, dependencyIndex: usize) bool {
+        for &edge in self.dependencies.iter() {
+            if edge.step.index() == stepIndex
+                and edge.dependency.index() == dependencyIndex
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn findGeneratedSourceProducer(&self, path: &[char], consumerIndex: usize) ?StepHandle {
+        let mut found: ?StepHandle = null;
+        let mut index: usize = 0;
+        for &step in self.steps.iter() {
+            if index == consumerIndex {
+                index += 1;
+                continue;
+            }
+            let matches = if step.kind == StepKind::GeneratedFile {
+                step.payload.generatedFile.output.text().equals(path)
+            } else if step.kind == StepKind::ExternalCommand {
+                let mut output = false;
+                for &argument in step.payload.externalCommand.arguments.iter() {
+                    if argument.kind == CommandArgumentKind::BuildOutput
+                        and argument.payload.value.equals(path)
+                    {
+                        output = true;
+                    }
+                }
+                output
+            } else {
+                false
+            };
+            if matches {
+                switch found {
+                    ?old => {
+                        _ = old;
+                        return null;
+                    },
+                    null => found = ?StepHandle::init(self.ownerId, step.index),
+                }
+            }
+            index += 1;
+        }
+        found
     }
 
     fn validateDependencyGraph(&mut self) Error!void {
@@ -1467,7 +1625,16 @@ extend ModuleImport {
     pub fn init(name: &[char], path: fs::PathView) ModuleImport {
         {
             name: name,
+            sourceRoot: ModuleSourceRoot::Package,
             path: path,
+        }
+    }
+
+    pub fn fromBuild(name: &[char], path: BuildPathView) ModuleImport {
+        {
+            name: name,
+            sourceRoot: ModuleSourceRoot::Build,
+            path: fs::PathView::init(path.text()),
         }
     }
 }
@@ -1477,6 +1644,7 @@ extend OwnedModuleImport {
         let mut owned: OwnedModuleImport = {
             index: index,
             name: string::String::init(),
+            sourceRoot: import.sourceRoot,
             path: fs::PathBuf::init(),
         };
         let mut transferred = false;
@@ -1776,6 +1944,14 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
             let mut index: usize = 0;
             for &import in items.iter() {
                 if not isValidModuleImportName(import.name) {
+                    return Error::Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::ModuleImport(index),
+                    }!;
+                }
+                if import.sourceRoot == ModuleSourceRoot::Build
+                    and not isValidBuildPath(import.path.text())
+                {
                     return Error::Invalid {
                         operation: Operation::Validate,
                         subject: Subject::ModuleImport(index),

@@ -794,8 +794,42 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::draft;
+    use super::super::tests::{draft, generated_source_draft};
     use super::*;
+
+    fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
+        let mut writer = Writer::new();
+        writer.bytes(MAGIC);
+        writer.u32(BUILD_PLAN_SCHEMA_VERSION);
+        writer.package_key(&draft.root_package).unwrap();
+        writer.count(draft.packages.len()).unwrap();
+        for package in &draft.packages {
+            writer.package_key(&package.key).unwrap();
+        }
+        writer.target(&draft.host_target).unwrap();
+        writer.target(&draft.artifact_target).unwrap();
+        writer.count(draft.modules.len()).unwrap();
+        for module in &draft.modules {
+            writer.module(module).unwrap();
+        }
+        writer.count(draft.artifacts.len()).unwrap();
+        for artifact in &draft.artifacts {
+            writer.artifact(artifact).unwrap();
+        }
+        writer.count(draft.actions.len()).unwrap();
+        for action in &draft.actions {
+            writer.action(action).unwrap();
+        }
+        writer.count(draft.steps.len()).unwrap();
+        for step in &draft.steps {
+            writer.step(step).unwrap();
+        }
+        writer.option_step_key(draft.default_step.as_ref()).unwrap();
+        writer
+            .option_step_key(draft.selected_step.as_ref())
+            .unwrap();
+        writer.finish().unwrap()
+    }
 
     #[test]
     fn canonical_compiler_plan_round_trips() {
@@ -981,6 +1015,17 @@ mod tests {
             BuildPlan::decode(&bytes),
             Err(PlanCodecError::Semantic(error))
                 if matches!(*error, PlanError::MissingPackage(_))
+        ));
+    }
+
+    #[test]
+    fn decoded_draft_cannot_bypass_generated_source_producer_closure() {
+        let draft = generated_source_draft("generated/root.nia", vec![]);
+        let bytes = encode_draft_without_freeze(&draft);
+        assert!(matches!(
+            BuildPlan::decode(&bytes),
+            Err(PlanCodecError::Semantic(error))
+                if matches!(*error, PlanError::GeneratedSourceProducerOutsideClosure { .. })
         ));
     }
 }

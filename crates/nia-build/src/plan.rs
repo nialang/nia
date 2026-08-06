@@ -402,6 +402,17 @@ pub enum PlanError {
         action: ActionKey,
         reason: &'static str,
     },
+    MissingGeneratedSourceProducer {
+        action: ActionKey,
+        module: ModuleKey,
+        path: LogicalPath,
+    },
+    GeneratedSourceProducerOutsideClosure {
+        action: ActionKey,
+        module: ModuleKey,
+        path: LogicalPath,
+        producer: ActionKey,
+    },
     MissingDefaultStep,
     InvalidTarget {
         role: &'static str,
@@ -431,6 +442,7 @@ impl BuildPlan {
         validate_step_cycles(&draft.steps)?;
         validate_artifact_dependencies(&draft.actions, &draft.steps)?;
         validate_output_ownership(&draft.actions, &draft.artifacts)?;
+        validate_generated_source_dependencies(&draft)?;
 
         Ok(Self {
             schema_version: BUILD_PLAN_SCHEMA_VERSION,
@@ -928,32 +940,122 @@ fn validate_artifact_dependencies(
             continue;
         }
 
-        let mut pending = step.dependencies.clone();
-        let mut visited = BTreeSet::new();
-        let mut produced = BTreeSet::new();
-        while let Some(dependency_key) = pending.pop() {
-            if !visited.insert(dependency_key.clone()) {
-                continue;
-            }
-            let dependency = step_by_key.get(&dependency_key).copied().ok_or_else(|| {
-                PlanError::MissingStep {
-                    owner: format!("step {}", step.key.name()),
-                    step: dependency_key.clone(),
-                }
-            })?;
-            if let Some(ActionKind::CompilerEmit { artifact, .. }) =
-                action_by_key.get(&dependency.action).copied()
-            {
-                produced.insert(artifact.clone());
-            }
-            pending.extend(dependency.dependencies.iter().cloned());
-        }
+        let dependency_actions = dependency_action_closure(step, &step_by_key);
         for (artifact, reason) in required {
-            if !produced.contains(&artifact) {
+            let produced = dependency_actions.iter().any(|action| {
+                matches!(
+                    action_by_key.get(action),
+                    Some(ActionKind::CompilerEmit { artifact: produced, .. })
+                        if produced == &artifact
+                )
+            });
+            if !produced {
                 return Err(PlanError::InvalidCommand {
                     action: step.action.clone(),
                     reason,
                 });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dependency_action_closure(
+    step: &PlanStep,
+    step_by_key: &BTreeMap<&StepKey, &PlanStep>,
+) -> BTreeSet<ActionKey> {
+    let mut pending = step.dependencies.clone();
+    let mut visited = BTreeSet::new();
+    let mut actions = BTreeSet::new();
+    while let Some(dependency_key) = pending.pop() {
+        if !visited.insert(dependency_key.clone()) {
+            continue;
+        }
+        let dependency = step_by_key
+            .get(&dependency_key)
+            .expect("validated step dependency");
+        actions.insert(dependency.action.clone());
+        pending.extend(dependency.dependencies.iter().cloned());
+    }
+    actions
+}
+
+fn validate_generated_source_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanError> {
+    let modules: BTreeMap<_, _> = draft
+        .modules
+        .iter()
+        .map(|module| (&module.key, module))
+        .collect();
+    let artifacts: BTreeMap<_, _> = draft
+        .artifacts
+        .iter()
+        .map(|artifact| (&artifact.key, &artifact.root_module))
+        .collect();
+    let steps_by_action: BTreeMap<_, Vec<&PlanStep>> =
+        draft.steps.iter().fold(BTreeMap::new(), |mut steps, step| {
+            steps.entry(&step.action).or_default().push(step);
+            steps
+        });
+    let mut producers = BTreeMap::<&LogicalPath, &ActionKey>::new();
+    for action in &draft.actions {
+        match &action.kind {
+            ActionKind::GeneratedFile { output, .. } => {
+                producers.insert(output, &action.key);
+            }
+            ActionKind::ExternalCommand { outputs, .. } => {
+                for output in outputs {
+                    producers.insert(output, &action.key);
+                }
+            }
+            _ => {}
+        }
+    }
+    let step_by_key: BTreeMap<_, _> = draft.steps.iter().map(|step| (&step.key, step)).collect();
+
+    for action in &draft.actions {
+        let module_key = match &action.kind {
+            ActionKind::CompilerCheck { module, .. } => Some(module),
+            ActionKind::CompilerEmit { artifact, .. } => artifacts.get(artifact).copied(),
+            _ => None,
+        };
+        let Some(module_key) = module_key else {
+            continue;
+        };
+        let Some(consumer_steps) = steps_by_action.get(&action.key) else {
+            continue;
+        };
+        let module = modules[module_key];
+        for module_path in std::iter::once(&module.root_source)
+            .chain(module.imports.iter().map(|import| &import.path))
+        {
+            if !matches!(module_path.root(), LogicalPathRoot::Build) {
+                continue;
+            }
+            let Some(producer) = producers.get(module_path).copied() else {
+                return Err(PlanError::MissingGeneratedSourceProducer {
+                    action: action.key.clone(),
+                    module: (*module_key).clone(),
+                    path: module_path.clone(),
+                });
+            };
+            if !steps_by_action.contains_key(producer) {
+                return Err(PlanError::GeneratedSourceProducerOutsideClosure {
+                    action: action.key.clone(),
+                    module: (*module_key).clone(),
+                    path: module_path.clone(),
+                    producer: (*producer).clone(),
+                });
+            }
+            for consumer_step in consumer_steps {
+                let dependency_actions = dependency_action_closure(consumer_step, &step_by_key);
+                if !dependency_actions.contains(producer) {
+                    return Err(PlanError::GeneratedSourceProducerOutsideClosure {
+                        action: action.key.clone(),
+                        module: (*module_key).clone(),
+                        path: module_path.clone(),
+                        producer: (*producer).clone(),
+                    });
+                }
             }
         }
     }
@@ -1197,6 +1299,130 @@ mod tests {
         assert!(matches!(
             BuildPlan::freeze(value),
             Err(PlanError::OutputCollision(_))
+        ));
+    }
+
+    pub(crate) fn generated_source_draft(
+        generated_path: &str,
+        consumer_dependencies: Vec<&str>,
+    ) -> BuildPlanDraft {
+        let module = module_key("generated");
+        let generate = action_key("generate");
+        let check = action_key("check");
+        let generate_step = step_key("generate");
+        let check_step = step_key("check");
+        BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+            }],
+            host_target: target(),
+            artifact_target: target(),
+            modules: vec![PlanModule {
+                key: module.clone(),
+                root_source: LogicalPath::new(LogicalPathRoot::Build, "generated/root.nia")
+                    .unwrap(),
+                optimization: OptimizationMode::O2,
+                imports: Vec::new(),
+            }],
+            artifacts: Vec::new(),
+            actions: vec![
+                PlanAction {
+                    key: generate,
+                    kind: ActionKind::GeneratedFile {
+                        output: LogicalPath::new(LogicalPathRoot::Build, generated_path).unwrap(),
+                        contents: b"pub fn generated() void {}\n".to_vec(),
+                    },
+                },
+                PlanAction {
+                    key: check.clone(),
+                    kind: ActionKind::CompilerCheck {
+                        module,
+                        target: target(),
+                        runtime: Runtime::Freestanding,
+                    },
+                },
+            ],
+            steps: vec![
+                PlanStep {
+                    key: generate_step,
+                    action: action_key("generate"),
+                    dependencies: Vec::new(),
+                },
+                PlanStep {
+                    key: check_step.clone(),
+                    action: check,
+                    dependencies: consumer_dependencies.into_iter().map(step_key).collect(),
+                },
+            ],
+            default_step: Some(check_step),
+            selected_step: None,
+        }
+    }
+
+    #[test]
+    fn freeze_requires_a_producer_for_build_rooted_compiler_sources() {
+        let mut value = generated_source_draft("generated/other.nia", vec![]);
+        value.actions.remove(0);
+        value.steps.remove(0);
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingGeneratedSourceProducer { path, .. })
+                if path.protocol_path() == "generated/root.nia"
+        ));
+    }
+
+    #[test]
+    fn freeze_requires_the_generated_source_producer_in_the_consumer_closure() {
+        let value = generated_source_draft("generated/root.nia", vec![]);
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::GeneratedSourceProducerOutsideClosure { producer, .. })
+                if producer.name() == "generate"
+        ));
+    }
+
+    #[test]
+    fn freeze_accepts_an_exact_generated_source_producer_edge() {
+        let value = generated_source_draft("generated/root.nia", vec!["generate"]);
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn freeze_requires_exact_generated_source_path_identity() {
+        let value = generated_source_draft("generated/other.nia", vec!["generate"]);
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingGeneratedSourceProducer { path, .. })
+                if path.protocol_path() == "generated/root.nia"
+        ));
+    }
+
+    #[test]
+    fn freeze_applies_generated_source_closure_to_module_imports() {
+        let mut value = generated_source_draft("generated/import.nia", vec!["generate"]);
+        value.modules[0].root_source =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "src/main.nia").unwrap();
+        value.modules[0].imports = vec![ModuleImport {
+            name: "generated".to_string(),
+            path: LogicalPath::new(LogicalPathRoot::Build, "generated/import.nia").unwrap(),
+        }];
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn freeze_rejects_an_unproduced_build_rooted_module_import() {
+        let mut value = generated_source_draft("generated/other.nia", vec!["generate"]);
+        value.modules[0].root_source =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "src/main.nia").unwrap();
+        value.modules[0].imports = vec![ModuleImport {
+            name: "generated".to_string(),
+            path: LogicalPath::new(LogicalPathRoot::Build, "generated/import.nia").unwrap(),
+        }];
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingGeneratedSourceProducer { path, .. })
+                if path.protocol_path() == "generated/import.nia"
         ));
     }
 
