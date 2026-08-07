@@ -244,6 +244,27 @@ first expose a typed Driver-owned object-set reference; storing a second copy
 of compiler work products in the build cache would violate the single-cache
 owner boundary.
 
+### Static archive gate
+
+`StaticArchive` is deliberately not an alias for `ObjectSet`. Before the public
+artifact kind or `std::build` declaration is added, the owner contract must
+answer all of these questions together:
+
+- whether archive creation consumes a Driver-owned object reference set or a
+  published ObjectSet directory;
+- which linker/toolchain owner resolves the archive tool and contributes its
+  path and bytes to cache identity;
+- how member names and order are canonicalized, including duplicate symbols or
+  duplicate object members;
+- which target role and native format are encoded in the archive identity; and
+- whether archive output can be used by external commands, installed, or fed
+  back into executable linking through typed plan edges.
+
+Until those answers are owned by `nia-driver`/`nia-linker`, the build protocol
+must keep `ObjectSet` as the only object-directory artifact and reject no more
+than the relationships it can prove invalid. A system `ar`/`llvm-ar` command
+must not become an implicit second linker/cache owner.
+
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide
 Cargo/GNU Make jobserver budget with compiler queries instead of creating a
