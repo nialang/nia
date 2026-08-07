@@ -2,4 +2,4 @@
 resource-layout-schema=1
 compiler-version=0.4.3
 std-schema=1
-build-protocol-schema=8
+build-protocol-schema=9

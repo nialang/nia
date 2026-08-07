@@ -4247,3 +4247,13 @@ Focused tests prove cold/warm tool execution, typed-input invalidation, referenc
 codec strictness, persistent round-trip, corruption recovery, and nearest
 component invalidation. The build-plan `StaticArchive` artifact and its typed
 consumer/install/link relationships are now the next slice.
+Archive build-protocol progress (2026-08-07): schema 9 adds `StaticArchive` as
+a distinct plan artifact kind with strict codec tags and artifact cache-domain
+separation. Coordinator compiler-emit actions retain the artifact runtime and
+target, request Driver-owned native objects, invoke the typed Driver archive
+path, and publish the result through the existing journaled file transaction.
+Focused tests prove codec round-trip, stale-file replacement, archive format,
+Driver-cache restoration after output deletion, and continued rejection on the
+executable-only install edge. Public `std::build` archive declarations and
+typed external-command, installation, and executable-link relationships remain
+the next slices.

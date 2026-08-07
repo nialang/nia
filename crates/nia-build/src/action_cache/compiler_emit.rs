@@ -572,6 +572,7 @@ fn artifact_identity(artifact: &PlanArtifact) -> Vec<u8> {
     encoded.push(match artifact.kind {
         crate::PlanArtifactKind::Executable => 0,
         crate::PlanArtifactKind::ObjectSet => 1,
+        crate::PlanArtifactKind::StaticArchive => 2,
     });
     encoded.push(match artifact.runtime {
         crate::Runtime::Bare => 0,

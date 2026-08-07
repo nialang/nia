@@ -19,6 +19,7 @@ use nia_driver::{
     LinkExecutableRequest, ModuleMap, NiaOptimizationLevel, ObjectOutput, Runtime as DriverRuntime,
     SourcePath,
 };
+use nia_linker::ArchiveOptions;
 use nia_query::QuerySession;
 use nia_target_config::TargetConfig;
 
@@ -1009,8 +1010,14 @@ impl DriverActionExecutor {
         target: &TargetSpec,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let artifact = self.artifact(action, artifact_key)?;
-        if artifact.kind == PlanArtifactKind::ObjectSet {
-            return self.execute_object_set_emit(action, artifact, target);
+        match artifact.kind {
+            PlanArtifactKind::ObjectSet => {
+                return self.execute_object_set_emit(action, artifact, target);
+            }
+            PlanArtifactKind::StaticArchive => {
+                return self.execute_static_archive_emit(action, artifact, target);
+            }
+            PlanArtifactKind::Executable => {}
         }
         let module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
             inconsistent(
@@ -1159,6 +1166,51 @@ impl DriverActionExecutor {
         if let Err(error) = publish_staged_outputs(action, staged) {
             return Err(error);
         }
+        Ok(None)
+    }
+
+    fn execute_static_archive_emit(
+        &self,
+        action: &PlanAction,
+        artifact: &PlanArtifact,
+        target: &TargetSpec,
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let _module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
+            inconsistent(
+                format!("action `{}`", action.key.name()),
+                format!("module `{}`", artifact.root_module.name()),
+            )
+        })?;
+        let request = self
+            .check_request(action, &artifact.root_module, artifact.runtime)?
+            .with_runtime(runtime_mode(artifact.runtime));
+        let output = self.resolve_path(action, &artifact.output)?;
+        let driver = self.driver(action, target)?;
+        let emitted = driver
+            .emit_native_objects(EmitObjectRequest::new(request))
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            })?;
+        let resolved = [ResolvedTransactionOutput {
+            logical: &artifact.output,
+            destination: output,
+            kind: TransactionOutputKind::File,
+        }];
+        let staged = prepare_typed_staged_outputs(action, &self.invocation.build_dir, &resolved)?;
+        let temporary = staged.outputs[0].temporary.clone();
+        let archived = driver
+            .archive_static_library_from_objects(&emitted, temporary, ArchiveOptions::default())
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            });
+        if let Err(error) = archived {
+            return cleanup_staged_outputs(action, staged, Some(Box::new(error))).map(|()| None);
+        }
+        publish_staged_outputs(action, staged)?;
         Ok(None)
     }
 
@@ -3609,6 +3661,16 @@ mod tests {
         )
     }
 
+    fn static_archive_plan(invocation: &BuildInvocation, output: &str) -> BuildPlan {
+        compiler_emit_plan_kind(
+            invocation,
+            OptimizationMode::O0,
+            Runtime::Freestanding,
+            output,
+            PlanArtifactKind::StaticArchive,
+        )
+    }
+
     fn compiler_emit_plan_kind(
         invocation: &BuildInvocation,
         optimization: OptimizationMode,
@@ -4310,6 +4372,29 @@ mod tests {
                 .map(|metadata| metadata.file_type().is_file())
                 .unwrap_or(false)
         }));
+        assert_no_staged_command_directories(output.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
+    }
+
+    #[test]
+    fn static_archive_emit_publishes_driver_archive_transactionally() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        let plan = static_archive_plan(&invocation, "lib/libapp.a");
+        let output = invocation.build_dir.join("lib/libapp.a");
+
+        fs::create_dir_all(output.parent().unwrap()).expect("create archive output directory");
+        fs::write(&output, b"stale archive").expect("write stale archive");
+        let cold = execute_build_plan(&plan, &invocation).unwrap();
+
+        assert!(cold.action_cache.is_empty());
+        let expected = fs::read(&output).expect("read static archive");
+        assert!(expected.starts_with(b"!<arch>\n"));
+        fs::remove_file(&output).expect("remove static archive");
+
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert!(warm.action_cache.is_empty());
+        assert_eq!(fs::read(&output).expect("read restored archive"), expected);
         assert_no_staged_command_directories(output.parent().unwrap());
         assert_no_output_transaction_journals(&invocation);
     }

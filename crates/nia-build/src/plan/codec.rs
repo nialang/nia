@@ -282,6 +282,7 @@ impl Writer {
         self.u8(match artifact.kind {
             PlanArtifactKind::Executable => 0,
             PlanArtifactKind::ObjectSet => 1,
+            PlanArtifactKind::StaticArchive => 2,
         });
         self.logical_path(&artifact.output)?;
         self.runtime(artifact.runtime);
@@ -641,6 +642,7 @@ impl<'a> Reader<'a> {
         let kind = match self.u8()? {
             0 => PlanArtifactKind::Executable,
             1 => PlanArtifactKind::ObjectSet,
+            2 => PlanArtifactKind::StaticArchive,
             tag => {
                 return Err(PlanCodecError::InvalidTag {
                     kind: "artifact kind",
@@ -896,6 +898,13 @@ mod tests {
             output: LogicalPath::new(LogicalPathRoot::Build, "objects/app").unwrap(),
             runtime: Runtime::Bare,
         });
+        value.artifacts.push(PlanArtifact {
+            key: ArtifactKey::new(PackageKey::root(), "archive").unwrap(),
+            root_module: ModuleKey::new(PackageKey::root(), "a").unwrap(),
+            kind: PlanArtifactKind::StaticArchive,
+            output: LogicalPath::new(LogicalPathRoot::Build, "lib/libarchive.a").unwrap(),
+            runtime: Runtime::Bare,
+        });
         let package = PackageKey::root();
         value.actions.extend([
             PlanAction {
@@ -968,6 +977,12 @@ mod tests {
                 .artifacts()
                 .iter()
                 .any(|artifact| artifact.kind == PlanArtifactKind::ObjectSet)
+        );
+        assert!(
+            decoded
+                .artifacts()
+                .iter()
+                .any(|artifact| artifact.kind == PlanArtifactKind::StaticArchive)
         );
     }
 

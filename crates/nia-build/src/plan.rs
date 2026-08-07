@@ -238,6 +238,7 @@ pub enum PackageRootError {
 pub enum PlanArtifactKind {
     Executable,
     ObjectSet,
+    StaticArchive,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1522,6 +1523,27 @@ mod tests {
             &mut value,
             artifact_key("app"),
             "install/app",
+            vec![step_key("emit")],
+        );
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidArtifactUse {
+                artifact,
+                reason: "only executable artifacts can be installed",
+                ..
+            }) if artifact.name() == "app"
+        ));
+    }
+
+    #[test]
+    fn freeze_rejects_installing_a_static_archive_without_a_typed_relation() {
+        let mut value = draft(false);
+        value.artifacts[0].kind = PlanArtifactKind::StaticArchive;
+        add_install_action(
+            &mut value,
+            artifact_key("app"),
+            "install/libapp.a",
             vec![step_key("emit")],
         );
 
