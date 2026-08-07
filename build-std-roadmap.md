@@ -4229,10 +4229,21 @@ missing-tool failure.
 Archive Driver progress (2026-08-07): `nia-driver` now emits a typed
 `StaticArchiveArtifact` directly from its `ObjectArtifact`. The existing
 ascending unique `CodegenUnitKey` invariant defines canonical member order;
-index-prefixed sanitized object stems keep member names stable and distinct.
-Driver applies its artifact target, materializes members into an owned temporary
-directory, invokes the typed archive tool on a fresh temporary output, and only
-publishes bytes after successful production. Focused tests cover object bytes
-and order, nested output creation, nonzero tool status, omitted tool output, and
+index-prefixed sanitized source-identity stems keep member names stable and
+distinct without depending on object representation. Driver applies its
+artifact target, materializes members into an owned temporary directory,
+invokes the typed archive tool on a fresh temporary output, and only publishes
+bytes after successful production. Focused tests cover object bytes and order,
+nested output creation, nonzero tool status, omitted tool output, and
 preservation of an existing destination on failure. A persistent Driver archive
 reference and the build-plan `StaticArchive` artifact remain the next slices.
+Archive cache progress (2026-08-07): `nia-linker` now derives a typed archive
+result fingerprint from stable codegen-unit keys and work-product fingerprints,
+with component-exact toolchain, target, canonical tool, and option identity.
+`nia-driver` owns the schema-v1 persistent archive bytes, checksum and repeated
+identity validation, corruption retirement, staged restore, and the encoded
+`StaticArchiveCacheReference`; the coordinator does not store a duplicate copy.
+Focused tests prove cold/warm tool execution, typed-input invalidation, reference
+codec strictness, persistent round-trip, corruption recovery, and nearest
+component invalidation. The build-plan `StaticArchive` artifact and its typed
+consumer/install/link relationships are now the next slice.

@@ -13,8 +13,10 @@ use nia_compiler_query::{
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{
-    ArchiveOptions, LinkOptions, LinkResultCacheKey, LinkResultEnvironmentFingerprint,
-    LinkResultFingerprint, LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
+    ArchiveCacheKey, ArchiveEnvironmentFingerprint, ArchiveFingerprint,
+    ArchiveFingerprintComponents, ArchiveFingerprintSet, ArchiveOptions, LinkOptions,
+    LinkResultCacheKey, LinkResultEnvironmentFingerprint, LinkResultFingerprint,
+    LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
 };
 use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
@@ -48,6 +50,8 @@ pub struct CheckedProgramWithSourceManifest {
 
 const EXECUTABLE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
 const EXECUTABLE_CACHE_ENVIRONMENT_LEN: usize = 6 * size_of::<u64>();
+const STATIC_ARCHIVE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
+const STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN: usize = size_of::<[u64; 8]>();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutableCacheEnvironment {
@@ -129,6 +133,96 @@ impl From<LinkResultFingerprintSet> for ExecutableCacheReference {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaticArchiveCacheEnvironment {
+    fingerprint: ArchiveEnvironmentFingerprint,
+}
+
+impl StaticArchiveCacheEnvironment {
+    pub const ENCODED_LEN: usize = STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN;
+
+    pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
+        let mut encoded = [0; Self::ENCODED_LEN];
+        let mut offset = 0;
+        for fingerprint in [
+            self.fingerprint.toolchain,
+            self.fingerprint.target,
+            self.fingerprint.tool,
+            self.fingerprint.options,
+        ] {
+            for part in fingerprint.parts() {
+                encoded[offset..offset + size_of::<u64>()].copy_from_slice(&part.to_le_bytes());
+                offset += size_of::<u64>();
+            }
+        }
+        encoded
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaticArchiveCacheReference {
+    fingerprints: ArchiveFingerprintSet,
+}
+
+impl StaticArchiveCacheReference {
+    pub const ENCODED_LEN: usize = STATIC_ARCHIVE_CACHE_REFERENCE_LEN;
+
+    pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
+        let mut encoded = [0; Self::ENCODED_LEN];
+        let mut offset = 0;
+        for fingerprint in [
+            ArchiveFingerprint::from_parts(self.fingerprints.cache_key.parts()),
+            self.fingerprints.components.inputs,
+            self.fingerprints.components.toolchain,
+            self.fingerprints.components.target,
+            self.fingerprints.components.tool,
+            self.fingerprints.components.options,
+        ] {
+            for part in fingerprint.parts() {
+                encoded[offset..offset + size_of::<u64>()].copy_from_slice(&part.to_le_bytes());
+                offset += size_of::<u64>();
+            }
+        }
+        encoded
+    }
+
+    pub fn decode(encoded: &[u8]) -> Option<Self> {
+        (encoded.len() == Self::ENCODED_LEN).then_some(())?;
+        let mut parts = encoded.chunks_exact(size_of::<u64>()).map(|bytes| {
+            let bytes: [u8; size_of::<u64>()] = bytes.try_into().expect("exact u64 chunk");
+            u64::from_le_bytes(bytes)
+        });
+        let mut fingerprint = || Some([parts.next()?, parts.next()?]);
+        let cache_key = ArchiveCacheKey::from_parts(fingerprint()?);
+        let components = ArchiveFingerprintComponents {
+            inputs: ArchiveFingerprint::from_parts(fingerprint()?),
+            toolchain: ArchiveFingerprint::from_parts(fingerprint()?),
+            target: ArchiveFingerprint::from_parts(fingerprint()?),
+            tool: ArchiveFingerprint::from_parts(fingerprint()?),
+            options: ArchiveFingerprint::from_parts(fingerprint()?),
+        };
+        Some(Self {
+            fingerprints: ArchiveFingerprintSet::new(cache_key, components),
+        })
+    }
+}
+
+impl From<ArchiveFingerprintSet> for StaticArchiveCacheReference {
+    fn from(fingerprints: ArchiveFingerprintSet) -> Self {
+        Self { fingerprints }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaticArchiveCacheRestore {
+    Hit,
+    NotFound,
+    Invalidated,
+    Corrupt,
+    ReadError,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutableCacheRestore {
     Hit,
     NotFound,
@@ -177,6 +271,7 @@ pub struct Driver {
     compiler: std::sync::Arc<Mutex<Option<SessionCompiler>>>,
     object_cache: Option<std::sync::Arc<crate::object_cache::PersistentObjectWorkProductCache>>,
     link_cache: Option<std::sync::Arc<crate::executable_cache::PersistentLinkResultCache>>,
+    archive_cache: Option<std::sync::Arc<crate::archive_cache::PersistentArchiveCache>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,6 +367,11 @@ impl Driver {
                 path.clone(),
             ))
         });
+        let archive_cache = config.artifact_cache_dir.as_ref().map(|path| {
+            std::sync::Arc::new(crate::archive_cache::PersistentArchiveCache::new(
+                path.clone(),
+            ))
+        });
         Self {
             config,
             sources: SourceDatabase::new(),
@@ -279,6 +379,7 @@ impl Driver {
             compiler: std::sync::Arc::new(Mutex::new(None)),
             object_cache,
             link_cache,
+            archive_cache,
         }
     }
 
@@ -1149,6 +1250,27 @@ impl Driver {
     ) -> DriverOutput<StaticArchiveArtifact> {
         DriverOutput::catch_ice(|| {
             archive_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
+            let archive_fingerprint = match archive_options.result_fingerprint(
+                &objects.link_inputs,
+                self.config.toolchain.identity().fingerprint(),
+            ) {
+                Ok(fingerprint) => fingerprint,
+                Err(error) => return DriverOutput::from_error(DriverError::ArchiveConfig(error)),
+            };
+            if let Some(cache) = &self.archive_cache
+                && matches!(
+                    cache.restore(archive_fingerprint, &output),
+                    Ok(crate::archive_cache::ArchiveCacheLookup::Hit)
+                )
+            {
+                return DriverOutput::success(StaticArchiveArtifact {
+                    path: output,
+                    optimization: objects.optimization,
+                    optimization_report: objects.optimization_report.clone(),
+                    diagnostics: objects.diagnostics.clone(),
+                    cache_reference: Some(StaticArchiveCacheReference::from(archive_fingerprint)),
+                });
+            }
             let temp = TempDir::new("nia_archive");
             if let Err(error) = fs::create_dir_all(temp.path()) {
                 return DriverOutput::from_error(DriverError::Io {
@@ -1161,7 +1283,7 @@ impl Driver {
             for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
                 let object_path = temp
                     .path()
-                    .join(object_file_name(index, &input.object.name));
+                    .join(archive_member_file_name(index, &input.key));
                 if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
                     return DriverOutput::from_error(DriverError::Io {
                         path: object_path,
@@ -1198,11 +1320,18 @@ impl Driver {
                             error,
                         });
                     }
+                    let cache_reference = self.archive_cache.as_ref().and_then(|cache| {
+                        cache
+                            .publish(archive_fingerprint, &output)
+                            .ok()
+                            .map(|()| StaticArchiveCacheReference::from(archive_fingerprint))
+                    });
                     DriverOutput::success(StaticArchiveArtifact {
                         path: output,
                         optimization: objects.optimization,
                         optimization_report: objects.optimization_report.clone(),
                         diagnostics: objects.diagnostics.clone(),
+                        cache_reference,
                     })
                 }
                 Ok(status) => DriverOutput::from_error(DriverError::ArchiveStatus {
@@ -1265,6 +1394,56 @@ impl Driver {
             .result_environment_fingerprint(self.config.toolchain.identity().fingerprint())
             .ok()?
             .map(|fingerprint| ExecutableCacheEnvironment { fingerprint })
+    }
+
+    pub fn restore_static_archive_cache(
+        &self,
+        reference: StaticArchiveCacheReference,
+        output: &Path,
+    ) -> StaticArchiveCacheRestore {
+        let Some(cache) = &self.archive_cache else {
+            return StaticArchiveCacheRestore::Disabled;
+        };
+        let options = ArchiveOptions {
+            target: LinkTarget::from_target_config(&self.config.artifact_target),
+            ..ArchiveOptions::default()
+        };
+        if !matches!(
+            options.matches_result_environment(
+                reference.fingerprints.components,
+                self.config.toolchain.identity().fingerprint(),
+            ),
+            Ok(true)
+        ) {
+            return StaticArchiveCacheRestore::Invalidated;
+        }
+        match cache.restore(reference.fingerprints, output) {
+            Ok(lookup) => match lookup {
+                crate::archive_cache::ArchiveCacheLookup::Hit => StaticArchiveCacheRestore::Hit,
+                crate::archive_cache::ArchiveCacheLookup::NotFound => {
+                    StaticArchiveCacheRestore::NotFound
+                }
+                crate::archive_cache::ArchiveCacheLookup::Invalidated(_) => {
+                    StaticArchiveCacheRestore::Invalidated
+                }
+                crate::archive_cache::ArchiveCacheLookup::Corrupt => {
+                    StaticArchiveCacheRestore::Corrupt
+                }
+            },
+            Err(_) => StaticArchiveCacheRestore::ReadError,
+        }
+    }
+
+    pub fn static_archive_cache_environment(&self) -> Option<StaticArchiveCacheEnvironment> {
+        self.archive_cache.as_ref()?;
+        let options = ArchiveOptions {
+            target: LinkTarget::from_target_config(&self.config.artifact_target),
+            ..ArchiveOptions::default()
+        };
+        options
+            .environment_fingerprint(self.config.toolchain.identity().fingerprint())
+            .ok()
+            .map(|fingerprint| StaticArchiveCacheEnvironment { fingerprint })
     }
 
     fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
@@ -1713,6 +1892,7 @@ pub struct StaticArchiveArtifact {
     pub optimization: OptimizationPolicy,
     pub optimization_report: crate::BackendOptimizationReport,
     pub diagnostics: Vec<ProgramDiagnostic>,
+    pub cache_reference: Option<StaticArchiveCacheReference>,
 }
 
 #[derive(Debug)]
@@ -1821,6 +2001,16 @@ fn object_file_name(index: usize, module_name: &str) -> String {
         })
         .collect::<String>();
     format!("{index:04}_{clean}.o")
+}
+
+fn archive_member_file_name(index: usize, key: &nia_codegen_llvm::CodegenUnitKey) -> String {
+    let stable_name = match key {
+        nia_codegen_llvm::CodegenUnitKey::SourceModule {
+            source_identity, ..
+        } => source_identity.normalized_path(),
+        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "nia_compiler_builtins",
+    };
+    object_file_name(index, stable_name)
 }
 
 struct TempDir {

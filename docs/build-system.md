@@ -271,16 +271,26 @@ The second owner slice is implemented in `nia-driver`. Static archive emission
 consumes a Driver-owned `ObjectArtifact`, not a published ObjectSet directory.
 Its `IncrementalLinkInputs` invariant supplies ascending unique codegen-unit
 keys; Driver preserves that order and assigns each materialized member an index
-plus a sanitized object stem, so equal stems remain distinct and stable. The
-Driver target overrides the options target, and archive creation always starts
-from a fresh temporary output. A failed tool or a successful tool that omits its
-output does not replace an existing destination.
+plus a sanitized stable source-identity stem (or compiler-builtins tag), so
+equal stems remain distinct and object representation does not create an
+untracked naming input. The Driver target overrides the options target, and
+archive creation always starts from a fresh temporary output. A failed tool or
+a successful tool that omits its output does not replace an existing
+destination.
 
-The Driver-owned persistent archive reference and typed build relationships are
-still open. Until those answers are owned, the build protocol must keep
-`ObjectSet` as the only object-directory artifact and reject no more than the
-relationships it can prove invalid. A system `ar`/`llvm-ar` command must not
-become an implicit second linker/cache owner.
+The third owner slice adds Driver-owned persistent archive reuse.
+`ArchiveFingerprintSet` separates stable codegen-unit keys from work-product,
+toolchain, target, canonical tool, and options components. Driver stores archive
+bytes under its artifact cache with a checksum and repeated typed identity,
+retires corrupt entries, and returns an encoded `StaticArchiveCacheReference`
+rather than exposing cache paths or copying bytes into a coordinator cache.
+Restore validates the current archive environment before publishing through a
+staged file.
+
+Typed build relationships are still open. Until those answers are owned, the
+build protocol must keep `ObjectSet` as the only object-directory artifact and
+reject no more than the relationships it can prove invalid. A system
+`ar`/`llvm-ar` command must not become an implicit second linker/cache owner.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide
