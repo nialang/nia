@@ -566,7 +566,14 @@ fn assert_configured_build_success(
             .iter()
             .map(nia_build::StepKey::name)
             .collect::<Vec<_>>(),
-        ["build", "install", "objects", "run", "run-host-tool", "worker"]
+        [
+            "build",
+            "install",
+            "objects",
+            "run",
+            "run-host-tool",
+            "worker"
+        ]
     );
     let host_run_step = plan
         .steps()

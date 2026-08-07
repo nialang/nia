@@ -4188,4 +4188,7 @@ declares an object set, emits it after its generated source producer, includes
 that producer in the default selected closure, and verifies the published
 codegen-unit directory and telemetry. Focused API conformance and end-to-end
 build tests pass. Static-library/archive semantics and the remaining artifact
-surface remain open; no archive behavior is inferred from ObjectSet.
+surface remain open; no archive behavior is inferred from ObjectSet. The
+coordinator's object-set acceptance test also seeds a stale codegen-unit file
+and proves complete directory replacement removes it, preserving the
+transactional output invariant when the unit set changes.

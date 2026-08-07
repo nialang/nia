@@ -4191,9 +4191,12 @@ mod tests {
         let plan = object_set_plan(&invocation, "objects/app");
         let output = invocation.build_dir.join("objects/app");
 
+        fs::create_dir_all(&output).expect("create stale object directory");
+        fs::write(output.join("stale-codegen-unit.o"), b"stale").expect("write stale object");
         execute_build_plan(&plan, &invocation).unwrap();
 
         assert!(output.is_dir());
+        assert!(!output.join("stale-codegen-unit.o").exists());
         let objects = fs::read_dir(&output)
             .unwrap()
             .map(|entry| entry.unwrap().path())
