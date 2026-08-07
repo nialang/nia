@@ -849,35 +849,26 @@ impl DriverActionExecutor {
                         stderr: Vec::new(),
                     },
                 }));
-                return cleanup_staged_outputs(
-                    action,
-                    staged.take().expect("staged output exists"),
-                    Some(Box::new(cause)),
-                )
-                .map(|()| None);
+                let staged = take_staged_output_transaction(action, &mut staged)?;
+                return cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
+                    .map(|()| None);
             }
             (Ok(()), Some(staged_output)) if cacheable => {
                 match read_staged_external_outputs(action, staged_output) {
                     Ok(payloads) => Some(payloads),
                     Err(cause) => {
-                        return cleanup_staged_outputs(
-                            action,
-                            staged.take().expect("staged output exists"),
-                            Some(Box::new(cause)),
-                        )
-                        .map(|()| None);
+                        let staged = take_staged_output_transaction(action, &mut staged)?;
+                        return cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
+                            .map(|()| None);
                     }
                 }
             }
             (Ok(()), Some(_)) => None,
             (Ok(()), None) => None,
             (Err(cause), Some(_)) => {
-                return cleanup_staged_outputs(
-                    action,
-                    staged.take().expect("staged output exists"),
-                    Some(Box::new(cause)),
-                )
-                .map(|()| None);
+                let staged = take_staged_output_transaction(action, &mut staged)?;
+                return cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
+                    .map(|()| None);
             }
             (Err(cause), None) => return Err(cause),
         };
@@ -2069,6 +2060,18 @@ struct StagedOutputTransaction {
     committed_directory: PathBuf,
     outputs: Vec<StagedOutputEntry>,
     journal: OutputTransactionJournal,
+}
+
+fn take_staged_output_transaction(
+    action: &PlanAction,
+    staged: &mut Option<StagedOutputTransaction>,
+) -> Result<StagedOutputTransaction, CoordinatorError> {
+    staged.take().ok_or_else(|| {
+        inconsistent(
+            format!("action `{}`", action.key.name()),
+            "staged output transaction".to_string(),
+        )
+    })
 }
 
 struct StagedOutputEntry {

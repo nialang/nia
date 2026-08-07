@@ -9,6 +9,7 @@ use crate::{
 
 pub(crate) const RUNNER_CONFIG_SCHEMA_VERSION: u32 = 1;
 pub(crate) const RUNNER_CONFIG_MAGIC: &[u8; 8] = b"NIARUNCF";
+pub(crate) const RUNNER_CONFIG_MAGIC_TEXT: &str = "NIARUNCF";
 pub(crate) const RUNNER_CONFIG_MAX_BYTES: usize = 1024 * 1024;
 
 pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError> {
@@ -150,6 +151,7 @@ mod tests {
 
     #[test]
     fn round_trip_preserves_typed_runner_configuration() {
+        assert_eq!(RUNNER_CONFIG_MAGIC_TEXT.as_bytes(), RUNNER_CONFIG_MAGIC);
         let invocation = invocation(BuildStepSelection::Named("install".to_string()));
         let decoded = decode(&encode(&invocation).expect("encode runner configuration"))
             .expect("decode runner configuration");

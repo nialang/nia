@@ -375,6 +375,10 @@ and inherited `QuerySession` capacity. Timing output reports it as
 `build.resource_class_io_actions`. These counters describe coordinator
 scheduling; they do not claim that `Io` work is free or disable nested compiler
 resource accounting.
+The budget recovers a poisoned synchronization guard so a prior worker panic
+does not turn the next ordinary build action into another panic. Capacity
+nonzero, permit weight, and balanced release checks remain explicit internal
+invariants; they are not user-controlled failure paths.
 
 Each wave also owns an ordered failure token. A failing action prevents all
 dependent waves and cancels later canonical actions, while earlier actions are
