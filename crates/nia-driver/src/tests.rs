@@ -115,6 +115,157 @@ fn writing_native_object_preserves_incremental_link_identity() {
     assert_eq!(input.object, path);
 }
 
+#[cfg(unix)]
+fn static_archive_test_objects() -> crate::ObjectArtifact {
+    use nia_backend_ir::{
+        CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
+        IncrementalLinkInputs,
+    };
+    use nia_codegen_llvm::NativeObject;
+    use nia_ids::ModuleIdAllocator;
+    use nia_source::SourceIdentity;
+
+    let mut module_ids = ModuleIdAllocator::new();
+    let mut input = |fingerprint, source: &str, name: &str, bytes: &[u8]| IncrementalLinkInput {
+        key: CodegenUnitKey::SourceModule {
+            source_identity: SourceIdentity::new(source),
+            ordinal: 0,
+        },
+        fingerprint: CodegenUnitFingerprint::from_parts(fingerprint),
+        object: NativeObject {
+            unit: CodegenUnitId::SourceModule {
+                module_id: module_ids.allocate(),
+                ordinal: 0,
+            },
+            name: name.to_string(),
+            bytes: bytes.to_vec(),
+        },
+    };
+    crate::ObjectArtifact {
+        link_inputs: IncrementalLinkInputs::new(vec![
+            input([1, 2], "first.nia", "first", b"first-object"),
+            input([3, 4], "second.nia", "second", b"second-object"),
+        ]),
+        optimization: crate::OptimizationPolicy::default(),
+        optimization_report: crate::BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
+    }
+}
+
+#[cfg(unix)]
+fn write_static_archive_test_tool(path: &std::path::Path, source: impl AsRef<[u8]>) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(path, source).expect("write mock archive tool");
+    let mut permissions = std::fs::metadata(path)
+        .expect("mock archive tool metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).expect("make mock archive tool executable");
+}
+
+#[test]
+#[cfg(unix)]
+fn static_archive_materializes_canonical_members_through_typed_archive_tool() {
+    use nia_linker::{ArchiveOptions, ArchiveTool};
+
+    let root = common::temp_dir("static_archive_materializes_objects_through_typed_archive_tool");
+    let tool = root.join("archive.sh");
+    let log = root.join("members.log");
+    write_static_archive_test_tool(
+        &tool,
+        format!(
+            "#!/bin/sh\ntest \"$1\" = rcsD || exit 9\ntest ! -e \"$2\" || exit 10\ntest \"$(cat \"$3\")\" = first-object || exit 11\ntest \"$(cat \"$4\")\" = second-object || exit 12\nprintf '%s\\n%s\\n' \"$3\" \"$4\" > '{}'\nprintf static-archive > \"$2\"\n",
+            log.display()
+        ),
+    );
+    let objects = static_archive_test_objects();
+    let output = root.join("nested/libsample.a");
+
+    let archived = crate::Driver::new(common::test_toolchain_layout())
+        .archive_static_library_from_objects(
+            &objects,
+            output.clone(),
+            ArchiveOptions::default().with_tool(ArchiveTool::with_program(tool.to_string_lossy())),
+        )
+        .result
+        .expect("create static archive");
+
+    assert_eq!(archived.path, output);
+    assert_eq!(std::fs::read(&archived.path).unwrap(), b"static-archive");
+    let members = std::fs::read_to_string(log).unwrap();
+    let names = members
+        .lines()
+        .map(|path| {
+            std::path::Path::new(path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["0000_first.o", "0001_second.o"]);
+}
+
+#[test]
+#[cfg(unix)]
+fn static_archive_failure_preserves_existing_output() {
+    use nia_linker::{ArchiveOptions, ArchiveTool};
+
+    let root = common::temp_dir("static_archive_failure_preserves_existing_output");
+    let tool = root.join("archive.sh");
+    write_static_archive_test_tool(&tool, "#!/bin/sh\nexit 23\n");
+    let objects = static_archive_test_objects();
+    let output = root.join("libsample.a");
+    std::fs::write(&output, b"existing-archive").expect("seed existing archive");
+
+    let error = crate::Driver::new(common::test_toolchain_layout())
+        .archive_static_library_from_objects(
+            &objects,
+            output.clone(),
+            ArchiveOptions::default().with_tool(ArchiveTool::with_program(tool.to_string_lossy())),
+        )
+        .result
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::DriverError::ArchiveStatus { status, .. } if status.code() == Some(23)
+    ));
+    assert_eq!(std::fs::read(output).unwrap(), b"existing-archive");
+}
+
+#[test]
+#[cfg(unix)]
+fn static_archive_requires_successful_tool_to_produce_output() {
+    use nia_linker::{ArchiveOptions, ArchiveTool};
+
+    let root = common::temp_dir("static_archive_requires_successful_tool_to_produce_output");
+    let tool = root.join("archive.sh");
+    write_static_archive_test_tool(&tool, "#!/bin/sh\nexit 0\n");
+    let objects = static_archive_test_objects();
+    let output = root.join("libsample.a");
+    std::fs::write(&output, b"existing-archive").expect("seed existing archive");
+
+    let error = crate::Driver::new(common::test_toolchain_layout())
+        .archive_static_library_from_objects(
+            &objects,
+            output.clone(),
+            ArchiveOptions::default().with_tool(ArchiveTool::with_program(tool.to_string_lossy())),
+        )
+        .result
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::DriverError::Io {
+            operation: "read temporary static archive",
+            ..
+        }
+    ));
+    assert_eq!(std::fs::read(output).unwrap(), b"existing-archive");
+}
+
 #[test]
 #[cfg(unix)]
 fn link_result_cache_skips_linker_until_typed_input_changes() {

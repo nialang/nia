@@ -4225,5 +4225,14 @@ resolution through an explicit program, `NIA_AR`, or `llvm-ar`/`ar`, plus
 Archive environment fingerprints include the canonical tool path and bytes,
 toolchain identity, target triple fields, and option contract. Focused tests
 prove member-order preservation, exact invalidation components, and typed
-missing-tool failure. Driver-owned canonical member/work-product identity and
-the build-plan `StaticArchive` artifact remain the next slices.
+missing-tool failure.
+Archive Driver progress (2026-08-07): `nia-driver` now emits a typed
+`StaticArchiveArtifact` directly from its `ObjectArtifact`. The existing
+ascending unique `CodegenUnitKey` invariant defines canonical member order;
+index-prefixed sanitized object stems keep member names stable and distinct.
+Driver applies its artifact target, materializes members into an owned temporary
+directory, invokes the typed archive tool on a fresh temporary output, and only
+publishes bytes after successful production. Focused tests cover object bytes
+and order, nested output creation, nonzero tool status, omitted tool output, and
+preservation of an existing destination on failure. A persistent Driver archive
+reference and the build-plan `StaticArchive` artifact remain the next slices.

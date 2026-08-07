@@ -23,7 +23,7 @@ pub use pipeline::{
     DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
     ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
     LinkExecutableRequest, LinkedExecutableWithSourceManifest, LlvmIrArtifact, ObjectArtifact,
-    ObjectOutput, Runtime, WriteObjectRequest, WrittenObjectArtifact,
+    ObjectOutput, Runtime, StaticArchiveArtifact, WriteObjectRequest, WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,

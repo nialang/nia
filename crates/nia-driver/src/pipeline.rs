@@ -13,8 +13,8 @@ use nia_compiler_query::{
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{
-    LinkOptions, LinkResultCacheKey, LinkResultEnvironmentFingerprint, LinkResultFingerprint,
-    LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
+    ArchiveOptions, LinkOptions, LinkResultCacheKey, LinkResultEnvironmentFingerprint,
+    LinkResultFingerprint, LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
 };
 use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
@@ -1141,6 +1141,82 @@ impl Driver {
         })
     }
 
+    pub fn archive_static_library_from_objects(
+        &self,
+        objects: &ObjectArtifact,
+        output: PathBuf,
+        mut archive_options: ArchiveOptions,
+    ) -> DriverOutput<StaticArchiveArtifact> {
+        DriverOutput::catch_ice(|| {
+            archive_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
+            let temp = TempDir::new("nia_archive");
+            if let Err(error) = fs::create_dir_all(temp.path()) {
+                return DriverOutput::from_error(DriverError::Io {
+                    path: temp.path().to_path_buf(),
+                    operation: "create temporary archive directory",
+                    error,
+                });
+            }
+            let mut inputs = Vec::with_capacity(objects.link_inputs.len());
+            for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
+                let object_path = temp
+                    .path()
+                    .join(object_file_name(index, &input.object.name));
+                if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
+                    return DriverOutput::from_error(DriverError::Io {
+                        path: object_path,
+                        operation: "write temporary archive member",
+                        error,
+                    });
+                }
+                inputs.push(object_path);
+            }
+            let temporary_archive = temp.path().join("output.a");
+            let invocation = match archive_options.invocation(&inputs, temporary_archive.clone()) {
+                Ok(invocation) => invocation,
+                Err(error) => return DriverOutput::from_error(DriverError::ArchiveConfig(error)),
+            };
+            match Command::new(&invocation.program)
+                .args(&invocation.args)
+                .status()
+            {
+                Ok(status) if status.success() => {
+                    let bytes = match fs::read(&temporary_archive) {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            return DriverOutput::from_error(DriverError::Io {
+                                path: temporary_archive,
+                                operation: "read temporary static archive",
+                                error,
+                            });
+                        }
+                    };
+                    if let Err(error) = write_output_file(&output, &bytes) {
+                        return DriverOutput::from_error(DriverError::Io {
+                            path: output,
+                            operation: "write static archive",
+                            error,
+                        });
+                    }
+                    DriverOutput::success(StaticArchiveArtifact {
+                        path: output,
+                        optimization: objects.optimization,
+                        optimization_report: objects.optimization_report.clone(),
+                        diagnostics: objects.diagnostics.clone(),
+                    })
+                }
+                Ok(status) => DriverOutput::from_error(DriverError::ArchiveStatus {
+                    program: invocation.program,
+                    status,
+                }),
+                Err(error) => DriverOutput::from_error(DriverError::ArchiveIo {
+                    program: invocation.program,
+                    error,
+                }),
+            }
+        })
+    }
+
     pub fn restore_executable_cache(
         &self,
         reference: ExecutableCacheReference,
@@ -1631,6 +1707,14 @@ pub struct ExecutableArtifact {
     pub cache_reference: Option<ExecutableCacheReference>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaticArchiveArtifact {
+    pub path: PathBuf,
+    pub optimization: OptimizationPolicy,
+    pub optimization_report: crate::BackendOptimizationReport,
+    pub diagnostics: Vec<ProgramDiagnostic>,
+}
+
 #[derive(Debug)]
 pub struct DriverOutput<T> {
     pub result: Result<T, DriverError>,
@@ -1669,6 +1753,15 @@ impl<T> DriverOutput<T> {
 
 #[derive(Debug)]
 pub enum DriverError {
+    ArchiveStatus {
+        program: String,
+        status: std::process::ExitStatus,
+    },
+    ArchiveIo {
+        program: String,
+        error: io::Error,
+    },
+    ArchiveConfig(nia_linker::LinkerConfigError),
     CheckDiagnostics(CheckedProgram),
     CodegenProgramDiagnostics(Box<CodegenProgram>),
     CodegenPreparationDiagnostics(Vec<nia_compiler_query::ProgramDiagnostic>),
