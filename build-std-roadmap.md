@@ -4212,3 +4212,10 @@ and classifies directory content edits as `Inputs`. The configured production
 fixture consumes the emitted object directory and the focused cache matrix
 proves cold, warm, and directory-edit behavior. This prepares archive actions
 to consume ObjectSet without treating ObjectSet itself as an archive.
+Archive design gate (2026-08-07): the existing `nia-linker`/`nia-driver`
+surface has no typed archive tool owner or archive work-product reference.
+`docs/build-system.md` now records the required decisions for
+`StaticArchive`: Driver-owned object references versus ObjectSet directories,
+archive-tool path/bytes identity, canonical member order, target/native format,
+and typed consumer/install/link relationships. No system `ar` fallback or
+archive-shaped compatibility alias is added before those contracts close.
