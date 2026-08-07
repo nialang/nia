@@ -243,6 +243,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
         path,
         target,
         target,
+        build::OptimizationMode::O0,
         1u32,
         1usize,
     ) {
@@ -279,6 +280,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         path,
         target,
         target,
+        build::OptimizationMode::O0,
         1u32,
         1usize,
     ) {
@@ -317,6 +319,7 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
         path,
         target,
         target,
+        build::OptimizationMode::O0,
         1u32,
         1usize,
     ) {
@@ -353,6 +356,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         emptyPath,
         target,
         target,
+        build::OptimizationMode::O0,
         1u32,
         1usize,
     ).exit().?;
@@ -525,6 +529,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
         emptyPath,
         target,
         target,
+        build::OptimizationMode::O0,
         1u32,
         1usize,
     ).exit().?;

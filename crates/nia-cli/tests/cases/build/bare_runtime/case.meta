@@ -1,6 +1,0 @@
-mode=runner-error
-resource=compiler
-contract=bare-runtime
-step=default
-runner-status=22
-forbidden=none

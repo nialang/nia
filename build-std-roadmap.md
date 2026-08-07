@@ -4018,6 +4018,28 @@ typed-graph/host-tool evidence slice; generated/source invalidation, profile
 inheritance, package inputs, run/test/install relationships, and the remaining
 artifact surface remain open.
 
+Phase G progress (2026-08-07, configuration ownership and optimization
+inheritance): the global `nia build -O*` selection now crosses `BuildRequest`,
+the normalized build invocation, and the generated runner into
+`std::build::Build`. A module with no local setting inherits that value, while
+`ModuleOptions::withOptimization` is an explicit override; absence is preserved
+until `Build::addModule` resolves it, and only the concrete result enters the
+canonical plan. A real build fixture selects `-Os`, observes one inherited
+module and one `O0` override, while the maintained configured package proves the
+ordinary no-flag default is `O0`, matching the compiler CLI.
+
+Target and runtime deliberately do not share this override mechanism. The
+current executable artifact derives the artifact target and freestanding
+runtime from its role and kind. The rejected `ExecutableOptions::withRuntime`
+surface and its always-failing bare-executable fixture were deleted rather than
+retained as compatibility baggage. Named profiles remain absent because one
+optimization dimension does not justify an aliasing abstraction; a future
+profile must own a coherent multi-policy contract before it becomes public.
+This closes the current Phase G target/profile/optimization/runtime inheritance
+decision for executables. Package inputs, run/test/install relationships, host
+compiler artifacts, object/library kinds, and the remaining artifact surface
+remain open.
+
 Phase G progress (2026-08-06, generated-source producer closure): build-rooted
 module roots and imports now have one explicit source-root API:
 `ModuleOptions::fromBuild` and `ModuleImport::fromBuild`. Builder validation

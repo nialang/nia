@@ -41,6 +41,7 @@ pub struct BuildRequest {
     pub timings: TimingMode,
     pub timing_format: TimingFormat,
     pub max_parallel_actions: Option<NonZeroUsize>,
+    pub optimization: OptimizationMode,
 }
 
 impl BuildRequest {
@@ -52,6 +53,7 @@ impl BuildRequest {
             timings: TimingMode::Off,
             timing_format: TimingFormat::Text,
             max_parallel_actions: None,
+            optimization: OptimizationMode::O0,
         }
     }
 
@@ -79,6 +81,11 @@ impl BuildRequest {
         self.max_parallel_actions = Some(max_parallel_actions);
         self
     }
+
+    pub fn with_optimization(mut self, optimization: OptimizationMode) -> Self {
+        self.optimization = optimization;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +103,7 @@ pub struct BuildInvocation {
     pub timings: TimingMode,
     pub timing_format: TimingFormat,
     pub max_parallel_actions: Option<NonZeroUsize>,
+    pub optimization: OptimizationMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -476,6 +484,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         timings: request.timings,
         timing_format: request.timing_format,
         max_parallel_actions: request.max_parallel_actions,
+        optimization: request.optimization,
     })
 }
 
@@ -731,6 +740,29 @@ fn u32Arg(
     }
 }
 
+fn optimizationArg(
+    init: process::Init,
+    index: usize,
+) build::Error!build::OptimizationMode {
+    let value = u32Arg(
+        init,
+        index,
+        build::ErrorSubject::BuildPlan,
+    ).?;
+    switch value {
+        0 => !build::OptimizationMode::O0,
+        1 => !build::OptimizationMode::O1,
+        2 => !build::OptimizationMode::O2,
+        3 => !build::OptimizationMode::O3,
+        4 => !build::OptimizationMode::Os,
+        5 => !build::OptimizationMode::Oz,
+        _ => build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::BuildPlan,
+        }!,
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
@@ -758,10 +790,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut artifactTargetText = TargetText::init();
     defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
     let artifactTarget = targetArg(init, &mut allocator, 13, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
-    let planSchemaVersion = u32Arg(init, 20, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let defaultOptimization = optimizationArg(init, 20).reportAndExit(init).?;
+    let planSchemaVersion = u32Arg(init, 21, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let mut planDraftPath = fs::PathBuf::init();
     defer planDraftPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
-    let planDraft = pathArg(init, &mut allocator, 21, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let planDraft = pathArg(init, &mut allocator, 22, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
 
     let mut api = build::Build::init(
         init,
@@ -776,8 +809,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         toolchainResourceRoot,
         hostTarget,
         artifactTarget,
+        defaultOptimization,
         planSchemaVersion,
-        22,
+        23,
 "#,
     );
     source.push_str(
@@ -969,12 +1003,26 @@ fn build_runner_args(invocation: &BuildInvocation) -> Vec<OsString> {
     ];
     args.extend(target_runner_args(invocation.toolchain.host_target()).map(OsString::from));
     args.extend(target_runner_args(invocation.toolchain.artifact_target()).map(OsString::from));
+    args.push(OsString::from(
+        optimization_runner_arg(invocation.optimization).to_string(),
+    ));
     args.push(OsString::from(BUILD_PLAN_SCHEMA_VERSION.to_string()));
     args.push(invocation.plan_draft.as_os_str().to_owned());
     if let Some(step) = invocation.step.as_runner_arg() {
         args.push(OsString::from(step));
     }
     args
+}
+
+fn optimization_runner_arg(optimization: OptimizationMode) -> u8 {
+    match optimization {
+        OptimizationMode::O0 => 0,
+        OptimizationMode::O1 => 1,
+        OptimizationMode::O2 => 2,
+        OptimizationMode::O3 => 3,
+        OptimizationMode::Os => 4,
+        OptimizationMode::Oz => 5,
+    }
 }
 
 fn target_runner_args(target: &nia_target_config::TargetConfig) -> [String; 7] {
@@ -1094,6 +1142,7 @@ mod tests {
             plan.package_root.join(".nia-build/build-plan.bin")
         );
         assert_eq!(plan.step, BuildStepSelection::Default);
+        assert_eq!(plan.optimization, OptimizationMode::O0);
     }
 
     #[test]
@@ -1138,6 +1187,7 @@ mod tests {
         assert!(runner.source.contains("fn pathArg("));
         assert!(runner.source.contains("fn textArg("));
         assert!(runner.source.contains("fn targetArg("));
+        assert!(runner.source.contains("fn optimizationArg("));
         assert!(runner.source.contains("fn reportAndExit("));
         assert!(runner.source.contains("fs::PathBuf::fromUtf8("));
         assert!(runner.source.contains("string::String::fromUtf8("));
@@ -1162,11 +1212,17 @@ mod tests {
         assert!(
             runner
                 .source
-                .contains("let planSchemaVersion = u32Arg(init, 20,")
+                .contains("let defaultOptimization = optimizationArg(init, 20)")
         );
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 21,"));
+        assert!(
+            runner
+                .source
+                .contains("let planSchemaVersion = u32Arg(init, 21,")
+        );
+        assert!(runner.source.contains("pathArg(init, &mut allocator, 22,"));
+        assert!(runner.source.contains("defaultOptimization,"));
         assert!(runner.source.contains("planSchemaVersion,"));
-        assert!(runner.source.contains("        22,"));
+        assert!(runner.source.contains("        23,"));
         assert!(runner.source.contains("api.writePlanDraft(planDraft)"));
         assert!(runner.source.contains("api.reportError(error)"));
         assert!(runner.source.contains(").reportAndExit(init).?;"));
@@ -1197,16 +1253,18 @@ mod tests {
         let plan = resolve_build_invocation(
             BuildRequest::new(Arc::clone(&toolchain))
                 .with_root(&root)
-                .with_step("inspect"),
+                .with_step("inspect")
+                .with_optimization(OptimizationMode::Oz),
         )
         .expect("build invocation");
 
         let config = build_runner_driver_config(&plan);
         let args = build_runner_args(&plan);
 
+        assert_eq!(plan.optimization, OptimizationMode::Oz);
         assert_eq!(config.artifact_target, *toolchain.host_target());
         assert_ne!(config.artifact_target, *toolchain.artifact_target());
-        assert_eq!(args.len(), 22);
+        assert_eq!(args.len(), 23);
         assert_eq!(args[5], OsString::from(&toolchain.host_target().arch));
         assert_eq!(
             args[11],
@@ -1219,12 +1277,13 @@ mod tests {
         assert_eq!(args[16], OsString::from("artifact-abi"));
         assert_eq!(args[17], OsString::from("big"));
         assert_eq!(args[18], OsString::from("32"));
+        assert_eq!(args[19], OsString::from("5"));
         assert_eq!(
-            args[19],
+            args[20],
             OsString::from(BUILD_PLAN_SCHEMA_VERSION.to_string())
         );
-        assert_eq!(args[20], plan.plan_draft.as_os_str());
-        assert_eq!(args[21], OsString::from("inspect"));
+        assert_eq!(args[21], plan.plan_draft.as_os_str());
+        assert_eq!(args[22], OsString::from("inspect"));
     }
 
     #[test]

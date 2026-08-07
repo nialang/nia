@@ -42,6 +42,7 @@ fn initBuild(
         emptyPath,
         currentTarget,
         currentTarget,
+        build::OptimizationMode::O0,
         1u32,
         1024usize,
     )

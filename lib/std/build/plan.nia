@@ -14,7 +14,6 @@ using types::{
     ExecutableTarget,
     Module,
     OptimizationMode,
-    Runtime,
     Step,
     StepKind,
     ModuleSourceRoot,
@@ -169,14 +168,6 @@ extend PlanEncoder {
         })
     }
 
-    fn writeRuntime(&mut self, runtime: Runtime) Error!void {
-        self.writeU8(switch runtime {
-            Runtime::Bare => 0,
-            Runtime::Freestanding => 1,
-            _ => return invalidPlan(),
-        })
-    }
-
     fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!void {
         self.writeU8(switch resourceClass {
             ActionResourceClass::Conservative => 0,
@@ -227,7 +218,7 @@ extend PlanEncoder {
         self.writeNodeKey(target.name.text()).?;
         self.writeNodeKey(moduleRecord.name.text()).?;
         self.writeBuildPath(target.outputName.text()).?;
-        self.writeRuntime(target.runtime)
+        self.writeU8(1)
     }
 
     fn writeAction(
@@ -256,7 +247,7 @@ extend PlanEncoder {
                 self.writeU8(0).?;
                 self.writeNodeKey(moduleRecord.name.text()).?;
                 self.writeTarget(artifactTarget).?;
-                self.writeRuntime(target.runtime)
+                self.writeU8(1)
             },
             StepKind::EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];

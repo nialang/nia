@@ -113,6 +113,16 @@ decode one another's runner state; canonical `build-plan.bin` publication
 remains an atomic last-completed observation and is not the execution truth for
 an already decoded plan.
 
+The invocation also supplies one normalized optimization default from the
+global `-O*` option. `ModuleOptions` retains absence separately from an explicit
+mode until `Build::addModule` resolves inheritance, so the frozen plan contains
+only concrete module optimization values. A module-level `withOptimization`
+always wins over the invocation default. There is no named build profile yet:
+with only one inherited policy dimension it would be an alias for optimization,
+not an independent contract. Executable target and runtime do not participate
+in this precedence chain; the current executable artifact kind derives the
+artifact target and freestanding runtime from its role.
+
 After the runner exits, the coordinator decodes and freezes the draft before
 any action can run. It publishes canonical plan bytes and executes only the
 selected dependency closure. The closure uses iterative deterministic Kahn
@@ -445,7 +455,7 @@ further constrained.
 | missing default | plan-selection diagnostic; no implicit first step |
 | missing script | package-discovery diagnostic before runner compilation |
 | invalid target | target/runtime validation diagnostic with offending field |
-| bare runtime executable | unsupported runtime/target diagnostic before action execution |
+| build optimization | invocation default plus exact per-module override in the frozen plan |
 | duplicate target | duplicate stable artifact identity diagnostic |
 | invalid output | path/output policy diagnostic; no partial directory or artifact |
 

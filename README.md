@@ -159,11 +159,12 @@ library. The `std::build::Build` value passed to
 whose text is owned by `Build`, so build scripts can configure declarations
 without confusing host services with artifact runtime facts.
 The build API includes `addModule(ModuleOptions::init(name, rootSource))`
-for declaring a root source module, `withOptimization(mode)` for overriding
-the default optimization mode, and `addExecutable(ExecutableOptions::init(name,
-rootModule))` for declaring an executable artifact. `withOutputName(name)`
-and `withRuntime(runtime)` customize the artifact. `addCheckExecutableStep`
-and `addEmitExecutableStep` add compiler-backed graph steps. Those steps use
+for declaring a root source module. Modules inherit the `nia build -O*`
+invocation mode, while `withOptimization(mode)` is an explicit per-module
+override. `addExecutable(ExecutableOptions::init(name, rootModule))` declares a
+freestanding artifact for the invocation's artifact target;
+`withOutputName(name)` customizes its output name. `addCheckExecutableStep` and
+`addEmitExecutableStep` add compiler-backed graph steps. Those steps use
 typed Driver requests and emit executable artifacts to
 `.nia-build/<output-name-or-target-name>` without hand-written subprocess setup.
 `addAggregateStep(name)` groups dependencies without executing work.

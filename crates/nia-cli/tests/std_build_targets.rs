@@ -71,6 +71,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             &artifactEndian,
             32u32,
         ),
+        build::OptimizationMode::O0,
         1u32,
         1usize,
     )
