@@ -113,6 +113,22 @@ fn rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
     }
 }
 
+fn rejectsForeignObject(result: build::Error!build::StepHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Object(0usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
 fn rejectsForeignStep(result: build::Error!void) bool {
     switch result {
         !ok => {
@@ -400,6 +416,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build::ExecutableOptions::init(&"other-app", otherModule),
     ).exit().?;
     let otherStep = other.addEmitExecutableStep(&"other-emit", otherExecutable).exit().?;
+    let otherObject = other.addObject(
+        build::ObjectOptions::init(&"other-objects", otherModule),
+    ).exit().?;
     let otherPackage = other.addPackage(build::PackageOptions::init(
         &"other-package",
         fs::PathView::init(&"packages/other"),
@@ -440,6 +459,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not rejectsForeignExecutable(api.addEmitExecutableStep(&"foreign-executable", otherExecutable)) {
         return process::exit(5)!;
+    }
+    if not rejectsForeignObject(api.addEmitObjectStep(&"foreign-object", otherObject)) {
+        return process::exit(25)!;
     }
     if not rejectsForeignExecutable(api.addRunExecutableStep(
         &"foreign-run",
