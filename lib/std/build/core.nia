@@ -45,7 +45,6 @@ using types::{
     OwnedModuleImport,
     ModuleOptions,
     OptimizationMode,
-    Runtime,
     TargetView,
     TargetStorage,
     TargetRole,
@@ -128,6 +127,7 @@ extend Build {
         toolchainResourceRoot: fs::PathView,
         hostTarget: TargetView,
         artifactTarget: TargetView,
+        defaultOptimization: OptimizationMode,
         planSchemaVersion: u32,
         stepArgIndex: usize,
     ) Error!Build {
@@ -163,6 +163,7 @@ extend Build {
             paths: paths,
             hostTarget: ownedHostTarget,
             artifactTarget: ownedArtifactTarget,
+            defaultOptimization: defaultOptimization,
             planSchemaVersion: planSchemaVersion,
             stepArgIndex: stepArgIndex,
             defaultStep: null,
@@ -424,7 +425,16 @@ extend Build {
             },
             null => {},
         }
-        let mut moduleRecord = Module::init(self.allocator, options, handle.index()).?;
+        let optimization = switch options.optimization {
+            ?optimization => optimization,
+            null => self.defaultOptimization,
+        };
+        let mut moduleRecord = Module::init(
+            self.allocator,
+            options,
+            optimization,
+            handle.index(),
+        ).?;
         let mut transferred = false;
         defer if not transferred {
             moduleRecord.deinit(self.allocator).?;
@@ -444,12 +454,6 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
-        if options.runtime != Runtime::Freestanding {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Executable(handle.index()),
-            }!;
-        }
         let outputName = executableOutputName(options);
         if not isValidOutputName(outputName) {
             return Error::Invalid {
@@ -1536,7 +1540,7 @@ extend ModuleOptions {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
             rootSource: rootSource,
-            optimization: OptimizationMode::O2,
+            optimization: null,
             imports: null,
         }
     }
@@ -1546,7 +1550,7 @@ extend ModuleOptions {
             name: name,
             sourceRoot: ModuleSourceRoot::Build,
             rootSource: fs::PathView::init(rootSource.text()),
-            optimization: OptimizationMode::O2,
+            optimization: null,
             imports: null,
         }
     }
@@ -1556,7 +1560,7 @@ extend ModuleOptions {
             name: self.name,
             sourceRoot: self.sourceRoot,
             rootSource: self.rootSource,
-            optimization: optimization,
+            optimization: ?optimization,
             imports: self.imports,
         }
     }
@@ -1587,13 +1591,18 @@ extend BuildPathView {
 }
 
 extend Module {
-    fn init(allocator: &mut mem::Allocator, options: ModuleOptions, index: usize) Error!Module {
+    fn init(
+        allocator: &mut mem::Allocator,
+        options: ModuleOptions,
+        optimization: OptimizationMode,
+        index: usize,
+    ) Error!Module {
         let mut moduleRecord: Module = {
             index: index,
             name: string::String::init(),
             sourceRoot: options.sourceRoot,
             rootSource: fs::PathBuf::init(),
-            optimization: options.optimization,
+            optimization: optimization,
             imports: collections::ArrayList[OwnedModuleImport]::init(),
         };
         let mut transferred = false;
@@ -1677,7 +1686,6 @@ extend ExecutableTarget {
             name: string::String::init(),
             rootModule: options.rootModule,
             outputName: string::String::init(),
-            runtime: options.runtime,
             targetRole: TargetRole::Artifact,
         };
         let mut transferred = false;
@@ -1817,7 +1825,6 @@ extend ExecutableOptions {
             name: name,
             rootModule: rootModule,
             outputName: null,
-            runtime: Runtime::Freestanding,
         }
     }
 
@@ -1826,16 +1833,6 @@ extend ExecutableOptions {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
-            runtime: self.runtime,
-        }
-    }
-
-    pub fn withRuntime(self, runtime: Runtime) ExecutableOptions {
-        {
-            name: self.name,
-            rootModule: self.rootModule,
-            outputName: self.outputName,
-            runtime: runtime,
         }
     }
 }
@@ -1864,18 +1861,6 @@ extend OptimizationMode {
             OptimizationMode::Os => &os[0],
             OptimizationMode::Oz => &oz[0],
             _ => &o2[0],
-        }
-    }
-}
-
-extend Runtime {
-    fn argv(self) &u8 {
-        static bare = b"--runtime=bare\0";
-        static freestanding = b"--runtime=freestanding\0";
-        switch self {
-            Runtime::Bare => &bare[0],
-            Runtime::Freestanding => &freestanding[0],
-            _ => &freestanding[0],
         }
     }
 }

@@ -2180,9 +2180,19 @@ exact generated-file or external-command output producer. Builder validation
 adds that producer edge to every compiler check/emit step after configuration,
 so producer declaration order is irrelevant and missing/ambiguous ownership is
 rejected. `addExecutable(ExecutableOptions::init(name, rootModule))` records a
-script-owned executable artifact. `ModuleOptions::withOptimization`,
-`ExecutableOptions::withOutputName`, and `ExecutableOptions::withRuntime`
-customize those records without exposing raw compiler argv assembly.
+script-owned executable artifact. The `nia build -O*` invocation mode is the
+default for every module; `ModuleOptions::withOptimization` records an explicit
+module override, and `ExecutableOptions::withOutputName` changes only the
+logical output name. Executables derive the artifact target and freestanding
+runtime from their artifact role and kind. Those facts are not generic options,
+so a script cannot construct a configuration that is accepted by the builder
+and rejected later merely because a bare executable is unsupported.
+No named profile abstraction is frozen at this stage. A profile becomes useful
+only when it owns a coherent set of independently documented policies; while
+optimization is the sole inherited setting, the normalized invocation mode is
+the direct and unambiguous input. Inheritance is resolved before plan encoding,
+so neither the coordinator nor action-cache identity needs optional/default
+configuration semantics.
 `addCheckExecutableStep(name, target)` and
 `addEmitExecutableStep(name, target)` register graph steps that route that
 artifact through the current toolchain. Emitted executables currently land at

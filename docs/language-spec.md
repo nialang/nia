@@ -3567,11 +3567,13 @@ build-rooted generated import. Every build-rooted root source or import must
 match exactly one generated-file or external-command output. Plan validation
 adds that producer to every compiler check/emit consumer independently of
 declaration order; a missing or ambiguous producer is invalid.
-`ModuleOptions::withOptimization(mode)` overrides the default optimization
-mode. `Build::addExecutable(ExecutableOptions::init(name, rootModule))`
-declares an executable artifact and returns an executable handle;
-`ExecutableOptions::withOutputName(name)` and
-`ExecutableOptions::withRuntime(runtime)` customize it.
+Modules inherit the optimization mode selected by `nia build -O*`;
+`ModuleOptions::withOptimization(mode)` is an explicit per-module override.
+`Build::addExecutable(ExecutableOptions::init(name, rootModule))` declares a
+freestanding executable for the invocation's artifact target and returns an
+executable handle; `ExecutableOptions::withOutputName(name)` customizes its
+output name. Runtime and target are properties of the artifact kind and role,
+not generic executable options.
 `Build::addCheckExecutableStep(name, target)` adds a graph step that checks
 that artifact through the freestanding executable runtime with the package root
 as the working directory. `Build::addEmitExecutableStep(name, target)` adds

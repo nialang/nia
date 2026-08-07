@@ -25,12 +25,6 @@ pub enum OptimizationMode: i32 {
     _
 }
 
-pub enum Runtime: i32 {
-    Bare = 1,
-    Freestanding = 2,
-    _
-}
-
 pub(pkg) enum TargetRole: i32 {
     Artifact = 1,
     _
@@ -210,7 +204,7 @@ pub struct ModuleOptions {
     name: &[char],
     sourceRoot: ModuleSourceRoot,
     rootSource: fs::PathView,
-    optimization: OptimizationMode,
+    optimization: ?OptimizationMode,
     imports: ?&[ModuleImport],
 }
 
@@ -240,7 +234,6 @@ pub struct ExecutableOptions {
     name: &[char],
     rootModule: ModuleHandle,
     outputName: ?&[char],
-    runtime: Runtime,
 }
 
 pub struct ExecutableTarget {
@@ -248,7 +241,6 @@ pub struct ExecutableTarget {
     name: string::String,
     rootModule: ModuleHandle,
     outputName: string::String,
-    runtime: Runtime,
     targetRole: TargetRole,
 }
 
@@ -267,6 +259,7 @@ pub struct Build {
     paths: BuildPaths,
     hostTarget: TargetStorage,
     artifactTarget: TargetStorage,
+    defaultOptimization: OptimizationMode,
     planSchemaVersion: u32,
     stepArgIndex: usize,
     defaultStep: ?StepHandle,

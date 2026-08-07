@@ -161,9 +161,15 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
     let timing_format = cli.timing_format;
     match cli.command {
-        CliCommand::Build { root, step, jobs } => {
-            run_build(root, step, jobs, cli.timings, timing_format, toolchain)
-        }
+        CliCommand::Build { root, step, jobs } => run_build(
+            root,
+            step,
+            jobs,
+            cli.optimization,
+            cli.timings,
+            timing_format,
+            toolchain,
+        ),
         CliCommand::Check {
             path,
             opt_report,
@@ -1091,6 +1097,7 @@ fn run_build(
     root: Option<PathBuf>,
     step: Option<String>,
     jobs: Option<NonZeroUsize>,
+    optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -1106,6 +1113,7 @@ fn run_build(
         request = request.with_max_parallel_actions(jobs);
     }
     request = request
+        .with_optimization(build_optimization(optimization))
         .with_timings(timings)
         .with_timing_format(timing_format);
     match nia_build::run_build(request) {
@@ -1114,6 +1122,17 @@ fn run_build(
             eprintln!("error: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn build_optimization(optimization: NiaOptimizationLevel) -> nia_build::OptimizationMode {
+    match optimization {
+        NiaOptimizationLevel::O0 => nia_build::OptimizationMode::O0,
+        NiaOptimizationLevel::O1 => nia_build::OptimizationMode::O1,
+        NiaOptimizationLevel::O2 => nia_build::OptimizationMode::O2,
+        NiaOptimizationLevel::O3 => nia_build::OptimizationMode::O3,
+        NiaOptimizationLevel::Os => nia_build::OptimizationMode::Os,
+        NiaOptimizationLevel::Oz => nia_build::OptimizationMode::Oz,
     }
 }
 

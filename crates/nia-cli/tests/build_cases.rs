@@ -23,7 +23,6 @@ macro_rules! build_cases {
 }
 
 build_cases!(
-    bare_runtime,
     configured_optimization,
     configured_success,
     dependency_cycle,
@@ -83,6 +82,9 @@ fn run_build_case(name: &str) {
     if contract == "step-order" {
         command.arg("--jobs=1");
     }
+    if contract == "module-optimization" {
+        command.arg("-Os");
+    }
     let command_root = if mode == "configured-build-success" {
         command.arg("--timings=detail").arg("--timings-format=json");
         let nested = workspace.join("src/nested");
@@ -138,12 +140,29 @@ fn run_build_case(name: &str) {
                 "stderr:\n{}",
                 String::from_utf8_lossy(&output.stderr)
             );
+            assert_module_optimization_inheritance(&workspace);
         }
         _ => panic!(
             "unknown build case mode {mode:?} in {}",
             manifest_path.display()
         ),
     }
+}
+
+fn assert_module_optimization_inheritance(workspace: &Path) {
+    let plan = nia_build::read_build_plan(&workspace.join(".nia-build/build-plan.bin"))
+        .expect("decode optimization build plan");
+    assert_eq!(plan.modules().len(), 2);
+    assert_eq!(plan.modules()[0].key.name(), "app");
+    assert_eq!(
+        plan.modules()[0].optimization,
+        nia_build::OptimizationMode::Os
+    );
+    assert_eq!(plan.modules()[1].key.name(), "override");
+    assert_eq!(
+        plan.modules()[1].optimization,
+        nia_build::OptimizationMode::O0
+    );
 }
 
 fn assert_configured_build_success(
@@ -226,10 +245,18 @@ fn assert_configured_build_success(
     assert_eq!(plan.modules().len(), 2);
     assert_eq!(plan.modules()[0].key.name(), "app");
     assert_eq!(
+        plan.modules()[0].optimization,
+        nia_build::OptimizationMode::O0
+    );
+    assert_eq!(
         plan.modules()[0].root_source.protocol_path(),
         "src/main.nia"
     );
     assert_eq!(plan.modules()[1].key.name(), "worker");
+    assert_eq!(
+        plan.modules()[1].optimization,
+        nia_build::OptimizationMode::O0
+    );
     assert_eq!(
         plan.modules()[1].root_source.protocol_path(),
         "generated/worker.nia"

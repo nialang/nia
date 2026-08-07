@@ -3,10 +3,15 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     static srcMain = "src/main.nia";
+    static srcOverride = "src/override.nia";
     static appName = "app";
+    static overrideName = "override";
     static checkName = "check";
     let rootModule = b.addModule(
-        build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))
+        build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain)),
+    ).?;
+    _ = b.addModule(
+        build::ModuleOptions::init(&overrideName, fs::PathView::init(&srcOverride))
             .withOptimization(build::OptimizationMode::O0),
     ).?;
     let app = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;
