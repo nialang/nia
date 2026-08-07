@@ -303,7 +303,18 @@ extend PlanEncoder {
                 }
                 self.writePackageRootPath(packages).?;
                 self.writeCount(0).?;
-                self.writeCount(0).?
+                self.writeCount(0)
+            },
+            StepKind::InstallExecutable => {
+                let install = step.payload.installExecutable;
+                let target = executables[install.target.index];
+                self.writeU8(6).?;
+                self.writeNodeKey(
+                    PackageHandle::init(0, 0),
+                    target.name.text(),
+                    packages,
+                ).?;
+                self.writeBuildPath(install.destination.text())
             },
             StepKind::ExternalCommand => {
                 let command = step.payload.externalCommand;

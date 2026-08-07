@@ -12,6 +12,7 @@ pub enum StepKind: i32 {
     GeneratedFile = 4,
     RunExecutable = 5,
     TestExecutable = 8,
+    InstallExecutable = 9,
     Uncacheable = 6,
     ExternalCommand = 7,
 }
@@ -119,6 +120,11 @@ pub struct RunExecutableStep {
     arguments: collections::ArrayList[string::String],
 }
 
+pub struct InstallExecutableStep {
+    target: ExecutableHandle,
+    destination: string::String,
+}
+
 pub enum CommandArgumentKind: i32 {
     Literal = 1,
     PackageInput = 2,
@@ -203,6 +209,7 @@ pub union StepPayload {
     executable: ExecutableStep,
     generatedFile: GeneratedFileStep,
     runExecutable: RunExecutableStep,
+    installExecutable: InstallExecutableStep,
     externalCommand: ExternalCommandStep,
     uncacheable: UncacheableStep,
 }

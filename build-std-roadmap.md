@@ -1077,6 +1077,9 @@ Acceptance:
 - a representative package builds multiple modules and artifacts, runs a host
   generation tool, consumes its declared output, checks/tests the target, and
   installs selected outputs through typed graph edges;
+- the current configured fixture exercises `addInstallExecutableStep` as a
+  build-rooted publication edge, verifies its automatic emit dependency, and
+  executes the installed copy while preserving executable permissions;
 - changing one generated or source input invalidates only the correct closure;
 - host and target artifacts cannot be substituted for each other by handle or
   cache-key collision;

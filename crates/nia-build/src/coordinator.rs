@@ -136,6 +136,12 @@ pub enum CoordinatorError {
         operation: &'static str,
         error: io::Error,
     },
+    InstallArtifactIo {
+        action: ActionKey,
+        path: PathBuf,
+        operation: &'static str,
+        error: io::Error,
+    },
     ExternalCommandIo {
         action: ActionKey,
         path: PathBuf,
@@ -230,6 +236,17 @@ impl fmt::Display for CoordinatorError {
             } => write!(
                 f,
                 "build action `{}` failed to {operation} generated file `{}`: {error}",
+                action.name(),
+                path.display()
+            ),
+            Self::InstallArtifactIo {
+                action,
+                path,
+                operation,
+                error,
+            } => write!(
+                f,
+                "build action `{}` failed to {operation} installed artifact `{}`: {error}",
                 action.name(),
                 path.display()
             ),
@@ -642,6 +659,12 @@ impl DriverActionExecutor {
             }
             ActionKind::GeneratedFile { output, contents } => {
                 return self.execute_generated_file(action, output, contents);
+            }
+            ActionKind::InstallArtifact {
+                artifact,
+                destination,
+            } => {
+                return self.execute_install_artifact(action, artifact, destination);
             }
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
         };
@@ -1124,6 +1147,45 @@ impl DriverActionExecutor {
         }
     }
 
+    fn execute_install_artifact(
+        &self,
+        action: &PlanAction,
+        artifact_key: &ArtifactKey,
+        logical_destination: &LogicalPath,
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let artifact = self.artifact(action, artifact_key)?;
+        let source = self.resolve_path(action, &artifact.output)?;
+        let destination = self.resolve_path(action, logical_destination)?;
+        let resolved = [(logical_destination, destination)];
+        let staged = prepare_staged_outputs(action, &self.invocation.build_dir, &resolved)?;
+        let temporary = staged.outputs[0].temporary.clone();
+        if let Err(error) = fs::copy(&source, &temporary) {
+            return cleanup_staged_outputs(
+                action,
+                staged,
+                Some(Box::new(install_artifact_io(
+                    action, &source, "copy", error,
+                ))),
+            )
+            .map(|()| None);
+        }
+        if let Err(error) = fs::File::open(&temporary).and_then(|file| file.sync_all()) {
+            return cleanup_staged_outputs(
+                action,
+                staged,
+                Some(Box::new(install_artifact_io(
+                    action,
+                    &temporary,
+                    "sync staged",
+                    error,
+                ))),
+            )
+            .map(|()| None);
+        }
+        publish_staged_outputs(action, staged)?;
+        Ok(None)
+    }
+
     fn acquire_output_locks(
         &self,
         action: &PlanAction,
@@ -1135,6 +1197,7 @@ impl DriverActionExecutor {
             }
             ActionKind::ExternalCommand { outputs, .. } => outputs.iter().collect(),
             ActionKind::GeneratedFile { output, .. } => vec![output],
+            ActionKind::InstallArtifact { destination, .. } => vec![destination],
             _ => Vec::new(),
         };
         outputs.sort();
@@ -2340,6 +2403,20 @@ fn write_generated_file(
     result
 }
 
+fn install_artifact_io(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+    error: io::Error,
+) -> CoordinatorError {
+    CoordinatorError::InstallArtifactIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
+    }
+}
+
 fn create_generated_temporary(
     action: &PlanAction,
     parent: &std::path::Path,
@@ -3345,6 +3422,69 @@ mod tests {
         .unwrap()
     }
 
+    fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
+        let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
+        let artifact_key = ArtifactKey::new(PackageKey::root(), "app").unwrap();
+        let artifact_target = target_spec(invocation.toolchain.artifact_target());
+        BuildPlan::freeze(BuildPlanDraft {
+            root_package: PackageKey::root(),
+            packages: vec![PlanPackage {
+                key: PackageKey::root(),
+                root: String::new(),
+            }],
+            host_target: target_spec(invocation.toolchain.host_target()),
+            artifact_target: artifact_target.clone(),
+            modules: vec![PlanModule {
+                key: module.clone(),
+                root_source: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "src/main.nia",
+                )
+                .unwrap(),
+                optimization: OptimizationMode::O2,
+                imports: Vec::new(),
+            }],
+            artifacts: vec![PlanArtifact {
+                key: artifact_key.clone(),
+                root_module: module,
+                output: LogicalPath::new(LogicalPathRoot::Build, "bin/app").unwrap(),
+                runtime: Runtime::Freestanding,
+            }],
+            actions: vec![
+                PlanAction {
+                    key: action("emit"),
+                    kind: ActionKind::CompilerEmit {
+                        artifact: artifact_key.clone(),
+                        target: artifact_target,
+                    },
+                },
+                PlanAction {
+                    key: action("install"),
+                    kind: ActionKind::InstallArtifact {
+                        artifact: artifact_key,
+                        destination: LogicalPath::new(LogicalPathRoot::Build, "install/custom-app")
+                            .unwrap(),
+                    },
+                },
+            ],
+            steps: vec![
+                PlanStep {
+                    key: step("emit"),
+                    action: action("emit"),
+                    dependencies: Vec::new(),
+                },
+                PlanStep {
+                    key: step("install"),
+                    action: action("install"),
+                    dependencies: vec![step("emit")],
+                },
+            ],
+            default_step: Some(step("install")),
+            selected_step: None,
+        })
+        .unwrap()
+    }
+
     fn mixed_generated_source_emit_plan(
         invocation: &BuildInvocation,
         generated_body: &str,
@@ -3901,6 +4041,31 @@ mod tests {
             fs::read(output).expect("read restored executable"),
             expected
         );
+    }
+
+    #[test]
+    fn install_artifact_copies_and_replaces_an_executable_transactionally() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        let plan = install_executable_plan(&invocation);
+        let source = invocation.build_dir.join("bin/app");
+        let destination = invocation.build_dir.join("install/custom-app");
+
+        execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), fs::read(&source).unwrap());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(
+                fs::metadata(&destination).unwrap().permissions().mode() & 0o111,
+                0
+            );
+        }
+
+        fs::write(&destination, b"stale installed executable").unwrap();
+        execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), fs::read(&source).unwrap());
+        assert_no_output_locks(&invocation);
     }
 
     #[test]

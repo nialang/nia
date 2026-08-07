@@ -18,6 +18,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     let buildStepName = "build";
     let checkStepName = "check";
     let runStepName = "run";
+    let installStepName = "install";
     let toolStepName = "tool";
     let generateWorkerStepName = "generate-worker";
     let generateHelperStepName = "generate-helper";
@@ -67,6 +68,11 @@ fn configure(b: &mut build::Build) build::Error!void {
         &runStepName,
         build::RunOptions::init(app).withArguments(&runArguments[..]),
     ).?;
+    let installStep = b.addInstallExecutableStep(
+        &installStepName,
+        app,
+        build::BuildPathView::init(&"install/custom-app"),
+    ).?;
     let toolArguments = [
         build::CommandArgument::literal(&"-c"),
         build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
@@ -89,6 +95,7 @@ fn configure(b: &mut build::Build) build::Error!void {
             .withDeclaredInputCache()
             .withResourceClass(build::ActionResourceClass::Io),
     ).?;
+    b.dependOn(toolStep, installStep).?;
     b.dependOn(toolStep, runStep).?;
     b.setDefaultStep(toolStep).?;
     !{}

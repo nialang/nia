@@ -28,6 +28,7 @@ using types::{
     ExecutableStep,
     RunOptions,
     RunExecutableStep,
+    InstallExecutableStep,
     CommandArgument,
     CommandArgumentKind,
     ActionResourceClass,
@@ -363,6 +364,52 @@ extend Build {
             payload.deinit(self.allocator, handle.index()).?;
         };
         let result = self.addStepRecord(name, StepKind::TestExecutable, { runExecutable: payload }).?;
+        transferred = true;
+        let mut committed = false;
+        defer if not committed {
+            self.rollbackLastStep().?;
+        };
+        self.dependOn(result, producer).?;
+        committed = true;
+        !result
+    }
+
+    pub fn addInstallExecutableStep(
+        &mut self,
+        name: &[char],
+        target: ExecutableHandle,
+        destination: BuildPathView,
+    ) Error!StepHandle {
+        self.validateExecutableHandle(target).?;
+        if not destination.isValid() {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!;
+        }
+        let producer = switch self.findEmitStep(target) {
+            ?producer => producer,
+            null => return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!,
+        };
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        let mut payload = InstallExecutableStep::init(
+            self.allocator,
+            target,
+            destination,
+            handle.index(),
+        ).?;
+        let mut transferred = false;
+        defer if not transferred {
+            payload.deinit(self.allocator, handle.index()).?;
+        };
+        let result = self.addStepRecord(
+            name,
+            StepKind::InstallExecutable,
+            { installExecutable: payload },
+        ).?;
         transferred = true;
         let mut committed = false;
         defer if not committed {
@@ -1101,6 +1148,28 @@ extend RunOptions {
     }
 }
 
+extend InstallExecutableStep {
+    fn init(
+        allocator: &mut mem::Allocator,
+        target: ExecutableHandle,
+        destination: BuildPathView,
+        index: usize,
+    ) Error!InstallExecutableStep {
+        let owned = string::String::fromSlice(
+            allocator,
+            destination.text(),
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        !{
+            target: target,
+            destination: owned,
+        }
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        self.destination.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+    }
+}
+
 extend RunExecutableStep {
     fn init(
         allocator: &mut mem::Allocator,
@@ -1493,6 +1562,9 @@ extend Step {
         }
         if self.kind == StepKind::RunExecutable or self.kind == StepKind::TestExecutable {
             rememberCleanupError(&mut firstError, self.payload.runExecutable.deinit(allocator, self.index));
+        }
+        if self.kind == StepKind::InstallExecutable {
+            rememberCleanupError(&mut firstError, self.payload.installExecutable.deinit(allocator, self.index));
         }
         if self.kind == StepKind::ExternalCommand {
             rememberCleanupError(&mut firstError, self.payload.externalCommand.deinit(allocator, self.index));
