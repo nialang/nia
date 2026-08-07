@@ -29,6 +29,7 @@ pub enum OptimizationMode: i32 {
 
 pub(pkg) enum TargetRole: i32 {
     Artifact = 1,
+    Host = 2,
     _
 }
 
@@ -264,6 +265,7 @@ pub struct ExecutableOptions {
     name: &[char],
     rootModule: ModuleHandle,
     outputName: ?&[char],
+    targetRole: TargetRole,
 }
 
 pub struct ExecutableTarget {

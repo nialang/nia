@@ -4144,3 +4144,23 @@ copy, and focused plan/codec/coordinator tests cover missing artifacts,
 dependency closure, output collision, replacement, and permission retention.
 The system-prefix deployment policy, host compiler artifacts, object/library
 kinds, and the remaining artifact surface remain open.
+
+Phase G progress (2026-08-07, compiler-built host executable role):
+`ExecutableOptions::init` continues to select the artifact target, while the
+explicit `.forHost()` modifier selects the host target retained by `Build`.
+This activates the existing internal `TargetRole` rather than adding an
+arbitrary target setter or a parallel executable API. Compiler check/emit
+actions encode the role-selected target; run, test, install, and artifact-input
+relations continue to consume the same owner-checked executable identity, and
+their cache identity already includes the typed compiler target and emitted
+bytes.
+
+The target conformance program writes and decodes a schema-7 plan with distinct
+host and artifact descriptors and proves the two compiler action targets do not
+alias. The maintained configured package compiles a Nia host tool, executes it
+through an artifact-root run edge, and includes it in the default dependency
+closure. Extending that fixture also exposed and fixed a missing external
+command outputs count in `TestExecutable` plan encoding; the decoded
+conformance plan now guards the complete test action layout. This closes the
+compiler-built host executable slice. Object/library kinds and the remaining
+artifact surface remain open.

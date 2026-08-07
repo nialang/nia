@@ -72,7 +72,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             32u32,
         ),
         build::OptimizationMode::O0,
-        1u32,
+        7u32,
         1usize,
     )
 }
@@ -499,7 +499,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build::RunOptions::init(executable),
     ).exit().?;
     _ = test;
-    api.validatePlan().exit().?;
+    let hostExecutable = api.addExecutable(
+        build::ExecutableOptions::init(&"host-app", moduleHandle)
+            .withOutputName(&"host-tool")
+            .forHost(),
+    ).exit().?;
+    _ = api.addCheckExecutableStep(&"host-check", hostExecutable).exit().?;
+    _ = api.addEmitExecutableStep(&"host-emit", hostExecutable).exit().?;
+    api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
     !{}
 }
 "#,
@@ -521,8 +528,42 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert_eq!(
         Command::new(&exe)
+            .current_dir(&root)
             .status_timeout("run build target conformance fixture")
             .code(),
         Some(0)
     );
+    let plan = nia_build::read_build_plan(&root.join("plan.draft"))
+        .expect("decode target conformance plan");
+    let artifact_emit = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "emit")
+        .expect("artifact emit action");
+    assert!(matches!(
+        &artifact_emit.kind,
+        nia_build::ActionKind::CompilerEmit { target, .. }
+            if target == plan.artifact_target()
+    ));
+    for name in ["host-check", "host-emit"] {
+        let action = plan
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == name)
+            .unwrap_or_else(|| panic!("missing {name} action"));
+        match &action.kind {
+            nia_build::ActionKind::CompilerCheck { target, .. }
+            | nia_build::ActionKind::CompilerEmit { target, .. } => {
+                assert_eq!(target, plan.host_target());
+                assert_ne!(target, plan.artifact_target());
+            }
+            other => panic!("expected host compiler action, found {other:?}"),
+        }
+    }
+    let host_artifact = plan
+        .artifacts()
+        .iter()
+        .find(|artifact| artifact.key.name() == "host-app")
+        .expect("host executable artifact");
+    assert_eq!(host_artifact.output.protocol_path(), "host-tool");
 }
