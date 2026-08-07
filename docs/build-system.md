@@ -162,6 +162,11 @@ stdout/stderr while retaining a bounded 64-KiB tail for each stream, enforces a
 seven-minute timeout, and retires the owned process group on timeout or after
 the leader exits. Spawn, wait, timeout, capture, and nonzero-exit failures retain
 action, program, cwd, argument count, status, and output context.
+`addTestExecutableStep` records the same typed artifact-to-emit relationship
+with test intent and retained `RunOptions` arguments. It intentionally lowers
+to the same uncacheable process action as `addRunExecutableStep`; test results
+must never be mistaken for reusable build outputs, while the graph still
+rejects missing or foreign emit ownership.
 External-command arguments distinguish literals, declared inputs, and declared
 outputs. Every output argument resolves to its own path in one
 coordinator-owned same-filesystem transaction directory. Before publication,

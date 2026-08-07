@@ -287,6 +287,24 @@ extend PlanEncoder {
                 self.writeCount(0).?;
                 self.writeCount(0)
             },
+            StepKind::TestExecutable => {
+                let run = step.payload.runExecutable;
+                let target = executables[run.target.index];
+                self.writeU8(2).?;
+                self.writeResourceClass(ActionResourceClass::Conservative).?;
+                self.writeCommandEnvironmentPolicy(CommandEnvironmentPolicy::Inherit).?;
+                self.writeCommandCachePolicy(CommandCachePolicy::Uncacheable).?;
+                self.writeU8(0).?;
+                self.writeArtifactPath(target.name.text(), packages).?;
+                self.writeCount(run.arguments.len()).?;
+                for &argument in run.arguments.iter() {
+                    self.writeU8(0).?;
+                    self.writeString(argument.text()).?;
+                }
+                self.writePackageRootPath(packages).?;
+                self.writeCount(0).?;
+                self.writeCount(0).?
+            },
             StepKind::ExternalCommand => {
                 let command = step.payload.externalCommand;
                 self.writeU8(2).?;

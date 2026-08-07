@@ -181,6 +181,8 @@ build-rooted source without aliasing it as a package path.
 owner-checked package handles for compiler sources and module-map imports.
 `addRunExecutableStep(name, RunOptions::init(executable))` runs a declared
 artifact and automatically depends on its existing emit step;
+`addTestExecutableStep(name, RunOptions::init(executable))` records a test
+execution with the same explicit artifact dependency and process semantics;
 `RunOptions::withArguments` supplies retained arguments. Builder calls copy
 retained text, paths, imports, and run arguments, so local input arrays may
 leave scope before execution. `setDefaultStep(step)`

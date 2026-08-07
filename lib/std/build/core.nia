@@ -346,6 +346,33 @@ extend Build {
         !result
     }
 
+    pub fn addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
+        self.validateExecutableHandle(options.target).?;
+        let producer = switch self.findEmitStep(options.target) {
+            ?producer => producer,
+            null => return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!,
+        };
+        validateRunArguments(options.arguments, self.steps.len()).?;
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        let mut payload = RunExecutableStep::init(self.allocator, options, handle.index()).?;
+        let mut transferred = false;
+        defer if not transferred {
+            payload.deinit(self.allocator, handle.index()).?;
+        };
+        let result = self.addStepRecord(name, StepKind::TestExecutable, { runExecutable: payload }).?;
+        transferred = true;
+        let mut committed = false;
+        defer if not committed {
+            self.rollbackLastStep().?;
+        };
+        self.dependOn(result, producer).?;
+        committed = true;
+        !result
+    }
+
     pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
         validateExternalCommand(options, self.steps.len()).?;
         let mut artifactInputCount: usize = 0;
@@ -612,6 +639,9 @@ extend Build {
             ].rootModule.index(),
             StepKind::EmitExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
+            ].rootModule.index(),
+            StepKind::TestExecutable => ?self.executables.asSlice()[
+                step.payload.runExecutable.target.index()
             ].rootModule.index(),
             _ => null,
         }
@@ -1461,7 +1491,7 @@ extend Step {
         if self.kind == StepKind::GeneratedFile {
             rememberCleanupError(&mut firstError, self.payload.generatedFile.deinit(allocator, self.index));
         }
-        if self.kind == StepKind::RunExecutable {
+        if self.kind == StepKind::RunExecutable or self.kind == StepKind::TestExecutable {
             rememberCleanupError(&mut firstError, self.payload.runExecutable.deinit(allocator, self.index));
         }
         if self.kind == StepKind::ExternalCommand {

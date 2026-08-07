@@ -11,6 +11,7 @@ pub enum StepKind: i32 {
     EmitExecutable = 3,
     GeneratedFile = 4,
     RunExecutable = 5,
+    TestExecutable = 8,
     Uncacheable = 6,
     ExternalCommand = 7,
 }
