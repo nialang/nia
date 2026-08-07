@@ -486,7 +486,11 @@ impl<'a> Reader<'a> {
         Ok(self.take(1)?[0])
     }
     fn u32(&mut self) -> Result<u32, PlanCodecError> {
-        let bytes: [u8; 4] = self.take(4)?.try_into().expect("fixed decoder width");
+        let offset = self.offset;
+        let bytes: [u8; 4] = self
+            .take(4)?
+            .try_into()
+            .map_err(|_| PlanCodecError::Truncated { offset })?;
         Ok(u32::from_le_bytes(bytes))
     }
 
@@ -876,6 +880,48 @@ mod tests {
         writer.finish().unwrap()
     }
 
+    fn mutation_corpus() -> Vec<Vec<u8>> {
+        let mut command = draft(false);
+        command.actions.push(PlanAction {
+            key: ActionKey::new(PackageKey::root(), "command-corpus").unwrap(),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: vec![CommandArgument::Literal("--version".to_string())],
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: vec![EnvironmentInput {
+                    name: "LANG".to_string(),
+                    value: Some("C".to_string()),
+                }],
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+        [
+            draft(false),
+            static_archive_link_draft(),
+            generated_source_draft("generated/root.nia", vec!["generate"]),
+            command,
+        ]
+        .into_iter()
+        .map(|draft| BuildPlan::freeze(draft).unwrap().encode().unwrap())
+        .collect()
+    }
+
+    fn assert_accepted_encoding_recanonicalizes(bytes: &[u8]) {
+        let Ok(plan) = BuildPlan::decode(bytes) else {
+            return;
+        };
+        let canonical = plan.encode().unwrap();
+        assert_eq!(BuildPlan::decode(&canonical), Ok(plan));
+    }
+
     #[test]
     fn canonical_compiler_plan_round_trips() {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
@@ -1113,6 +1159,42 @@ mod tests {
             BuildPlan::decode(&trailing),
             Err(PlanCodecError::TrailingData { .. })
         ));
+    }
+
+    #[test]
+    fn every_truncated_corpus_prefix_is_rejected() {
+        for (corpus_index, bytes) in mutation_corpus().into_iter().enumerate() {
+            for prefix_len in 0..bytes.len() {
+                assert!(
+                    BuildPlan::decode(&bytes[..prefix_len]).is_err(),
+                    "corpus {corpus_index} accepted prefix {prefix_len}/{}",
+                    bytes.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deterministic_codec_mutations_never_escape_validation() {
+        for (corpus_index, bytes) in mutation_corpus().into_iter().enumerate() {
+            for offset in 0..bytes.len() {
+                for bit in 0..8 {
+                    let mut mutated = bytes.clone();
+                    mutated[offset] ^= 1 << bit;
+                    assert_accepted_encoding_recanonicalizes(&mutated);
+                }
+            }
+            for offset in 0..bytes.len().saturating_sub(3) {
+                let mut oversized = bytes.clone();
+                oversized[offset..offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+                assert_accepted_encoding_recanonicalizes(&oversized);
+            }
+            assert_eq!(
+                BuildPlan::decode(&bytes),
+                BuildPlan::decode(&BuildPlan::decode(&bytes).unwrap().encode().unwrap()),
+                "corpus {corpus_index} changed after canonical round trip"
+            );
+        }
     }
 
     #[test]

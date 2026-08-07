@@ -775,9 +775,13 @@ fn canonicalize_actions(
                 target,
                 static_archives,
             } => {
-                if artifacts_by_key[artifact].kind != PlanArtifactKind::Executable
-                    && !static_archives.is_empty()
-                {
+                let Some(emitted) = artifacts_by_key.get(artifact) else {
+                    return Err(PlanError::MissingArtifact {
+                        action: action.key.clone(),
+                        artifact: artifact.clone(),
+                    });
+                };
+                if emitted.kind != PlanArtifactKind::Executable && !static_archives.is_empty() {
                     return Err(PlanError::InvalidArtifactUse {
                         action: action.key.clone(),
                         artifact: artifact.clone(),
@@ -825,8 +829,14 @@ fn canonicalize_actions(
                 });
             }
             ActionKind::InstallArtifact { artifact, .. } => {
+                let Some(installed) = artifacts_by_key.get(artifact) else {
+                    return Err(PlanError::MissingArtifact {
+                        action: action.key.clone(),
+                        artifact: artifact.clone(),
+                    });
+                };
                 if !matches!(
-                    artifacts_by_key[artifact].kind,
+                    installed.kind,
                     PlanArtifactKind::Executable | PlanArtifactKind::StaticArchive
                 ) {
                     return Err(PlanError::InvalidArtifactUse {
@@ -998,7 +1008,13 @@ fn validate_step_cycles(steps: &[PlanStep]) -> Result<(), PlanError> {
     let mut dependents: BTreeMap<StepKey, Vec<StepKey>> = BTreeMap::new();
     for step in steps {
         for dependency in &step.dependencies {
-            *indegree.get_mut(&step.key).expect("validated step key") += 1;
+            let Some(degree) = indegree.get_mut(&step.key) else {
+                return Err(PlanError::MissingStep {
+                    owner: "cycle validator".to_string(),
+                    step: step.key.clone(),
+                });
+            };
+            *degree += 1;
             dependents
                 .entry(dependency.clone())
                 .or_default()
@@ -1014,9 +1030,12 @@ fn validate_step_cycles(steps: &[PlanStep]) -> Result<(), PlanError> {
         visited += 1;
         if let Some(items) = dependents.get(&key) {
             for dependent in items {
-                let degree = indegree
-                    .get_mut(dependent)
-                    .expect("validated dependent key");
+                let Some(degree) = indegree.get_mut(dependent) else {
+                    return Err(PlanError::MissingStep {
+                        owner: "cycle validator dependent".to_string(),
+                        step: dependent.clone(),
+                    });
+                };
                 *degree -= 1;
                 if *degree == 0 {
                     ready.insert(dependent.clone());
@@ -1101,7 +1120,7 @@ fn validate_artifact_dependencies(
             continue;
         }
 
-        let dependency_actions = dependency_action_closure(step, &step_by_key);
+        let dependency_actions = dependency_action_closure(step, &step_by_key)?;
         for (artifact, reason) in required {
             let produced = dependency_actions.iter().any(|action| {
                 matches!(
@@ -1124,7 +1143,7 @@ fn validate_artifact_dependencies(
 fn dependency_action_closure(
     step: &PlanStep,
     step_by_key: &BTreeMap<&StepKey, &PlanStep>,
-) -> BTreeSet<ActionKey> {
+) -> Result<BTreeSet<ActionKey>, PlanError> {
     let mut pending = step.dependencies.clone();
     let mut visited = BTreeSet::new();
     let mut actions = BTreeSet::new();
@@ -1132,13 +1151,16 @@ fn dependency_action_closure(
         if !visited.insert(dependency_key.clone()) {
             continue;
         }
-        let dependency = step_by_key
-            .get(&dependency_key)
-            .expect("validated step dependency");
+        let Some(dependency) = step_by_key.get(&dependency_key) else {
+            return Err(PlanError::MissingStep {
+                owner: format!("step {} dependency closure", step.key.name()),
+                step: dependency_key,
+            });
+        };
         actions.insert(dependency.action.clone());
         pending.extend(dependency.dependencies.iter().cloned());
     }
-    actions
+    Ok(actions)
 }
 
 fn validate_generated_source_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanError> {
@@ -1185,7 +1207,12 @@ fn validate_generated_source_dependencies(draft: &BuildPlanDraft) -> Result<(), 
         let Some(consumer_steps) = steps_by_action.get(&action.key) else {
             continue;
         };
-        let module = modules[module_key];
+        let Some(module) = modules.get(module_key) else {
+            return Err(PlanError::MissingModule {
+                owner: format!("action {}", action.key.name()),
+                module: (*module_key).clone(),
+            });
+        };
         for module_path in std::iter::once(&module.root_source)
             .chain(module.imports.iter().map(|import| &import.path))
         {
@@ -1208,7 +1235,7 @@ fn validate_generated_source_dependencies(draft: &BuildPlanDraft) -> Result<(), 
                 });
             }
             for consumer_step in consumer_steps {
-                let dependency_actions = dependency_action_closure(consumer_step, &step_by_key);
+                let dependency_actions = dependency_action_closure(consumer_step, &step_by_key)?;
                 if !dependency_actions.contains(producer) {
                     return Err(PlanError::GeneratedSourceProducerOutsideClosure {
                         action: action.key.clone(),
@@ -1234,7 +1261,15 @@ fn validate_output_ownership(
     let mut owners: BTreeMap<LogicalPath, ActionKey> = BTreeMap::new();
     for action in actions {
         let outputs: Vec<&LogicalPath> = match &action.kind {
-            ActionKind::CompilerEmit { artifact, .. } => vec![artifacts[artifact]],
+            ActionKind::CompilerEmit { artifact, .. } => {
+                let Some(output) = artifacts.get(artifact) else {
+                    return Err(PlanError::MissingArtifact {
+                        action: action.key.clone(),
+                        artifact: artifact.clone(),
+                    });
+                };
+                vec![*output]
+            }
             ActionKind::ExternalCommand { outputs, .. } => outputs.iter().collect(),
             ActionKind::GeneratedFile { output, .. } => vec![output],
             ActionKind::InstallArtifact { destination, .. } => vec![destination],
@@ -1626,6 +1661,66 @@ mod tests {
         assert!(matches!(
             BuildPlan::freeze(value),
             Err(PlanError::StepCycle(_))
+        ));
+    }
+
+    #[test]
+    fn step_cycle_validator_matches_every_four_node_graph() {
+        const NODE_COUNT: usize = 4;
+        let keys: Vec<_> = (0..NODE_COUNT)
+            .map(|index| step_key(&format!("step-{index}")))
+            .collect();
+        let edge_count = NODE_COUNT * NODE_COUNT;
+
+        for mask in 0u32..(1u32 << edge_count) {
+            let mut reach = [[false; NODE_COUNT]; NODE_COUNT];
+            let steps: Vec<_> = (0..NODE_COUNT)
+                .map(|from| {
+                    let dependencies = (0..NODE_COUNT)
+                        .filter_map(|to| {
+                            let edge = from * NODE_COUNT + to;
+                            let present = mask & (1u32 << edge) != 0;
+                            reach[from][to] = present;
+                            present.then(|| keys[to].clone())
+                        })
+                        .collect();
+                    PlanStep {
+                        key: keys[from].clone(),
+                        action: action_key("model-action"),
+                        dependencies,
+                    }
+                })
+                .collect();
+
+            for intermediate in 0..NODE_COUNT {
+                for from in 0..NODE_COUNT {
+                    for to in 0..NODE_COUNT {
+                        reach[from][to] |= reach[from][intermediate] && reach[intermediate][to];
+                    }
+                }
+            }
+            let model_has_cycle = (0..NODE_COUNT).any(|index| reach[index][index]);
+            let validator_has_cycle =
+                matches!(validate_step_cycles(&steps), Err(PlanError::StepCycle(_)));
+            assert_eq!(
+                validator_has_cycle, model_has_cycle,
+                "edge mask {mask:#06x}"
+            );
+        }
+    }
+
+    #[test]
+    fn dependency_closure_reports_a_missing_step_without_panicking() {
+        let root = PlanStep {
+            key: step_key("root-step"),
+            action: action_key("root-action"),
+            dependencies: vec![step_key("missing-step")],
+        };
+        let steps = BTreeMap::from([(&root.key, &root)]);
+
+        assert!(matches!(
+            dependency_action_closure(&root, &steps),
+            Err(PlanError::MissingStep { step, .. }) if step.name() == "missing-step"
         ));
     }
 

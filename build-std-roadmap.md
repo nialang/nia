@@ -4344,3 +4344,17 @@ removed; optimization is carried as a typed plan field throughout the
 coordinator and Driver path. A fake-runner regression proves failure output is
 reported and invocation-private configuration, draft, and executable files are
 still cleaned up.
+
+Phase H progress (2026-08-08, plan validation model-check and panic audit):
+plan freeze no longer uses production `expect`/indexing for step dependency
+closures, cycle indegrees, or artifact/module lookup; malformed graph state now
+returns contextual `PlanError` values. The decoder's fixed-width read also maps
+its width check to a typed truncation error. A deterministic mutation corpus
+across compiler, generated-file, external-command, and static-archive plans
+checks every truncation prefix, every single-bit mutation, and oversized length
+fields, while accepted mutations must still recanonicalize and decode. An
+exhaustive four-node directed-graph model (65,536 edge sets) independently
+checks cycle detection. Resource-budget mutex poisoning is recovered without a
+second panic, and coordinator staged-output cleanup no longer relies on
+`expect`. Remaining resource capacity/release assertions are documented as
+internal ownership invariants.

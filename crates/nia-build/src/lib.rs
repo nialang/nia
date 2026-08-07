@@ -1041,7 +1041,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAGIC__",
-            std::str::from_utf8(runner_config::RUNNER_CONFIG_MAGIC).unwrap(),
+            runner_config::RUNNER_CONFIG_MAGIC_TEXT,
         );
     Ok(BuildRunnerSource { path, source })
 }

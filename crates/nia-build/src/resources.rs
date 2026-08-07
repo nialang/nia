@@ -30,12 +30,12 @@ impl ActionResourceBudget {
         let mut available = self
             .available
             .lock()
-            .expect("action resource budget lock poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         while *available < weight {
             available = self
                 .ready
                 .wait(available)
-                .expect("action resource budget lock poisoned while waiting");
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
         *available -= weight;
         ActionResourcePermit {
@@ -58,7 +58,7 @@ impl Drop for ActionResourcePermit<'_> {
             .budget
             .available
             .lock()
-            .expect("action resource budget lock poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *available = available
             .checked_add(self.weight)
             .expect("action resource budget capacity overflow");
@@ -119,5 +119,21 @@ mod tests {
         drop(cpu);
         acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn poisoned_budget_lock_is_recovered_without_panicking() {
+        let budget = std::sync::Arc::new(ActionResourceBudget::new(2));
+        let worker_budget = std::sync::Arc::clone(&budget);
+        let worker = std::thread::spawn(move || {
+            let _available = worker_budget.available.lock().unwrap();
+            panic!("poison resource budget for recovery test");
+        });
+        assert!(worker.join().is_err());
+
+        let permit = budget.acquire(ActionResourceClass::Cpu);
+        assert_eq!(*budget.available.lock().unwrap_err().into_inner(), 1);
+        drop(permit);
+        assert_eq!(*budget.available.lock().unwrap_err().into_inner(), 2);
     }
 }
