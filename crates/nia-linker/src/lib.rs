@@ -212,6 +212,157 @@ impl ExecutableLinker {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveTool {
+    pub program: String,
+}
+
+impl ArchiveTool {
+    pub fn native() -> Self {
+        if let Ok(program) = env::var("NIA_AR")
+            && !program.is_empty()
+        {
+            return Self::with_program(program);
+        }
+        Self {
+            program: String::new(),
+        }
+    }
+
+    pub fn with_program(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+        }
+    }
+
+    fn resolve(&self) -> Result<String, LinkerConfigError> {
+        if !self.program.is_empty() {
+            return find_program_on_path(&self.program).ok_or_else(|| {
+                LinkerConfigError::ArchiveToolNotFound {
+                    program: self.program.clone(),
+                }
+            });
+        }
+        for program in ["llvm-ar", "ar"] {
+            if let Some(found) = find_program_on_path(program) {
+                return Ok(found);
+            }
+        }
+        Err(LinkerConfigError::ArchiveToolNotFound {
+            program: "llvm-ar or ar".to_string(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveFingerprint([u64; 2]);
+
+impl ArchiveFingerprint {
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(parts)
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveEnvironmentFingerprint {
+    pub toolchain: ArchiveFingerprint,
+    pub target: ArchiveFingerprint,
+    pub tool: ArchiveFingerprint,
+    pub options: ArchiveFingerprint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveOptions {
+    pub target: LinkTarget,
+    pub tool: ArchiveTool,
+}
+
+impl Default for ArchiveOptions {
+    fn default() -> Self {
+        Self {
+            target: LinkTarget::host(),
+            tool: ArchiveTool::native(),
+        }
+    }
+}
+
+impl ArchiveOptions {
+    pub fn with_target(mut self, target: LinkTarget) -> Self {
+        self.target = target;
+        self
+    }
+
+    pub fn with_tool(mut self, tool: ArchiveTool) -> Self {
+        self.tool = tool;
+        self
+    }
+
+    pub fn environment_fingerprint(
+        &self,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Result<ArchiveEnvironmentFingerprint, LinkerConfigError> {
+        let program = self.tool.resolve()?;
+        let program_path =
+            PathBuf::from(&program)
+                .canonicalize()
+                .map_err(|error| LinkerConfigError::Io {
+                    path: PathBuf::from(&program),
+                    error,
+                })?;
+        let tool_bytes = fs::read(&program_path).map_err(|error| LinkerConfigError::Io {
+            path: program_path.clone(),
+            error,
+        })?;
+        let mut toolchain = QueryFingerprintBuilder::new("nia.archive-toolchain.v1");
+        for part in toolchain_identity.parts() {
+            toolchain.write_u64(part);
+        }
+        let mut target = QueryFingerprintBuilder::new("nia.archive-target.v1");
+        target.write_str(&self.target.arch);
+        target.write_str(&self.target.os);
+        target.write_str(&self.target.abi);
+        let mut tool = QueryFingerprintBuilder::new("nia.archive-tool.v1");
+        tool.write_str(&program_path.to_string_lossy());
+        tool.write_bytes(&tool_bytes);
+        let mut options = QueryFingerprintBuilder::new("nia.archive-options.v1");
+        options.write_str(env!("CARGO_PKG_VERSION"));
+        options.write_str("rcsD");
+        Ok(ArchiveEnvironmentFingerprint {
+            toolchain: finish_archive_fingerprint(toolchain),
+            target: finish_archive_fingerprint(target),
+            tool: finish_archive_fingerprint(tool),
+            options: finish_archive_fingerprint(options),
+        })
+    }
+
+    pub fn invocation(
+        &self,
+        inputs: &[PathBuf],
+        output: PathBuf,
+    ) -> Result<ArchiveInvocation, LinkerConfigError> {
+        let program = self.tool.resolve()?;
+        let mut args = Vec::with_capacity(inputs.len() + 2);
+        args.push("rcsD".to_string());
+        args.push(output.to_string_lossy().into_owned());
+        args.extend(
+            inputs
+                .iter()
+                .map(|input| input.to_string_lossy().into_owned()),
+        );
+        Ok(ArchiveInvocation { program, args })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveInvocation {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkTarget {
     pub arch: String,
     pub os: String,
@@ -572,6 +723,10 @@ fn finish_link_fingerprint(builder: QueryFingerprintBuilder) -> LinkResultFinger
     LinkResultFingerprint::from_parts(builder.finish().parts())
 }
 
+fn finish_archive_fingerprint(builder: QueryFingerprintBuilder) -> ArchiveFingerprint {
+    ArchiveFingerprint::from_parts(builder.finish().parts())
+}
+
 fn write_codegen_unit_key(builder: &mut QueryFingerprintBuilder, key: &CodegenUnitKey) {
     match key {
         CodegenUnitKey::SourceModule {
@@ -663,6 +818,9 @@ pub struct LinkerInvocation {
 
 #[derive(Debug)]
 pub enum LinkerConfigError {
+    ArchiveToolNotFound {
+        program: String,
+    },
     Io {
         path: PathBuf,
         error: io::Error,
@@ -680,6 +838,9 @@ pub enum LinkerConfigError {
 impl std::fmt::Display for LinkerConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ArchiveToolNotFound { program } => {
+                write!(f, "archive tool `{program}` was not found")
+            }
             Self::Io { path, error } => {
                 write!(f, "failed to inspect `{}`: {error}", path.display())
             }
@@ -1083,4 +1244,7 @@ mod tests {
 
     #[path = "linker/dynamic_linker_contracts.rs"]
     mod dynamic_linker_contracts;
+
+    #[path = "linker/archive_contracts.rs"]
+    mod archive_contracts;
 }

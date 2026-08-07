@@ -4219,3 +4219,11 @@ surface has no typed archive tool owner or archive work-product reference.
 archive-tool path/bytes identity, canonical member order, target/native format,
 and typed consumer/install/link relationships. No system `ar` fallback or
 archive-shaped compatibility alias is added before those contracts close.
+Archive owner progress (2026-08-07): `nia-linker` now owns typed `ArchiveTool`
+resolution through an explicit program, `NIA_AR`, or `llvm-ar`/`ar`, plus
+`ArchiveOptions` target configuration and deterministic `rcsD` invocation.
+Archive environment fingerprints include the canonical tool path and bytes,
+toolchain identity, target triple fields, and option contract. Focused tests
+prove member-order preservation, exact invalidation components, and typed
+missing-tool failure. Driver-owned canonical member/work-product identity and
+the build-plan `StaticArchive` artifact remain the next slices.

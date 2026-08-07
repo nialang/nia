@@ -260,7 +260,14 @@ answer all of these questions together:
 - whether archive output can be used by external commands, installed, or fed
   back into executable linking through typed plan edges.
 
-Until those answers are owned by `nia-driver`/`nia-linker`, the build protocol
+The first owner slice is implemented in `nia-linker`: `ArchiveTool` resolves an
+explicit program, `NIA_AR`, or `llvm-ar`/`ar`; `ArchiveOptions` owns the target,
+emits a deterministic `rcsD` invocation while preserving caller member order,
+and fingerprints the canonical tool path and bytes, target, toolchain identity,
+and option contract. Driver remains responsible for supplying canonical member
+order and work-product references.
+
+Until the remaining answers are owned by `nia-driver`/`nia-linker`, the build protocol
 must keep `ObjectSet` as the only object-directory artifact and reject no more
 than the relationships it can prove invalid. A system `ar`/`llvm-ar` command
 must not become an implicit second linker/cache owner.
