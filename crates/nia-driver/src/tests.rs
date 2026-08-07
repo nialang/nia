@@ -116,7 +116,7 @@ fn writing_native_object_preserves_incremental_link_identity() {
 }
 
 #[cfg(unix)]
-fn static_archive_test_objects() -> crate::ObjectArtifact {
+fn static_archive_test_objects(first_fingerprint: [u64; 2]) -> crate::ObjectArtifact {
     use nia_backend_ir::{
         CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
         IncrementalLinkInputs,
@@ -143,8 +143,18 @@ fn static_archive_test_objects() -> crate::ObjectArtifact {
     };
     crate::ObjectArtifact {
         link_inputs: IncrementalLinkInputs::new(vec![
-            input([1, 2], "first.nia", "first", b"first-object"),
-            input([3, 4], "second.nia", "second", b"second-object"),
+            input(
+                first_fingerprint,
+                "first.nia",
+                "backend_first_name",
+                b"first-object",
+            ),
+            input(
+                [3, 4],
+                "second.nia",
+                "backend_second_name",
+                b"second-object",
+            ),
         ]),
         optimization: crate::OptimizationPolicy::default(),
         optimization_report: crate::BackendOptimizationReport::default(),
@@ -179,7 +189,7 @@ fn static_archive_materializes_canonical_members_through_typed_archive_tool() {
             log.display()
         ),
     );
-    let objects = static_archive_test_objects();
+    let objects = static_archive_test_objects([1, 2]);
     let output = root.join("nested/libsample.a");
 
     let archived = crate::Driver::new(common::test_toolchain_layout())
@@ -192,6 +202,7 @@ fn static_archive_materializes_canonical_members_through_typed_archive_tool() {
         .expect("create static archive");
 
     assert_eq!(archived.path, output);
+    assert_eq!(archived.cache_reference, None);
     assert_eq!(std::fs::read(&archived.path).unwrap(), b"static-archive");
     let members = std::fs::read_to_string(log).unwrap();
     let names = members
@@ -215,7 +226,7 @@ fn static_archive_failure_preserves_existing_output() {
     let root = common::temp_dir("static_archive_failure_preserves_existing_output");
     let tool = root.join("archive.sh");
     write_static_archive_test_tool(&tool, "#!/bin/sh\nexit 23\n");
-    let objects = static_archive_test_objects();
+    let objects = static_archive_test_objects([1, 2]);
     let output = root.join("libsample.a");
     std::fs::write(&output, b"existing-archive").expect("seed existing archive");
 
@@ -243,7 +254,7 @@ fn static_archive_requires_successful_tool_to_produce_output() {
     let root = common::temp_dir("static_archive_requires_successful_tool_to_produce_output");
     let tool = root.join("archive.sh");
     write_static_archive_test_tool(&tool, "#!/bin/sh\nexit 0\n");
-    let objects = static_archive_test_objects();
+    let objects = static_archive_test_objects([1, 2]);
     let output = root.join("libsample.a");
     std::fs::write(&output, b"existing-archive").expect("seed existing archive");
 
@@ -264,6 +275,62 @@ fn static_archive_requires_successful_tool_to_produce_output() {
         }
     ));
     assert_eq!(std::fs::read(output).unwrap(), b"existing-archive");
+}
+
+#[test]
+#[cfg(unix)]
+fn static_archive_cache_skips_tool_until_typed_input_changes() {
+    use nia_linker::{ArchiveOptions, ArchiveTool};
+
+    let root = common::temp_dir("static_archive_cache_skips_tool_until_typed_input_changes");
+    let tool = root.join("archive.sh");
+    let invocation_log = root.join("archive-invocations");
+    write_static_archive_test_tool(
+        &tool,
+        format!(
+            "#!/bin/sh\nprintf x >> '{}'\nprintf cached-archive > \"$2\"\n",
+            invocation_log.display()
+        ),
+    );
+    let driver = crate::Driver::with_config(crate::DriverConfig {
+        artifact_cache_dir: Some(root.join("cache")),
+        ..crate::DriverConfig::new(common::test_toolchain_layout())
+    });
+    let options =
+        ArchiveOptions::default().with_tool(ArchiveTool::with_program(tool.to_string_lossy()));
+    let first_objects = static_archive_test_objects([1, 2]);
+
+    let first = driver
+        .archive_static_library_from_objects(&first_objects, root.join("first.a"), options.clone())
+        .result
+        .expect("first archive");
+    let reference = first.cache_reference.expect("archive cache reference");
+    let encoded = reference.encode();
+    assert_eq!(
+        crate::StaticArchiveCacheReference::decode(&encoded),
+        Some(reference)
+    );
+    for end in 0..encoded.len() {
+        assert!(crate::StaticArchiveCacheReference::decode(&encoded[..end]).is_none());
+    }
+    let mut trailing = encoded.to_vec();
+    trailing.push(0);
+    assert!(crate::StaticArchiveCacheReference::decode(&trailing).is_none());
+
+    let second = driver
+        .archive_static_library_from_objects(&first_objects, root.join("second.a"), options.clone())
+        .result
+        .expect("cached archive");
+    assert_eq!(second.cache_reference, Some(reference));
+    assert_eq!(std::fs::read(second.path).unwrap(), b"cached-archive");
+    assert_eq!(std::fs::read_to_string(&invocation_log).unwrap(), "x");
+
+    let changed_objects = static_archive_test_objects([9, 10]);
+    driver
+        .archive_static_library_from_objects(&changed_objects, root.join("changed.a"), options)
+        .result
+        .expect("changed archive");
+    assert_eq!(std::fs::read_to_string(invocation_log).unwrap(), "xx");
 }
 
 #[test]

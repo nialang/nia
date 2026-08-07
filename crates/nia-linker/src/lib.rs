@@ -12,6 +12,7 @@ use nia_query::QueryFingerprintBuilder;
 use nia_target_config::TargetConfig;
 
 const LINK_RESULT_FINGERPRINT_DOMAIN: &str = "nia.link-result-components.v2";
+const ARCHIVE_RESULT_FINGERPRINT_DOMAIN: &str = "nia.archive-result-components.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LinkResultFingerprint([u64; 2]);
@@ -253,7 +254,7 @@ impl ArchiveTool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArchiveFingerprint([u64; 2]);
 
 impl ArchiveFingerprint {
@@ -263,6 +264,89 @@ impl ArchiveFingerprint {
 
     pub const fn parts(self) -> [u64; 2] {
         self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ArchiveCacheKey([u64; 2]);
+
+impl ArchiveCacheKey {
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(parts)
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveFingerprintComponents {
+    pub inputs: ArchiveFingerprint,
+    pub toolchain: ArchiveFingerprint,
+    pub target: ArchiveFingerprint,
+    pub tool: ArchiveFingerprint,
+    pub options: ArchiveFingerprint,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveFingerprintSet {
+    pub cache_key: ArchiveCacheKey,
+    pub fingerprint: ArchiveFingerprint,
+    pub components: ArchiveFingerprintComponents,
+}
+
+impl ArchiveFingerprintSet {
+    pub fn new(cache_key: ArchiveCacheKey, components: ArchiveFingerprintComponents) -> Self {
+        let mut builder = QueryFingerprintBuilder::new(ARCHIVE_RESULT_FINGERPRINT_DOMAIN);
+        for component in [
+            components.inputs,
+            components.toolchain,
+            components.target,
+            components.tool,
+            components.options,
+        ] {
+            for part in component.parts() {
+                builder.write_u64(part);
+            }
+        }
+        Self {
+            cache_key,
+            fingerprint: finish_archive_fingerprint(builder),
+            components,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveInvalidation {
+    pub inputs: bool,
+    pub toolchain: bool,
+    pub target: bool,
+    pub tool: bool,
+    pub options: bool,
+}
+
+impl ArchiveInvalidation {
+    pub fn between(
+        cached: ArchiveFingerprintComponents,
+        expected: ArchiveFingerprintComponents,
+    ) -> Self {
+        Self {
+            inputs: cached.inputs != expected.inputs,
+            toolchain: cached.toolchain != expected.toolchain,
+            target: cached.target != expected.target,
+            tool: cached.tool != expected.tool,
+            options: cached.options != expected.options,
+        }
+    }
+
+    pub fn count(self) -> u32 {
+        u32::from(self.inputs)
+            + u32::from(self.toolchain)
+            + u32::from(self.target)
+            + u32::from(self.tool)
+            + u32::from(self.options)
     }
 }
 
@@ -336,6 +420,47 @@ impl ArchiveOptions {
             tool: finish_archive_fingerprint(tool),
             options: finish_archive_fingerprint(options),
         })
+    }
+
+    pub fn result_fingerprint<T>(
+        &self,
+        inputs: &IncrementalLinkInputs<T>,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Result<ArchiveFingerprintSet, LinkerConfigError> {
+        let environment = self.environment_fingerprint(toolchain_identity)?;
+        let mut cache_key = QueryFingerprintBuilder::new("nia.archive-result-cache-key.v1");
+        cache_key.write_u64(inputs.len() as u64);
+        let mut input_component = QueryFingerprintBuilder::new("nia.archive-result-inputs.v1");
+        input_component.write_u64(inputs.len() as u64);
+        for input in inputs.as_slice() {
+            write_codegen_unit_key(&mut cache_key, &input.key);
+            write_codegen_unit_key(&mut input_component, &input.key);
+            for part in input.fingerprint.parts() {
+                input_component.write_u64(part);
+            }
+        }
+        Ok(ArchiveFingerprintSet::new(
+            ArchiveCacheKey::from_parts(cache_key.finish().parts()),
+            ArchiveFingerprintComponents {
+                inputs: finish_archive_fingerprint(input_component),
+                toolchain: environment.toolchain,
+                target: environment.target,
+                tool: environment.tool,
+                options: environment.options,
+            },
+        ))
+    }
+
+    pub fn matches_result_environment(
+        &self,
+        expected: ArchiveFingerprintComponents,
+        toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Result<bool, LinkerConfigError> {
+        let current = self.environment_fingerprint(toolchain_identity)?;
+        Ok(current.toolchain == expected.toolchain
+            && current.target == expected.target
+            && current.tool == expected.tool
+            && current.options == expected.options)
     }
 
     pub fn invocation(

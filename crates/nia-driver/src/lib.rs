@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod archive_cache;
 mod executable_cache;
 mod inspect;
 mod object_cache;
@@ -23,7 +24,9 @@ pub use pipeline::{
     DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
     ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
     LinkExecutableRequest, LinkedExecutableWithSourceManifest, LlvmIrArtifact, ObjectArtifact,
-    ObjectOutput, Runtime, StaticArchiveArtifact, WriteObjectRequest, WrittenObjectArtifact,
+    ObjectOutput, Runtime, StaticArchiveArtifact, StaticArchiveCacheEnvironment,
+    StaticArchiveCacheReference, StaticArchiveCacheRestore, WriteObjectRequest,
+    WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,
