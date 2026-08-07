@@ -4199,3 +4199,6 @@ requires a typed Driver reference contract before it can be added safely.
 The target conformance fixture also declares a host-role ObjectSet and verifies
 its compiler action targets the host descriptor, closing the object-set side
 of the host/artifact non-aliasing guard.
+The same conformance program now creates an object in a second Build and proves
+`addEmitObjectStep` rejects that foreign handle, extending the owner-identity
+guard beyond executable artifacts.
