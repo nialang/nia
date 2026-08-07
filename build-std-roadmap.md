@@ -4196,3 +4196,6 @@ ObjectSet coordinator-cache restore remains an explicit follow-up gate: the
 current path intentionally relies on Driver-owned native object reuse and does
 not duplicate compiler work products in the build cache. A future restore
 requires a typed Driver reference contract before it can be added safely.
+The target conformance fixture also declares a host-role ObjectSet and verifies
+its compiler action targets the host descriptor, closing the object-set side
+of the host/artifact non-aliasing guard.
