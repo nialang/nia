@@ -158,6 +158,12 @@ library. The `std::build::Build` value passed to
 `hostTarget()` and `artifactTarget()` expose borrowed `TargetView` descriptors
 whose text is owned by `Build`, so build scripts can configure declarations
 without confusing host services with artifact runtime facts.
+`rootPackage()` returns the root package's typed handle.
+`addPackage(PackageOptions::init(name, relativeRoot))` declares another local
+package below that root, and `CommandArgument::packageInput(handle, path)`
+declares a tracked external-tool input from the selected package. Package roots
+are canonical relative paths; this build API does not resolve versions, access
+a registry, or download packages.
 The build API includes `addModule(ModuleOptions::init(name, rootSource))`
 for declaring a root source module. Modules inherit the `nia build -O*`
 invocation mode, while `withOptimization(mode)` is an explicit per-module

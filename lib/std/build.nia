@@ -26,6 +26,8 @@ pub using types::{
     ModuleHandle,
     ModuleImport,
     ModuleOptions,
+    PackageHandle,
+    PackageOptions,
     OptimizationMode,
     RunOptions,
     TargetView,

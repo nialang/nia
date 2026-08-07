@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phases A-E complete; Phase F incremental cache and resource scheduling in progress
+Status: Phases A-F complete; Phase G artifact and package-boundary work in progress
 
 The Rust-side `BuildInvocation` is resolved bootstrap state: package and
 toolchain paths, requested step, runner locations, and timing options. It is not
@@ -92,6 +92,19 @@ module roots and imports are generated inputs: freeze resolves their exact
 generated-file or external-command output owner and rejects a compiler
 check/emit step unless that producer is in its transitive dependency closure.
 Artifact-root command inputs use the same dependency-action closure traversal.
+
+The root package is implicit. `Build::addPackage(PackageOptions::init(name,
+root))` declares another local package and returns an owner-checked
+`PackageHandle`; `root` is a canonical relative path beneath the invocation's
+root package, never an absolute host path. `CommandArgument::packageInput`
+requires that handle, so the same protocol path in two packages remains two
+different inputs. Package declarations encode both stable key and relative
+root, and the coordinator resolves the physical directory only for the current
+invocation. Empty external roots, `.`/`..`, backslashes, duplicate keys or
+roots, and the reserved `root` key are rejected. Registry lookup, versions,
+downloads, and network policy remain absent. Cross-package compiler module-map
+entries are not yet public; current `ModuleOptions` and `ModuleImport` package
+paths still refer to the root package.
 
 The binary codec uses `ToolchainLayout`'s build-protocol schema as its sole
 version source. It bounds the full envelope, collection counts, strings, and
@@ -297,8 +310,10 @@ and separate compiler, resource-layout, std, and build-protocol compatibility
 components. Successful compiler-check and compiler-emit actions additionally
 have bounded action records.
 
-Build protocol schema 5 gives external commands separate environment and cache
-policies. `ExternalCommandOptions::search` defaults to inherited process
+Build protocol schema 6 adds canonical local-package root declarations and
+typed package-rooted command inputs. It retains the schema 5 separation of
+external-command environment and cache policies.
+`ExternalCommandOptions::search` defaults to inherited process
 environment plus `Uncacheable`, preserving the behavior of existing build
 scripts. `withClearedEnvironment` starts the child with an empty environment,
 after which `withEnvironment` supplies the command's explicit values.

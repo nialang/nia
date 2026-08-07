@@ -4,6 +4,9 @@ using std::fmt;
 using std::io;
 
 fn configure(b: &mut build::Build) build::Error!void {
+    let assets = b.addPackage(
+        build::PackageOptions::init(&"assets", fs::PathView::init(&"packages/assets")),
+    ).?;
     let helperName = "helper";
     let helperPath = "generated/helper.nia";
     let srcMain = "src/main.nia";
@@ -63,7 +66,7 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::CommandArgument::literal(&"-c"),
         build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
         build::CommandArgument::literal(&"nia-build-tool"),
-        build::CommandArgument::packageInput(fs::PathView::init(&"tool-input.txt")),
+        build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool-input.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
         build::CommandArgument::artifactInput(app),

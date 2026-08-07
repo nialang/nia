@@ -2077,7 +2077,8 @@ probe. Workspace all-target/all-feature check, strict Clippy, formatting, and
 diff checks also pass.
 
 Phase F progress (2026-08-02, hermetic external-command declaration batch):
-build protocol schema 5 now records independent environment and cache policies
+build protocol schema 6 now records canonical local-package roots alongside
+independent environment and cache policies
 for every external command. Existing callers retain inherited environment and
 explicitly uncacheable behavior. A build script can instead clear the child
 environment, provide owned explicit name/value entries, and assert that its
@@ -4079,3 +4080,24 @@ consumer hit, matching content-addressed source semantics. This closes Phase
 G's generated/source invalidation-precision acceptance slice. Profile
 inheritance, package inputs, run/test/install relationships, and the remaining
 artifact surface remain open.
+
+Phase G progress (2026-08-07, local package command inputs): build protocol
+schema 6 gives every `PlanPackage` a canonical root path relative to the
+invocation's root package. `Build::addPackage(PackageOptions::init(name, root))`
+returns an owner-checked `PackageHandle`, while
+`CommandArgument::packageInput(handle, path)` now requires an explicit package
+instead of silently assuming `root`. The builder rejects the reserved `root`
+key, duplicate keys or roots, and non-canonical/escaping roots; freeze and the
+codec independently validate and round-trip the same mapping. The coordinator
+resolves package-rooted paths through that declaration without placing an
+absolute host path in the canonical plan.
+
+The maintained configured package keeps a root `tool-input.txt` and declares an
+`assets` package containing a different file at the same protocol path. Its
+cacheable host tool reads the `assets` input, publishes the transformed bytes,
+and the decoded plan asserts the distinct package key and root. This closes the
+local/external package-input slice for typed external commands without adding a
+registry, version solver, download, or network policy. Cross-package compiler
+module-map inputs and exact package-root cache-invalidation classification
+remain open, as do run/test/install relationships, host compiler artifacts,
+object/library kinds, and the remaining artifact surface.

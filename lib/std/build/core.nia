@@ -44,6 +44,9 @@ using types::{
     ModuleImport,
     OwnedModuleImport,
     ModuleOptions,
+    Package,
+    PackageHandle,
+    PackageOptions,
     OptimizationMode,
     TargetView,
     TargetStorage,
@@ -171,6 +174,7 @@ extend Build {
             planValidated: false,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
+            packages: collections::ArrayList[Package]::init(),
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
         }
@@ -185,6 +189,12 @@ extend Build {
         }
         rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError(Operation::Release, Subject::Steps));
         rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
+        index = self.packages.len();
+        while index != 0 {
+            index -= 1;
+            rememberCleanupError(&mut firstError, self.packages.asMutSlice()[index].deinit(self.allocator));
+        }
+        rememberCleanupError(&mut firstError, self.packages.deinit(self.allocator).asBuildError(Operation::Release, Subject::Packages));
         index = self.executables.len();
         while index != 0 {
             index -= 1;
@@ -205,6 +215,40 @@ extend Build {
 
     pub fn packageRoot(&self) fs::PathView {
         self.paths.packageRoot.view()
+    }
+
+    pub fn rootPackage(&self) PackageHandle {
+        PackageHandle::init(self.ownerId, 0)
+    }
+
+    pub fn addPackage(&mut self, options: PackageOptions) Error!PackageHandle {
+        let handle = PackageHandle::init(self.ownerId, self.packages.len() + 1);
+        if options.name.equals(&"root")
+            or not isValidStableName(options.name)
+            or not isValidPackagePath(options.root.text(), false)
+        {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Package(handle.index()),
+            }!;
+        }
+        for &package in self.packages.iter() {
+            if package.name.equals(options.name) or package.root.view().text().equals(options.root.text()) {
+                return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Package(handle.index()),
+                }!;
+            }
+        }
+        let mut package = Package::init(self.allocator, options, handle.index()).?;
+        let mut transferred = false;
+        defer if not transferred {
+            package.deinit(self.allocator).?;
+        };
+        self.packages.push(self.allocator, package).asBuildError(Operation::Retain, Subject::Packages).?;
+        transferred = true;
+        self.planValidated = false;
+        !handle
     }
 
     pub fn buildDir(&self) fs::PathView {
@@ -319,6 +363,8 @@ extend Build {
                             }!,
                         }
                         artifactInputCount += 1;
+                    } else if argument.kind == CommandArgumentKind::PackageInput {
+                        self.validatePackageHandle(argument.package).?;
                     }
                 }
             },
@@ -401,6 +447,7 @@ extend Build {
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
         validateModuleImports(options.imports).?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
+
         if options.sourceRoot == ModuleSourceRoot::Build
             and not isValidBuildPath(options.rootSource.text())
         {
@@ -823,6 +870,18 @@ extend Build {
         !{}
     }
 
+    fn validatePackageHandle(&self, handle: PackageHandle) Error!void {
+        if handle.ownerId != self.ownerId
+            or handle.index > self.packages.len()
+        {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Packages,
+            }!;
+        }
+        !{}
+    }
+
     fn validateModuleHandle(&self, handle: ModuleHandle) Error!void {
         if handle.ownerId() != self.ownerId or handle.index() >= self.modules.len() {
             return Error::Invalid {
@@ -1060,13 +1119,15 @@ extend CommandArgument {
         {
             kind: CommandArgumentKind::Literal,
             payload: { value: value },
+            package: PackageHandle::init(0, 0),
         }
     }
 
-    pub fn packageInput(path: fs::PathView) CommandArgument {
+    pub fn packageInput(package: PackageHandle, path: fs::PathView) CommandArgument {
         {
             kind: CommandArgumentKind::PackageInput,
             payload: { value: path.text() },
+            package: package,
         }
     }
 
@@ -1074,6 +1135,7 @@ extend CommandArgument {
         {
             kind: CommandArgumentKind::BuildInput,
             payload: { value: path.text() },
+            package: PackageHandle::init(0, 0),
         }
     }
 
@@ -1081,6 +1143,7 @@ extend CommandArgument {
         {
             kind: CommandArgumentKind::BuildOutput,
             payload: { value: path.text() },
+            package: PackageHandle::init(0, 0),
         }
     }
 
@@ -1088,6 +1151,7 @@ extend CommandArgument {
         {
             kind: CommandArgumentKind::ArtifactInput,
             payload: { artifact: artifact },
+            package: PackageHandle::init(0, 0),
         }
     }
 }
@@ -1197,13 +1261,14 @@ extend OwnedCommandArgument {
             return !{
                 kind: argument.kind,
                 payload: { artifact: argument.payload.artifact },
+                package: argument.package,
             };
         }
         let value = string::String::fromSlice(
             allocator,
             argument.payload.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{ kind: argument.kind, payload: { value: value } }
+        !{ kind: argument.kind, payload: { value: value }, package: argument.package }
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
@@ -1587,6 +1652,51 @@ extend BuildPathView {
 
     fn isValid(&self) bool {
         isValidBuildPath(self.path)
+    }
+}
+
+extend PackageHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) PackageHandle {
+        { ownerId: ownerId, index: index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize {
+        self.ownerId
+    }
+
+    pub(pkg) fn index(&self) usize {
+        self.index
+    }
+}
+
+extend PackageOptions {
+    pub fn init(name: &[char], root: fs::PathView) PackageOptions {
+        { name: name, root: root }
+    }
+}
+
+extend Package {
+    fn init(allocator: &mut mem::Allocator, options: PackageOptions, index: usize) Error!Package {
+        let mut package: Package = {
+            index: index,
+            name: string::String::init(),
+            root: fs::PathBuf::init(),
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            package.deinit(allocator).?;
+        };
+        package.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Package(index)).?;
+        package.root = fs::PathBuf::fromView(allocator, options.root).asBuildError(Operation::Retain, Subject::Package(index)).?;
+        transferred = true;
+        !package
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.root.deinit(allocator).asBuildError(Operation::Release, Subject::Package(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Package(self.index)));
+        cleanupResult(firstError)
     }
 }
 

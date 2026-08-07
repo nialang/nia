@@ -601,6 +601,18 @@ working directory, and every argument before returning. Partial allocation is
 rolled back through the same propagating `defer` cleanup used by other retained
 plan values.
 
+`Build::rootPackage()` returns the typed handle for the package containing
+`build.nia`. `Build::addPackage(PackageOptions::init(name, root))` declares a
+local package rooted at a validated relative path beneath that package and
+returns another owner-checked handle. `CommandArgument::packageInput(handle,
+path)` combines the handle with a path relative to that package. Package keys
+and roots are copied into the build plan, so `tool-input.txt` in `root` and in
+an `assets` package cannot alias. Absolute or escaping roots, duplicate names or
+roots, and the reserved `root` name are invalid. This API performs no version
+selection, registry access, download, or network policy. Module roots and
+module-map imports remain root-package or build-rooted until the separate
+cross-package compiler-input surface is completed.
+
 The publication contract accepts zero or multiple build-rooted regular-file
 outputs. Each `buildOutput` argument receives a distinct same-filesystem staging
 path. The coordinator validates and syncs the complete produced set while

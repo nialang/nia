@@ -52,6 +52,7 @@ impl BuildPlan {
         writer.count(self.packages.len())?;
         for package in &self.packages {
             writer.package_key(&package.key)?;
+            writer.string(&package.root)?;
         }
         writer.target(&self.host_target)?;
         writer.target(&self.artifact_target)?;
@@ -95,6 +96,7 @@ impl BuildPlan {
         let packages = reader.list(|reader| {
             Ok(PlanPackage {
                 key: reader.package_key()?,
+                root: reader.string()?,
             })
         })?;
         let host_target = reader.target()?;
@@ -805,6 +807,7 @@ mod tests {
         writer.count(draft.packages.len()).unwrap();
         for package in &draft.packages {
             writer.package_key(&package.key).unwrap();
+            writer.string(&package.root).unwrap();
         }
         writer.target(&draft.host_target).unwrap();
         writer.target(&draft.artifact_target).unwrap();
@@ -836,6 +839,20 @@ mod tests {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
         let bytes = plan.encode().unwrap();
         assert_eq!(BuildPlan::decode(&bytes).unwrap(), plan);
+    }
+
+    #[test]
+    fn declared_package_roots_round_trip_canonically() {
+        let mut value = draft(false);
+        value.packages.push(PlanPackage {
+            key: PackageKey::new("assets").unwrap(),
+            root: "packages/assets".to_string(),
+        });
+        let plan = BuildPlan::freeze(value).unwrap();
+        let bytes = plan.encode().unwrap();
+        let decoded = BuildPlan::decode(&bytes).unwrap();
+        assert_eq!(decoded, plan);
+        assert_eq!(decoded.packages()[0].root, "packages/assets");
     }
 
     #[test]
