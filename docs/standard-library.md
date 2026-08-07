@@ -63,7 +63,7 @@ providers.
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
 | `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
-| `build` | graph declaration and execution | callback executor, raw argv, index-only handles, coarse errors | bootstrap-only; replace with builder plus immutable plan |
+| `build` | graph declaration and immutable-plan encoding | owner-checked typed handles, retained text/path values, contextual errors, no action executor | retain the reviewed builder/plan boundary; continue Phase H hardening |
 
 Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion

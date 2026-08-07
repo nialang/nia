@@ -4331,5 +4331,16 @@ text instead of retaining `process::Init` or an argument index. Exclusive,
 synced publication and cleanup cover configuration, draft, and runner files;
 collisions are rejected without deleting an existing private file. Rust codec
 corruption tests, real runner success/unknown-step cleanup, concurrent transient
-path tests, and std ownership rollback tests pass. The recursive executor,
-remaining raw compiler bridge and other Phase H deletion gates remain open.
+path tests, and std ownership rollback tests pass. This closes the runner
+positional-protocol migration; other Phase H deletion gates remain open.
+
+Phase H progress (2026-08-07, runner diagnostics and raw-argv cleanup): the
+generated runner process now streams stdout/stderr while retaining bounded tails
+and includes those tails in its typed failure value.
+Runner failures therefore retain actionable diagnostics beyond an exit status,
+without allowing unbounded child output to become build state. The unused
+`std::build::OptimizationMode::argv` compiler-argument adapter is physically
+removed; optimization is carried as a typed plan field throughout the
+coordinator and Driver path. A fake-runner regression proves failure output is
+reported and invocation-private configuration, draft, and executable files are
+still cleaned up.

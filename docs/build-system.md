@@ -40,6 +40,9 @@ tag. The runner receives only `--config <path>`; it does not interpret a
 positional path/target/optimization vector. The configuration file is created
 exclusively, synced before launch, and removed alongside the draft and transient
 runner executable on every normal success or failure path.
+Runner stdout and stderr are streamed while retaining a 64-KiB per-stream tail,
+so `nia build` retains actionable script diagnostics beyond the child exit
+status without buffering unbounded output.
 
 ## 2. Current Owners
 
