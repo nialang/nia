@@ -4,11 +4,12 @@ use std::{
     io::Write,
     num::NonZeroUsize,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
+    process::{Command, ExitStatus, Stdio},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    thread,
 };
 
 use nia_driver::{
@@ -18,13 +19,21 @@ use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 use nia_timing::{TimingFormat, TimingOptions};
 
+const RUNNER_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
+
 mod action_cache;
 mod coordinator;
 mod lock;
 mod output_recovery;
 mod plan;
+mod process_output;
 mod resources;
 mod runner_config;
+
+use process_output::{
+    CapturedStream, StreamCapture, capture_stream, prepare_process_group,
+    terminate_process_descendants, terminate_process_tree,
+};
 
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
@@ -190,6 +199,8 @@ pub enum BuildError {
     RunnerFailed {
         path: PathBuf,
         status: ExitStatus,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
     },
     MissingBuildScript {
         start: PathBuf,
@@ -294,12 +305,19 @@ impl fmt::Display for BuildError {
                     path.display()
                 )
             }
-            Self::RunnerFailed { path, status } => {
+            Self::RunnerFailed {
+                path,
+                status,
+                stdout,
+                stderr,
+            } => {
                 write!(
                     f,
                     "build runner `{}` exited with status {status}",
                     path.display()
-                )
+                )?;
+                write_runner_output(f, "stdout", stdout)?;
+                write_runner_output(f, "stderr", stderr)
             }
             Self::MissingBuildScript { start } => write!(
                 f,
@@ -308,6 +326,14 @@ impl fmt::Display for BuildError {
             ),
         }
     }
+}
+
+fn write_runner_output(f: &mut fmt::Formatter<'_>, stream: &str, bytes: &[u8]) -> fmt::Result {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    write!(f, "\nrunner {stream} (last {} bytes):\n", bytes.len())?;
+    f.write_str(&String::from_utf8_lossy(bytes))
 }
 
 impl std::error::Error for BuildError {}
@@ -1096,10 +1122,15 @@ fn run_build_runner(
     }
     prepare_runner_configuration(invocation)?;
     let mut command = Command::new(runner_executable);
-    command.current_dir(&invocation.package_root);
-    command.arg("--config").arg(&invocation.runner_config);
-    let result = match command.status() {
-        Ok(status) if status.success() => match read_build_plan(&invocation.plan_draft) {
+    command
+        .current_dir(&invocation.package_root)
+        .arg("--config")
+        .arg(&invocation.runner_config)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    prepare_process_group(&mut command);
+    let result = match execute_runner_process(&mut command) {
+        Ok(output) if output.status.success() => match read_build_plan(&invocation.plan_draft) {
             Ok(plan) => publish_build_plan(&invocation.plan_path, &plan)
                 .map(|()| plan)
                 .map_err(|error| BuildError::PublishBuildPlan {
@@ -1111,9 +1142,11 @@ fn run_build_runner(
                 error,
             }),
         },
-        Ok(status) => Err(BuildError::RunnerFailed {
+        Ok(output) => Err(BuildError::RunnerFailed {
             path: runner_executable.to_path_buf(),
-            status,
+            status: output.status,
+            stdout: output.stdout,
+            stderr: output.stderr,
         }),
         Err(error) => Err(BuildError::RunRunner {
             path: runner_executable.to_path_buf(),
@@ -1141,6 +1174,88 @@ fn run_build_runner(
         Ok(plan) => cleanup.map(|()| plan),
         Err(error) => Err(error),
     }
+}
+
+struct RunnerProcessOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn execute_runner_process(command: &mut Command) -> io::Result<RunnerProcessOutput> {
+    let mut child = command.spawn()?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        terminate_runner(&mut child);
+        io::Error::other("build runner stdout pipe was not created")
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        terminate_runner(&mut child);
+        io::Error::other("build runner stderr pipe was not created")
+    })?;
+    let stdout_reader = match spawn_runner_capture(stdout, CapturedStream::Stdout, "stdout") {
+        Ok(reader) => reader,
+        Err(error) => {
+            terminate_runner(&mut child);
+            return Err(error);
+        }
+    };
+    let stderr_reader = match spawn_runner_capture(stderr, CapturedStream::Stderr, "stderr") {
+        Ok(reader) => reader,
+        Err(error) => {
+            terminate_runner(&mut child);
+            let _ = stdout_reader.join();
+            return Err(error);
+        }
+    };
+    let status = match child.wait() {
+        Ok(status) => {
+            terminate_process_descendants(child.id());
+            status
+        }
+        Err(error) => {
+            terminate_runner(&mut child);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(error);
+        }
+    };
+    let stdout = join_runner_capture(stdout_reader, "stdout")?;
+    let stderr = join_runner_capture(stderr_reader, "stderr")?;
+    if let Some(error) = stdout.error {
+        return Err(error);
+    }
+    if let Some(error) = stderr.error {
+        return Err(error);
+    }
+    Ok(RunnerProcessOutput {
+        status,
+        stdout: stdout.tail,
+        stderr: stderr.tail,
+    })
+}
+
+fn spawn_runner_capture(
+    reader: impl io::Read + Send + 'static,
+    stream: CapturedStream,
+    name: &'static str,
+) -> io::Result<thread::JoinHandle<StreamCapture>> {
+    thread::Builder::new()
+        .name(format!("nia-build-runner-{name}"))
+        .spawn(move || capture_stream(reader, stream, true, RUNNER_OUTPUT_TAIL_BYTES))
+}
+
+fn join_runner_capture(
+    reader: thread::JoinHandle<StreamCapture>,
+    stream: &'static str,
+) -> io::Result<StreamCapture> {
+    reader
+        .join()
+        .map_err(|_| io::Error::other(format!("build runner {stream} capture thread panicked")))
+}
+
+fn terminate_runner(child: &mut std::process::Child) {
+    terminate_process_tree(child);
+    let _ = child.wait();
 }
 
 fn prepare_runner_configuration(invocation: &BuildInvocation) -> Result<(), BuildError> {
@@ -1357,6 +1472,49 @@ mod tests {
             std::fs::read(&invocation.runner_config).expect("read preserved configuration"),
             expected
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_runner_retains_output_context_and_cleans_transients() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("failed_runner_retains_output_context");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
+        prepare_build_directories(&invocation).expect("prepare build directories");
+        std::fs::create_dir_all(&invocation.runner_dir).expect("prepare runner directory");
+        std::fs::write(
+            &invocation.runner_executable,
+            "#!/bin/sh\nprintf 'runner stdout\n'\nprintf 'runner stderr\n' >&2\nexit 7\n",
+        )
+        .expect("write fake runner");
+        std::fs::set_permissions(
+            &invocation.runner_executable,
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .expect("make fake runner executable");
+
+        let error = run_and_cleanup_build_runner(&invocation, &invocation.runner_executable)
+            .expect_err("fake runner must fail");
+        match error {
+            BuildError::RunnerFailed {
+                status,
+                stdout,
+                stderr,
+                ..
+            } => {
+                assert_eq!(status.code(), Some(7));
+                assert_eq!(stdout, b"runner stdout\n");
+                assert_eq!(stderr, b"runner stderr\n");
+            }
+            other => panic!("unexpected runner error: {other:?}"),
+        }
+        assert!(!invocation.runner_config.exists());
+        assert!(!invocation.plan_draft.exists());
+        assert!(!invocation.runner_executable.exists());
     }
 
     #[test]

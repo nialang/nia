@@ -41,6 +41,10 @@ use crate::{
         OutputTransactionJournal, TransactionOutput, TransactionOutputKind,
         recover_interrupted_output_transactions,
     },
+    process_output::{
+        CapturedStream, StreamCapture, capture_stream, prepare_process_group,
+        terminate_process_descendants, terminate_process_tree,
+    },
     resources::ActionResourceBudget,
 };
 
@@ -1838,7 +1842,7 @@ fn execute_external_command(
             }
         }
     }
-    prepare_external_command(&mut command);
+    prepare_process_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|source| error(ExternalCommandFailure::Spawn { error: source }))?;
@@ -1858,8 +1862,14 @@ fn execute_external_command(
     };
     let stdout_reader = match thread::Builder::new()
         .name("nia-build-stdout".to_string())
-        .spawn(move || capture_stream(stdout, CapturedStream::Stdout, policy.forward_output))
-    {
+        .spawn(move || {
+            capture_stream(
+                stdout,
+                CapturedStream::Stdout,
+                policy.forward_output,
+                EXTERNAL_OUTPUT_TAIL_BYTES,
+            )
+        }) {
         Ok(reader) => reader,
         Err(source) => {
             terminate_process_tree(&mut child);
@@ -1872,8 +1882,14 @@ fn execute_external_command(
     };
     let stderr_reader = match thread::Builder::new()
         .name("nia-build-stderr".to_string())
-        .spawn(move || capture_stream(stderr, CapturedStream::Stderr, policy.forward_output))
-    {
+        .spawn(move || {
+            capture_stream(
+                stderr,
+                CapturedStream::Stderr,
+                policy.forward_output,
+                EXTERNAL_OUTPUT_TAIL_BYTES,
+            )
+        }) {
         Ok(reader) => reader,
         Err(source) => {
             terminate_process_tree(&mut child);
@@ -1900,7 +1916,7 @@ fn execute_external_command(
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                terminate_external_descendants(child.id());
+                terminate_process_descendants(child.id());
                 break Ok(status);
             }
             Ok(None) if started.elapsed() >= policy.timeout => {
@@ -1954,78 +1970,6 @@ fn execute_external_command(
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-enum CapturedStream {
-    Stdout,
-    Stderr,
-}
-
-struct StreamCapture {
-    tail: Vec<u8>,
-    error: Option<io::Error>,
-}
-
-fn capture_stream(
-    mut reader: impl io::Read,
-    stream: CapturedStream,
-    forward_output: bool,
-) -> StreamCapture {
-    let mut tail = Vec::new();
-    let mut first_error = None;
-    let mut buffer = [0u8; 8192];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => {
-                append_output_tail(&mut tail, &buffer[..count]);
-                let forwarded = match (forward_output, stream) {
-                    (false, _) => Ok(()),
-                    (true, CapturedStream::Stdout) => io::stdout().write_all(&buffer[..count]),
-                    (true, CapturedStream::Stderr) => io::stderr().write_all(&buffer[..count]),
-                };
-                if first_error.is_none() {
-                    first_error = forwarded.err();
-                }
-            }
-            Err(source) => {
-                if first_error.is_none() {
-                    first_error = Some(source);
-                }
-                break;
-            }
-        }
-    }
-    if forward_output {
-        let flushed = match stream {
-            CapturedStream::Stdout => io::stdout().flush(),
-            CapturedStream::Stderr => io::stderr().flush(),
-        };
-        if first_error.is_none() {
-            first_error = flushed.err();
-        }
-    }
-    StreamCapture {
-        tail,
-        error: first_error,
-    }
-}
-
-fn append_output_tail(tail: &mut Vec<u8>, bytes: &[u8]) {
-    if bytes.len() >= EXTERNAL_OUTPUT_TAIL_BYTES {
-        tail.clear();
-        tail.extend_from_slice(&bytes[bytes.len() - EXTERNAL_OUTPUT_TAIL_BYTES..]);
-        return;
-    }
-    let excess = tail
-        .len()
-        .saturating_add(bytes.len())
-        .saturating_sub(EXTERNAL_OUTPUT_TAIL_BYTES);
-    if excess != 0 {
-        tail.drain(..excess);
-    }
-    tail.extend_from_slice(bytes);
-}
-
 fn join_capture(
     reader: thread::JoinHandle<StreamCapture>,
     stream: &'static str,
@@ -2034,52 +1978,6 @@ fn join_capture(
         .join()
         .map_err(|_| ExternalCommandFailure::CaptureThread { stream })
 }
-
-#[cfg(unix)]
-fn prepare_external_command(command: &mut Command) {
-    use std::os::unix::process::CommandExt as _;
-    command.process_group(0);
-}
-
-#[cfg(not(unix))]
-fn prepare_external_command(_command: &mut Command) {}
-
-#[cfg(unix)]
-fn terminate_process_tree(child: &mut std::process::Child) {
-    let Ok(group) = i32::try_from(child.id()) else {
-        let _ = child.kill();
-        return;
-    };
-    terminate_process_group(group);
-}
-
-#[cfg(unix)]
-fn terminate_external_descendants(group: u32) {
-    if let Ok(group) = i32::try_from(group) {
-        terminate_process_group(group);
-    }
-}
-
-#[cfg(unix)]
-fn terminate_process_group(group: i32) {
-    // The child is the leader of the process group created before spawn. A
-    // successful signal means at least one owned process still needs cleanup.
-    let signaled = unsafe { libc::kill(-group, libc::SIGTERM) } == 0;
-    if signaled {
-        thread::sleep(Duration::from_millis(100));
-        unsafe {
-            libc::kill(-group, libc::SIGKILL);
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn terminate_process_tree(child: &mut std::process::Child) {
-    let _ = child.kill();
-}
-
-#[cfg(not(unix))]
-fn terminate_external_descendants(_group: u32) {}
 
 fn display_external_command_error(
     f: &mut fmt::Formatter<'_>,
@@ -5773,7 +5671,7 @@ mod tests {
     #[test]
     fn external_output_tail_discards_only_the_oldest_bytes() {
         let mut tail = vec![b'a'; EXTERNAL_OUTPUT_TAIL_BYTES - 2];
-        append_output_tail(&mut tail, b"bcdef");
+        crate::process_output::append_output_tail(&mut tail, b"bcdef", EXTERNAL_OUTPUT_TAIL_BYTES);
 
         assert_eq!(tail.len(), EXTERNAL_OUTPUT_TAIL_BYTES);
         assert_eq!(&tail[..3], b"aaa");
