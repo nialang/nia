@@ -68,15 +68,21 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::ObjectOptions::init(&objectName, rootModule)
             .withOutputName(&objectOutputName),
     ).?;
+    let archiveModule = b.addModule(
+        build::ModuleOptions::fromBuild(
+            &archiveName,
+            build::BuildPathView::init(&helperPath),
+        ),
+    ).?;
     let archive = b.addStaticArchive(
-        build::StaticArchiveOptions::init(&archiveName, rootModule)
+        build::StaticArchiveOptions::init(&archiveName, archiveModule)
             .withOutputName(&archiveOutputName),
     ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
     _ = b.addEmitExecutableStep(&hostToolName, hostTool).?;
     let objectStep = b.addEmitObjectStep(&objectName, objects).?;
-    let archiveStep = b.addEmitStaticArchiveStep(&archiveName, archive).?;
+    _ = b.addEmitStaticArchiveStep(&archiveName, archive).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
     _ = b.addGeneratedFileStep(
         &generateWorkerStepName,
@@ -104,7 +110,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     ).?;
     let toolArguments = [
         build::CommandArgument::literal(&"-c"),
-        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
+        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && test -s \"$7\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
         build::CommandArgument::literal(&"nia-build-tool"),
         build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool-input.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
@@ -112,6 +118,7 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::CommandArgument::artifactInput(app),
         build::CommandArgument::artifactInput(worker),
         build::CommandArgument::objectInput(objects),
+        build::CommandArgument::staticArchiveInput(archive),
     ];
     let toolEnvironment = [
         build::CommandEnvironmentInput::init(&"MODE", &"fixture"),
@@ -129,7 +136,6 @@ fn configure(b: &mut build::Build) build::Error!void {
     b.dependOn(toolStep, runStep).?;
     b.dependOn(toolStep, hostRunStep).?;
     b.dependOn(toolStep, objectStep).?;
-    b.dependOn(toolStep, archiveStep).?;
     b.setDefaultStep(toolStep).?;
     !{}
 }

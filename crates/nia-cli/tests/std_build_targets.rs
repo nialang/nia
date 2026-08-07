@@ -523,6 +523,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )) {
         return process::exit(26)!;
     }
+    let foreignArchiveArguments = [build::CommandArgument::staticArchiveInput(otherStaticArchive)];
+    if not rejectsForeignStaticArchive(api.addExternalCommandStep(
+        &"foreign-archive-input",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&foreignArchiveArguments[..]),
+    )) {
+        return process::exit(28)!;
+    }
     if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
         return process::exit(6)!;
     }
@@ -575,6 +583,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let staticArchive = api.addStaticArchive(
         build::StaticArchiveOptions::init(&"archive", moduleHandle),
     ).exit().?;
+    let missingArchiveProducerArguments = [
+        build::CommandArgument::staticArchiveInput(staticArchive),
+    ];
+    if not rejectsInvalidStep(api.addExternalCommandStep(
+        &"missing-archive-producer",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&missingArchiveProducerArguments[..]),
+    ), 8usize) {
+        return process::exit(29)!;
+    }
     _ = api.addEmitStaticArchiveStep(&"archive-emit", staticArchive).exit().?;
     let hostStaticArchive = api.addStaticArchive(
         build::StaticArchiveOptions::init(&"host-archive", moduleHandle)
@@ -587,6 +605,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &"object-input",
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&objectArguments[..]),
+    ).exit().?;
+    let archiveArguments = [build::CommandArgument::staticArchiveInput(staticArchive)];
+    _ = api.addExternalCommandStep(
+        &"archive-input",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&archiveArguments[..]),
     ).exit().?;
     api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
     !{}
@@ -708,6 +732,32 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
             ) && input.components().is_empty())
     ));
+    let archive_input = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "archive-input")
+        .expect("archive input action");
+    assert!(matches!(
+        &archive_input.kind,
+        nia_build::ActionKind::ExternalCommand { inputs, .. }
+            if inputs.iter().any(|input| matches!(
+                input.root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
+            ) && input.components().is_empty())
+    ));
+    let archive_input_step = plan
+        .steps()
+        .iter()
+        .find(|step| step.key.name() == "archive-input")
+        .expect("archive input step");
+    assert_eq!(
+        archive_input_step
+            .dependencies
+            .iter()
+            .map(nia_build::StepKey::name)
+            .collect::<Vec<_>>(),
+        ["archive-emit"]
+    );
     for name in ["host-check", "host-emit"] {
         let action = plan
             .actions()
