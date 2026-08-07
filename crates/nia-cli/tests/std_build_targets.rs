@@ -299,6 +299,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ) {
         return process::exit(11)!;
     }
+    if not rejectsInvalidStep(
+        api.addInstallExecutableStep(
+            &"invalid-install",
+            executable,
+            build::BuildPathView::init(&"../escape"),
+        ),
+        1usize,
+    ) {
+        return process::exit(23)!;
+    }
     let invalidArgument: [3]char = ['a', '\0', 'b'];
     let invalidArguments: [1]&[char] = [&invalidArgument];
     if not rejectsInvalidStep(
@@ -442,6 +452,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build::RunOptions::init(otherExecutable),
     )) {
         return process::exit(22)!;
+    }
+    if not rejectsForeignExecutable(api.addInstallExecutableStep(
+        &"foreign-install",
+        otherExecutable,
+        build::BuildPathView::init(&"install/foreign"),
+    )) {
+        return process::exit(24)!;
     }
     let foreignArtifactArguments = [build::CommandArgument::artifactInput(otherExecutable)];
     if not rejectsForeignExecutable(api.addExternalCommandStep(

@@ -183,6 +183,11 @@ owner-checked package handles for compiler sources and module-map imports.
 artifact and automatically depends on its existing emit step;
 `addTestExecutableStep(name, RunOptions::init(executable))` records a test
 execution with the same explicit artifact dependency and process semantics;
+`addInstallExecutableStep(name, executable, BuildPathView::init(path))` stages
+an emitted executable at another build-rooted path under `.nia-build/`, using
+the coordinator's typed dependency, output lock, journal, rollback, and atomic
+publication rules. It is build artifact publication, not a system-prefix
+installer.
 `RunOptions::withArguments` supplies retained arguments. Builder calls copy
 retained text, paths, imports, and run arguments, so local input arrays may
 leave scope before execution. `setDefaultStep(step)`

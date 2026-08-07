@@ -221,13 +221,13 @@ fn assert_configured_build_success(
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.steps_executed\":6")),
+            .any(|line| line.contains("\"build.steps_executed\":7")),
         "{stderr}"
     );
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.actions_executed\":6")),
+            .any(|line| line.contains("\"build.actions_executed\":7")),
         "{stderr}"
     );
     assert!(
@@ -309,7 +309,7 @@ fn assert_configured_build_success(
     assert_eq!(plan.artifacts()[1].key.name(), "worker");
     assert_eq!(plan.artifacts()[1].root_module.name(), "worker");
     assert_eq!(plan.artifacts()[1].output.protocol_path(), "custom-worker");
-    assert_eq!(plan.actions().len(), 7);
+    assert_eq!(plan.actions().len(), 8);
     assert!(matches!(
         plan.actions()[0].kind,
         nia_build::ActionKind::CompilerEmit { .. }
@@ -449,7 +449,19 @@ fn assert_configured_build_success(
         }
         other => panic!("expected staged external tool action, found {other:?}"),
     }
-    assert_eq!(plan.steps().len(), 7);
+    let install_action = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "install")
+        .expect("install action");
+    assert!(matches!(
+        &install_action.kind,
+        nia_build::ActionKind::InstallArtifact { artifact, destination }
+            if artifact.name() == "app"
+                && matches!(destination.root(), nia_build::LogicalPathRoot::Build)
+                && destination.protocol_path() == "install/custom-app"
+    ));
+    assert_eq!(plan.steps().len(), 8);
     let build_step = plan
         .steps()
         .iter()
@@ -500,7 +512,20 @@ fn assert_configured_build_success(
             .iter()
             .map(nia_build::StepKey::name)
             .collect::<Vec<_>>(),
-        ["build", "run", "worker"]
+        ["build", "install", "run", "worker"]
+    );
+    let install_step = plan
+        .steps()
+        .iter()
+        .find(|step| step.key.name() == "install")
+        .expect("install step");
+    assert_eq!(
+        install_step
+            .dependencies
+            .iter()
+            .map(nia_build::StepKey::name)
+            .collect::<Vec<_>>(),
+        ["build"]
     );
     let worker_step = plan
         .steps()
@@ -524,6 +549,7 @@ fn assert_configured_build_success(
         Some("tool")
     );
     assert!(workspace.join(".nia-build/custom-app").is_file());
+    assert!(workspace.join(".nia-build/install/custom-app").is_file());
     assert!(!workspace.join(".nia-build/app").exists());
     assert!(workspace.join(".nia-build/custom-worker").is_file());
     assert!(workspace.join(".nia-build/generated/helper.nia").is_file());
@@ -553,6 +579,25 @@ fn assert_configured_build_success(
             .code(),
         Some(0)
     );
+    assert_eq!(
+        Command::new(workspace.join(".nia-build/install/custom-app"))
+            .arg("roadmap")
+            .status_timeout("run installed configured build target")
+            .code(),
+        Some(0)
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_ne!(
+            std::fs::metadata(workspace.join(".nia-build/install/custom-app"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o111,
+            0
+        );
+    }
     assert_eq!(
         Command::new(workspace.join(".nia-build/custom-worker"))
             .status_timeout("run configured worker artifact")

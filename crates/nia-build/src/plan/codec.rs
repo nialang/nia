@@ -358,6 +358,14 @@ impl Writer {
                 self.logical_path(output)?;
                 self.blob(contents)?;
             }
+            ActionKind::InstallArtifact {
+                artifact,
+                destination,
+            } => {
+                self.u8(6);
+                self.artifact_key(artifact)?;
+                self.logical_path(destination)?;
+            }
             ActionKind::Aggregate => self.u8(4),
             ActionKind::Uncacheable { description } => {
                 self.u8(5);
@@ -703,6 +711,10 @@ impl<'a> Reader<'a> {
             5 => ActionKind::Uncacheable {
                 description: self.string()?,
             },
+            6 => ActionKind::InstallArtifact {
+                artifact: self.artifact_key()?,
+                destination: self.logical_path()?,
+            },
             _ => {
                 return Err(PlanCodecError::InvalidTag {
                     kind: "action",
@@ -901,6 +913,13 @@ mod tests {
                 kind: ActionKind::GeneratedFile {
                     output: LogicalPath::new(LogicalPathRoot::Build, "generated.nia").unwrap(),
                     contents: b"pub fn generated() void {}\n".to_vec(),
+                },
+            },
+            PlanAction {
+                key: ActionKey::new(package.clone(), "install").unwrap(),
+                kind: ActionKind::InstallArtifact {
+                    artifact: ArtifactKey::new(package.clone(), "app").unwrap(),
+                    destination: LogicalPath::new(LogicalPathRoot::Build, "install/app").unwrap(),
                 },
             },
             PlanAction {

@@ -306,6 +306,10 @@ pub enum ActionKind {
         output: LogicalPath,
         contents: Vec<u8>,
     },
+    InstallArtifact {
+        artifact: ArtifactKey,
+        destination: LogicalPath,
+    },
     Aggregate,
     Uncacheable {
         description: String,
@@ -325,7 +329,9 @@ impl PlanAction {
             ActionKind::CompilerCheck { .. } | ActionKind::CompilerEmit { .. } => {
                 ActionResourceClass::Cpu
             }
-            ActionKind::GeneratedFile { .. } | ActionKind::Aggregate => ActionResourceClass::Io,
+            ActionKind::GeneratedFile { .. }
+            | ActionKind::InstallArtifact { .. }
+            | ActionKind::Aggregate => ActionResourceClass::Io,
             ActionKind::Uncacheable { .. } => ActionResourceClass::Conservative,
         }
     }
@@ -621,6 +627,13 @@ fn validate_package_references(draft: &BuildPlanDraft) -> Result<(), PlanError> 
             ActionKind::GeneratedFile { output, .. } => {
                 validate_path_package(output, &require)?;
             }
+            ActionKind::InstallArtifact {
+                artifact,
+                destination,
+            } => {
+                require(artifact.package())?;
+                validate_path_package(destination, &require)?;
+            }
             ActionKind::Aggregate | ActionKind::Uncacheable { .. } => {}
         }
     }
@@ -716,6 +729,12 @@ fn canonicalize_actions(
                 });
             }
             ActionKind::CompilerEmit { artifact, .. } if !artifact_keys.contains(artifact) => {
+                return Err(PlanError::MissingArtifact {
+                    action: action.key.clone(),
+                    artifact: artifact.clone(),
+                });
+            }
+            ActionKind::InstallArtifact { artifact, .. } if !artifact_keys.contains(artifact) => {
                 return Err(PlanError::MissingArtifact {
                     action: action.key.clone(),
                     artifact: artifact.clone(),
@@ -930,40 +949,47 @@ fn validate_artifact_dependencies(
         .collect();
     let step_by_key: BTreeMap<_, _> = steps.iter().map(|step| (&step.key, step)).collect();
     for step in steps {
-        let Some(ActionKind::ExternalCommand {
-            program, inputs, ..
-        }) = action_by_key.get(&step.action).copied()
-        else {
-            continue;
-        };
         let mut required = BTreeMap::<ArtifactKey, &'static str>::new();
-        if let CommandProgram::Path(program) = program
-            && let LogicalPathRoot::Artifact(artifact) = program.root()
-        {
-            if !program.components().is_empty() {
-                return Err(PlanError::InvalidCommand {
-                    action: step.action.clone(),
-                    reason: "artifact program path must name the artifact root",
-                });
+        match action_by_key.get(&step.action).copied() {
+            Some(ActionKind::ExternalCommand {
+                program, inputs, ..
+            }) => {
+                if let CommandProgram::Path(program) = program
+                    && let LogicalPathRoot::Artifact(artifact) = program.root()
+                {
+                    if !program.components().is_empty() {
+                        return Err(PlanError::InvalidCommand {
+                            action: step.action.clone(),
+                            reason: "artifact program path must name the artifact root",
+                        });
+                    }
+                    required.insert(
+                        artifact.clone(),
+                        "artifact program has no compiler emit dependency",
+                    );
+                }
+                for input in inputs {
+                    let LogicalPathRoot::Artifact(artifact) = input.root() else {
+                        continue;
+                    };
+                    if !input.components().is_empty() {
+                        return Err(PlanError::InvalidCommand {
+                            action: step.action.clone(),
+                            reason: "artifact input path must name the artifact root",
+                        });
+                    }
+                    required
+                        .entry(artifact.clone())
+                        .or_insert("artifact input has no compiler emit dependency");
+                }
             }
-            required.insert(
-                artifact.clone(),
-                "artifact program has no compiler emit dependency",
-            );
-        }
-        for input in inputs {
-            let LogicalPathRoot::Artifact(artifact) = input.root() else {
-                continue;
-            };
-            if !input.components().is_empty() {
-                return Err(PlanError::InvalidCommand {
-                    action: step.action.clone(),
-                    reason: "artifact input path must name the artifact root",
-                });
+            Some(ActionKind::InstallArtifact { artifact, .. }) => {
+                required.insert(
+                    artifact.clone(),
+                    "artifact install has no compiler emit dependency",
+                );
             }
-            required
-                .entry(artifact.clone())
-                .or_insert("artifact input has no compiler emit dependency");
+            _ => continue,
         }
         if required.is_empty() {
             continue;
@@ -1105,6 +1131,7 @@ fn validate_output_ownership(
             ActionKind::CompilerEmit { artifact, .. } => vec![artifacts[artifact]],
             ActionKind::ExternalCommand { outputs, .. } => outputs.iter().collect(),
             ActionKind::GeneratedFile { output, .. } => vec![output],
+            ActionKind::InstallArtifact { destination, .. } => vec![destination],
             _ => Vec::new(),
         };
         for output in outputs {
@@ -1380,6 +1407,105 @@ mod tests {
         });
         assert!(matches!(
             BuildPlan::freeze(value),
+            Err(PlanError::OutputCollision(_))
+        ));
+    }
+
+    fn add_install_action(
+        value: &mut BuildPlanDraft,
+        artifact: ArtifactKey,
+        destination: &str,
+        dependencies: Vec<StepKey>,
+    ) {
+        let install_action = action_key("install");
+        let install_step = step_key("install");
+        value.actions.push(PlanAction {
+            key: install_action.clone(),
+            kind: ActionKind::InstallArtifact {
+                artifact,
+                destination: LogicalPath::new(LogicalPathRoot::Build, destination).unwrap(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: install_step.clone(),
+            action: install_action,
+            dependencies,
+        });
+        value.default_step = Some(install_step);
+    }
+
+    #[test]
+    fn freeze_accepts_an_install_with_its_emit_in_the_dependency_closure() {
+        let mut value = draft(false);
+        add_install_action(
+            &mut value,
+            artifact_key("app"),
+            "install/app",
+            vec![step_key("emit")],
+        );
+
+        let plan = BuildPlan::freeze(value).unwrap();
+        let install = plan
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "install")
+            .unwrap();
+        assert_eq!(install.resource_class(), ActionResourceClass::Io);
+        assert!(matches!(
+            &install.kind,
+            ActionKind::InstallArtifact { artifact, destination }
+                if artifact.name() == "app" && destination.protocol_path() == "install/app"
+        ));
+    }
+
+    #[test]
+    fn freeze_requires_an_install_artifact_and_its_emit_dependency() {
+        let mut missing_artifact = draft(false);
+        add_install_action(
+            &mut missing_artifact,
+            artifact_key("missing"),
+            "install/app",
+            vec![step_key("emit")],
+        );
+        assert!(matches!(
+            BuildPlan::freeze(missing_artifact),
+            Err(PlanError::MissingArtifact { artifact, .. }) if artifact.name() == "missing"
+        ));
+
+        let mut missing_dependency = draft(false);
+        add_install_action(
+            &mut missing_dependency,
+            artifact_key("app"),
+            "install/app",
+            Vec::new(),
+        );
+        assert!(matches!(
+            BuildPlan::freeze(missing_dependency),
+            Err(PlanError::InvalidCommand {
+                reason: "artifact install has no compiler emit dependency",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn freeze_applies_build_output_rules_to_install_destinations() {
+        let mut empty = draft(false);
+        add_install_action(&mut empty, artifact_key("app"), "", vec![step_key("emit")]);
+        assert!(matches!(
+            BuildPlan::freeze(empty),
+            Err(PlanError::InvalidOutput { path, .. }) if path.is_empty()
+        ));
+
+        let mut collision = draft(false);
+        add_install_action(
+            &mut collision,
+            artifact_key("app"),
+            "app",
+            vec![step_key("emit")],
+        );
+        assert!(matches!(
+            BuildPlan::freeze(collision),
             Err(PlanError::OutputCollision(_))
         ));
     }

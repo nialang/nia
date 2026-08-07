@@ -615,6 +615,15 @@ selection, registry access, download, or network policy. Module roots and
 module-map imports may select a declared local package or the build root;
 module declarations and artifact ownership remain root-graph data.
 
+`Build::addInstallExecutableStep(name, target, BuildPathView::init(path))`
+publishes an emitted executable to another logical path below `.nia-build/`.
+The target handle is owner-checked and must already have an emit step; that
+dependency is retained in the graph automatically. Publication is journaled,
+output-locked, and atomic with the existing staged-output transaction, and
+preserves executable permissions. This API deliberately does not select or
+write a system installation prefix; system deployment is outside the build
+graph until a separate policy is designed.
+
 The publication contract accepts zero or multiple build-rooted regular-file
 outputs. Each `buildOutput` argument receives a distinct same-filesystem staging
 path. The coordinator validates and syncs the complete produced set while

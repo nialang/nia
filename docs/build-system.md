@@ -167,6 +167,13 @@ with test intent and retained `RunOptions` arguments. It intentionally lowers
 to the same uncacheable process action as `addRunExecutableStep`; test results
 must never be mistaken for reusable build outputs, while the graph still
 rejects missing or foreign emit ownership.
+`addInstallExecutableStep` records a typed artifact publication edge. Its
+destination is a non-empty `BuildPathView` under `.nia-build/`; the builder
+requires the target's existing emit step and the coordinator copies the emitted
+regular file through the same journaled, locked, atomic staged-output
+transaction used by external command outputs. This is artifact staging for
+build products, not deployment to a system prefix; system-prefix policy
+remains a separate future configuration boundary.
 External-command arguments distinguish literals, declared inputs, and declared
 outputs. Every output argument resolves to its own path in one
 coordinator-owned same-filesystem transaction directory. Before publication,
