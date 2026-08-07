@@ -287,10 +287,18 @@ rather than exposing cache paths or copying bytes into a coordinator cache.
 Restore validates the current archive environment before publishing through a
 staged file.
 
-Typed build relationships are still open. Until those answers are owned, the
-build protocol must keep `ObjectSet` as the only object-directory artifact and
-reject no more than the relationships it can prove invalid. A system
-`ar`/`llvm-ar` command must not become an implicit second linker/cache owner.
+Build protocol schema 9 now carries `StaticArchive` as a distinct artifact kind.
+Its compiler-emit action asks Driver for native objects and the typed archive,
+then publishes the result as a journaled file transaction. Coordinator does not
+archive a published ObjectSet directory and does not keep a second copy of the
+archive bytes. Static archives remain invalid on the executable-only install
+edge.
+
+The public `std::build` declaration and typed command-input, installation, and
+executable-link relationships are still open. Until those relationships are
+owned, `ObjectSet` remains the only public object-directory artifact and plan
+validation rejects only the uses it can prove invalid. A system `ar`/`llvm-ar`
+command must not become an implicit second linker/cache owner.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide

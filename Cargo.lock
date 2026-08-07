@@ -232,6 +232,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-driver",
  "nia-imports",
+ "nia-linker",
  "nia-loader-query",
  "nia-query",
  "nia-source",
