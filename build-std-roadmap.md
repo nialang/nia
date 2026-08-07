@@ -4118,3 +4118,12 @@ are intentionally not read. This closes the Phase G cross-package compiler
 input and package-root cache-identity slice; run/test/install relationships,
 host compiler artifacts, object/library kinds, and the remaining artifact
 surface remain open.
+
+Phase G progress (2026-08-07, explicit test artifact relation): std now exposes
+`Build::addTestExecutableStep(name, RunOptions)` as a distinct graph relation.
+The builder requires an owner-checked executable and its existing emit step,
+retains test arguments with the same rollback path as run steps, and emits a
+typed artifact-root process action without introducing a second executor or a
+cacheable test result. The target conformance fixture constructs the relation
+and validates the resulting plan. Install relationships and the remaining
+artifact surface remain open.

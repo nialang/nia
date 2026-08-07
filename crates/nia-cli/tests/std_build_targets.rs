@@ -437,6 +437,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )) {
         return process::exit(12)!;
     }
+    if not rejectsForeignExecutable(api.addTestExecutableStep(
+        &"foreign-test",
+        build::RunOptions::init(otherExecutable),
+    )) {
+        return process::exit(22)!;
+    }
     let foreignArtifactArguments = [build::CommandArgument::artifactInput(otherExecutable)];
     if not rejectsForeignExecutable(api.addExternalCommandStep(
         &"foreign-artifact-input",
@@ -471,6 +477,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not rejectsInvalidPlanModule(missingProducer.validatePlan(), 0usize) {
         return process::exit(16)!;
     }
+    let test = api.addTestExecutableStep(
+        &"test",
+        build::RunOptions::init(executable),
+    ).exit().?;
+    _ = test;
     api.validatePlan().exit().?;
     !{}
 }

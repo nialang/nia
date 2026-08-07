@@ -109,7 +109,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "std::build::Build exposes packageRoot(), buildDir(), cacheDir(), and toolchainExecutable() so scripts do not guess toolchain paths.",
                 "std::build::ModuleOptions::init(name, rootSource) declares a stable named source module; addExecutable(options) declares an artifact that references it.",
                 "Module optimization and executable runtime options are forwarded to the current toolchain.",
-                "std::build::Build::setDefaultStep(step) selects what `nia build` runs when no step name is passed.",
+                "std::build::Build::setDefaultStep(step) selects what `nia build` runs when no step name is passed; addTestExecutableStep records a target test relation.",
                 "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
                 "The build runner lives in the Nia toolchain instead of a separate paw binary or C API bridge.",
             ],
