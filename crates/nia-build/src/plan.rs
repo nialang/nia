@@ -235,9 +235,16 @@ pub enum PackageRootError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PlanArtifactKind {
+    Executable,
+    ObjectSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanArtifact {
     pub key: ArtifactKey,
     pub root_module: ModuleKey,
+    pub kind: PlanArtifactKind,
     pub output: LogicalPath,
     pub runtime: Runtime,
 }
@@ -420,6 +427,11 @@ pub enum PlanError {
     OutputCollision(Box<OutputCollision>),
     InvalidCommand {
         action: ActionKey,
+        reason: &'static str,
+    },
+    InvalidArtifactUse {
+        action: ActionKey,
+        artifact: ArtifactKey,
         reason: &'static str,
     },
     MissingGeneratedSourceProducer {
@@ -720,6 +732,10 @@ fn canonicalize_actions(
     )?;
     let module_keys: BTreeSet<_> = modules.iter().map(|module| &module.key).collect();
     let artifact_keys: BTreeSet<_> = artifacts.iter().map(|artifact| &artifact.key).collect();
+    let artifacts_by_key: BTreeMap<_, _> = artifacts
+        .iter()
+        .map(|artifact| (&artifact.key, artifact))
+        .collect();
     for action in actions {
         match &mut action.kind {
             ActionKind::CompilerCheck { module, .. } if !module_keys.contains(module) => {
@@ -739,6 +755,15 @@ fn canonicalize_actions(
                     action: action.key.clone(),
                     artifact: artifact.clone(),
                 });
+            }
+            ActionKind::InstallArtifact { artifact, .. } => {
+                if artifacts_by_key[artifact].kind != PlanArtifactKind::Executable {
+                    return Err(PlanError::InvalidArtifactUse {
+                        action: action.key.clone(),
+                        artifact: artifact.clone(),
+                        reason: "only executable artifacts can be installed",
+                    });
+                }
             }
             ActionKind::ExternalCommand {
                 program,
@@ -1281,6 +1306,7 @@ mod tests {
             artifacts: vec![PlanArtifact {
                 key: artifact,
                 root_module: module_a,
+                kind: PlanArtifactKind::Executable,
                 output: LogicalPath::new(LogicalPathRoot::Build, "app").unwrap(),
                 runtime: Runtime::Freestanding,
             }],
@@ -1485,6 +1511,27 @@ mod tests {
                 reason: "artifact install has no compiler emit dependency",
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn freeze_rejects_installing_an_object_set() {
+        let mut value = draft(false);
+        value.artifacts[0].kind = PlanArtifactKind::ObjectSet;
+        add_install_action(
+            &mut value,
+            artifact_key("app"),
+            "install/app",
+            vec![step_key("emit")],
+        );
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidArtifactUse {
+                artifact,
+                reason: "only executable artifacts can be installed",
+                ..
+            }) if artifact.name() == "app"
         ));
     }
 

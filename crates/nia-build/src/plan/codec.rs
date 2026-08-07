@@ -279,6 +279,10 @@ impl Writer {
     fn artifact(&mut self, artifact: &PlanArtifact) -> Result<(), PlanCodecError> {
         self.artifact_key(&artifact.key)?;
         self.module_key(&artifact.root_module)?;
+        self.u8(match artifact.kind {
+            PlanArtifactKind::Executable => 0,
+            PlanArtifactKind::ObjectSet => 1,
+        });
         self.logical_path(&artifact.output)?;
         self.runtime(artifact.runtime);
         Ok(())
@@ -631,9 +635,24 @@ impl<'a> Reader<'a> {
     }
 
     fn artifact(&mut self) -> Result<PlanArtifact, PlanCodecError> {
+        let key = self.artifact_key()?;
+        let root_module = self.module_key()?;
+        let kind_offset = self.offset;
+        let kind = match self.u8()? {
+            0 => PlanArtifactKind::Executable,
+            1 => PlanArtifactKind::ObjectSet,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "artifact kind",
+                    tag,
+                    offset: kind_offset,
+                });
+            }
+        };
         Ok(PlanArtifact {
-            key: self.artifact_key()?,
-            root_module: self.module_key()?,
+            key,
+            root_module,
+            kind,
             output: self.logical_path()?,
             runtime: self.runtime()?,
         })
@@ -870,6 +889,13 @@ mod tests {
     #[test]
     fn typed_action_variants_round_trip() {
         let mut value = draft(false);
+        value.artifacts.push(PlanArtifact {
+            key: ArtifactKey::new(PackageKey::root(), "objects").unwrap(),
+            root_module: ModuleKey::new(PackageKey::root(), "a").unwrap(),
+            kind: PlanArtifactKind::ObjectSet,
+            output: LogicalPath::new(LogicalPathRoot::Build, "objects/app").unwrap(),
+            runtime: Runtime::Bare,
+        });
         let package = PackageKey::root();
         value.actions.extend([
             PlanAction {
@@ -935,7 +961,14 @@ mod tests {
         ]);
         let plan = BuildPlan::freeze(value).unwrap();
         let bytes = plan.encode().unwrap();
-        assert_eq!(BuildPlan::decode(&bytes).unwrap(), plan);
+        let decoded = BuildPlan::decode(&bytes).unwrap();
+        assert_eq!(decoded, plan);
+        assert!(
+            decoded
+                .artifacts()
+                .iter()
+                .any(|artifact| artifact.kind == PlanArtifactKind::ObjectSet)
+        );
     }
 
     #[test]

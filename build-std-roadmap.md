@@ -4164,3 +4164,16 @@ command outputs count in `TestExecutable` plan encoding; the decoded
 conformance plan now guards the complete test action layout. This closes the
 compiler-built host executable slice. Object/library kinds and the remaining
 artifact surface remain open.
+
+Phase G progress (2026-08-07, Rust object-set artifact boundary): the frozen
+plan now carries an explicit `ObjectSet` artifact kind beside `Executable`,
+including schema encoding, cache identity separation, target-aware native
+object emission, and typed directory publication through the existing recovery
+transaction. Object-set output is a complete directory of compiler codegen
+units rather than a guessed single object or static archive. Plan validation
+rejects installing an object set through the executable-only installation edge,
+and coordinator execution retains the artifact's bare/freestanding runtime
+choice. Focused codec, plan, and coordinator tests cover round-trip identity,
+directory publication, and invalid installation. The public `std::build` object
+declaration API, static-library/archive semantics, and the remaining artifact
+surface remain open; no compatibility alias or implicit archive policy is added.

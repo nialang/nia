@@ -15,8 +15,9 @@ use std::{
 };
 
 use nia_driver::{
-    CheckRequest, Driver, DriverConfig, DriverError, ExecutableCacheRestore, LinkExecutableRequest,
-    ModuleMap, NiaOptimizationLevel, Runtime as DriverRuntime, SourcePath,
+    CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, ExecutableCacheRestore,
+    LinkExecutableRequest, ModuleMap, NiaOptimizationLevel, ObjectOutput, Runtime as DriverRuntime,
+    SourcePath,
 };
 use nia_query::QuerySession;
 use nia_target_config::TargetConfig;
@@ -26,7 +27,7 @@ use crate::{
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument,
     CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, EnvironmentInput, LogicalPath,
     LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
-    PlanArtifact, PlanModule, Runtime, StepKey, TargetSpec,
+    PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup,
@@ -1008,6 +1009,9 @@ impl DriverActionExecutor {
         target: &TargetSpec,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let artifact = self.artifact(action, artifact_key)?;
+        if artifact.kind == PlanArtifactKind::ObjectSet {
+            return self.execute_object_set_emit(action, artifact, target);
+        }
         let module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
             inconsistent(
                 format!("action `{}`", action.key.name()),
@@ -1111,6 +1115,53 @@ impl DriverActionExecutor {
         Ok(Some(ActionCacheOutcome::Miss(reason)))
     }
 
+    fn execute_object_set_emit(
+        &self,
+        action: &PlanAction,
+        artifact: &PlanArtifact,
+        target: &TargetSpec,
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let _module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
+            inconsistent(
+                format!("action `{}`", action.key.name()),
+                format!("module `{}`", artifact.root_module.name()),
+            )
+        })?;
+        let request = self
+            .check_request(action, &artifact.root_module, artifact.runtime)?
+            .with_runtime(runtime_mode(artifact.runtime));
+        let output = self.resolve_path(action, &artifact.output)?;
+        let driver = self.driver(action, target)?;
+        let emitted = driver
+            .emit_native_objects(EmitObjectRequest::new(request))
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            })?;
+        let resolved = [ResolvedTransactionOutput {
+            logical: &artifact.output,
+            destination: output,
+            kind: TransactionOutputKind::Directory,
+        }];
+        let staged = prepare_typed_staged_outputs(action, &self.invocation.build_dir, &resolved)?;
+        let temporary = staged.outputs[0].temporary.clone();
+        let written = driver
+            .write_native_objects_from_artifact(&emitted, ObjectOutput::Directory(temporary))
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            });
+        if let Err(error) = written {
+            return cleanup_staged_outputs(action, staged, Some(Box::new(error))).map(|()| None);
+        }
+        if let Err(error) = publish_staged_outputs(action, staged) {
+            return Err(error);
+        }
+        Ok(None)
+    }
+
     fn execute_generated_file(
         &self,
         action: &PlanAction,
@@ -1157,6 +1208,9 @@ impl DriverActionExecutor {
         logical_destination: &LogicalPath,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let artifact = self.artifact(action, artifact_key)?;
+        if artifact.kind != PlanArtifactKind::Executable {
+            return Err(unsupported(action, "install-non-executable-artifact"));
+        }
         let source = self.resolve_path(action, &artifact.output)?;
         let destination = self.resolve_path(action, logical_destination)?;
         let resolved = [(logical_destination, destination)];
@@ -3433,6 +3487,32 @@ mod tests {
         runtime: Runtime,
         output: &str,
     ) -> BuildPlan {
+        compiler_emit_plan_kind(
+            invocation,
+            optimization,
+            runtime,
+            output,
+            PlanArtifactKind::Executable,
+        )
+    }
+
+    fn object_set_plan(invocation: &BuildInvocation, output: &str) -> BuildPlan {
+        compiler_emit_plan_kind(
+            invocation,
+            OptimizationMode::O0,
+            Runtime::Freestanding,
+            output,
+            PlanArtifactKind::ObjectSet,
+        )
+    }
+
+    fn compiler_emit_plan_kind(
+        invocation: &BuildInvocation,
+        optimization: OptimizationMode,
+        runtime: Runtime,
+        output: &str,
+        kind: PlanArtifactKind,
+    ) -> BuildPlan {
         let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
         let artifact_key = ArtifactKey::new(PackageKey::root(), "app").unwrap();
         let host = target_spec(invocation.toolchain.host_target());
@@ -3458,6 +3538,7 @@ mod tests {
             artifacts: vec![PlanArtifact {
                 key: artifact_key.clone(),
                 root_module: module,
+                kind,
                 output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
                 runtime,
             }],
@@ -3504,6 +3585,7 @@ mod tests {
             artifacts: vec![PlanArtifact {
                 key: artifact_key.clone(),
                 root_module: module,
+                kind: PlanArtifactKind::Executable,
                 output: LogicalPath::new(LogicalPathRoot::Build, "bin/app").unwrap(),
                 runtime: Runtime::Freestanding,
             }],
@@ -3588,12 +3670,14 @@ mod tests {
                 PlanArtifact {
                     key: generated_artifact.clone(),
                     root_module: generated_module,
+                    kind: PlanArtifactKind::Executable,
                     output: LogicalPath::new(LogicalPathRoot::Build, "bin/generated").unwrap(),
                     runtime: Runtime::Freestanding,
                 },
                 PlanArtifact {
                     key: stable_artifact.clone(),
                     root_module: stable_module,
+                    kind: PlanArtifactKind::Executable,
                     output: LogicalPath::new(LogicalPathRoot::Build, "bin/stable").unwrap(),
                     runtime: Runtime::Freestanding,
                 },
@@ -4098,6 +4182,30 @@ mod tests {
             fs::read(output).expect("read restored executable"),
             expected
         );
+    }
+
+    #[test]
+    fn object_set_emit_publishes_driver_object_directory_transactionally() {
+        let invocation = test_invocation();
+        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        let plan = object_set_plan(&invocation, "objects/app");
+        let output = invocation.build_dir.join("objects/app");
+
+        execute_build_plan(&plan, &invocation).unwrap();
+
+        assert!(output.is_dir());
+        let objects = fs::read_dir(&output)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert!(!objects.is_empty());
+        assert!(objects.iter().all(|path| {
+            fs::symlink_metadata(path)
+                .map(|metadata| metadata.file_type().is_file())
+                .unwrap_or(false)
+        }));
+        assert_no_staged_command_directories(output.parent().unwrap());
+        assert_no_output_transaction_journals(&invocation);
     }
 
     #[test]

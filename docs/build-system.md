@@ -142,8 +142,14 @@ any action can run. It publishes canonical plan bytes and executes only the
 selected dependency closure. The closure uses iterative deterministic Kahn
 traversal and executes a shared action at most once. Aggregate actions are
 no-ops; compiler check and executable emission call `nia-driver` directly with
-typed module maps, optimization, runtime, target, cache, and output values.
-Generated-file actions publish declared bytes atomically under the build root.
+typed module maps, optimization, runtime, target, cache, and output values. The
+frozen plan also distinguishes `ObjectSet` from `Executable`: an object set
+emits the complete codegen-unit directory through `nia-driver` and the
+coordinator's typed directory transaction. It is not a single-object shortcut
+or a static archive, and executable-only install actions reject it before
+execution. The public `std::build` declaration surface for object artifacts
+remains a separate Phase G item. Generated-file actions publish declared bytes
+atomically under the build root.
 `ModuleOptions::fromBuild` and `ModuleImport::fromBuild` expose generated root
 sources and imports without treating them as package files. Builder validation
 adds their exact producer edges after all steps have been declared, making the
@@ -188,13 +194,15 @@ Explicit uncacheable actions remain unsupported; no path falls back to a runner
 callback.
 
 Process-death recovery state for these transactions lives under
-`.nia-build/.nia-transactions/v1/`, outside the disposable cache. A versioned,
+`.nia-build/.nia-transactions/v2/`, outside the disposable cache. A versioned,
 checksummed journal records the stable action key, ordered logical Build
-outputs, and logical stage/commit paths before the external command can mutate
-staging. Once every produced regular file is synced, a separately checksummed
-prepared marker records which destinations previously existed; that marker and
-its directory entry are synced before any destination changes. The
-same-directory stage-to-committed rename remains the acceptance point.
+outputs with their `File`/`Directory` kind, and logical stage/commit paths
+before an output producer can mutate staging. Regular files and recursively
+validated directory trees are synced before acceptance. Once every staged
+output is synced, a separately checksummed prepared marker records which
+destinations previously existed; that marker and its directory entry are synced
+before any destination changes. The same-directory stage-to-committed rename
+remains the acceptance point.
 
 Before dispatching plan actions, the coordinator scans journals in deterministic
 order and acquires their complete output-lock sets in canonical order. It then
@@ -215,7 +223,10 @@ acquires that cross-process lock under `.nia-cache/coordination/output-locks/`
 for the action lifetime. Equal destinations serialize across concurrent builds;
 different destinations use different locks and may progress independently.
 Compiler object/link cache publication remains owned by the Driver cache rather
-than being folded into this build-output lock namespace. Owner records include
+than being folded into this build-output lock namespace. Build-plan `ObjectSet`
+artifacts now publish the Driver's complete `IncrementalLinkInputs` object set
+through the typed directory transaction; this is deliberately not a static
+archive or a restricted single-object API. Owner records include
 process identity, process start time, and an acquisition sequence; dead owners
 are reclaimed without allowing an older same-process guard to remove a newer
 lock.
