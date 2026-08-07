@@ -15,13 +15,25 @@ use crate::{
     lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
 };
 
-const JOURNAL_MAGIC: &[u8; 8] = b"NIATXN01";
+const JOURNAL_MAGIC: &[u8; 8] = b"NIATXN02";
 const PREPARED_MAGIC: &[u8; 8] = b"NIAPRP01";
-const JOURNAL_SCHEMA: &str = "v1";
+const JOURNAL_SCHEMA: &str = "v2";
 pub(crate) const OUTPUT_TRANSACTION_DIRECTORY: &str = ".nia-transactions";
 const MAX_JOURNAL_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUTS: usize = 4096;
 static JOURNAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransactionOutputKind {
+    File,
+    Directory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransactionOutput {
+    pub(crate) path: LogicalPath,
+    pub(crate) kind: TransactionOutputKind,
+}
 
 #[derive(Debug)]
 pub struct OutputRecoveryError {
@@ -63,7 +75,7 @@ impl OutputTransactionJournal {
     pub(crate) fn create(
         build_dir: &Path,
         action: &ActionKey,
-        outputs: &[LogicalPath],
+        outputs: &[TransactionOutput],
         staged_directory: &Path,
         committed_directory: &Path,
     ) -> io::Result<Self> {
@@ -138,7 +150,7 @@ impl OutputTransactionJournal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct JournalHeader {
     action: ActionKey,
-    outputs: Vec<LogicalPath>,
+    outputs: Vec<TransactionOutput>,
     staged_path: LogicalPath,
     committed_path: LogicalPath,
 }
@@ -178,7 +190,11 @@ fn recover_journal(
     let header = read_header(journal)?;
     let action = header.action.clone();
     let result = (|| {
-        let mut outputs = header.outputs.clone();
+        let mut outputs = header
+            .outputs
+            .iter()
+            .map(|output| output.path.clone())
+            .collect::<Vec<_>>();
         outputs.sort();
         outputs.dedup();
         let mut locks = Vec::with_capacity(outputs.len());
@@ -287,17 +303,17 @@ fn temporary_journal_owner(path: &Path) -> Option<ProcessIdentity> {
 fn rollback_interrupted(
     journal: &Path,
     build_dir: &Path,
-    outputs: &[LogicalPath],
+    outputs: &[TransactionOutput],
     staged: &Path,
     had_previous: &[bool],
 ) -> Result<(), OutputRecoveryError> {
     for (index, (output, had_previous)) in outputs.iter().zip(had_previous).enumerate().rev() {
-        let destination = resolve_build_path(build_dir, output);
+        let destination = resolve_build_path(build_dir, &output.path);
         let temporary = staged.join(format!("output-{index}"));
         let backup = staged.join(format!("backup-{index}"));
-        let temporary_exists = regular_file_exists(journal, &temporary)?;
-        let backup_exists = regular_file_exists(journal, &backup)?;
-        let destination_exists = regular_file_exists(journal, &destination)?;
+        let temporary_exists = output_exists(journal, &temporary, output.kind)?;
+        let backup_exists = output_exists(journal, &backup, output.kind)?;
+        let destination_exists = output_exists(journal, &destination, output.kind)?;
         if *had_previous {
             if backup_exists {
                 if destination_exists {
@@ -360,7 +376,7 @@ fn rollback_interrupted(
     let parents: BTreeSet<_> = outputs
         .iter()
         .filter_map(|output| {
-            resolve_build_path(build_dir, output)
+            resolve_build_path(build_dir, &output.path)
                 .parent()
                 .map(Path::to_path_buf)
         })
@@ -432,7 +448,11 @@ fn encode_journal(header: &JournalHeader) -> Vec<u8> {
     write_text(&mut payload, &header.committed_path.protocol_path());
     payload.extend_from_slice(&(header.outputs.len() as u64).to_le_bytes());
     for output in &header.outputs {
-        write_text(&mut payload, &output.protocol_path());
+        payload.push(match output.kind {
+            TransactionOutputKind::File => 0,
+            TransactionOutputKind::Directory => 1,
+        });
+        write_text(&mut payload, &output.path.protocol_path());
     }
     encode_envelope(JOURNAL_MAGIC, &payload)
 }
@@ -448,17 +468,28 @@ fn decode_journal(encoded: &[u8]) -> Option<JournalHeader> {
     (count > 0 && count <= MAX_OUTPUTS).then_some(())?;
     let mut outputs = Vec::with_capacity(count);
     for _ in 0..count {
-        outputs.push(
-            LogicalPath::new(
+        let kind = match read_u8(&mut cursor)? {
+            0 => TransactionOutputKind::File,
+            1 => TransactionOutputKind::Directory,
+            _ => return None,
+        };
+        outputs.push(TransactionOutput {
+            path: LogicalPath::new(
                 LogicalPathRoot::Build,
                 &read_text(&mut cursor, payload.len())?,
             )
             .ok()?,
-        );
+            kind,
+        });
     }
-    let unique_outputs = outputs.iter().collect::<BTreeSet<_>>();
+    let unique_outputs = outputs
+        .iter()
+        .map(|output| &output.path)
+        .collect::<BTreeSet<_>>();
     (unique_outputs.len() == outputs.len()
-        && outputs.iter().all(|output| !output.components().is_empty()))
+        && outputs
+            .iter()
+            .all(|output| !output.path.components().is_empty()))
     .then_some(())?;
     (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
     Some(JournalHeader {
@@ -519,7 +550,7 @@ fn decode_envelope<'a>(encoded: &'a [u8], magic: &[u8; 8]) -> Option<&'a [u8]> {
 }
 
 fn checksum(payload: &[u8]) -> [u64; 2] {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.output-transaction-journal.v1");
+    let mut builder = QueryFingerprintBuilder::new("nia.build.output-transaction-journal.v2");
     builder.write_bytes(payload);
     builder.finish().parts()
 }
@@ -534,7 +565,7 @@ fn validate_transaction_paths(
         .outputs
         .first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "transaction has no outputs"))?;
-    let first_destination = resolve_build_path(build_dir, first);
+    let first_destination = resolve_build_path(build_dir, &first.path);
     let expected_parent = first_destination
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "output has no parent"))?;
@@ -664,6 +695,12 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
     Some(u64::from_le_bytes(bytes))
 }
 
+fn read_u8(cursor: &mut Cursor<&[u8]>) -> Option<u8> {
+    let mut byte = [0; 1];
+    cursor.read_exact(&mut byte).ok()?;
+    Some(byte[0])
+}
+
 fn directory_exists(journal: &Path, path: &Path) -> Result<bool, OutputRecoveryError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_dir() => Ok(true),
@@ -686,21 +723,63 @@ fn directory_exists(journal: &Path, path: &Path) -> Result<bool, OutputRecoveryE
     }
 }
 
-fn regular_file_exists(journal: &Path, path: &Path) -> Result<bool, OutputRecoveryError> {
+fn output_exists(
+    journal: &Path,
+    path: &Path,
+    kind: TransactionOutputKind,
+) -> Result<bool, OutputRecoveryError> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_file() => Ok(true),
+        Ok(metadata) if kind == TransactionOutputKind::File && metadata.file_type().is_file() => {
+            Ok(true)
+        }
+        Ok(metadata)
+            if kind == TransactionOutputKind::Directory && metadata.file_type().is_dir() =>
+        {
+            validate_directory_tree(path)
+                .map(|()| true)
+                .map_err(|error| {
+                    recovery_error(journal, path, "validate directory output for", error)
+                })
+        }
         Ok(_) => Err(recovery_error(
             journal,
             path,
             "inspect output for",
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                "transaction output is not a regular file",
+                match kind {
+                    TransactionOutputKind::File => "transaction file output is not a regular file",
+                    TransactionOutputKind::Directory => {
+                        "transaction directory output is not a directory"
+                    }
+                },
             ),
         )),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(recovery_error(journal, path, "inspect output for", error)),
     }
+}
+
+fn validate_directory_tree(path: &Path) -> io::Result<()> {
+    let mut entries = fs::read_dir(path)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<io::Result<Vec<_>>>()?;
+    entries.sort();
+    for entry in entries {
+        let metadata = fs::symlink_metadata(&entry)?;
+        if metadata.file_type().is_dir() {
+            validate_directory_tree(&entry)?;
+        } else if !metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "transaction directory contains non-file entry `{}`",
+                    entry.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn remove_directory(
@@ -760,6 +839,17 @@ mod tests {
     }
 
     fn test_transaction(name: &str, output_paths: &[&str]) -> TestTransaction {
+        let outputs = output_paths
+            .iter()
+            .map(|path| (*path, TransactionOutputKind::File))
+            .collect::<Vec<_>>();
+        test_typed_transaction(name, &outputs)
+    }
+
+    fn test_typed_transaction(
+        name: &str,
+        output_specs: &[(&str, TransactionOutputKind)],
+    ) -> TestTransaction {
         let root = std::env::temp_dir().join(format!(
             "nia-output-recovery-{name}-{}-{}",
             std::process::id(),
@@ -767,9 +857,11 @@ mod tests {
         ));
         let cache_dir = root.join(".nia-cache");
         let build_dir = root.join(".nia-build");
-        let outputs = output_paths
+        let outputs = output_specs
             .iter()
-            .map(|path| LogicalPath::new(LogicalPathRoot::Build, path).expect("logical output"))
+            .map(|(path, _)| {
+                LogicalPath::new(LogicalPathRoot::Build, path).expect("logical output")
+            })
             .collect::<Vec<_>>();
         let destinations = outputs
             .iter()
@@ -783,7 +875,12 @@ mod tests {
         let journal = OutputTransactionJournal::create(
             &build_dir,
             &ActionKey::new(PackageKey::root(), "tool").expect("action"),
-            &outputs,
+            &outputs
+                .iter()
+                .cloned()
+                .zip(output_specs.iter())
+                .map(|(path, (_, kind))| TransactionOutput { path, kind: *kind })
+                .collect::<Vec<_>>(),
             &staged,
             &committed,
         )
@@ -879,6 +976,155 @@ mod tests {
     }
 
     #[test]
+    fn prepared_directory_replacement_restores_previous_tree() {
+        let transaction = test_typed_transaction(
+            "directory-replacement",
+            &[("tool/objects", TransactionOutputKind::Directory)],
+        );
+        fs::create_dir(&transaction.destinations[0]).expect("create previous directory");
+        fs::write(transaction.destinations[0].join("old.o"), b"old")
+            .expect("write previous object");
+        let temporary = transaction.staged.join("output-0");
+        fs::create_dir(&temporary).expect("create staged directory");
+        fs::write(temporary.join("new.o"), b"new").expect("write staged object");
+        transaction
+            .journal
+            .mark_prepared(&[true])
+            .expect("mark prepared");
+        fs::rename(
+            &transaction.destinations[0],
+            transaction.staged.join("backup-0"),
+        )
+        .expect("back up directory");
+        fs::rename(&temporary, &transaction.destinations[0]).expect("install directory");
+
+        recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
+            .expect("recover");
+
+        assert_eq!(
+            fs::read(transaction.destinations[0].join("old.o")).expect("read previous object"),
+            b"old"
+        );
+        assert!(!transaction.destinations[0].join("new.o").exists());
+        assert_journal_removed(&transaction);
+        let _ = fs::remove_dir_all(transaction.root);
+    }
+
+    #[test]
+    fn prepared_new_directory_is_removed_during_recovery() {
+        let transaction = test_typed_transaction(
+            "new-directory",
+            &[("tool/objects", TransactionOutputKind::Directory)],
+        );
+        let temporary = transaction.staged.join("output-0");
+        fs::create_dir(&temporary).expect("create staged directory");
+        fs::write(temporary.join("new.o"), b"new").expect("write staged object");
+        transaction
+            .journal
+            .mark_prepared(&[false])
+            .expect("mark prepared");
+        fs::rename(&temporary, &transaction.destinations[0]).expect("install directory");
+
+        recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
+            .expect("recover");
+
+        assert!(!transaction.destinations[0].exists());
+        assert_journal_removed(&transaction);
+        let _ = fs::remove_dir_all(transaction.root);
+    }
+
+    #[test]
+    fn prepared_mixed_transaction_restores_file_directory_and_absent_output() {
+        let transaction = test_typed_transaction(
+            "mixed",
+            &[
+                ("tool/metadata.txt", TransactionOutputKind::File),
+                ("other/objects", TransactionOutputKind::Directory),
+                ("tool/new.txt", TransactionOutputKind::File),
+            ],
+        );
+        for destination in &transaction.destinations {
+            fs::create_dir_all(destination.parent().expect("destination parent"))
+                .expect("create destination parent");
+        }
+        fs::write(&transaction.destinations[0], b"old metadata").expect("write old metadata");
+        fs::create_dir(&transaction.destinations[1]).expect("create old object directory");
+        fs::write(transaction.destinations[1].join("old.o"), b"old object")
+            .expect("write old object");
+        fs::write(transaction.staged.join("output-0"), b"new metadata")
+            .expect("write staged metadata");
+        fs::create_dir(transaction.staged.join("output-1")).expect("create staged objects");
+        fs::write(transaction.staged.join("output-1/new.o"), b"new object")
+            .expect("write staged object");
+        fs::write(transaction.staged.join("output-2"), b"new file").expect("write staged new file");
+        transaction
+            .journal
+            .mark_prepared(&[true, true, false])
+            .expect("mark prepared");
+        for index in 0..2 {
+            fs::rename(
+                &transaction.destinations[index],
+                transaction.staged.join(format!("backup-{index}")),
+            )
+            .expect("back up previous output");
+            fs::rename(
+                transaction.staged.join(format!("output-{index}")),
+                &transaction.destinations[index],
+            )
+            .expect("install replacement");
+        }
+        fs::rename(
+            transaction.staged.join("output-2"),
+            &transaction.destinations[2],
+        )
+        .expect("install new file");
+
+        recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
+            .expect("recover");
+
+        assert_eq!(
+            fs::read(&transaction.destinations[0]).expect("read old metadata"),
+            b"old metadata"
+        );
+        assert_eq!(
+            fs::read(transaction.destinations[1].join("old.o")).expect("read old object"),
+            b"old object"
+        );
+        assert!(!transaction.destinations[1].join("new.o").exists());
+        assert!(!transaction.destinations[2].exists());
+        assert_journal_removed(&transaction);
+        let _ = fs::remove_dir_all(transaction.root);
+    }
+
+    #[test]
+    fn wrong_declared_directory_type_blocks_recovery_without_touching_destination() {
+        let transaction = test_typed_transaction(
+            "wrong-directory-type",
+            &[("tool/objects", TransactionOutputKind::Directory)],
+        );
+        fs::write(&transaction.destinations[0], b"accepted file")
+            .expect("write wrong-type destination");
+        fs::create_dir(transaction.staged.join("output-0")).expect("create staged directory");
+        transaction
+            .journal
+            .mark_prepared(&[false])
+            .expect("mark prepared");
+
+        let error =
+            recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
+                .expect_err("wrong output type must block recovery");
+
+        assert_eq!(error.operation, "inspect output for");
+        assert_eq!(
+            fs::read(&transaction.destinations[0]).expect("read accepted file"),
+            b"accepted file"
+        );
+        assert!(transaction.staged.exists());
+        assert!(transaction.journal.path().exists());
+        let _ = fs::remove_dir_all(transaction.root);
+    }
+
+    #[test]
     fn prepared_partially_rolled_back_transaction_finishes_cleanup() {
         let transaction = test_transaction(
             "partial-rollback",
@@ -934,6 +1180,41 @@ mod tests {
             fs::read(&transaction.destinations[0]).expect("read output"),
             b"new"
         );
+        assert_journal_removed(&transaction);
+        let _ = fs::remove_dir_all(transaction.root);
+    }
+
+    #[test]
+    fn accepted_directory_transaction_keeps_new_tree() {
+        let transaction = test_typed_transaction(
+            "accepted-directory",
+            &[("tool/objects", TransactionOutputKind::Directory)],
+        );
+        fs::create_dir(&transaction.destinations[0]).expect("create old directory");
+        fs::write(transaction.destinations[0].join("old.o"), b"old").expect("write old object");
+        let temporary = transaction.staged.join("output-0");
+        fs::create_dir(&temporary).expect("create staged directory");
+        fs::write(temporary.join("new.o"), b"new").expect("write new object");
+        transaction
+            .journal
+            .mark_prepared(&[true])
+            .expect("mark prepared");
+        fs::rename(
+            &transaction.destinations[0],
+            transaction.staged.join("backup-0"),
+        )
+        .expect("back up old directory");
+        fs::rename(&temporary, &transaction.destinations[0]).expect("install new directory");
+        fs::rename(&transaction.staged, &transaction.committed).expect("accept transaction");
+
+        recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
+            .expect("recover");
+
+        assert_eq!(
+            fs::read(transaction.destinations[0].join("new.o")).expect("read new object"),
+            b"new"
+        );
+        assert!(!transaction.destinations[0].join("old.o").exists());
         assert_journal_removed(&transaction);
         let _ = fs::remove_dir_all(transaction.root);
     }
@@ -1113,7 +1394,10 @@ mod tests {
             LogicalPath::new(LogicalPathRoot::Build, "tool/result.txt").expect("logical output");
         let header = JournalHeader {
             action: ActionKey::new(PackageKey::root(), "tool").expect("action"),
-            outputs: vec![output.clone()],
+            outputs: vec![TransactionOutput {
+                path: output.clone(),
+                kind: TransactionOutputKind::Directory,
+            }],
             staged_path: LogicalPath::new(LogicalPathRoot::Build, "tool/.nia-command-test-0.stage")
                 .expect("staged path"),
             committed_path: LogicalPath::new(
@@ -1124,12 +1408,34 @@ mod tests {
         };
         let encoded = encode_journal(&header);
         assert_eq!(decode_journal(&encoded), Some(header.clone()));
+        let mut unknown_kind_payload = decode_envelope(&encoded, JOURNAL_MAGIC)
+            .expect("journal payload")
+            .to_vec();
+        let kind_offset = {
+            let mut cursor = Cursor::new(unknown_kind_payload.as_slice());
+            for _ in 0..4 {
+                read_text(&mut cursor, unknown_kind_payload.len()).expect("journal text");
+            }
+            assert_eq!(read_u64(&mut cursor), Some(1));
+            usize::try_from(cursor.position()).expect("kind offset")
+        };
+        unknown_kind_payload[kind_offset] = u8::MAX;
+        assert!(decode_journal(&encode_envelope(JOURNAL_MAGIC, &unknown_kind_payload)).is_none());
         assert!(decode_journal(&encoded[..encoded.len() - 1]).is_none());
         let mut trailing = encoded.clone();
         trailing.push(0);
         assert!(decode_journal(&trailing).is_none());
         let duplicate = JournalHeader {
-            outputs: vec![output.clone(), output],
+            outputs: vec![
+                TransactionOutput {
+                    path: output.clone(),
+                    kind: TransactionOutputKind::File,
+                },
+                TransactionOutput {
+                    path: output,
+                    kind: TransactionOutputKind::Directory,
+                },
+            ],
             ..header
         };
         assert!(decode_journal(&encode_journal(&duplicate)).is_none());
