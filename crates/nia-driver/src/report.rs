@@ -243,6 +243,15 @@ pub fn render_driver_error(
     primary_source: Option<&str>,
 ) -> String {
     match error {
+        DriverError::ArchiveStatus { program, status } => {
+            format!("archive tool `{program}` failed with status {status}\n")
+        }
+        DriverError::ArchiveIo { program, error } => {
+            format!("failed to run archive tool `{program}`: {error}\n")
+        }
+        DriverError::ArchiveConfig(error) => {
+            format!("invalid archive configuration: {error}\n")
+        }
         DriverError::CheckDiagnostics(program) => {
             render_program_diagnostics(program, primary_path, primary_source)
         }
