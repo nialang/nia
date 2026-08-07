@@ -490,6 +490,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )) {
         return process::exit(14)!;
     }
+    let foreignObjectArguments = [build::CommandArgument::objectInput(otherObject)];
+    if not rejectsForeignObject(api.addExternalCommandStep(
+        &"foreign-object-input",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&foreignObjectArguments[..]),
+    )) {
+        return process::exit(26)!;
+    }
     if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
         return process::exit(6)!;
     }
@@ -539,6 +547,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
             .forHost(),
     ).exit().?;
     _ = api.addEmitObjectStep(&"host-object-emit", hostObject).exit().?;
+    let objectArguments = [build::CommandArgument::objectInput(object)];
+    _ = api.addExternalCommandStep(
+        &"object-input",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&objectArguments[..]),
+    ).exit().?;
     api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
     !{}
 }
@@ -610,7 +624,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
                         && item.output.protocol_path() == "host-objects-dir"
                         && item.root_module.name() == "main"
                         && artifact == &item.key
-                })
+        })
+    ));
+    let object_input = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "object-input")
+        .expect("object input action");
+    assert!(matches!(
+        &object_input.kind,
+        nia_build::ActionKind::ExternalCommand { inputs, .. }
+            if inputs.iter().any(|input| matches!(
+                input.root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
+            ) && input.components().is_empty())
     ));
     for name in ["host-check", "host-emit"] {
         let action = plan

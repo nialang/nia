@@ -97,13 +97,14 @@ fn configure(b: &mut build::Build) build::Error!void {
     ).?;
     let toolArguments = [
         build::CommandArgument::literal(&"-c"),
-        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
+        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
         build::CommandArgument::literal(&"nia-build-tool"),
         build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool-input.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
         build::CommandArgument::artifactInput(app),
         build::CommandArgument::artifactInput(worker),
+        build::CommandArgument::objectInput(objects),
     ];
     let toolEnvironment = [
         build::CommandEnvironmentInput::init(&"MODE", &"fixture"),

@@ -20,8 +20,8 @@ use crate::{
     PlanPackage, lock::ScopedFileLock,
 };
 
-const MAGIC: &[u8; 8] = b"NIACMD02";
-const SCHEMA: &str = "v2";
+const MAGIC: &[u8; 8] = b"NIACMD03";
+const SCHEMA: &str = "v3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FingerprintComponents {
@@ -724,7 +724,7 @@ fn input_identity(inputs: &[(&LogicalPath, &[u8])]) -> Vec<u8> {
         encoded.extend_from_slice(&(contents.len() as u64).to_le_bytes());
         write_fingerprint(
             &mut encoded,
-            bytes_fingerprint("nia.build.external-command-input-contents.v1", contents),
+            bytes_fingerprint("nia.build.external-command-input-contents.v2", contents),
         );
     }
     encoded

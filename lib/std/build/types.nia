@@ -142,11 +142,13 @@ pub enum CommandArgumentKind: i32 {
     BuildInput = 3,
     BuildOutput = 4,
     ArtifactInput = 5,
+    ObjectInput = 6,
 }
 
 pub(pkg) union CommandArgumentPayload {
     value: &[char],
     artifact: ExecutableHandle,
+    object: ObjectHandle,
 }
 
 pub struct CommandArgument {
@@ -192,6 +194,7 @@ pub struct ExternalCommandOptions {
 pub(pkg) union OwnedCommandArgumentPayload {
     value: string::String,
     artifact: ExecutableHandle,
+    object: ObjectHandle,
 }
 
 pub(pkg) struct OwnedCommandArgument {
