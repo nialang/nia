@@ -15,10 +15,12 @@ fn configure(b: &mut build::Build) build::Error!void {
     let workerName = "worker";
     let hostToolName = "host-tool";
     let objectName = "objects";
+    let archiveName = "archive";
     let outputName = "custom-app";
     let workerOutputName = "custom-worker";
     let hostToolOutputName = "custom-host-tool";
     let objectOutputName = "custom-objects";
+    let archiveOutputName = "libconfigured.a";
     let buildStepName = "build";
     let checkStepName = "check";
     let runStepName = "run";
@@ -66,10 +68,15 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::ObjectOptions::init(&objectName, rootModule)
             .withOutputName(&objectOutputName),
     ).?;
+    let archive = b.addStaticArchive(
+        build::StaticArchiveOptions::init(&archiveName, rootModule)
+            .withOutputName(&archiveOutputName),
+    ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
     _ = b.addEmitExecutableStep(&hostToolName, hostTool).?;
     let objectStep = b.addEmitObjectStep(&objectName, objects).?;
+    let archiveStep = b.addEmitStaticArchiveStep(&archiveName, archive).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
     _ = b.addGeneratedFileStep(
         &generateWorkerStepName,
@@ -122,6 +129,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     b.dependOn(toolStep, runStep).?;
     b.dependOn(toolStep, hostRunStep).?;
     b.dependOn(toolStep, objectStep).?;
+    b.dependOn(toolStep, archiveStep).?;
     b.setDefaultStep(toolStep).?;
     !{}
 }

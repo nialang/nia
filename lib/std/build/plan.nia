@@ -13,6 +13,7 @@ using types::{
     Build,
     ExecutableTarget,
     ObjectTarget,
+    StaticArchiveTarget,
     Module,
     OptimizationMode,
     Step,
@@ -245,12 +246,22 @@ extend PlanEncoder {
         self.writeU8(0)
     }
 
+    fn writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module], packages: &[types::Package]) Error!void {
+        let moduleRecord = modules[target.rootModule.index];
+        self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+        self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+        self.writeU8(2).?;
+        self.writeBuildPath(target.outputName.text()).?;
+        self.writeU8(0)
+    }
+
     fn writeAction(
         &mut self,
         step: Step,
         modules: &[Module],
         executables: &[ExecutableTarget],
         objects: &[ObjectTarget],
+        staticArchives: &[StaticArchiveTarget],
         hostTarget: TargetView,
         artifactTarget: TargetView,
         packages: &[types::Package],
@@ -284,6 +295,12 @@ extend PlanEncoder {
             },
             StepKind::EmitObject => {
                 let target = objects[step.payload.object.target.index];
+                self.writeU8(1).?;
+                self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
+            },
+            StepKind::EmitStaticArchive => {
+                let target = staticArchives[step.payload.staticArchive.target.index];
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
                 self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
@@ -466,12 +483,15 @@ extend PlanEncoder {
         for &moduleRecord in build.modules.iter() {
             self.writeModule(moduleRecord, build.packages.asSlice()).?;
         }
-        self.writeCount(build.executables.len() + build.objects.len()).?;
+        self.writeCount(build.executables.len() + build.objects.len() + build.staticArchives.len()).?;
         for &target in build.executables.iter() {
             self.writeArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
         }
         for &target in build.objects.iter() {
             self.writeObjectArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
+        }
+        for &target in build.staticArchives.iter() {
+            self.writeStaticArchiveArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
         }
         self.writeCount(build.steps.len()).?;
         for &step in build.steps.iter() {
@@ -480,6 +500,7 @@ extend PlanEncoder {
                 build.modules.asSlice(),
                 build.executables.asSlice(),
                 build.objects.asSlice(),
+                build.staticArchives.asSlice(),
                 build.hostTarget(),
                 build.artifactTarget(),
                 build.packages.asSlice(),

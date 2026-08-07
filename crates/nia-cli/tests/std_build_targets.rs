@@ -129,6 +129,22 @@ fn rejectsForeignObject(result: build::Error!build::StepHandle) bool {
     }
 }
 
+fn rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::StaticArchive(0usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
 fn rejectsForeignStep(result: build::Error!void) bool {
     switch result {
         !ok => {
@@ -419,6 +435,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let otherObject = other.addObject(
         build::ObjectOptions::init(&"other-objects", otherModule),
     ).exit().?;
+    let otherStaticArchive = other.addStaticArchive(
+        build::StaticArchiveOptions::init(&"other-archive", otherModule),
+    ).exit().?;
     let otherPackage = other.addPackage(build::PackageOptions::init(
         &"other-package",
         fs::PathView::init(&"packages/other"),
@@ -462,6 +481,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not rejectsForeignObject(api.addEmitObjectStep(&"foreign-object", otherObject)) {
         return process::exit(25)!;
+    }
+    if not rejectsForeignStaticArchive(api.addEmitStaticArchiveStep(
+        &"foreign-static-archive",
+        otherStaticArchive,
+    )) {
+        return process::exit(27)!;
     }
     if not rejectsForeignExecutable(api.addRunExecutableStep(
         &"foreign-run",
@@ -547,6 +572,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
             .forHost(),
     ).exit().?;
     _ = api.addEmitObjectStep(&"host-object-emit", hostObject).exit().?;
+    let staticArchive = api.addStaticArchive(
+        build::StaticArchiveOptions::init(&"archive", moduleHandle),
+    ).exit().?;
+    _ = api.addEmitStaticArchiveStep(&"archive-emit", staticArchive).exit().?;
+    let hostStaticArchive = api.addStaticArchive(
+        build::StaticArchiveOptions::init(&"host-archive", moduleHandle)
+            .withOutputName(&"libhost-archive.a")
+            .forHost(),
+    ).exit().?;
+    _ = api.addEmitStaticArchiveStep(&"host-archive-emit", hostStaticArchive).exit().?;
     let objectArguments = [build::CommandArgument::objectInput(object)];
     _ = api.addExternalCommandStep(
         &"object-input",
@@ -622,6 +657,40 @@ pub fn main(init: process::Init) process::ExitCode!void {
                     item.key.name() == "host-objects"
                         && item.kind == nia_build::PlanArtifactKind::ObjectSet
                         && item.output.protocol_path() == "host-objects-dir"
+                        && item.root_module.name() == "main"
+                        && artifact == &item.key
+        })
+    ));
+    let archive_emit = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "archive-emit")
+        .expect("archive emit action");
+    assert!(matches!(
+        &archive_emit.kind,
+        nia_build::ActionKind::CompilerEmit { artifact, target }
+            if target == plan.artifact_target()
+                && plan.artifacts().iter().any(|item| {
+                    item.key.name() == "archive"
+                        && item.kind == nia_build::PlanArtifactKind::StaticArchive
+                        && item.output.protocol_path() == "archive"
+                        && item.root_module.name() == "main"
+                        && artifact == &item.key
+        })
+    ));
+    let host_archive_emit = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "host-archive-emit")
+        .expect("host archive emit action");
+    assert!(matches!(
+        &host_archive_emit.kind,
+        nia_build::ActionKind::CompilerEmit { artifact, target }
+            if target == plan.host_target()
+                && plan.artifacts().iter().any(|item| {
+                    item.key.name() == "host-archive"
+                        && item.kind == nia_build::PlanArtifactKind::StaticArchive
+                        && item.output.protocol_path() == "libhost-archive.a"
                         && item.root_module.name() == "main"
                         && artifact == &item.key
         })
