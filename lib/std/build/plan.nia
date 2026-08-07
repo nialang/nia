@@ -291,19 +291,27 @@ extend PlanEncoder {
                 let target = executables[step.payload.executable.target.index];
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeCount(target.staticArchives.len()).?;
+                for &archive in target.staticArchives.iter() {
+                    let archiveTarget = staticArchives[archive.index];
+                    self.writeNodeKey(PackageHandle::init(0, 0), archiveTarget.name.text(), packages).?;
+                }
+                !{}
             },
             StepKind::EmitObject => {
                 let target = objects[step.payload.object.target.index];
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeCount(0)
             },
             StepKind::EmitStaticArchive => {
                 let target = staticArchives[step.payload.staticArchive.target.index];
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeCount(0)
             },
             StepKind::RunExecutable => {
                 let run = step.payload.runExecutable;
@@ -346,6 +354,17 @@ extend PlanEncoder {
             StepKind::InstallExecutable => {
                 let install = step.payload.installExecutable;
                 let target = executables[install.target.index];
+                self.writeU8(6).?;
+                self.writeNodeKey(
+                    PackageHandle::init(0, 0),
+                    target.name.text(),
+                    packages,
+                ).?;
+                self.writeBuildPath(install.destination.text())
+            },
+            StepKind::InstallStaticArchive => {
+                let install = step.payload.installStaticArchive;
+                let target = staticArchives[install.target.index];
                 self.writeU8(6).?;
                 self.writeNodeKey(
                     PackageHandle::init(0, 0),

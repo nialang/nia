@@ -33,6 +33,7 @@ using types::{
     RunOptions,
     RunExecutableStep,
     InstallExecutableStep,
+    InstallStaticArchiveStep,
     CommandArgument,
     CommandArgumentKind,
     ActionResourceClass,
@@ -339,7 +340,53 @@ extend Build {
 
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
-        self.addStepRecord(name, StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
+        let archiveCount = self.executables.asSlice()[target.index()].staticArchives.len();
+        self.dependencies.reserve(
+            self.allocator,
+            archiveCount,
+        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        let mut archiveIndex: usize = 0;
+        while archiveIndex < archiveCount {
+            let archive = self.executables.asSlice()[target.index()]
+                .staticArchives.asSlice()[archiveIndex];
+            switch self.findEmitStaticArchiveStep(archive) {
+                ?producer => _ = producer,
+                null => return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Step(self.steps.len()),
+                }!,
+            }
+            archiveIndex += 1;
+        }
+        let result = self.addStepRecord(
+            name,
+            StepKind::EmitExecutable,
+            { executable: ExecutableStep::init(target) },
+        ).?;
+        let dependencyStart = self.dependencies.len();
+        let mut committed = false;
+        defer if not committed {
+            while self.dependencies.len() > dependencyStart {
+                _ = self.dependencies.pop();
+            }
+            self.rollbackLastStep().?;
+        };
+        archiveIndex = 0;
+        while archiveIndex < archiveCount {
+            let archive = self.executables.asSlice()[target.index()]
+                .staticArchives.asSlice()[archiveIndex];
+            let producer = switch self.findEmitStaticArchiveStep(archive) {
+                ?producer => producer,
+                null => return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Step(result.index()),
+                }!,
+            };
+            self.dependOn(result, producer).?;
+            archiveIndex += 1;
+        }
+        committed = true;
+        !result
     }
 
     pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
@@ -441,6 +488,52 @@ extend Build {
             name,
             StepKind::InstallExecutable,
             { installExecutable: payload },
+        ).?;
+        transferred = true;
+        let mut committed = false;
+        defer if not committed {
+            self.rollbackLastStep().?;
+        };
+        self.dependOn(result, producer).?;
+        committed = true;
+        !result
+    }
+
+    pub fn addInstallStaticArchiveStep(
+        &mut self,
+        name: &[char],
+        target: StaticArchiveHandle,
+        destination: BuildPathView,
+    ) Error!StepHandle {
+        self.validateStaticArchiveHandle(target).?;
+        if not destination.isValid() {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!;
+        }
+        let producer = switch self.findEmitStaticArchiveStep(target) {
+            ?producer => producer,
+            null => return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!,
+        };
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        let mut payload = InstallStaticArchiveStep::init(
+            self.allocator,
+            target,
+            destination,
+            handle.index(),
+        ).?;
+        let mut transferred = false;
+        defer if not transferred {
+            payload.deinit(self.allocator, handle.index()).?;
+        };
+        let result = self.addStepRecord(
+            name,
+            StepKind::InstallStaticArchive,
+            { installStaticArchive: payload },
         ).?;
         transferred = true;
         let mut committed = false;
@@ -663,6 +756,34 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
+        switch options.staticArchives {
+            ?archives => {
+                let mut archiveIndex: usize = 0;
+                while archiveIndex < archives.len() {
+                    let archive = archives[archiveIndex];
+                    self.validateStaticArchiveHandle(archive).?;
+                    let archiveTarget = self.staticArchives.asSlice()[archive.index()];
+                    if archiveTarget.targetRole != options.targetRole {
+                        return Error::Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Executable(handle.index()),
+                        }!;
+                    }
+                    let mut previous: usize = 0;
+                    while previous < archiveIndex {
+                        if archives[previous].index() == archive.index() {
+                            return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Executable(handle.index()),
+                            }!;
+                        }
+                        previous += 1;
+                    }
+                    archiveIndex += 1;
+                }
+            },
+            null => {},
+        }
         let outputName = executableOutputName(options);
         if not isValidOutputName(outputName) {
             return Error::Invalid {
@@ -1474,6 +1595,28 @@ extend InstallExecutableStep {
     }
 }
 
+extend InstallStaticArchiveStep {
+    fn init(
+        allocator: &mut mem::Allocator,
+        target: StaticArchiveHandle,
+        destination: BuildPathView,
+        index: usize,
+    ) Error!InstallStaticArchiveStep {
+        let owned = string::String::fromSlice(
+            allocator,
+            destination.text(),
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        !{
+            target: target,
+            destination: owned,
+        }
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+        self.destination.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+    }
+}
+
 extend RunExecutableStep {
     fn init(
         allocator: &mut mem::Allocator,
@@ -1903,6 +2046,9 @@ extend Step {
         if self.kind == StepKind::InstallExecutable {
             rememberCleanupError(&mut firstError, self.payload.installExecutable.deinit(allocator, self.index));
         }
+        if self.kind == StepKind::InstallStaticArchive {
+            rememberCleanupError(&mut firstError, self.payload.installStaticArchive.deinit(allocator, self.index));
+        }
         if self.kind == StepKind::ExternalCommand {
             rememberCleanupError(&mut firstError, self.payload.externalCommand.deinit(allocator, self.index));
         }
@@ -2303,6 +2449,7 @@ extend ExecutableTarget {
             rootModule: options.rootModule,
             outputName: string::String::init(),
             targetRole: options.targetRole,
+            staticArchives: collections::ArrayList[StaticArchiveHandle]::init(),
         };
         let mut transferred = false;
         defer if not transferred {
@@ -2310,12 +2457,28 @@ extend ExecutableTarget {
         };
         target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Executable(index)).?;
         target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+        switch options.staticArchives {
+            ?archives => {
+                target.staticArchives.reserve(
+                    allocator,
+                    archives.len(),
+                ).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+                for &archive in archives.iter() {
+                    target.staticArchives.push(
+                        allocator,
+                        archive,
+                    ).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+                }
+            },
+            null => {},
+        }
         transferred = true;
         !target
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
         let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.staticArchives.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
         rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
         cleanupResult(firstError)
@@ -2506,6 +2669,7 @@ extend ExecutableOptions {
             rootModule: rootModule,
             outputName: null,
             targetRole: TargetRole::Artifact,
+            staticArchives: null,
         }
     }
 
@@ -2515,6 +2679,7 @@ extend ExecutableOptions {
             rootModule: self.rootModule,
             outputName: ?outputName,
             targetRole: self.targetRole,
+            staticArchives: self.staticArchives,
         }
     }
 
@@ -2524,6 +2689,17 @@ extend ExecutableOptions {
             rootModule: self.rootModule,
             outputName: self.outputName,
             targetRole: TargetRole::Host,
+            staticArchives: self.staticArchives,
+        }
+    }
+
+    pub fn withStaticArchives(self, staticArchives: &[StaticArchiveHandle]) ExecutableOptions {
+        {
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            targetRole: self.targetRole,
+            staticArchives: ?staticArchives,
         }
     }
 }

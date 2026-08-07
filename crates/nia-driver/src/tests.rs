@@ -343,7 +343,7 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         IncrementalLinkInputs,
     };
     use nia_codegen_llvm::NativeObject;
-    use nia_linker::{ExecutableLinker, LinkOptions};
+    use nia_linker::{ExecutableLinker, LinkOptions, StaticArchiveLinkInput};
 
     let root = common::temp_dir("link_result_cache_skips_linker_until_typed_input_changes");
     let linker = root.join("linker.sh");
@@ -365,10 +365,18 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         artifact_cache_dir: Some(root.join("cache")),
         ..crate::DriverConfig::new(common::test_toolchain_layout())
     });
+    let archive = root.join("libsupport.a");
+    std::fs::write(&archive, b"archive-v1").expect("write static archive input");
     let options = LinkOptions {
         linker: ExecutableLinker::with_program(linker.to_string_lossy()),
         ..LinkOptions::default()
-    };
+    }
+    .with_static_archives(vec![StaticArchiveLinkInput::from_bytes(
+        "root",
+        "support",
+        &archive,
+        b"archive-v1",
+    )]);
     let object = |fingerprint| crate::ObjectArtifact {
         link_inputs: IncrementalLinkInputs::new(vec![IncrementalLinkInput {
             key: CodegenUnitKey::CompilerBuiltins,
@@ -431,18 +439,43 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         b"linked-executable"
     );
 
+    std::fs::write(&archive, b"archive-v2").expect("change static archive input");
+    let changed_archive_options = LinkOptions {
+        linker: ExecutableLinker::with_program(linker.to_string_lossy()),
+        ..LinkOptions::default()
+    }
+    .with_static_archives(vec![StaticArchiveLinkInput::from_bytes(
+        "root",
+        "support",
+        &archive,
+        b"archive-v2",
+    )]);
+    driver
+        .link_executable_from_objects(
+            &first_objects,
+            root.join("changed-archive"),
+            changed_archive_options.clone(),
+            crate::TimingMode::Off,
+        )
+        .result
+        .expect("changed archive link");
+    assert_eq!(
+        std::fs::read_to_string(&invocation_log).expect("read archive invocations"),
+        "xx"
+    );
+
     let changed_objects = object(CodegenUnitFingerprint::from_parts([3, 4]));
     driver
         .link_executable_from_objects(
             &changed_objects,
             root.join("changed"),
-            options,
+            changed_archive_options,
             crate::TimingMode::Off,
         )
         .result
         .expect("changed link");
     assert_eq!(
         std::fs::read_to_string(invocation_log).expect("read changed invocations"),
-        "xx"
+        "xxx"
     );
 }

@@ -1385,10 +1385,17 @@ impl Driver {
     }
 
     pub fn executable_cache_environment(&self) -> Option<ExecutableCacheEnvironment> {
+        self.executable_cache_environment_for(&LinkOptions::default())
+    }
+
+    pub fn executable_cache_environment_for(
+        &self,
+        link_options: &LinkOptions,
+    ) -> Option<ExecutableCacheEnvironment> {
         self.link_cache.as_ref()?;
         let options = LinkOptions {
             target: LinkTarget::from_target_config(&self.config.artifact_target),
-            ..LinkOptions::default()
+            ..link_options.clone()
         };
         options
             .result_environment_fingerprint(self.config.toolchain.identity().fingerprint())
@@ -1841,6 +1848,11 @@ impl LinkExecutableRequest {
             output: output.into(),
             link_options: LinkOptions::default(),
         }
+    }
+
+    pub fn with_link_options(mut self, link_options: LinkOptions) -> Self {
+        self.link_options = link_options;
+        self
     }
 }
 

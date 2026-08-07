@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
+    collections::BTreeSet,
     fs,
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -25,8 +26,8 @@ use super::{
 };
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, TargetSpec, lock::ScopedFileLock};
 
-const MAGIC: &[u8; 8] = b"NIAKCE02";
-const SCHEMA: &str = "v2";
+const MAGIC: &[u8; 8] = b"NIAKCE03";
+const SCHEMA: &str = "v3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EmitFingerprintComponents {
@@ -34,6 +35,7 @@ struct EmitFingerprintComponents {
     artifact: QueryFingerprint,
     output: QueryFingerprint,
     link_environment: QueryFingerprint,
+    link_inputs: QueryFingerprint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +58,24 @@ pub(crate) struct CompilerEmitCacheIdentity {
     artifact: Vec<u8>,
     output: Vec<u8>,
     link_environment: Vec<u8>,
+    link_inputs: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CompilerEmitCacheLinkInput {
+    artifact: crate::ArtifactKey,
+    fingerprint: QueryFingerprint,
+    byte_len: usize,
+}
+
+impl CompilerEmitCacheLinkInput {
+    pub(crate) fn from_bytes(artifact: crate::ArtifactKey, bytes: &[u8]) -> Self {
+        Self {
+            artifact,
+            fingerprint: bytes_fingerprint("nia.build.compiler-emit.link-input-content.v1", bytes),
+            byte_len: bytes.len(),
+        }
+    }
 }
 
 impl CompilerEmitCacheIdentity {
@@ -68,6 +88,7 @@ impl CompilerEmitCacheIdentity {
         manifest: &SourceInputManifest,
         toolchain: &ToolchainIdentity,
         link_environment: ExecutableCacheEnvironment,
+        link_inputs: &[CompilerEmitCacheLinkInput],
     ) -> Option<Self> {
         let compiler = CompilerCheckCacheIdentity::new(
             action,
@@ -81,6 +102,7 @@ impl CompilerEmitCacheIdentity {
         let output = logical_path_identity(&artifact.output);
         let artifact = artifact_identity(artifact);
         let link_environment = link_environment.encode().to_vec();
+        let link_inputs = link_inputs_identity(link_inputs);
         let components = EmitFingerprintComponents {
             compiler: compiler.fingerprints.components,
             artifact: bytes_fingerprint("nia.build.compiler-emit.artifact.v1", &artifact),
@@ -89,6 +111,7 @@ impl CompilerEmitCacheIdentity {
                 "nia.build.compiler-emit.link-environment.v1",
                 &link_environment,
             ),
+            link_inputs: bytes_fingerprint("nia.build.compiler-emit.link-inputs.v1", &link_inputs),
         };
         let fingerprints = EmitFingerprintSet {
             cache_key: compiler.fingerprints.cache_key,
@@ -107,6 +130,7 @@ impl CompilerEmitCacheIdentity {
             artifact,
             output,
             link_environment,
+            link_inputs,
         })
     }
 }
@@ -366,6 +390,7 @@ struct DecodedEntry {
     artifact: Vec<u8>,
     output: Vec<u8>,
     link_environment: Vec<u8>,
+    link_inputs: Vec<u8>,
     reference: ExecutableCacheReference,
 }
 
@@ -394,6 +419,7 @@ fn encode_entry(
     write_bytes(&mut encoded, &identity.artifact);
     write_bytes(&mut encoded, &identity.output);
     write_bytes(&mut encoded, &identity.link_environment);
+    write_bytes(&mut encoded, &identity.link_inputs);
     let reference = reference.encode();
     write_fingerprint(&mut encoded, reference_checksum(&reference));
     write_bytes(&mut encoded, &reference);
@@ -435,6 +461,8 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let output = read_bytes(&mut cursor, encoded.len())?;
     let link_environment = read_bytes(&mut cursor, encoded.len())?;
     (link_environment.len() == ExecutableCacheEnvironment::ENCODED_LEN).then_some(())?;
+    let link_inputs = read_bytes(&mut cursor, encoded.len())?;
+    validate_link_inputs_identity(&link_inputs)?;
     let checksum = read_fingerprint(&mut cursor)?;
     let reference = read_bytes(&mut cursor, encoded.len())?;
     (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
@@ -466,6 +494,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             "nia.build.compiler-emit.link-environment.v1",
             &link_environment,
         ),
+        link_inputs: bytes_fingerprint("nia.build.compiler-emit.link-inputs.v1", &link_inputs),
     };
     (components == fingerprints.components).then_some(())?;
     (action_fingerprint(&action)? == fingerprints.cache_key).then_some(())?;
@@ -482,6 +511,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             artifact,
             output,
             link_environment,
+            link_inputs,
             reference,
         })
 }
@@ -503,6 +533,7 @@ fn write_fingerprint_set(encoded: &mut Vec<u8>, fingerprints: EmitFingerprintSet
         fingerprints.components.artifact,
         fingerprints.components.output,
         fingerprints.components.link_environment,
+        fingerprints.components.link_inputs,
     ] {
         write_fingerprint(encoded, fingerprint);
     }
@@ -528,6 +559,7 @@ fn read_fingerprint_set(cursor: &mut Cursor<&[u8]>) -> Option<EmitFingerprintSet
             artifact: read_fingerprint(cursor)?,
             output: read_fingerprint(cursor)?,
             link_environment: read_fingerprint(cursor)?,
+            link_inputs: read_fingerprint(cursor)?,
         },
     })
 }
@@ -544,6 +576,7 @@ fn entry_matches(entry: &DecodedEntry, identity: &CompilerEmitCacheIdentity) -> 
         && entry.artifact == identity.artifact
         && entry.output == identity.output
         && entry.link_environment == identity.link_environment
+        && entry.link_inputs == identity.link_inputs
 }
 
 fn invalidations(
@@ -559,6 +592,9 @@ fn invalidations(
     }
     if found.link_environment != expected.link_environment {
         reasons.push(ActionCacheInvalidation::Linker);
+    }
+    if found.link_inputs != expected.link_inputs {
+        reasons.push(ActionCacheInvalidation::Inputs);
     }
     reasons
 }
@@ -581,6 +617,34 @@ fn artifact_identity(artifact: &PlanArtifact) -> Vec<u8> {
     encoded
 }
 
+fn link_inputs_identity(inputs: &[CompilerEmitCacheLinkInput]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(&(inputs.len() as u64).to_le_bytes());
+    for input in inputs {
+        write_text(&mut encoded, input.artifact.package().as_str());
+        write_text(&mut encoded, input.artifact.name());
+        write_fingerprint(&mut encoded, input.fingerprint);
+        encoded.extend_from_slice(&(input.byte_len as u64).to_le_bytes());
+    }
+    encoded
+}
+
+fn validate_link_inputs_identity(encoded: &[u8]) -> Option<()> {
+    let mut cursor = Cursor::new(encoded);
+    let count = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    (count <= encoded.len()).then_some(())?;
+    let mut seen = BTreeSet::new();
+    for _ in 0..count {
+        let package = String::from_utf8(read_bytes(&mut cursor, encoded.len())?).ok()?;
+        let name = String::from_utf8(read_bytes(&mut cursor, encoded.len())?).ok()?;
+        let key = crate::ArtifactKey::new(crate::PackageKey::new(package).ok()?, name).ok()?;
+        seen.insert(key).then_some(())?;
+        read_fingerprint(&mut cursor)?;
+        usize::try_from(read_u64(&mut cursor)?).ok()?;
+    }
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())
+}
+
 fn combined_fingerprint(
     cache_key: QueryFingerprint,
     components: EmitFingerprintComponents,
@@ -601,6 +665,7 @@ fn combined_fingerprint(
         components.artifact,
         components.output,
         components.link_environment,
+        components.link_inputs,
     ] {
         builder.write_fingerprint(component);
     }
@@ -657,6 +722,10 @@ mod tests {
         let artifact = b"artifact".to_vec();
         let output = b"output".to_vec();
         let link_environment = vec![0; ExecutableCacheEnvironment::ENCODED_LEN];
+        let link_inputs = link_inputs_identity(&[CompilerEmitCacheLinkInput::from_bytes(
+            crate::ArtifactKey::new(crate::PackageKey::new("root").unwrap(), "support").unwrap(),
+            b"archive",
+        )]);
         let components = EmitFingerprintComponents {
             compiler,
             artifact: bytes_fingerprint("nia.build.compiler-emit.artifact.v1", &artifact),
@@ -665,6 +734,7 @@ mod tests {
                 "nia.build.compiler-emit.link-environment.v1",
                 &link_environment,
             ),
+            link_inputs: bytes_fingerprint("nia.build.compiler-emit.link-inputs.v1", &link_inputs),
         };
         let cache_key = action_fingerprint(&action).expect("canonical action identity");
         CompilerEmitCacheIdentity {
@@ -683,6 +753,7 @@ mod tests {
             artifact,
             output,
             link_environment,
+            link_inputs,
         }
     }
 
@@ -772,6 +843,13 @@ mod tests {
                     ..baseline
                 },
                 ActionCacheInvalidation::Linker,
+            ),
+            (
+                EmitFingerprintComponents {
+                    link_inputs: fingerprint(20),
+                    ..baseline
+                },
+                ActionCacheInvalidation::Inputs,
             ),
         ] {
             assert_eq!(invalidations(baseline, changed), [expected]);

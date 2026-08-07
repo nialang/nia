@@ -222,13 +222,13 @@ fn assert_configured_build_success(
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.steps_executed\":11")),
+            .any(|line| line.contains("\"build.steps_executed\":12")),
         "{stderr}"
     );
     assert!(
         json_lines
             .iter()
-            .any(|line| line.contains("\"build.actions_executed\":11")),
+            .any(|line| line.contains("\"build.actions_executed\":12")),
         "{stderr}"
     );
     assert!(
@@ -358,14 +358,17 @@ fn assert_configured_build_success(
         .expect("worker artifact");
     assert_eq!(worker_artifact.root_module.name(), "worker");
     assert_eq!(worker_artifact.output.protocol_path(), "custom-worker");
-    assert_eq!(plan.actions().len(), 12);
+    assert_eq!(plan.actions().len(), 13);
     assert!(matches!(
-        plan.actions()
+        &plan
+            .actions()
             .iter()
             .find(|action| action.key.name() == "build")
             .expect("app emit action")
             .kind,
-        nia_build::ActionKind::CompilerEmit { .. }
+        nia_build::ActionKind::CompilerEmit { static_archives, .. }
+            if static_archives.iter().map(nia_build::ArtifactKey::name).collect::<Vec<_>>()
+                == ["archive"]
     ));
     assert!(matches!(
         plan.actions()
@@ -525,7 +528,7 @@ fn assert_configured_build_success(
         .expect("host tool emit action");
     assert!(matches!(
         &host_emit_action.kind,
-        nia_build::ActionKind::CompilerEmit { artifact, target }
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
             if artifact.name() == "host-tool" && target == plan.host_target()
     ));
     let archive_emit_action = plan
@@ -535,7 +538,7 @@ fn assert_configured_build_success(
         .expect("static archive emit action");
     assert!(matches!(
         &archive_emit_action.kind,
-        nia_build::ActionKind::CompilerEmit { artifact, target }
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
             if artifact.name() == "archive" && target == plan.artifact_target()
     ));
     let host_run_action = plan
@@ -565,7 +568,19 @@ fn assert_configured_build_success(
                 && matches!(destination.root(), nia_build::LogicalPathRoot::Build)
                 && destination.protocol_path() == "install/custom-app"
     ));
-    assert_eq!(plan.steps().len(), 12);
+    let install_archive_action = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "install-archive")
+        .expect("static archive install action");
+    assert!(matches!(
+        &install_archive_action.kind,
+        nia_build::ActionKind::InstallArtifact { artifact, destination }
+            if artifact.name() == "archive"
+                && matches!(destination.root(), nia_build::LogicalPathRoot::Build)
+                && destination.protocol_path() == "install/libconfigured.a"
+    ));
+    assert_eq!(plan.steps().len(), 13);
     let build_step = plan
         .steps()
         .iter()
@@ -577,7 +592,7 @@ fn assert_configured_build_success(
             .iter()
             .map(nia_build::StepKey::name)
             .collect::<Vec<_>>(),
-        ["generate-helper"]
+        ["archive", "generate-helper"]
     );
     let check_step = plan
         .steps()
@@ -620,6 +635,7 @@ fn assert_configured_build_success(
             "archive",
             "build",
             "install",
+            "install-archive",
             "objects",
             "run",
             "run-host-tool",
@@ -651,6 +667,19 @@ fn assert_configured_build_success(
             .map(nia_build::StepKey::name)
             .collect::<Vec<_>>(),
         ["build"]
+    );
+    let install_archive_step = plan
+        .steps()
+        .iter()
+        .find(|step| step.key.name() == "install-archive")
+        .expect("static archive install step");
+    assert_eq!(
+        install_archive_step
+            .dependencies
+            .iter()
+            .map(nia_build::StepKey::name)
+            .collect::<Vec<_>>(),
+        ["archive"]
     );
     let worker_step = plan
         .steps()
@@ -712,6 +741,11 @@ fn assert_configured_build_success(
     );
     assert!(
         std::fs::read(workspace.join(".nia-build/libconfigured.a"))
+            .unwrap()
+            .starts_with(b"!<arch>\n")
+    );
+    assert!(
+        std::fs::read(workspace.join(".nia-build/install/libconfigured.a"))
             .unwrap()
             .starts_with(b"!<arch>\n")
     );

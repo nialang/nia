@@ -4,7 +4,7 @@ use std::{fmt, fs, io, path::PathBuf};
 
 pub const RESOURCE_LAYOUT_SCHEMA: u32 = 1;
 pub const STD_SCHEMA: u32 = 1;
-pub const BUILD_PROTOCOL_SCHEMA: u32 = 9;
+pub const BUILD_PROTOCOL_SCHEMA: u32 = 10;
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

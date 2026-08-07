@@ -148,6 +148,54 @@ fn link_result_fingerprint_tracks_inputs_options_and_linker_binary() {
 }
 
 #[test]
+fn static_archive_fingerprints_track_identity_and_contents_but_not_physical_paths() {
+    let linker = fingerprint_linker("static-archive-inputs", b"linker-v1");
+    let inputs = link_inputs("main.o");
+    let fingerprint = |archives| {
+        fingerprint_options(&linker)
+            .with_static_archives(archives)
+            .result_fingerprint(
+                &inputs,
+                nia_toolchain::ToolchainIdentityFingerprint::current(),
+            )
+            .expect("static archive fingerprint")
+            .expect("cacheable static archive link")
+    };
+    let baseline = fingerprint(vec![StaticArchiveLinkInput::from_bytes(
+        "root",
+        "support",
+        "/first/libsupport.a",
+        b"archive-v1",
+    )]);
+    let relocated = fingerprint(vec![StaticArchiveLinkInput::from_bytes(
+        "root",
+        "support",
+        "/second/libsupport.a",
+        b"archive-v1",
+    )]);
+    let changed_contents = fingerprint(vec![StaticArchiveLinkInput::from_bytes(
+        "root",
+        "support",
+        "/second/libsupport.a",
+        b"archive-v2",
+    )]);
+    let changed_identity = fingerprint(vec![StaticArchiveLinkInput::from_bytes(
+        "root",
+        "other",
+        "/second/libsupport.a",
+        b"archive-v1",
+    )]);
+
+    assert_eq!(baseline, relocated);
+    assert_eq!(baseline.cache_key, changed_contents.cache_key);
+    assert_ne!(
+        baseline.components.inputs,
+        changed_contents.components.inputs
+    );
+    assert_ne!(baseline.cache_key, changed_identity.cache_key);
+}
+
+#[test]
 fn link_result_fingerprint_rejects_untracked_external_inputs() {
     let linker = fingerprint_linker("opaque-inputs", b"linker-v1");
     let inputs = link_inputs("main.o");

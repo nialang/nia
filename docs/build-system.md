@@ -286,20 +286,21 @@ rather than exposing cache paths or copying bytes into a coordinator cache.
 Restore validates the current archive environment before publishing through a
 staged file.
 
-Build protocol schema 9 now carries `StaticArchive` as a distinct artifact kind.
-Its compiler-emit action asks Driver for native objects and the typed archive,
-then publishes the result as a journaled file transaction. Coordinator does not
-archive a published ObjectSet directory and does not keep a second copy of the
-archive bytes. Static archives remain invalid on the executable-only install
-edge.
+Build protocol schema 10 carries `StaticArchive` as a distinct artifact kind and
+an ordered static-archive input list on compiler-emit actions. Archive emit asks
+Driver for native objects and the typed archive, then publishes the result as a
+journaled file transaction. Coordinator does not archive a published ObjectSet
+directory and does not keep a second copy of the archive bytes.
 
 The public `std::build` surface exposes owner-checked `StaticArchiveHandle` and
-`StaticArchiveOptions` declarations plus `addEmitStaticArchiveStep`. Options
-select artifact or host target role and may provide an explicit output name;
-the default output name is the declaration name, matching the existing
-executable and ObjectSet policy rather than inferring a platform filename.
-Archive emit steps participate in generated root/import producer discovery and
-encode the schema-9 artifact tag directly.
+`StaticArchiveOptions` declarations plus `addEmitStaticArchiveStep` and
+`addInstallStaticArchiveStep`. Options select artifact or host target role and
+may provide an explicit output name; the default output name is the declaration
+name, matching the existing executable and ObjectSet policy rather than
+inferring a platform filename. Archive emit steps participate in generated
+root/import producer discovery. Installation requires that emit producer and
+uses the same journaled file transaction as executable installation; ObjectSet
+remains invalid because it is a directory artifact.
 
 External commands consume archives through the typed
 `CommandArgument::staticArchiveInput` relation. The builder validates the
@@ -308,11 +309,25 @@ dependency. Plan encoding uses the archive's Artifact-root file path, so the
 existing declared-input cache fingerprints the published archive bytes without
 introducing another archive cache owner.
 
-Typed installation and executable-link relationships remain open. Until those
-relationships are owned, archive handles cannot be smuggled through
-executable/ObjectSet edges, and the executable-only install edge continues to
-reject archive artifacts. A system `ar`/`llvm-ar` command must not become an
-implicit second linker/cache owner.
+`ExecutableOptions::withStaticArchives` declares archive link inputs in linker
+order. Builder ownership checks reject foreign handles, duplicate archives,
+target-role mismatches, and executable emit steps created before an archive
+producer; accepted emit steps automatically depend on every archive producer.
+Freeze independently verifies artifact kinds, target equality, duplicates, and
+the transitive producer closure. The list is never sorted because static-link
+order has semantics.
+
+Coordinator resolves each declared archive to its exact current output path and
+reads its bytes before linking. `StaticArchiveLinkInput` gives `nia-linker` the
+stable package/name identity, current physical path, and content fingerprint;
+the invocation receives exact paths in declaration order without `-l` name
+guessing or directory scans. Package/name and bytes enter Driver link-result
+identity, while the physical path is excluded so relocation can reuse the same
+result. Compiler-emit action-cache schema v3 records the same ordered stable
+identity and content fingerprints in a dedicated input component, preventing a
+coordinator cache hit from restoring an executable linked against stale archive
+bytes. A system `ar`/`llvm-ar` command does not become a second linker/cache
+owner.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide

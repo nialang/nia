@@ -43,9 +43,6 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::ModuleOptions::fromPackage(&appName, assets, fs::PathView::init(&srcMain))
             .withImports(&imports[..]),
     ).?;
-    let app = b.addExecutable(
-        build::ExecutableOptions::init(&appName, rootModule).withOutputName(&outputName),
-    ).?;
     let workerModule = b.addModule(
         build::ModuleOptions::fromBuild(
             &workerName,
@@ -78,11 +75,17 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::StaticArchiveOptions::init(&archiveName, archiveModule)
             .withOutputName(&archiveOutputName),
     ).?;
+    let archiveStep = b.addEmitStaticArchiveStep(&archiveName, archive).?;
+    let linkedArchives = [archive];
+    let app = b.addExecutable(
+        build::ExecutableOptions::init(&appName, rootModule)
+            .withOutputName(&outputName)
+            .withStaticArchives(&linkedArchives[..]),
+    ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
     _ = b.addEmitExecutableStep(&hostToolName, hostTool).?;
     let objectStep = b.addEmitObjectStep(&objectName, objects).?;
-    _ = b.addEmitStaticArchiveStep(&archiveName, archive).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
     _ = b.addGeneratedFileStep(
         &generateWorkerStepName,
@@ -107,6 +110,11 @@ fn configure(b: &mut build::Build) build::Error!void {
         &installStepName,
         app,
         build::BuildPathView::init(&"install/custom-app"),
+    ).?;
+    let installArchiveStep = b.addInstallStaticArchiveStep(
+        &"install-archive",
+        archive,
+        build::BuildPathView::init(&"install/libconfigured.a"),
     ).?;
     let toolArguments = [
         build::CommandArgument::literal(&"-c"),
@@ -136,6 +144,8 @@ fn configure(b: &mut build::Build) build::Error!void {
     b.dependOn(toolStep, runStep).?;
     b.dependOn(toolStep, hostRunStep).?;
     b.dependOn(toolStep, objectStep).?;
+    b.dependOn(toolStep, archiveStep).?;
+    b.dependOn(toolStep, installArchiveStep).?;
     b.setDefaultStep(toolStep).?;
     !{}
 }

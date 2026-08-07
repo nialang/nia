@@ -72,7 +72,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             32u32,
         ),
         build::OptimizationMode::O0,
-        9u32,
+        10u32,
         1usize,
     )
 }
@@ -140,6 +140,38 @@ fn rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::StaticArchive(0usize),
             } => true,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsForeignStaticArchiveTarget(result: build::Error!build::ExecutableHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::StaticArchive(0usize),
+            } => true,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index: usize) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Executable(actual),
+            } => actual == index,
             _ => false,
         },
     }
@@ -438,6 +470,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let otherStaticArchive = other.addStaticArchive(
         build::StaticArchiveOptions::init(&"other-archive", otherModule),
     ).exit().?;
+    let foreignLinkedArchives = [otherStaticArchive];
+    if not rejectsForeignStaticArchiveTarget(api.addExecutable(
+        build::ExecutableOptions::init(&"foreign-linked", moduleHandle)
+            .withStaticArchives(&foreignLinkedArchives[..]),
+    )) {
+        return process::exit(30)!;
+    }
     let otherPackage = other.addPackage(build::PackageOptions::init(
         &"other-package",
         fs::PathView::init(&"packages/other"),
@@ -594,12 +633,53 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(29)!;
     }
     _ = api.addEmitStaticArchiveStep(&"archive-emit", staticArchive).exit().?;
+    let linkedArchives = [staticArchive];
+    let linkedExecutable = api.addExecutable(
+        build::ExecutableOptions::init(&"linked-app", moduleHandle)
+            .withStaticArchives(&linkedArchives[..]),
+    ).exit().?;
+    _ = api.addEmitExecutableStep(&"linked-emit", linkedExecutable).exit().?;
     let hostStaticArchive = api.addStaticArchive(
         build::StaticArchiveOptions::init(&"host-archive", moduleHandle)
             .withOutputName(&"libhost-archive.a")
             .forHost(),
     ).exit().?;
     _ = api.addEmitStaticArchiveStep(&"host-archive-emit", hostStaticArchive).exit().?;
+    let duplicateLinkedArchives = [staticArchive, staticArchive];
+    if not rejectsInvalidExecutable(api.addExecutable(
+        build::ExecutableOptions::init(&"duplicate-linked", moduleHandle)
+            .withStaticArchives(&duplicateLinkedArchives[..]),
+    ), 3usize) {
+        return process::exit(31)!;
+    }
+    let mismatchedLinkedArchives = [staticArchive];
+    if not rejectsInvalidExecutable(api.addExecutable(
+        build::ExecutableOptions::init(&"mismatched-linked", moduleHandle)
+            .forHost()
+            .withStaticArchives(&mismatchedLinkedArchives[..]),
+    ), 3usize) {
+        return process::exit(32)!;
+    }
+
+    let mut missingLinkedProducer = initBuild(init, &mut allocator).exit().?;
+    defer missingLinkedProducer.deinit().exit().?;
+    let missingLinkedModule = missingLinkedProducer.addModule(
+        build::ModuleOptions::init(&"linked", fs::PathView::init(&"linked.nia")),
+    ).exit().?;
+    let missingLinkedArchive = missingLinkedProducer.addStaticArchive(
+        build::StaticArchiveOptions::init(&"linked-archive", missingLinkedModule),
+    ).exit().?;
+    let missingLinkedArchives = [missingLinkedArchive];
+    let missingLinkedExecutable = missingLinkedProducer.addExecutable(
+        build::ExecutableOptions::init(&"linked-executable", missingLinkedModule)
+            .withStaticArchives(&missingLinkedArchives[..]),
+    ).exit().?;
+    if not rejectsInvalidStep(missingLinkedProducer.addEmitExecutableStep(
+        &"missing-linked-producer",
+        missingLinkedExecutable,
+    ), 0usize) {
+        return process::exit(33)!;
+    }
     let objectArguments = [build::CommandArgument::objectInput(object)];
     _ = api.addExternalCommandStep(
         &"object-input",
@@ -658,7 +738,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .expect("object emit action");
     assert!(matches!(
         &object_emit.kind,
-        nia_build::ActionKind::CompilerEmit { artifact, target }
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
             if target == plan.artifact_target()
                 && plan.artifacts().iter().any(|item| {
                     item.key.name() == "objects"
@@ -675,7 +755,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .expect("host object emit action");
     assert!(matches!(
         &host_object_emit.kind,
-        nia_build::ActionKind::CompilerEmit { artifact, target }
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
             if target == plan.host_target()
                 && plan.artifacts().iter().any(|item| {
                     item.key.name() == "host-objects"
@@ -692,7 +772,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .expect("archive emit action");
     assert!(matches!(
         &archive_emit.kind,
-        nia_build::ActionKind::CompilerEmit { artifact, target }
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
             if target == plan.artifact_target()
                 && plan.artifacts().iter().any(|item| {
                     item.key.name() == "archive"
@@ -709,7 +789,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .expect("host archive emit action");
     assert!(matches!(
         &host_archive_emit.kind,
-        nia_build::ActionKind::CompilerEmit { artifact, target }
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
             if target == plan.host_target()
                 && plan.artifacts().iter().any(|item| {
                     item.key.name() == "host-archive"
@@ -752,6 +832,30 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .expect("archive input step");
     assert_eq!(
         archive_input_step
+            .dependencies
+            .iter()
+            .map(nia_build::StepKey::name)
+            .collect::<Vec<_>>(),
+        ["archive-emit"]
+    );
+    let linked_emit = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "linked-emit")
+        .expect("typed static archive executable emit action");
+    assert!(matches!(
+        &linked_emit.kind,
+        nia_build::ActionKind::CompilerEmit { static_archives, .. }
+            if static_archives.iter().map(nia_build::ArtifactKey::name).collect::<Vec<_>>()
+                == ["archive"]
+    ));
+    let linked_emit_step = plan
+        .steps()
+        .iter()
+        .find(|step| step.key.name() == "linked-emit")
+        .expect("typed static archive executable emit step");
+    assert_eq!(
+        linked_emit_step
             .dependencies
             .iter()
             .map(nia_build::StepKey::name)

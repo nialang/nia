@@ -298,6 +298,7 @@ pub enum ActionKind {
     CompilerEmit {
         artifact: ArtifactKey,
         target: TargetSpec,
+        static_archives: Vec<ArtifactKey>,
     },
     ExternalCommand {
         resource_class: ActionResourceClass,
@@ -621,7 +622,16 @@ fn validate_package_references(draft: &BuildPlanDraft) -> Result<(), PlanError> 
         require(action.key.package())?;
         match &action.kind {
             ActionKind::CompilerCheck { module, .. } => require(module.package())?,
-            ActionKind::CompilerEmit { artifact, .. } => require(artifact.package())?,
+            ActionKind::CompilerEmit {
+                artifact,
+                static_archives,
+                ..
+            } => {
+                require(artifact.package())?;
+                for archive in static_archives {
+                    require(archive.package())?;
+                }
+            }
             ActionKind::ExternalCommand {
                 program,
                 working_directory,
@@ -737,6 +747,15 @@ fn canonicalize_actions(
         .iter()
         .map(|artifact| (&artifact.key, artifact))
         .collect();
+    let emit_targets: BTreeMap<_, _> = actions
+        .iter()
+        .filter_map(|action| match &action.kind {
+            ActionKind::CompilerEmit {
+                artifact, target, ..
+            } => Some((artifact.clone(), target.clone())),
+            _ => None,
+        })
+        .collect();
     for action in actions {
         match &mut action.kind {
             ActionKind::CompilerCheck { module, .. } if !module_keys.contains(module) => {
@@ -751,6 +770,54 @@ fn canonicalize_actions(
                     artifact: artifact.clone(),
                 });
             }
+            ActionKind::CompilerEmit {
+                artifact,
+                target,
+                static_archives,
+            } => {
+                if artifacts_by_key[artifact].kind != PlanArtifactKind::Executable
+                    && !static_archives.is_empty()
+                {
+                    return Err(PlanError::InvalidArtifactUse {
+                        action: action.key.clone(),
+                        artifact: artifact.clone(),
+                        reason: "only executable artifacts can link static archives",
+                    });
+                }
+                let mut seen = BTreeSet::new();
+                for archive in static_archives.iter() {
+                    let Some(linked) = artifacts_by_key.get(archive) else {
+                        return Err(PlanError::MissingArtifact {
+                            action: action.key.clone(),
+                            artifact: archive.clone(),
+                        });
+                    };
+                    if linked.kind != PlanArtifactKind::StaticArchive {
+                        return Err(PlanError::InvalidArtifactUse {
+                            action: action.key.clone(),
+                            artifact: archive.clone(),
+                            reason: "executable link inputs must be static archives",
+                        });
+                    }
+                    if !seen.insert(archive.clone()) {
+                        return Err(PlanError::InvalidArtifactUse {
+                            action: action.key.clone(),
+                            artifact: archive.clone(),
+                            reason: "duplicate static archive link input",
+                        });
+                    }
+                    let target_matches = emit_targets
+                        .get(archive)
+                        .is_some_and(|produced_target| produced_target == target);
+                    if !target_matches {
+                        return Err(PlanError::InvalidArtifactUse {
+                            action: action.key.clone(),
+                            artifact: archive.clone(),
+                            reason: "linked static archive has no emit action for the executable target",
+                        });
+                    }
+                }
+            }
             ActionKind::InstallArtifact { artifact, .. } if !artifact_keys.contains(artifact) => {
                 return Err(PlanError::MissingArtifact {
                     action: action.key.clone(),
@@ -758,11 +825,14 @@ fn canonicalize_actions(
                 });
             }
             ActionKind::InstallArtifact { artifact, .. } => {
-                if artifacts_by_key[artifact].kind != PlanArtifactKind::Executable {
+                if !matches!(
+                    artifacts_by_key[artifact].kind,
+                    PlanArtifactKind::Executable | PlanArtifactKind::StaticArchive
+                ) {
                     return Err(PlanError::InvalidArtifactUse {
                         action: action.key.clone(),
                         artifact: artifact.clone(),
-                        reason: "only executable artifacts can be installed",
+                        reason: "only file artifacts can be installed",
                     });
                 }
             }
@@ -1007,6 +1077,16 @@ fn validate_artifact_dependencies(
                     required
                         .entry(artifact.clone())
                         .or_insert("artifact input has no compiler emit dependency");
+                }
+            }
+            Some(ActionKind::CompilerEmit {
+                static_archives, ..
+            }) => {
+                for archive in static_archives {
+                    required.insert(
+                        archive.clone(),
+                        "linked static archive has no compiler emit dependency",
+                    );
                 }
             }
             Some(ActionKind::InstallArtifact { artifact, .. }) => {
@@ -1275,6 +1355,7 @@ mod tests {
                 kind: ActionKind::CompilerEmit {
                     artifact: artifact.clone(),
                     target: target(),
+                    static_archives: Vec::new(),
                 },
             },
         ];
@@ -1318,12 +1399,153 @@ mod tests {
         }
     }
 
+    pub(crate) fn static_archive_link_draft() -> BuildPlanDraft {
+        let mut value = draft(false);
+        let support = artifact_key("support");
+        let runtime = artifact_key("runtime");
+        for (artifact, output) in [
+            (support.clone(), "lib/libsupport.a"),
+            (runtime.clone(), "lib/libruntime.a"),
+        ] {
+            value.artifacts.push(PlanArtifact {
+                key: artifact.clone(),
+                root_module: module_key("b"),
+                kind: PlanArtifactKind::StaticArchive,
+                output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
+                runtime: Runtime::Bare,
+            });
+            value.actions.push(PlanAction {
+                key: action_key(&format!("emit-{}", artifact.name())),
+                kind: ActionKind::CompilerEmit {
+                    artifact: artifact.clone(),
+                    target: target(),
+                    static_archives: Vec::new(),
+                },
+            });
+            value.steps.push(PlanStep {
+                key: step_key(&format!("emit-{}", artifact.name())),
+                action: action_key(&format!("emit-{}", artifact.name())),
+                dependencies: Vec::new(),
+            });
+        }
+        let executable_emit = value
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "emit")
+            .unwrap();
+        let ActionKind::CompilerEmit {
+            static_archives, ..
+        } = &mut executable_emit.kind
+        else {
+            unreachable!()
+        };
+        *static_archives = vec![runtime, support];
+        value
+            .steps
+            .iter_mut()
+            .find(|step| step.key.name() == "emit")
+            .unwrap()
+            .dependencies
+            .extend([step_key("emit-runtime"), step_key("emit-support")]);
+        value
+    }
+
     #[test]
     fn freeze_is_independent_of_allocation_order() {
         assert_eq!(
             BuildPlan::freeze(draft(false)).unwrap(),
             BuildPlan::freeze(draft(true)).unwrap()
         );
+    }
+
+    #[test]
+    fn freeze_preserves_typed_static_archive_link_order() {
+        let plan = BuildPlan::freeze(static_archive_link_draft()).unwrap();
+        let emit = plan
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "emit")
+            .unwrap();
+        assert!(matches!(
+            &emit.kind,
+            ActionKind::CompilerEmit { static_archives, .. }
+                if static_archives.iter().map(ArtifactKey::name).collect::<Vec<_>>()
+                    == ["runtime", "support"]
+        ));
+    }
+
+    #[test]
+    fn freeze_rejects_invalid_static_archive_link_relationships() {
+        let mut wrong_kind = static_archive_link_draft();
+        wrong_kind
+            .artifacts
+            .iter_mut()
+            .find(|artifact| artifact.key.name() == "support")
+            .unwrap()
+            .kind = PlanArtifactKind::ObjectSet;
+        assert!(matches!(
+            BuildPlan::freeze(wrong_kind),
+            Err(PlanError::InvalidArtifactUse {
+                reason: "executable link inputs must be static archives",
+                ..
+            })
+        ));
+
+        let mut duplicate = static_archive_link_draft();
+        let ActionKind::CompilerEmit {
+            static_archives, ..
+        } = &mut duplicate
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "emit")
+            .unwrap()
+            .kind
+        else {
+            unreachable!()
+        };
+        static_archives.push(static_archives[0].clone());
+        assert!(matches!(
+            BuildPlan::freeze(duplicate),
+            Err(PlanError::InvalidArtifactUse {
+                reason: "duplicate static archive link input",
+                ..
+            })
+        ));
+
+        let mut target_mismatch = static_archive_link_draft();
+        let ActionKind::CompilerEmit { target, .. } = &mut target_mismatch
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "emit-support")
+            .unwrap()
+            .kind
+        else {
+            unreachable!()
+        };
+        target.arch = "aarch64".to_string();
+        assert!(matches!(
+            BuildPlan::freeze(target_mismatch),
+            Err(PlanError::InvalidArtifactUse {
+                reason: "linked static archive has no emit action for the executable target",
+                ..
+            })
+        ));
+
+        let mut missing_dependency = static_archive_link_draft();
+        missing_dependency
+            .steps
+            .iter_mut()
+            .find(|step| step.key.name() == "emit")
+            .unwrap()
+            .dependencies
+            .retain(|dependency| dependency.name() != "emit-support");
+        assert!(matches!(
+            BuildPlan::freeze(missing_dependency),
+            Err(PlanError::InvalidCommand {
+                reason: "linked static archive has no compiler emit dependency",
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1530,14 +1752,14 @@ mod tests {
             BuildPlan::freeze(value),
             Err(PlanError::InvalidArtifactUse {
                 artifact,
-                reason: "only executable artifacts can be installed",
+                reason: "only file artifacts can be installed",
                 ..
             }) if artifact.name() == "app"
         ));
     }
 
     #[test]
-    fn freeze_rejects_installing_a_static_archive_without_a_typed_relation() {
+    fn freeze_accepts_installing_a_static_archive() {
         let mut value = draft(false);
         value.artifacts[0].kind = PlanArtifactKind::StaticArchive;
         add_install_action(
@@ -1547,13 +1769,17 @@ mod tests {
             vec![step_key("emit")],
         );
 
+        let plan = BuildPlan::freeze(value).expect("typed static archive install");
+        let install = plan
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "install")
+            .unwrap();
         assert!(matches!(
-            BuildPlan::freeze(value),
-            Err(PlanError::InvalidArtifactUse {
-                artifact,
-                reason: "only executable artifacts can be installed",
-                ..
-            }) if artifact.name() == "app"
+            &install.kind,
+            ActionKind::InstallArtifact { artifact, destination }
+                if artifact.name() == "app"
+                    && destination.protocol_path() == "install/libapp.a"
         ));
     }
 
