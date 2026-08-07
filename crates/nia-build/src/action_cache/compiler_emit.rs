@@ -569,6 +569,10 @@ fn artifact_identity(artifact: &PlanArtifact) -> Vec<u8> {
     write_text(&mut encoded, artifact.key.name());
     write_text(&mut encoded, artifact.root_module.package().as_str());
     write_text(&mut encoded, artifact.root_module.name());
+    encoded.push(match artifact.kind {
+        crate::PlanArtifactKind::Executable => 0,
+        crate::PlanArtifactKind::ObjectSet => 1,
+    });
     encoded.push(match artifact.runtime {
         crate::Runtime::Bare => 0,
         crate::Runtime::Freestanding => 1,

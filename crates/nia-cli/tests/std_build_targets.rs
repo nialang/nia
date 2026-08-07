@@ -72,7 +72,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             32u32,
         ),
         build::OptimizationMode::O0,
-        7u32,
+        8u32,
         1usize,
     )
 }
