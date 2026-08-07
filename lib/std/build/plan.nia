@@ -22,6 +22,7 @@ using types::{
     CommandEnvironmentPolicy,
     CommandCachePolicy,
     TargetView,
+    TargetRole,
     PackageHandle,
 };
 
@@ -238,6 +239,7 @@ extend PlanEncoder {
         step: Step,
         modules: &[Module],
         executables: &[ExecutableTarget],
+        hostTarget: TargetView,
         artifactTarget: TargetView,
         packages: &[types::Package],
     ) Error!void {
@@ -259,14 +261,14 @@ extend PlanEncoder {
                 let moduleRecord = modules[target.rootModule.index];
                 self.writeU8(0).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
-                self.writeTarget(artifactTarget).?;
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
                 self.writeU8(1)
             },
             StepKind::EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-                self.writeTarget(artifactTarget)
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
             },
             StepKind::RunExecutable => {
                 let run = step.payload.runExecutable;
@@ -302,6 +304,7 @@ extend PlanEncoder {
                     self.writeString(argument.text()).?;
                 }
                 self.writePackageRootPath(packages).?;
+                self.writeCount(0).?;
                 self.writeCount(0).?;
                 self.writeCount(0)
             },
@@ -447,6 +450,7 @@ extend PlanEncoder {
                 step,
                 build.modules.asSlice(),
                 build.executables.asSlice(),
+                build.hostTarget(),
                 build.artifactTarget(),
                 build.packages.asSlice(),
             ).?;
@@ -457,6 +461,18 @@ extend PlanEncoder {
         }
         self.writeOptionalStep(build, build.defaultStep, build.packages.asSlice()).?;
         self.writeOptionalStep(build, build.selectedStep, build.packages.asSlice())
+    }
+}
+
+fn targetForRole(
+    role: TargetRole,
+    hostTarget: TargetView,
+    artifactTarget: TargetView,
+) Error!TargetView {
+    switch role {
+        TargetRole::Artifact => !artifactTarget,
+        TargetRole::Host => !hostTarget,
+        _ => invalidPlan(),
     }
 }
 

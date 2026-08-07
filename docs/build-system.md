@@ -299,7 +299,11 @@ from the layout-selected artifact target, while build-runner compilation
 explicitly overrides that value with the layout host target. The generated
 runner receives complete host and artifact descriptors as separate arguments
 and passes borrowed `TargetView` values into `std::build`; the builder retains
-owned copies. Executable records carry only the selected artifact role. Before
+owned copies. `ExecutableOptions::init` selects the artifact target by default;
+the explicit `forHost()` modifier selects the host target for a compiler-built
+tool without exposing an arbitrary target setter. Check and emit actions use
+that retained role, while run, test, install, and artifact-input edges keep the
+same executable identity. Before
 execution, the coordinator verifies that both plan-level targets match the
 resolved toolchain invocation, then creates target-specific Driver sessions
 from each compiler action's typed target rather than reconstructing CLI argv.

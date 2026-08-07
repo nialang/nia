@@ -581,8 +581,10 @@ plans.
 The build API can declare a distinct artifact target. The runner retains and
 encodes that descriptor, while the Rust coordinator executes typed compiler
 actions through a target-specific Driver; no callback executor or reconstructed
-public CLI invocation remains. No temporary arbitrary-target setter is exposed
-from `ExecutableOptions`.
+public CLI invocation remains. `ExecutableOptions::init` selects that artifact
+target. Calling `.forHost()` instead selects the retained host target for a
+compiler-built tool; it is a target-role choice, not a runtime or profile
+override. No arbitrary-target setter is exposed from `ExecutableOptions`.
 
 Build command assembly has no import-count or argv-count sentinel. Module-map
 arguments are UTF-8 encoded into allocator-owned contiguous storage; offsets are

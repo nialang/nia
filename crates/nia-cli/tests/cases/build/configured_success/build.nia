@@ -13,8 +13,10 @@ fn configure(b: &mut build::Build) build::Error!void {
     let generatedWorker = "generated/worker.nia";
     let appName = "app";
     let workerName = "worker";
+    let hostToolName = "host-tool";
     let outputName = "custom-app";
     let workerOutputName = "custom-worker";
+    let hostToolOutputName = "custom-host-tool";
     let buildStepName = "build";
     let checkStepName = "check";
     let runStepName = "run";
@@ -50,8 +52,17 @@ fn configure(b: &mut build::Build) build::Error!void {
         build::ExecutableOptions::init(&workerName, workerModule)
             .withOutputName(&workerOutputName),
     ).?;
+    let hostToolModule = b.addModule(
+        build::ModuleOptions::init(&hostToolName, fs::PathView::init(&"src/host_tool.nia")),
+    ).?;
+    let hostTool = b.addExecutable(
+        build::ExecutableOptions::init(&hostToolName, hostToolModule)
+            .forHost()
+            .withOutputName(&hostToolOutputName),
+    ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
+    _ = b.addEmitExecutableStep(&hostToolName, hostTool).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
     _ = b.addGeneratedFileStep(
         &generateWorkerStepName,
@@ -67,6 +78,10 @@ fn configure(b: &mut build::Build) build::Error!void {
     let runStep = b.addRunExecutableStep(
         &runStepName,
         build::RunOptions::init(app).withArguments(&runArguments[..]),
+    ).?;
+    let hostRunStep = b.addRunExecutableStep(
+        &"run-host-tool",
+        build::RunOptions::init(hostTool).withArguments(&runArguments[..]),
     ).?;
     let installStep = b.addInstallExecutableStep(
         &installStepName,
@@ -97,6 +112,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     ).?;
     b.dependOn(toolStep, installStep).?;
     b.dependOn(toolStep, runStep).?;
+    b.dependOn(toolStep, hostRunStep).?;
     b.setDefaultStep(toolStep).?;
     !{}
 }

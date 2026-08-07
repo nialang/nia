@@ -169,7 +169,8 @@ for declaring a root source module. Modules inherit the `nia build -O*`
 invocation mode, while `withOptimization(mode)` is an explicit per-module
 override. `addExecutable(ExecutableOptions::init(name, rootModule))` declares a
 freestanding artifact for the invocation's artifact target;
-`withOutputName(name)` customizes its output name. `addCheckExecutableStep` and
+`withOutputName(name)` customizes its output name, while `forHost()` explicitly
+builds a tool for the invocation's host target. `addCheckExecutableStep` and
 `addEmitExecutableStep` add compiler-backed graph steps. Those steps use
 typed Driver requests and emit executable artifacts to
 `.nia-build/<output-name-or-target-name>` without hand-written subprocess setup.
