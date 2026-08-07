@@ -383,6 +383,10 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
                                         1,
                                     )
                                 }
+                                ActionCacheInvalidation::PackageRoots => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_package_roots",
+                                    1,
+                                ),
                                 ActionCacheInvalidation::Contents => nia_timing::emit_counter(
                                     "build.action_cache_invalidation_contents",
                                     1,

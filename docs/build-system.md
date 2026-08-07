@@ -102,9 +102,10 @@ different inputs. Package declarations encode both stable key and relative
 root, and the coordinator resolves the physical directory only for the current
 invocation. Empty external roots, `.`/`..`, backslashes, duplicate keys or
 roots, and the reserved `root` key are rejected. Registry lookup, versions,
-downloads, and network policy remain absent. Cross-package compiler module-map
-entries are not yet public; current `ModuleOptions` and `ModuleImport` package
-paths still refer to the root package.
+downloads, and network policy remain absent. `ModuleOptions::fromPackage` and
+`ModuleImport::fromPackage` explicitly select one declared local package for
+compiler sources and module-map entries; the module declaration itself remains
+owned by the root build graph.
 
 The binary codec uses `ToolchainLayout`'s build-protocol schema as its sole
 version source. It bounds the full envelope, collection counts, strings, and
@@ -322,11 +323,12 @@ by a typed command input. Plan freeze accepts that declaration only with a
 cleared environment and at least one declared output.
 
 Eligible external commands have immutable records under
-`.nia-cache/actions/external-commands/v1/`. Their identity includes the stable
+`.nia-cache/actions/external-commands/v2/`. Their identity includes the stable
 action and command declaration, logical working directory, explicit
 environment, logical paths plus contents of declared regular-file inputs,
-logical dependency-artifact inputs when present, ordered logical outputs, and
-separate compiler, resource-layout, std, and build-protocol components. Search
+logical dependency-artifact inputs when present, ordered logical outputs, the
+referenced package-key/package-root mappings, and separate compiler,
+resource-layout, std, and build-protocol components. Search
 programs are resolved before lookup; the declared search name and resolved
 executable bytes form the tool identity, while its absolute installation path
 does not.

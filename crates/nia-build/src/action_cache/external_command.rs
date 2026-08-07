@@ -12,16 +12,16 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, action_identity,
-    fingerprint_text, integer_component, logical_path_identity, read_bytes, read_fingerprint,
-    read_u64, text_component, write_bytes, write_fingerprint,
+    fingerprint_text, integer_component, logical_path_identity, package_roots_identity, read_bytes,
+    read_fingerprint, read_u64, text_component, write_bytes, write_fingerprint,
 };
 use crate::{
     ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
-    lock::ScopedFileLock,
+    PlanPackage, lock::ScopedFileLock,
 };
 
-const MAGIC: &[u8; 8] = b"NIACMD01";
-const SCHEMA: &str = "v1";
+const MAGIC: &[u8; 8] = b"NIACMD02";
+const SCHEMA: &str = "v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FingerprintComponents {
@@ -31,6 +31,7 @@ struct FingerprintComponents {
     inputs: QueryFingerprint,
     dependencies: QueryFingerprint,
     working_directory: QueryFingerprint,
+    package_roots: QueryFingerprint,
     outputs: QueryFingerprint,
     compiler: QueryFingerprint,
     resource_layout: QueryFingerprint,
@@ -61,7 +62,7 @@ impl FingerprintSet {
 }
 
 impl FingerprintComponents {
-    fn values(self) -> [QueryFingerprint; 11] {
+    fn values(self) -> [QueryFingerprint; 12] {
         [
             self.command,
             self.tool,
@@ -69,6 +70,7 @@ impl FingerprintComponents {
             self.inputs,
             self.dependencies,
             self.working_directory,
+            self.package_roots,
             self.outputs,
             self.compiler,
             self.resource_layout,
@@ -88,6 +90,7 @@ pub(crate) struct ExternalCommandCacheIdentity {
     inputs: Vec<u8>,
     dependencies: Vec<u8>,
     working_directory: Vec<u8>,
+    package_roots: Vec<u8>,
     outputs: Vec<u8>,
     output_count: usize,
 }
@@ -102,9 +105,10 @@ impl ExternalCommandCacheIdentity {
         environment: &[EnvironmentInput],
         inputs: &[(LogicalPath, Vec<u8>)],
         outputs: &[LogicalPath],
+        packages: &[PlanPackage],
         tool_contents: &[u8],
         toolchain: &ToolchainIdentity,
-    ) -> Self {
+    ) -> Option<Self> {
         let action_identity = action_identity(action);
         let command = command_identity(program, arguments);
         let tool = tool_identity(program, tool_contents);
@@ -119,6 +123,19 @@ impl ExternalCommandCacheIdentity {
             .filter(|(path, _)| matches!(path.root(), LogicalPathRoot::Artifact(_)))
             .map(|(path, contents)| (path, contents.as_slice()))
             .collect::<Vec<_>>();
+        let mut package_paths = Vec::new();
+        if let CommandProgram::Path(path) = program {
+            package_paths.push(path);
+        }
+        package_paths.push(working_directory);
+        for argument in arguments {
+            if let CommandArgument::InputPath(path) | CommandArgument::OutputPath(path) = argument {
+                package_paths.push(path);
+            }
+        }
+        package_paths.extend(inputs.iter().map(|(path, _)| path));
+        package_paths.extend(outputs.iter());
+        let package_roots = package_roots_identity(packages, package_paths)?;
         let inputs = input_identity(&regular_inputs);
         let dependencies = input_identity(&dependency_inputs);
         let working_directory = logical_path_identity(working_directory);
@@ -133,6 +150,10 @@ impl ExternalCommandCacheIdentity {
             working_directory: component(
                 "nia.build.external-command-working-directory.v1",
                 &working_directory,
+            ),
+            package_roots: component(
+                "nia.build.external-command-package-roots.v1",
+                &package_roots,
             ),
             outputs: component("nia.build.external-command-outputs.v1", &outputs_identity),
             compiler: text_component(
@@ -152,7 +173,7 @@ impl ExternalCommandCacheIdentity {
                 toolchain.build_protocol_schema(),
             ),
         };
-        Self {
+        Some(Self {
             fingerprints: FingerprintSet::new(cache_key, components),
             action: action_identity,
             command,
@@ -161,9 +182,10 @@ impl ExternalCommandCacheIdentity {
             inputs,
             dependencies,
             working_directory,
+            package_roots,
             outputs: outputs_identity,
             output_count: outputs.len(),
-        }
+        })
     }
 }
 
@@ -407,6 +429,7 @@ struct DecodedEntry {
     inputs: Vec<u8>,
     dependencies: Vec<u8>,
     working_directory: Vec<u8>,
+    package_roots: Vec<u8>,
     outputs: Vec<u8>,
     payloads: Vec<Vec<u8>>,
 }
@@ -427,6 +450,7 @@ fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -
         &identity.inputs,
         &identity.dependencies,
         &identity.working_directory,
+        &identity.package_roots,
         &identity.outputs,
     ] {
         write_bytes(&mut encoded, value);
@@ -456,6 +480,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
         inputs: read_fingerprint(&mut cursor)?,
         dependencies: read_fingerprint(&mut cursor)?,
         working_directory: read_fingerprint(&mut cursor)?,
+        package_roots: read_fingerprint(&mut cursor)?,
         outputs: read_fingerprint(&mut cursor)?,
         compiler: read_fingerprint(&mut cursor)?,
         resource_layout: read_fingerprint(&mut cursor)?,
@@ -471,6 +496,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let inputs = read_bytes(&mut cursor, encoded.len())?;
     let dependencies = read_bytes(&mut cursor, encoded.len())?;
     let working_directory = read_bytes(&mut cursor, encoded.len())?;
+    let package_roots = read_bytes(&mut cursor, encoded.len())?;
     let outputs = read_bytes(&mut cursor, encoded.len())?;
     (component("nia.build.external-command-key.v1", &action) == cache_key).then_some(())?;
     for (found, domain, value) in [
@@ -501,6 +527,11 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             &working_directory,
         ),
         (
+            components.package_roots,
+            "nia.build.external-command-package-roots.v1",
+            &package_roots,
+        ),
+        (
             components.outputs,
             "nia.build.external-command-outputs.v1",
             &outputs,
@@ -528,6 +559,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
         inputs,
         dependencies,
         working_directory,
+        package_roots,
         outputs,
         payloads,
     })
@@ -542,6 +574,7 @@ fn entry_matches(entry: &DecodedEntry, identity: &ExternalCommandCacheIdentity) 
         && entry.inputs == identity.inputs
         && entry.dependencies == identity.dependencies
         && entry.working_directory == identity.working_directory
+        && entry.package_roots == identity.package_roots
         && entry.outputs == identity.outputs
         && entry.payloads.len() == identity.output_count
 }
@@ -575,6 +608,10 @@ fn invalidations(
         (
             found.working_directory != expected.working_directory,
             ActionCacheInvalidation::WorkingDirectory,
+        ),
+        (
+            found.package_roots != expected.package_roots,
+            ActionCacheInvalidation::PackageRoots,
         ),
         (
             found.outputs != expected.outputs,
@@ -722,6 +759,7 @@ mod tests {
         let inputs = b"inputs".to_vec();
         let dependencies = b"dependencies".to_vec();
         let working_directory = b"working-directory".to_vec();
+        let package_roots = b"package-roots".to_vec();
         let mut outputs = Vec::new();
         outputs.extend_from_slice(&2_u64.to_le_bytes());
         outputs.extend_from_slice(b"outputs");
@@ -735,6 +773,10 @@ mod tests {
             working_directory: component(
                 "nia.build.external-command-working-directory.v1",
                 &working_directory,
+            ),
+            package_roots: component(
+                "nia.build.external-command-package-roots.v1",
+                &package_roots,
             ),
             outputs: component("nia.build.external-command-outputs.v1", &outputs),
             compiler: QueryFingerprint::from_parts([1, 2]),
@@ -751,6 +793,7 @@ mod tests {
             inputs,
             dependencies,
             working_directory,
+            package_roots,
             outputs,
             output_count: 2,
         }
@@ -834,5 +877,19 @@ mod tests {
             ]))
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_root_mapping_change_has_its_own_invalidation_reason() {
+        let baseline = identity().fingerprints.components;
+        let changed = FingerprintComponents {
+            package_roots: QueryFingerprint::from_parts([20, 20]),
+            ..baseline
+        };
+
+        assert_eq!(
+            invalidations(baseline, changed),
+            [ActionCacheInvalidation::PackageRoots]
+        );
     }
 }

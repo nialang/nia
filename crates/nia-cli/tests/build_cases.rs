@@ -264,6 +264,10 @@ fn assert_configured_build_success(
         plan.modules()[0].root_source.protocol_path(),
         "src/main.nia"
     );
+    assert!(matches!(
+        plan.modules()[0].root_source.root(),
+        nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
+    ));
     assert_eq!(plan.modules()[1].key.name(), "worker");
     assert_eq!(
         plan.modules()[1].optimization,
@@ -277,15 +281,26 @@ fn assert_configured_build_success(
         plan.modules()[1].root_source.root(),
         nia_build::LogicalPathRoot::Build
     ));
-    assert_eq!(plan.modules()[0].imports.len(), 1);
-    assert_eq!(plan.modules()[0].imports[0].name, "helper");
-    assert_eq!(
-        plan.modules()[0].imports[0].path.protocol_path(),
-        "generated/helper.nia"
-    );
+    assert_eq!(plan.modules()[0].imports.len(), 2);
+    let helper_import = plan.modules()[0]
+        .imports
+        .iter()
+        .find(|import| import.name == "helper")
+        .expect("generated helper import");
+    assert_eq!(helper_import.path.protocol_path(), "generated/helper.nia");
     assert!(matches!(
-        plan.modules()[0].imports[0].path.root(),
+        helper_import.path.root(),
         nia_build::LogicalPathRoot::Build
+    ));
+    let asset_helper_import = plan.modules()[0]
+        .imports
+        .iter()
+        .find(|import| import.name == "assetHelper")
+        .expect("package helper import");
+    assert_eq!(asset_helper_import.path.protocol_path(), "helper.nia");
+    assert!(matches!(
+        asset_helper_import.path.root(),
+        nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
     ));
     assert_eq!(plan.artifacts().len(), 2);
     assert_eq!(plan.artifacts()[0].key.name(), "app");

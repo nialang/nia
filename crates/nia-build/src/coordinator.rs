@@ -881,7 +881,7 @@ impl DriverActionExecutor {
                     .map(|contents| ((*logical).clone(), contents))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(ExternalCommandCacheIdentity::new(
+        ExternalCommandCacheIdentity::new(
             &action.key,
             program,
             arguments,
@@ -889,9 +889,16 @@ impl DriverActionExecutor {
             environment,
             &inputs,
             outputs,
+            self.plan.packages(),
             &tool_contents,
             self.invocation.toolchain.identity(),
-        ))
+        )
+        .ok_or_else(|| {
+            inconsistent(
+                format!("action `{}`", action.key.name()),
+                "package roots".to_string(),
+            )
+        })
     }
 
     fn execute_compiler_check(
@@ -920,6 +927,7 @@ impl DriverActionExecutor {
         let precheck_identity = CompilerCheckCacheIdentity::new(
             &action.key,
             module,
+            self.plan.packages(),
             target,
             runtime,
             &precheck_manifest,
@@ -950,6 +958,7 @@ impl DriverActionExecutor {
         let Some(final_identity) = CompilerCheckCacheIdentity::new(
             &action.key,
             module,
+            self.plan.packages(),
             target,
             runtime,
             &checked.source_manifest,
@@ -998,6 +1007,7 @@ impl DriverActionExecutor {
                 &action.key,
                 artifact,
                 module,
+                self.plan.packages(),
                 target,
                 &precheck_manifest,
                 self.invocation.toolchain.identity(),
@@ -1058,6 +1068,7 @@ impl DriverActionExecutor {
             &action.key,
             artifact,
             module,
+            self.plan.packages(),
             target,
             &linked.source_manifest,
             self.invocation.toolchain.identity(),
@@ -3820,7 +3831,7 @@ mod tests {
         write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
         let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
         execute_build_plan(&plan, &invocation).unwrap();
-        let namespace = invocation.cache_dir.join("actions/compiler-checks/v1");
+        let namespace = invocation.cache_dir.join("actions/compiler-checks/v2");
         let key_dir = fs::read_dir(namespace)
             .unwrap()
             .next()
@@ -3859,7 +3870,7 @@ mod tests {
         assert!(
             !invocation
                 .cache_dir
-                .join("actions/compiler-checks/v1")
+                .join("actions/compiler-checks/v2")
                 .exists()
         );
     }
@@ -4086,7 +4097,7 @@ mod tests {
         execute_build_plan(&plan, &invocation).unwrap();
 
         let action_entry = only_nested_cache_entry(
-            &invocation.cache_dir.join("actions/compiler-emits/v1"),
+            &invocation.cache_dir.join("actions/compiler-emits/v2"),
             "entry",
         );
         fs::write(&action_entry, b"corrupt").expect("corrupt compiler emit action entry");
@@ -4189,7 +4200,7 @@ mod tests {
         assert!(
             !invocation
                 .cache_dir
-                .join("actions/compiler-emits/v1")
+                .join("actions/compiler-emits/v2")
                 .exists()
         );
     }
@@ -4525,7 +4536,7 @@ mod tests {
         fs::write(invocation.package_root.join("tool-input.txt"), b"source").unwrap();
         let plan = cacheable_command_plan(&invocation, "repair");
         execute_build_plan(&plan, &invocation).unwrap();
-        let namespace = invocation.cache_dir.join("actions/external-commands/v1");
+        let namespace = invocation.cache_dir.join("actions/external-commands/v2");
         let key_directory = fs::read_dir(namespace)
             .unwrap()
             .next()

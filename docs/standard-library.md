@@ -569,7 +569,9 @@ package-private implementation details, not a second public target model.
 Build modules preserve the root of every source path. `ModuleOptions::init` and
 `ModuleImport::init` describe package-rooted sources; their `fromBuild`
 counterparts take `BuildPathView` and describe generated sources under the
-build root. These are typed logical identities, not path spelling aliases.
+build root. `ModuleOptions::fromPackage` and `ModuleImport::fromPackage` take
+an owner-checked `PackageHandle` to select a declared local package. These are
+typed logical identities, not path spelling aliases.
 After configuration, `Build::validatePlan` resolves every build-rooted root or
 import to one exact generated-file or external-command output and atomically
 reserves and adds the missing compiler dependency edges. The Rust freeze
@@ -610,8 +612,8 @@ and roots are copied into the build plan, so `tool-input.txt` in `root` and in
 an `assets` package cannot alias. Absolute or escaping roots, duplicate names or
 roots, and the reserved `root` name are invalid. This API performs no version
 selection, registry access, download, or network policy. Module roots and
-module-map imports remain root-package or build-rooted until the separate
-cross-package compiler-input surface is completed.
+module-map imports may select a declared local package or the build root;
+module declarations and artifact ownership remain root-graph data.
 
 The publication contract accepts zero or multiple build-rooted regular-file
 outputs. Each `buildOutput` argument receives a distinct same-filesystem staging

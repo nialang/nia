@@ -4101,3 +4101,20 @@ registry, version solver, download, or network policy. Cross-package compiler
 module-map inputs and exact package-root cache-invalidation classification
 remain open, as do run/test/install relationships, host compiler artifacts,
 object/library kinds, and the remaining artifact surface.
+
+Phase G progress (2026-08-07, cross-package compiler inputs and package-root
+cache identity): `ModuleOptions::fromPackage` and
+`ModuleImport::fromPackage` now select an owner-checked local package while
+keeping module declarations and artifact ownership in the root build graph.
+The configured fixture compiles and runs an entry module and module-map helper
+from the external `assets` package beside a build-rooted generated import;
+canonical plan assertions prove equal relative paths remain package-distinct.
+Compiler check/emit and cacheable external-command envelopes moved to schema
+v2 and record only the referenced `(package key, package root)` mappings in a
+dedicated `PackageRoots` fingerprint component. A physical root mapping change
+therefore invalidates the exact dependent action without entering logical
+identities or invalidating unrelated package consumers. Old v1 cache records
+are intentionally not read. This closes the Phase G cross-package compiler
+input and package-root cache-identity slice; run/test/install relationships,
+host compiler artifacts, object/library kinds, and the remaining artifact
+surface remain open.

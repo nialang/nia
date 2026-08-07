@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
+    collections::BTreeSet,
     fs,
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -60,6 +61,7 @@ pub enum ActionCacheInvalidation {
     Inputs,
     Dependencies,
     WorkingDirectory,
+    PackageRoots,
     Contents,
     Artifact,
     Sources,
@@ -73,6 +75,27 @@ pub enum ActionCacheInvalidation {
     ResourceLayout,
     StandardLibrary,
     BuildProtocol,
+}
+
+pub(super) fn package_roots_identity<'a>(
+    packages: &[crate::PlanPackage],
+    paths: impl IntoIterator<Item = &'a crate::LogicalPath>,
+) -> Option<Vec<u8>> {
+    let keys = paths
+        .into_iter()
+        .filter_map(|path| match path.root() {
+            crate::LogicalPathRoot::Package(package) => Some(package),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(&(keys.len() as u64).to_le_bytes());
+    for key in keys {
+        let package = packages.iter().find(|package| &package.key == key)?;
+        write_text(&mut encoded, key.as_str());
+        write_text(&mut encoded, &package.root);
+    }
+    Some(encoded)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
