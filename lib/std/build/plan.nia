@@ -381,6 +381,10 @@ extend PlanEncoder {
                         let target = objects[argument.payload.object.index];
                         self.writeU8(1).?;
                         self.writeArtifactPath(target.name.text(), packages).?;
+                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                        let target = staticArchives[argument.payload.staticArchive.index];
+                        self.writeU8(1).?;
+                        self.writeArtifactPath(target.name.text(), packages).?;
                     } else if argument.kind == CommandArgumentKind::BuildOutput {
                         self.writeU8(2).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
@@ -401,6 +405,7 @@ extend PlanEncoder {
                         or argument.kind == CommandArgumentKind::BuildInput
                         or argument.kind == CommandArgumentKind::ArtifactInput
                         or argument.kind == CommandArgumentKind::ObjectInput
+                        or argument.kind == CommandArgumentKind::StaticArchiveInput
                     {
                         inputCount += 1;
                     }
@@ -416,6 +421,9 @@ extend PlanEncoder {
                         self.writeArtifactPath(target.name.text(), packages).?;
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let target = objects[argument.payload.object.index];
+                        self.writeArtifactPath(target.name.text(), packages).?;
+                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                        let target = staticArchives[argument.payload.staticArchive.index];
                         self.writeArtifactPath(target.name.text(), packages).?;
                     }
                 }

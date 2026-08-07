@@ -301,11 +301,18 @@ executable and ObjectSet policy rather than inferring a platform filename.
 Archive emit steps participate in generated root/import producer discovery and
 encode the schema-9 artifact tag directly.
 
-Typed command-input, installation, and executable-link relationships remain
-open. Until those relationships are owned, archive handles cannot be smuggled
-through executable/ObjectSet edges, and the executable-only install edge
-continues to reject archive artifacts. A system `ar`/`llvm-ar` command must not
-become an implicit second linker/cache owner.
+External commands consume archives through the typed
+`CommandArgument::staticArchiveInput` relation. The builder validates the
+archive handle owner, requires its matching emit step, and adds that producer
+dependency. Plan encoding uses the archive's Artifact-root file path, so the
+existing declared-input cache fingerprints the published archive bytes without
+introducing another archive cache owner.
+
+Typed installation and executable-link relationships remain open. Until those
+relationships are owned, archive handles cannot be smuggled through
+executable/ObjectSet edges, and the executable-only install edge continues to
+reject archive artifacts. A system `ar`/`llvm-ar` command must not become an
+implicit second linker/cache owner.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide

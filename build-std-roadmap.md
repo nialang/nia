@@ -4268,3 +4268,13 @@ roles plus foreign-handle rejection; the maintained configured package executes
 the Driver-owned archive path and verifies a published archive file. Typed
 external-command input, installation, and executable-link relations remain the
 next archive slices rather than being routed through existing artifact kinds.
+Archive consumer progress (2026-08-07): external commands now accept the typed
+`CommandArgument::staticArchiveInput` relation. Builder validation rejects
+foreign archive handles and archives without a matching emit producer, retains
+the producer dependency, and writes the archive as an Artifact-root file input
+without changing schema 9. The existing declared-input command cache therefore
+fingerprints archive bytes through its ordinary file contract while Driver
+remains the only archive work-product cache owner. The configured package uses
+this relation as the sole archive dependency of its external tool and verifies
+the real input file. Typed installation and executable-link relations remain
+the next archive slices.

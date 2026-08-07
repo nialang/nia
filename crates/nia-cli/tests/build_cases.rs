@@ -255,7 +255,7 @@ fn assert_configured_build_success(
         .find(|package| package.key.as_str() == "root")
         .expect("root package");
     assert!(root.root.is_empty());
-    assert_eq!(plan.modules().len(), 3);
+    assert_eq!(plan.modules().len(), 4);
     assert_eq!(plan.modules()[0].key.name(), "app");
     assert_eq!(
         plan.modules()[0].optimization,
@@ -269,22 +269,31 @@ fn assert_configured_build_success(
         plan.modules()[0].root_source.root(),
         nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
     ));
-    assert_eq!(plan.modules()[1].key.name(), "host-tool");
+    assert_eq!(plan.modules()[1].key.name(), "archive");
     assert_eq!(
         plan.modules()[1].root_source.protocol_path(),
+        "generated/helper.nia"
+    );
+    assert!(matches!(
+        plan.modules()[1].root_source.root(),
+        nia_build::LogicalPathRoot::Build
+    ));
+    assert_eq!(plan.modules()[2].key.name(), "host-tool");
+    assert_eq!(
+        plan.modules()[2].root_source.protocol_path(),
         "src/host_tool.nia"
     );
-    assert_eq!(plan.modules()[2].key.name(), "worker");
+    assert_eq!(plan.modules()[3].key.name(), "worker");
     assert_eq!(
-        plan.modules()[2].optimization,
+        plan.modules()[3].optimization,
         nia_build::OptimizationMode::O0
     );
     assert_eq!(
-        plan.modules()[2].root_source.protocol_path(),
+        plan.modules()[3].root_source.protocol_path(),
         "generated/worker.nia"
     );
     assert!(matches!(
-        plan.modules()[2].root_source.root(),
+        plan.modules()[3].root_source.root(),
         nia_build::LogicalPathRoot::Build
     ));
     assert_eq!(plan.modules()[0].imports.len(), 2);
@@ -336,7 +345,7 @@ fn assert_configured_build_success(
         .iter()
         .find(|artifact| artifact.key.name() == "archive")
         .expect("static archive artifact");
-    assert_eq!(archive_artifact.root_module.name(), "app");
+    assert_eq!(archive_artifact.root_module.name(), "archive");
     assert_eq!(archive_artifact.output.protocol_path(), "libconfigured.a");
     assert_eq!(
         archive_artifact.kind,
@@ -448,7 +457,7 @@ fn assert_configured_build_success(
                 &[
                     nia_build::CommandArgument::Literal("-c".to_string()),
                     nia_build::CommandArgument::Literal(
-                        "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
+                        "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && test -s \"$7\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
                             .to_string()
                     ),
                     nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
@@ -456,6 +465,7 @@ fn assert_configured_build_success(
                     nia_build::CommandArgument::OutputPath(outputs[1].clone()),
                     nia_build::CommandArgument::OutputPath(outputs[0].clone()),
                     nia_build::CommandArgument::InputPath(inputs[1].clone()),
+                    nia_build::CommandArgument::InputPath(inputs[4].clone()),
                     nia_build::CommandArgument::InputPath(inputs[3].clone()),
                     nia_build::CommandArgument::InputPath(inputs[2].clone()),
                 ]
@@ -472,7 +482,7 @@ fn assert_configured_build_success(
                     value: Some("fixture".to_string()),
                 }]
             );
-            assert_eq!(inputs.len(), 4);
+            assert_eq!(inputs.len(), 5);
             assert!(matches!(
                 inputs[0].root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
@@ -485,14 +495,19 @@ fn assert_configured_build_success(
             assert!(inputs[1].components().is_empty());
             assert!(matches!(
                 inputs[2].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
             ));
             assert!(inputs[2].components().is_empty());
             assert!(matches!(
                 inputs[3].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
             ));
             assert!(inputs[3].components().is_empty());
+            assert!(matches!(
+                inputs[4].root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+            ));
+            assert!(inputs[4].components().is_empty());
             assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),

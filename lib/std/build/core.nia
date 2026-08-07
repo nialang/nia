@@ -480,6 +480,17 @@ extend Build {
                             }!,
                         }
                         artifactInputCount += 1;
+                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                        let target = argument.payload.staticArchive;
+                        self.validateStaticArchiveHandle(target).?;
+                        switch self.findEmitStaticArchiveStep(target) {
+                            ?producer => _ = producer,
+                            null => return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Step(self.steps.len()),
+                            }!,
+                        }
+                        artifactInputCount += 1;
                     } else if argument.kind == CommandArgumentKind::PackageInput {
                         self.validatePackageHandle(argument.package).?;
                     }
@@ -525,6 +536,15 @@ extend Build {
                         self.dependOn(result, producer).?;
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let producer = switch self.findEmitObjectStep(argument.payload.object) {
+                            ?producer => producer,
+                            null => return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Step(handle.index()),
+                            }!,
+                        };
+                        self.dependOn(result, producer).?;
+                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                        let producer = switch self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -1162,6 +1182,18 @@ extend Build {
         null
     }
 
+    fn findEmitStaticArchiveStep(&self, target: StaticArchiveHandle) ?StepHandle {
+        for &step in self.steps.iter() {
+            if step.kind == StepKind::EmitStaticArchive
+                and step.payload.staticArchive.target.ownerId() == target.ownerId()
+                and step.payload.staticArchive.target.index() == target.index()
+            {
+                return ?StepHandle::init(self.ownerId, step.index);
+            }
+        }
+        null
+    }
+
     fn rollbackLastStep(&mut self) Error!void {
         switch self.steps.pop() {
             ?step => {
@@ -1549,6 +1581,14 @@ extend CommandArgument {
             package: PackageHandle::init(0, 0),
         }
     }
+
+    pub fn staticArchiveInput(staticArchive: StaticArchiveHandle) CommandArgument {
+        {
+            kind: CommandArgumentKind::StaticArchiveInput,
+            payload: { staticArchive: staticArchive },
+            package: PackageHandle::init(0, 0),
+        }
+    }
 }
 
 extend ExternalCommandOptions {
@@ -1666,6 +1706,13 @@ extend OwnedCommandArgument {
                 package: argument.package,
             };
         }
+        if argument.kind == CommandArgumentKind::StaticArchiveInput {
+            return !{
+                kind: argument.kind,
+                payload: { staticArchive: argument.payload.staticArchive },
+                package: argument.package,
+            };
+        }
         let value = string::String::fromSlice(
             allocator,
             argument.payload.value,
@@ -1674,7 +1721,10 @@ extend OwnedCommandArgument {
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
-        if self.kind == CommandArgumentKind::ArtifactInput or self.kind == CommandArgumentKind::ObjectInput {
+        if self.kind == CommandArgumentKind::ArtifactInput
+            or self.kind == CommandArgumentKind::ObjectInput
+            or self.kind == CommandArgumentKind::StaticArchiveInput
+        {
             return !{};
         }
         self.payload.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
@@ -1933,6 +1983,7 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
             for &argument in arguments.iter() {
                 if argument.kind == CommandArgumentKind::ArtifactInput
                     or argument.kind == CommandArgumentKind::ObjectInput
+                    or argument.kind == CommandArgumentKind::StaticArchiveInput
                 {
                     continue;
                 }
