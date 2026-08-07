@@ -892,11 +892,9 @@ fn assert_no_transient_runner_files(workspace: &Path) {
     let build_dir = workspace.join(".nia-build");
     if build_dir.is_dir() {
         assert!(std::fs::read_dir(&build_dir).unwrap().all(|entry| {
-            !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".build-plan-")
+            let name = entry.unwrap().file_name();
+            let name = name.to_string_lossy();
+            !name.starts_with(".build-plan-") && !name.starts_with(".build-runner-")
         }));
     }
     let runner_dir = build_dir.join("runner");

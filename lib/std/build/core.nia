@@ -1,7 +1,6 @@
 using pkg::atomic;
 using pkg::builtin::atomic as atomicBuiltin;
 using pkg::collections;
-using pkg::process;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
@@ -131,7 +130,6 @@ extend BuildPaths {
 
 extend Build {
     pub fn init(
-        init: process::Init,
         allocator: &mut mem::Allocator,
         packageRoot: fs::PathView,
         buildDir: fs::PathView,
@@ -142,7 +140,7 @@ extend Build {
         artifactTarget: TargetView,
         defaultOptimization: OptimizationMode,
         planSchemaVersion: u32,
-        stepArgIndex: usize,
+        requestedStep: ?&[char],
     ) Error!Build {
         let mut paths = BuildPaths::init(
             allocator,
@@ -166,19 +164,36 @@ extend Build {
         defer if not artifactTargetTransferred {
             ownedArtifactTarget.deinit(allocator, Subject::ArtifactTarget).?;
         };
+        let mut ownedRequestedStep = string::String::init();
+        let mut hasRequestedStep = false;
+        if requestedStep is ?step {
+            ownedRequestedStep = string::String::fromSlice(allocator, step).asBuildError(
+                Operation::Retain,
+                Subject::RequestedStep,
+            ).?;
+            hasRequestedStep = true;
+        }
+        let mut requestedStepTransferred = false;
+        defer if not requestedStepTransferred {
+            ownedRequestedStep.deinit(allocator).asBuildError(
+                Operation::Release,
+                Subject::RequestedStep,
+            ).?;
+        };
         pathsTransferred = true;
         hostTargetTransferred = true;
         artifactTargetTransferred = true;
+        requestedStepTransferred = true;
         !{
             ownerId: allocateBuildOwnerId(),
-            init: init,
             allocator: allocator,
             paths: paths,
             hostTarget: ownedHostTarget,
             artifactTarget: ownedArtifactTarget,
             defaultOptimization: defaultOptimization,
             planSchemaVersion: planSchemaVersion,
-            stepArgIndex: stepArgIndex,
+            requestedStep: ownedRequestedStep,
+            hasRequestedStep: hasRequestedStep,
             defaultStep: null,
             selectedStep: null,
             planValidated: false,
@@ -233,6 +248,13 @@ extend Build {
         rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError(Operation::Release, Subject::Modules));
         rememberCleanupError(&mut firstError, self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
         rememberCleanupError(&mut firstError, self.hostTarget.deinit(self.allocator, Subject::HostTarget));
+        rememberCleanupError(
+            &mut firstError,
+            self.requestedStep.deinit(self.allocator).asBuildError(
+                Operation::Release,
+                Subject::RequestedStep,
+            ),
+        );
         rememberCleanupError(&mut firstError, self.paths.deinit(self.allocator));
         cleanupResult(firstError)
     }
@@ -946,8 +968,12 @@ extend Build {
         !handle
     }
 
-    pub fn requestedStep(&self) ?process::Arg {
-        self.init.args().get(self.stepArgIndex)
+    pub fn requestedStep(&self) ?&[char] {
+        if self.hasRequestedStep {
+            ?self.requestedStep.text()
+        } else {
+            null
+        }
     }
 
     pub fn validatePlan(&mut self) Error!void {
@@ -957,9 +983,9 @@ extend Build {
         self.selectedStep = null;
         switch self.requestedStep() {
             ?step => {
-                switch self.findStepArg(step) {
-                    ?handle => {
-                        self.selectedStep = ?handle;
+                switch self.findStep(step) {
+                    ?selected => {
+                        self.selectedStep = ?StepHandle::init(self.ownerId, selected.index);
                     },
                     null => {
                         self.reportUnknownStep(step).?;
@@ -1232,17 +1258,6 @@ extend Build {
         null
     }
 
-    fn findStepArg(&self, arg: process::Arg) ?StepHandle {
-        let mut index: usize = 0;
-        for &step in self.steps.iter() {
-            if argMatchesText(arg, step.name.text()) {
-                return ?StepHandle::init(self.ownerId, index);
-            }
-            index += 1;
-        }
-        null
-    }
-
     fn findExecutable(&self, name: &[char]) ?ExecutableTarget {
         for &target in self.executables.iter() {
             if target.name.equals(name) {
@@ -1390,10 +1405,10 @@ extend Build {
         !{}
     }
 
-    fn reportUnknownStep(&mut self, step: process::Arg) Error!void {
+    fn reportUnknownStep(&mut self, step: &[char]) Error!void {
         let mut buffer: [256]u8 = [_]u8[0; 256];
         let mut stderr = io::FileWriter::stderr(&mut buffer);
-        stderr.print(&"unknown build step `{}`\n", &[&step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
+        stderr.print(&"unknown build step `{}`\n", &[step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
         stderr.flush().asBuildError(Operation::Report, Subject::RequestedStep)
     }
 
@@ -2967,22 +2982,6 @@ fn isValidModuleImportName(name: &[char]) bool {
         }
     }
     true
-}
-
-fn argMatchesText(arg: process::Arg, text: &[char]) bool {
-    let bytes = arg.bytes();
-    let mut byteIndex: usize = 0;
-    for &ch in text.iter() {
-        let encoded = ch.encodeUtf8();
-        let encodedBytes = encoded.bytes();
-        for &encodedByte in encodedBytes.iter() {
-            if byteIndex >= bytes.len() or bytes[byteIndex] != encodedByte {
-                return false;
-            }
-            byteIndex += 1;
-        }
-    }
-    byteIndex == bytes.len()
 }
 
 fn rememberCleanupError(firstError: &mut ?Error, result: Error!void) void {

@@ -2966,6 +2966,7 @@ mod tests {
             cache_dir: package_root.join(".nia-cache"),
             runner_dir: build_dir.join("runner"),
             runner_executable: build_dir.join("runner/nia-build-runner"),
+            runner_config: build_dir.join("build-runner.config"),
             plan_draft: build_dir.join("build-plan.draft"),
             plan_path: build_dir.join("build-plan.bin"),
             build_dir,

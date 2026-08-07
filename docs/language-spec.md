@@ -3574,6 +3574,15 @@ freestanding executable for the invocation's artifact target and returns an
 executable handle; `ExecutableOptions::withOutputName(name)` customizes its
 output name. Runtime and target are properties of the artifact kind and role,
 not generic executable options.
+`Build::addObject(ObjectOptions::init(name, rootModule))` declares a complete
+target-aware ObjectSet directory and `Build::addEmitObjectStep` emits all
+Driver-owned codegen units. `Build::addStaticArchive(StaticArchiveOptions::init
+(name, rootModule))` declares a typed archive file; its emit and install steps
+use the same artifact-root transaction as executable publication. An
+executable may call `withStaticArchives` with an ordered slice of archive
+handles, and external commands may use `CommandArgument::staticArchiveInput`.
+These relations require owner-checked handles and matching emit producers;
+archive order is preserved because static linking is order-sensitive.
 `Build::addCheckExecutableStep(name, target)` adds a graph step that checks
 that artifact through the freestanding executable runtime with the package root
 as the working directory. `Build::addEmitExecutableStep(name, target)` adds

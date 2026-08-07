@@ -234,7 +234,6 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
     switch build::Build::init(
-        init,
         &mut allocator,
         path,
         path,
@@ -245,7 +244,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
         target,
         build::OptimizationMode::O0,
         1u32,
-        1usize,
+        null,
     ) {
         !value => {
             let mut unexpected = value;
@@ -271,7 +270,6 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
     switch build::Build::init(
-        init,
         &mut allocator,
         path,
         path,
@@ -282,7 +280,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         target,
         build::OptimizationMode::O0,
         1u32,
-        1usize,
+        null,
     ) {
         !value => {
             let mut unexpected = value;
@@ -310,7 +308,6 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
     switch build::Build::init(
-        init,
         &mut allocator,
         path,
         path,
@@ -321,7 +318,7 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
         target,
         build::OptimizationMode::O0,
         1u32,
-        1usize,
+        null,
     ) {
         !value => {
             let mut unexpected = value;
@@ -347,7 +344,6 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     let emptyPath = fs::PathView::init(&empty);
     let target = testTarget(&empty);
     let mut api = build::Build::init(
-        init,
         &mut allocator,
         emptyPath,
         emptyPath,
@@ -358,7 +354,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
         target,
         build::OptimizationMode::O0,
         1u32,
-        1usize,
+        null,
     ).exit().?;
     let mut cleaned = false;
     defer if not cleaned {
@@ -520,7 +516,6 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     let emptyPath = fs::PathView::init(&empty);
     let target = testTarget(&empty);
     let mut api = build::Build::init(
-        init,
         &mut allocator,
         emptyPath,
         emptyPath,
@@ -531,7 +526,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
         target,
         build::OptimizationMode::O0,
         1u32,
-        1usize,
+        null,
     ).exit().?;
     let mut cleaned = false;
     defer if not cleaned {

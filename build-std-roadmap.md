@@ -1292,8 +1292,8 @@ identity/cache APIs for convenience.
 
 ## 11. Status And Progress
 
-Phases A, B, C, D, E, and F are complete. The standard-library reconstruction
-track remains active, and Phase G artifact/package-boundary work is the next
+Phases A, B, C, D, E, F, and G are complete. The standard-library
+reconstruction track remains active, and Phase H migration/hardening is now the
 main build-system phase. Later implementation phases are not marked complete by
 roadmap text.
 
@@ -4310,3 +4310,26 @@ and archive, validates both archive files, and exercises the complete selected
 closure. This closes the planned StaticArchive declaration, external-command,
 installation, and executable-link slices without routing archives through raw
 arguments, `-l` guessing, or ObjectSet directories.
+
+Phase G completion and Phase H progress (2026-08-07, runner configuration
+boundary): the representative configured package now covers the complete
+artifact/package acceptance set: multiple package-rooted and generated modules,
+artifact and host executables, ObjectSet and StaticArchive work products,
+ordered archive linking, a host generation tool, declared consumers, check/test
+relations, executable and archive installation, targeted invalidation, and
+selected closure. Host and artifact handles remain non-interchangeable, package
+roots and module maps are explicit cache inputs, and no registry or filesystem
+discovery path is required. This closes Phase G.
+
+The first Phase H migration removes the generated runner's legacy positional
+configuration vector. `nia-build` writes an invocation-private configuration
+envelope with independent schema, bounded length-prefixed UTF-8 fields,
+checksum, target/optimization tags, and an explicit default-or-named-step tag.
+The runner receives only `--config <path>`, validates the envelope before
+constructing `std::build::Build`, and the Build value owns the requested step
+text instead of retaining `process::Init` or an argument index. Exclusive,
+synced publication and cleanup cover configuration, draft, and runner files;
+collisions are rejected without deleting an existing private file. Rust codec
+corruption tests, real runner success/unknown-step cleanup, concurrent transient
+path tests, and std ownership rollback tests pass. The recursive executor,
+remaining raw compiler bridge and other Phase H deletion gates remain open.

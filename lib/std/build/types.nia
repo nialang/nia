@@ -1,7 +1,6 @@
 using pkg::collections;
 using pkg::fs;
 using pkg::mem;
-using pkg::process;
 using pkg::string;
 using pkg::build::error;
 
@@ -353,14 +352,14 @@ pub struct BuildPaths {
 
 pub struct Build {
     ownerId: usize,
-    init: process::Init,
     allocator: &mut mem::Allocator,
     paths: BuildPaths,
     hostTarget: TargetStorage,
     artifactTarget: TargetStorage,
     defaultOptimization: OptimizationMode,
     planSchemaVersion: u32,
-    stepArgIndex: usize,
+    requestedStep: string::String,
+    hasRequestedStep: bool,
     defaultStep: ?StepHandle,
     selectedStep: ?StepHandle,
     planValidated: bool,
