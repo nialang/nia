@@ -148,8 +148,9 @@ emits the complete codegen-unit directory through `nia-driver` and the
 coordinator's typed directory transaction. It is not a single-object shortcut
 or a static archive, and executable-only install actions reject it before
 execution. The public `std::build` declaration surface for object artifacts
-remains a separate Phase G item. Generated-file actions publish declared bytes
-atomically under the build root.
+uses typed `ObjectHandle`/`ObjectOptions` declarations and
+`addEmitObjectStep`; executable-only run/test/install edges remain separate.
+Generated-file actions publish declared bytes atomically under the build root.
 `ModuleOptions::fromBuild` and `ModuleImport::fromBuild` expose generated root
 sources and imports without treating them as package files. Builder validation
 adds their exact producer edges after all steps have been declared, making the
@@ -230,6 +231,8 @@ archive or a restricted single-object API. Owner records include
 process identity, process start time, and an acquisition sequence; dead owners
 are reclaimed without allowing an older same-process guard to remove a newer
 lock.
+Directory publication replaces the complete previous tree, so stale codegen
+unit files cannot survive a later emit with a different unit set.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide
