@@ -302,10 +302,18 @@ impl Writer {
                 self.target(target)?;
                 self.runtime(*runtime);
             }
-            ActionKind::CompilerEmit { artifact, target } => {
+            ActionKind::CompilerEmit {
+                artifact,
+                target,
+                static_archives,
+            } => {
                 self.u8(1);
                 self.artifact_key(artifact)?;
                 self.target(target)?;
+                self.count(static_archives.len())?;
+                for archive in static_archives {
+                    self.artifact_key(archive)?;
+                }
             }
             ActionKind::ExternalCommand {
                 resource_class,
@@ -673,6 +681,7 @@ impl<'a> Reader<'a> {
             1 => ActionKind::CompilerEmit {
                 artifact: self.artifact_key()?,
                 target: self.target()?,
+                static_archives: self.list(|reader| reader.artifact_key())?,
             },
             2 => {
                 let resource_class = self.resource_class()?;
@@ -829,7 +838,7 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{draft, generated_source_draft};
+    use super::super::tests::{draft, generated_source_draft, static_archive_link_draft};
     use super::*;
 
     fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
@@ -872,6 +881,23 @@ mod tests {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
         let bytes = plan.encode().unwrap();
         assert_eq!(BuildPlan::decode(&bytes).unwrap(), plan);
+    }
+
+    #[test]
+    fn typed_static_archive_links_round_trip_in_declaration_order() {
+        let plan = BuildPlan::freeze(static_archive_link_draft()).unwrap();
+        let decoded = BuildPlan::decode(&plan.encode().unwrap()).unwrap();
+        let emit = decoded
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "emit")
+            .unwrap();
+        assert!(matches!(
+            &emit.kind,
+            ActionKind::CompilerEmit { static_archives, .. }
+                if static_archives.iter().map(ArtifactKey::name).collect::<Vec<_>>()
+                    == ["runtime", "support"]
+        ));
     }
 
     #[test]

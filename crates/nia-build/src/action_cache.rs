@@ -21,7 +21,8 @@ pub(crate) use compiler_check::{
     CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
 };
 pub(crate) use compiler_emit::{
-    CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup,
+    CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLinkInput,
+    CompilerEmitCacheLookup,
 };
 pub(crate) use external_command::{
     ExternalCommandCache, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,

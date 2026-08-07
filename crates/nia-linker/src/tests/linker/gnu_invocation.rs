@@ -56,6 +56,35 @@ fn invocation_preserves_typed_link_input_order() {
 }
 
 #[test]
+fn invocation_passes_exact_static_archive_paths_in_declaration_order() {
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("ld"),
+        ..LinkOptions::default()
+    }
+    .with_static_archives(vec![
+        StaticArchiveLinkInput::from_bytes("root", "first", "lib/first.a", b"first"),
+        StaticArchiveLinkInput::from_bytes("root", "second", "vendor/second.a", b"second"),
+    ]);
+
+    let invocation = options
+        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .expect("link invocation");
+    assert_eq!(
+        invocation.args,
+        vec![
+            "-e",
+            "_start",
+            "main.o",
+            "lib/first.a",
+            "vendor/second.a",
+            "-static",
+            "-o",
+            "main"
+        ]
+    );
+}
+
+#[test]
 fn dynamic_gnu_invocation_accepts_structured_options() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld"),

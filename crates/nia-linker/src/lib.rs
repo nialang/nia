@@ -532,7 +532,38 @@ pub struct LinkOptions {
     pub library_paths: Vec<String>,
     pub rpaths: Vec<String>,
     pub libraries: Vec<NativeLibrary>,
+    pub static_archives: Vec<StaticArchiveLinkInput>,
     pub raw_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaticArchiveLinkInput {
+    package: String,
+    name: String,
+    path: PathBuf,
+    fingerprint: LinkResultFingerprint,
+}
+
+impl StaticArchiveLinkInput {
+    pub fn from_bytes(
+        package: impl Into<String>,
+        name: impl Into<String>,
+        path: impl Into<PathBuf>,
+        bytes: &[u8],
+    ) -> Self {
+        let mut fingerprint = QueryFingerprintBuilder::new("nia.static-archive-link-input.v1");
+        fingerprint.write_bytes(bytes);
+        Self {
+            package: package.into(),
+            name: name.into(),
+            path: path.into(),
+            fingerprint: finish_link_fingerprint(fingerprint),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 impl Default for LinkOptions {
@@ -547,6 +578,7 @@ impl Default for LinkOptions {
             library_paths: Vec::new(),
             rpaths: Vec::new(),
             libraries: Vec::new(),
+            static_archives: Vec::new(),
             raw_args: Vec::new(),
         }
     }
@@ -569,6 +601,17 @@ impl LinkOptions {
             write_codegen_unit_key(&mut cache_key, &input.key);
             write_codegen_unit_key(&mut input_component, &input.key);
             for part in input.fingerprint.parts() {
+                input_component.write_u64(part);
+            }
+        }
+        cache_key.write_u64(self.static_archives.len() as u64);
+        input_component.write_u64(self.static_archives.len() as u64);
+        for archive in &self.static_archives {
+            cache_key.write_str(&archive.package);
+            cache_key.write_str(&archive.name);
+            input_component.write_str(&archive.package);
+            input_component.write_str(&archive.name);
+            for part in archive.fingerprint.parts() {
                 input_component.write_u64(part);
             }
         }
@@ -704,6 +747,11 @@ impl LinkOptions {
         self
     }
 
+    pub fn with_static_archives(mut self, archives: Vec<StaticArchiveLinkInput>) -> Self {
+        self.static_archives = archives;
+        self
+    }
+
     pub fn invocation(
         &self,
         inputs: &IncrementalLinkInputs<PathBuf>,
@@ -739,6 +787,11 @@ impl LinkOptions {
                 .as_slice()
                 .iter()
                 .map(|input| input.object.to_string_lossy().into_owned()),
+        );
+        args.extend(
+            self.static_archives
+                .iter()
+                .map(|archive| archive.path.to_string_lossy().into_owned()),
         );
         match self.mode {
             LinkMode::Static => {

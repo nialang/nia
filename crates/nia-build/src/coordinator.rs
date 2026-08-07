@@ -19,7 +19,7 @@ use nia_driver::{
     LinkExecutableRequest, ModuleMap, NiaOptimizationLevel, ObjectOutput, Runtime as DriverRuntime,
     SourcePath,
 };
-use nia_linker::ArchiveOptions;
+use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
 use nia_query::QuerySession;
 use nia_target_config::TargetConfig;
 
@@ -31,9 +31,10 @@ use crate::{
     PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
-        CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLookup,
-        ExternalCommandCache, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,
-        GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
+        CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLinkInput,
+        CompilerEmitCacheLookup, ExternalCommandCache, ExternalCommandCacheIdentity,
+        ExternalCommandCacheLookup, GeneratedFileCache, GeneratedFileCacheIdentity,
+        GeneratedFileCacheLookup,
     },
     lock::{ScopedFileLock, output_lock_path},
     output_recovery::{
@@ -147,6 +148,12 @@ pub enum CoordinatorError {
         operation: &'static str,
         error: io::Error,
     },
+    StaticArchiveLinkInputIo {
+        action: ActionKey,
+        path: PathBuf,
+        operation: &'static str,
+        error: io::Error,
+    },
     ExternalCommandIo {
         action: ActionKey,
         path: PathBuf,
@@ -252,6 +259,17 @@ impl fmt::Display for CoordinatorError {
             } => write!(
                 f,
                 "build action `{}` failed to {operation} installed artifact `{}`: {error}",
+                action.name(),
+                path.display()
+            ),
+            Self::StaticArchiveLinkInputIo {
+                action,
+                path,
+                operation,
+                error,
+            } => write!(
+                f,
+                "build action `{}` failed to {operation} static archive link input `{}`: {error}",
                 action.name(),
                 path.display()
             ),
@@ -635,8 +653,12 @@ impl DriverActionExecutor {
             } => {
                 return self.execute_compiler_check(action, module, target, *runtime);
             }
-            ActionKind::CompilerEmit { artifact, target } => {
-                return self.execute_compiler_emit(action, artifact, target);
+            ActionKind::CompilerEmit {
+                artifact,
+                target,
+                static_archives,
+            } => {
+                return self.execute_compiler_emit(action, artifact, target, static_archives);
             }
             ActionKind::ExternalCommand {
                 resource_class: _,
@@ -1008,6 +1030,7 @@ impl DriverActionExecutor {
         action: &PlanAction,
         artifact_key: &ArtifactKey,
         target: &TargetSpec,
+        static_archives: &[ArtifactKey],
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let artifact = self.artifact(action, artifact_key)?;
         match artifact.kind {
@@ -1030,6 +1053,30 @@ impl DriverActionExecutor {
             .with_runtime(DriverRuntime::Freestanding);
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
+        let mut cache_link_inputs = Vec::with_capacity(static_archives.len());
+        let mut linker_inputs = Vec::with_capacity(static_archives.len());
+        for archive_key in static_archives {
+            let archive = self.artifact(action, archive_key)?;
+            let path = self.resolve_path(action, &archive.output)?;
+            let bytes =
+                fs::read(&path).map_err(|error| CoordinatorError::StaticArchiveLinkInputIo {
+                    action: action.key.clone(),
+                    path: path.clone(),
+                    operation: "read",
+                    error,
+                })?;
+            cache_link_inputs.push(CompilerEmitCacheLinkInput::from_bytes(
+                archive_key.clone(),
+                &bytes,
+            ));
+            linker_inputs.push(StaticArchiveLinkInput::from_bytes(
+                archive_key.package().as_str(),
+                archive_key.name(),
+                path,
+                &bytes,
+            ));
+        }
+        let link_options = LinkOptions::default().with_static_archives(linker_inputs);
         let precheck_manifest = driver
             .source_input_manifest(&request)
             .result
@@ -1037,7 +1084,7 @@ impl DriverActionExecutor {
                 action: action.key.clone(),
                 error: Box::new(error),
             })?;
-        let link_environment = driver.executable_cache_environment();
+        let link_environment = driver.executable_cache_environment_for(&link_options);
         let cache = CompilerEmitCache::new(self.invocation.cache_dir.clone());
         let precheck_identity = link_environment.and_then(|environment| {
             CompilerEmitCacheIdentity::new(
@@ -1049,6 +1096,7 @@ impl DriverActionExecutor {
                 &precheck_manifest,
                 self.invocation.toolchain.identity(),
                 environment,
+                &cache_link_inputs,
             )
         });
         let miss_reason = match precheck_identity.as_ref() {
@@ -1080,7 +1128,9 @@ impl DriverActionExecutor {
             },
         };
         let linked = driver
-            .link_executable_with_source_manifest(LinkExecutableRequest::new(request, output))
+            .link_executable_with_source_manifest(
+                LinkExecutableRequest::new(request, output).with_link_options(link_options.clone()),
+            )
             .result
             .map_err(|error| CoordinatorError::Driver {
                 action: action.key.clone(),
@@ -1096,7 +1146,7 @@ impl DriverActionExecutor {
                 ActionCacheMissReason::Uncacheable,
             )));
         };
-        let Some(link_environment) = driver.executable_cache_environment() else {
+        let Some(link_environment) = driver.executable_cache_environment_for(&link_options) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
             )));
@@ -1110,6 +1160,7 @@ impl DriverActionExecutor {
             &linked.source_manifest,
             self.invocation.toolchain.identity(),
             link_environment,
+            &cache_link_inputs,
         ) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
@@ -1260,8 +1311,11 @@ impl DriverActionExecutor {
         logical_destination: &LogicalPath,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let artifact = self.artifact(action, artifact_key)?;
-        if artifact.kind != PlanArtifactKind::Executable {
-            return Err(unsupported(action, "install-non-executable-artifact"));
+        if !matches!(
+            artifact.kind,
+            PlanArtifactKind::Executable | PlanArtifactKind::StaticArchive
+        ) {
+            return Err(unsupported(action, "install-non-file-artifact"));
         }
         let source = self.resolve_path(action, &artifact.output)?;
         let destination = self.resolve_path(action, logical_destination)?;
@@ -3712,6 +3766,7 @@ mod tests {
                 kind: ActionKind::CompilerEmit {
                     artifact: artifact_key,
                     target: artifact_target,
+                    static_archives: Vec::new(),
                 },
             }],
             steps: vec![PlanStep {
@@ -3760,6 +3815,7 @@ mod tests {
                     kind: ActionKind::CompilerEmit {
                         artifact: artifact_key.clone(),
                         target: artifact_target,
+                        static_archives: Vec::new(),
                     },
                 },
                 PlanAction {
@@ -3857,6 +3913,7 @@ mod tests {
                     kind: ActionKind::CompilerEmit {
                         artifact: generated_artifact,
                         target: artifact_target.clone(),
+                        static_archives: Vec::new(),
                     },
                 },
                 PlanAction {
@@ -3864,6 +3921,7 @@ mod tests {
                     kind: ActionKind::CompilerEmit {
                         artifact: stable_artifact,
                         target: artifact_target,
+                        static_archives: Vec::new(),
                     },
                 },
                 PlanAction {
@@ -4618,7 +4676,7 @@ mod tests {
         execute_build_plan(&plan, &invocation).unwrap();
 
         let action_entry = only_nested_cache_entry(
-            &invocation.cache_dir.join("actions/compiler-emits/v2"),
+            &invocation.cache_dir.join("actions/compiler-emits/v3"),
             "entry",
         );
         fs::write(&action_entry, b"corrupt").expect("corrupt compiler emit action entry");
@@ -4721,7 +4779,7 @@ mod tests {
         assert!(
             !invocation
                 .cache_dir
-                .join("actions/compiler-emits/v2")
+                .join("actions/compiler-emits/v3")
                 .exists()
         );
     }

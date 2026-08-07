@@ -4278,3 +4278,35 @@ remains the only archive work-product cache owner. The configured package uses
 this relation as the sole archive dependency of its external tool and verifies
 the real input file. Typed installation and executable-link relations remain
 the next archive slices.
+Archive deployment and link progress (2026-08-07): the archive relationship is
+now complete across `std::build`, schema 10, plan freeze, coordinator, Driver,
+and `nia-linker`. `Build::addInstallStaticArchiveStep` installs an archive only
+after its typed emit producer and reuses the journaled file transaction; an
+ObjectSet remains invalid because installation here owns file artifacts.
+`ExecutableOptions::withStaticArchives` retains an ordered list of owner-checked
+archive handles, rejects duplicates and target-role mismatches, and makes the
+executable emit step depend on every archive producer. Freeze repeats the kind,
+target, duplicate, and transitive dependency checks so hand-authored protocol
+bytes cannot bypass the builder.
+
+The coordinator resolves exact archive output paths and reads their bytes only
+for the current invocation. `nia-linker::StaticArchiveLinkInput` separates the
+stable package/name identity and content fingerprint from that physical path;
+link invocations preserve declaration order, content edits invalidate the
+input component, and relocation with identical identity/bytes keeps the same
+fingerprint. Driver link-result reuse therefore cannot return an executable for
+old archive contents. Coordinator compiler-emit records move to schema v3 and
+include the same ordered archive identity/content component, closing the outer
+cache-hit path as well. Old v2 records are intentionally not read.
+
+Focused plan and codec tests cover ordered round-trip plus wrong-kind,
+duplicate, target-mismatch, and missing-producer rejection. Linker tests cover
+exact path order, content invalidation, stable-identity changes, and relocation;
+Driver tests prove warm reuse and relinking after archive bytes change. The std
+conformance program covers foreign handles, duplicate and role rejection,
+missing producers, and automatic dependencies. The maintained configured build
+links its application against the declared archive, installs both executable
+and archive, validates both archive files, and exercises the complete selected
+closure. This closes the planned StaticArchive declaration, external-command,
+installation, and executable-link slices without routing archives through raw
+arguments, `-l` guessing, or ObjectSet directories.
