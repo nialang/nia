@@ -177,6 +177,8 @@ typed Driver requests and emit executable artifacts to
 `addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
 publishes bytes under `.nia-build/`; `ModuleOptions::fromBuild` consumes such a
 build-rooted source without aliasing it as a package path.
+`ModuleOptions::fromPackage` and `ModuleImport::fromPackage` use the same
+owner-checked package handles for compiler sources and module-map imports.
 `addRunExecutableStep(name, RunOptions::init(executable))` runs a declared
 artifact and automatically depends on its existing emit step;
 `RunOptions::withArguments` supplies retained arguments. Builder calls copy

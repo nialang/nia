@@ -445,8 +445,23 @@ extend Build {
     }
 
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
-        validateModuleImports(options.imports).?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
+
+        if options.sourceRoot == ModuleSourceRoot::Package {
+            if options.package is ?package {
+                self.validatePackageHandle(package).?;
+            }
+        }
+        if options.imports is ?imports {
+            for &import in imports.iter() {
+                if import.sourceRoot == ModuleSourceRoot::Package {
+                    if import.package is ?package {
+                        self.validatePackageHandle(package).?;
+                    }
+                }
+            }
+        }
+        validateModuleImports(options.imports).?;
 
         if options.sourceRoot == ModuleSourceRoot::Build
             and not isValidBuildPath(options.rootSource.text())
@@ -481,6 +496,7 @@ extend Build {
             options,
             optimization,
             handle.index(),
+            self.ownerId,
         ).?;
         let mut transferred = false;
         defer if not transferred {
@@ -1604,6 +1620,22 @@ extend ModuleOptions {
         {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
+            package: null,
+            rootSource: rootSource,
+            optimization: null,
+            imports: null,
+        }
+    }
+
+    pub fn fromPackage(
+        name: &[char],
+        package: PackageHandle,
+        rootSource: fs::PathView,
+    ) ModuleOptions {
+        {
+            name: name,
+            sourceRoot: ModuleSourceRoot::Package,
+            package: ?package,
             rootSource: rootSource,
             optimization: null,
             imports: null,
@@ -1614,6 +1646,7 @@ extend ModuleOptions {
         {
             name: name,
             sourceRoot: ModuleSourceRoot::Build,
+            package: null,
             rootSource: fs::PathView::init(rootSource.text()),
             optimization: null,
             imports: null,
@@ -1624,6 +1657,7 @@ extend ModuleOptions {
         {
             name: self.name,
             sourceRoot: self.sourceRoot,
+            package: self.package,
             rootSource: self.rootSource,
             optimization: ?optimization,
             imports: self.imports,
@@ -1634,6 +1668,7 @@ extend ModuleOptions {
         {
             name: self.name,
             sourceRoot: self.sourceRoot,
+            package: self.package,
             rootSource: self.rootSource,
             optimization: self.optimization,
             imports: ?imports,
@@ -1706,11 +1741,16 @@ extend Module {
         options: ModuleOptions,
         optimization: OptimizationMode,
         index: usize,
+        ownerId: usize,
     ) Error!Module {
         let mut moduleRecord: Module = {
             index: index,
             name: string::String::init(),
             sourceRoot: options.sourceRoot,
+            package: switch options.package {
+                ?package => package,
+                null => PackageHandle::init(ownerId, 0),
+            },
             rootSource: fs::PathBuf::init(),
             optimization: optimization,
             imports: collections::ArrayList[OwnedModuleImport]::init(),
@@ -1721,7 +1761,7 @@ extend Module {
         };
         moduleRecord.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.rootSource = fs::PathBuf::fromView(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
-        moduleRecord.imports = cloneModuleImports(allocator, options.imports).?;
+        moduleRecord.imports = cloneModuleImports(allocator, options.imports, ownerId).?;
         transferred = true;
         !moduleRecord
     }
@@ -1745,6 +1785,20 @@ extend ModuleImport {
         {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
+            package: null,
+            path: path,
+        }
+    }
+
+    pub fn fromPackage(
+        name: &[char],
+        package: PackageHandle,
+        path: fs::PathView,
+    ) ModuleImport {
+        {
+            name: name,
+            sourceRoot: ModuleSourceRoot::Package,
+            package: ?package,
             path: path,
         }
     }
@@ -1753,17 +1807,27 @@ extend ModuleImport {
         {
             name: name,
             sourceRoot: ModuleSourceRoot::Build,
+            package: null,
             path: fs::PathView::init(path.text()),
         }
     }
 }
 
 extend OwnedModuleImport {
-    fn init(allocator: &mut mem::Allocator, import: ModuleImport, index: usize) Error!OwnedModuleImport {
+    fn init(
+        allocator: &mut mem::Allocator,
+        import: ModuleImport,
+        index: usize,
+        ownerId: usize,
+    ) Error!OwnedModuleImport {
         let mut owned: OwnedModuleImport = {
             index: index,
             name: string::String::init(),
             sourceRoot: import.sourceRoot,
+            package: switch import.package {
+                ?package => package,
+                null => PackageHandle::init(ownerId, 0),
+            },
             path: fs::PathBuf::init(),
         };
         let mut transferred = false;
@@ -2073,6 +2137,7 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
 fn cloneModuleImports(
     allocator: &mut mem::Allocator,
     imports: ?&[ModuleImport],
+    ownerId: usize,
 ) Error!collections::ArrayList[OwnedModuleImport] {
     let items = if imports is ?values {
         values
@@ -2089,7 +2154,7 @@ fn cloneModuleImports(
     };
     let mut index: usize = 0;
     for &import in items.iter() {
-        let mut ownedImport = OwnedModuleImport::init(allocator, import, index).?;
+        let mut ownedImport = OwnedModuleImport::init(allocator, import, index, ownerId).?;
         let mut importTransferred = false;
         defer if not importTransferred {
             ownedImport.deinit(allocator).?;

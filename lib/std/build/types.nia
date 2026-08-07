@@ -221,6 +221,7 @@ pub struct StepDependency {
 pub struct ModuleOptions {
     name: &[char],
     sourceRoot: ModuleSourceRoot,
+    package: ?PackageHandle,
     rootSource: fs::PathView,
     optimization: ?OptimizationMode,
     imports: ?&[ModuleImport],
@@ -230,6 +231,7 @@ pub struct Module {
     index: usize,
     name: string::String,
     sourceRoot: ModuleSourceRoot,
+    package: PackageHandle,
     rootSource: fs::PathBuf,
     optimization: OptimizationMode,
     imports: collections::ArrayList[OwnedModuleImport],
@@ -238,6 +240,7 @@ pub struct Module {
 pub struct ModuleImport {
     name: &[char],
     sourceRoot: ModuleSourceRoot,
+    package: ?PackageHandle,
     path: fs::PathView,
 }
 
@@ -245,6 +248,7 @@ pub struct OwnedModuleImport {
     index: usize,
     name: string::String,
     sourceRoot: ModuleSourceRoot,
+    package: PackageHandle,
     path: fs::PathBuf,
 }
 

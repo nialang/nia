@@ -16,13 +16,15 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, fingerprint_text,
-    logical_path_identity, read_bytes, read_fingerprint, read_u64, write_bytes, write_fingerprint,
-    write_text,
+    logical_path_identity, package_roots_identity, read_bytes, read_fingerprint, read_u64,
+    write_bytes, write_fingerprint, write_text,
 };
-use crate::{ActionKey, OptimizationMode, PlanModule, Runtime, TargetSpec, lock::ScopedFileLock};
+use crate::{
+    ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, TargetSpec, lock::ScopedFileLock,
+};
 
-const MAGIC: &[u8; 8] = b"NIACKC01";
-const SCHEMA: &str = "v1";
+const MAGIC: &[u8; 8] = b"NIACKC02";
+const SCHEMA: &str = "v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ToolchainComponents {
@@ -59,6 +61,7 @@ impl ToolchainComponents {
 pub(super) struct FingerprintComponents {
     pub(super) sources: QueryFingerprint,
     pub(super) module: QueryFingerprint,
+    pub(super) package_roots: QueryFingerprint,
     pub(super) target: QueryFingerprint,
     pub(super) optimization: QueryFingerprint,
     pub(super) runtime: QueryFingerprint,
@@ -79,6 +82,7 @@ impl FingerprintSet {
     fn new(
         action: &ActionKey,
         module: &[u8],
+        package_roots: &[u8],
         target: &[u8],
         optimization: u8,
         runtime: u8,
@@ -89,6 +93,10 @@ impl FingerprintSet {
         let components = FingerprintComponents {
             sources,
             module: bytes_fingerprint("nia.build.compiler-check.module.v1", module),
+            package_roots: bytes_fingerprint(
+                "nia.build.compiler-check.package-roots.v1",
+                package_roots,
+            ),
             target: bytes_fingerprint("nia.build.compiler-check.target.v1", target),
             optimization: integer_fingerprint(
                 "nia.build.compiler-check.optimization.v1",
@@ -120,6 +128,7 @@ pub(crate) struct CompilerCheckCacheIdentity {
     pub(super) fingerprints: FingerprintSet,
     pub(super) action: Vec<u8>,
     pub(super) module: Vec<u8>,
+    pub(super) package_roots: Vec<u8>,
     pub(super) target: Vec<u8>,
     pub(super) optimization: u8,
     pub(super) runtime: u8,
@@ -130,6 +139,7 @@ impl CompilerCheckCacheIdentity {
     pub(crate) fn new(
         action: &ActionKey,
         module: &PlanModule,
+        packages: &[PlanPackage],
         target: &TargetSpec,
         runtime: Runtime,
         manifest: &SourceInputManifest,
@@ -138,6 +148,11 @@ impl CompilerCheckCacheIdentity {
         let sources = source_records(manifest)?;
         let source_fingerprint = QueryFingerprint::from_parts(manifest.fingerprint()?.parts());
         let module_identity = module_identity(module);
+        let package_roots = package_roots_identity(
+            packages,
+            std::iter::once(&module.root_source)
+                .chain(module.imports.iter().map(|import| &import.path)),
+        )?;
         let target_identity = target_identity(target);
         let optimization = optimization_tag(module.optimization);
         let runtime = runtime_tag(runtime);
@@ -145,6 +160,7 @@ impl CompilerCheckCacheIdentity {
             fingerprints: FingerprintSet::new(
                 action,
                 &module_identity,
+                &package_roots,
                 &target_identity,
                 optimization,
                 runtime,
@@ -153,6 +169,7 @@ impl CompilerCheckCacheIdentity {
             ),
             action: action_identity(action),
             module: module_identity,
+            package_roots,
             target: target_identity,
             optimization,
             runtime,
@@ -375,6 +392,7 @@ struct DecodedEntry {
     fingerprints: FingerprintSet,
     action: Vec<u8>,
     module: Vec<u8>,
+    package_roots: Vec<u8>,
     target: Vec<u8>,
     optimization: u8,
     runtime: u8,
@@ -387,6 +405,7 @@ fn encode_entry(identity: &CompilerCheckCacheIdentity) -> Vec<u8> {
     write_fingerprint_set(&mut encoded, identity.fingerprints);
     write_bytes(&mut encoded, &identity.action);
     write_bytes(&mut encoded, &identity.module);
+    write_bytes(&mut encoded, &identity.package_roots);
     write_bytes(&mut encoded, &identity.target);
     encoded.push(identity.optimization);
     encoded.push(identity.runtime);
@@ -410,6 +429,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let fingerprints = read_fingerprint_set(&mut cursor)?;
     let action = read_bytes(&mut cursor, encoded.len())?;
     let module = read_bytes(&mut cursor, encoded.len())?;
+    let package_roots = read_bytes(&mut cursor, encoded.len())?;
     let target = read_bytes(&mut cursor, encoded.len())?;
     let optimization = read_tag(&mut cursor, 6)?;
     let runtime = read_tag(&mut cursor, 2)?;
@@ -437,6 +457,10 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let components = FingerprintComponents {
         sources: source_fingerprint,
         module: bytes_fingerprint("nia.build.compiler-check.module.v1", &module),
+        package_roots: bytes_fingerprint(
+            "nia.build.compiler-check.package-roots.v1",
+            &package_roots,
+        ),
         target: bytes_fingerprint("nia.build.compiler-check.target.v1", &target),
         optimization: integer_fingerprint(
             "nia.build.compiler-check.optimization.v1",
@@ -455,6 +479,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             fingerprints,
             action,
             module,
+            package_roots,
             target,
             optimization,
             runtime,
@@ -468,6 +493,7 @@ fn write_fingerprint_set(encoded: &mut Vec<u8>, fingerprints: FingerprintSet) {
         fingerprints.fingerprint,
         fingerprints.components.sources,
         fingerprints.components.module,
+        fingerprints.components.package_roots,
         fingerprints.components.target,
         fingerprints.components.optimization,
         fingerprints.components.runtime,
@@ -487,6 +513,7 @@ fn read_fingerprint_set(cursor: &mut Cursor<&[u8]>) -> Option<FingerprintSet> {
         components: FingerprintComponents {
             sources: read_fingerprint(cursor)?,
             module: read_fingerprint(cursor)?,
+            package_roots: read_fingerprint(cursor)?,
             target: read_fingerprint(cursor)?,
             optimization: read_fingerprint(cursor)?,
             runtime: read_fingerprint(cursor)?,
@@ -502,6 +529,7 @@ fn entry_matches(entry: &DecodedEntry, identity: &CompilerCheckCacheIdentity) ->
     entry.fingerprints == identity.fingerprints
         && entry.action == identity.action
         && entry.module == identity.module
+        && entry.package_roots == identity.package_roots
         && entry.target == identity.target
         && entry.optimization == identity.optimization
         && entry.runtime == identity.runtime
@@ -521,6 +549,10 @@ pub(super) fn invalidations(
         (
             found.module != expected.module,
             ActionCacheInvalidation::Module,
+        ),
+        (
+            found.package_roots != expected.package_roots,
+            ActionCacheInvalidation::PackageRoots,
         ),
         (
             found.target != expected.target,
@@ -685,6 +717,7 @@ fn combined_fingerprint(
     for component in [
         components.sources,
         components.module,
+        components.package_roots,
         components.target,
         components.optimization,
         components.runtime,
@@ -753,9 +786,11 @@ mod tests {
         }];
         let module_identity = module_identity(&module);
         let target_identity = target_identity(&target);
+        let package_roots = vec![0, 0, 0, 0, 0, 0, 0, 0];
         let fingerprints = FingerprintSet::new(
             &action,
             &module_identity,
+            &package_roots,
             &target_identity,
             optimization_tag(module.optimization),
             runtime_tag(Runtime::Bare),
@@ -771,6 +806,7 @@ mod tests {
             fingerprints,
             action: action_identity(&action),
             module: module_identity,
+            package_roots,
             target: target_identity,
             optimization: optimization_tag(module.optimization),
             runtime: runtime_tag(Runtime::Bare),
@@ -817,6 +853,13 @@ mod tests {
                     ..baseline
                 },
                 ActionCacheInvalidation::Module,
+            ),
+            (
+                FingerprintComponents {
+                    package_roots: fingerprint(10),
+                    ..baseline
+                },
+                ActionCacheInvalidation::PackageRoots,
             ),
             (
                 FingerprintComponents {

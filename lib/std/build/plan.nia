@@ -208,7 +208,7 @@ extend PlanEncoder {
     fn writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!void {
         self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
         switch moduleRecord.sourceRoot {
-            ModuleSourceRoot::Package => self.writePackagePath(PackageHandle::init(0, 0), moduleRecord.rootSource.view(), packages).?,
+            ModuleSourceRoot::Package => self.writePackagePath(moduleRecord.package, moduleRecord.rootSource.view(), packages).?,
             ModuleSourceRoot::Build => self.writeBuildPath(moduleRecord.rootSource.text()).?,
             _ => return invalidPlan(),
         }
@@ -217,7 +217,7 @@ extend PlanEncoder {
         for &import in moduleRecord.imports.iter() {
             self.writeString(import.name.text()).?;
             switch import.sourceRoot {
-                ModuleSourceRoot::Package => self.writePackagePath(PackageHandle::init(0, 0), import.path.view(), packages).?,
+                ModuleSourceRoot::Package => self.writePackagePath(import.package, import.path.view(), packages).?,
                 ModuleSourceRoot::Build => self.writeBuildPath(import.path.text()).?,
                 _ => return invalidPlan(),
             }

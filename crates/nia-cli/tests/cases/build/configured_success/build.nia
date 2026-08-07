@@ -26,9 +26,14 @@ fn configure(b: &mut build::Build) build::Error!void {
             &helperName,
             build::BuildPathView::init(&helperPath),
         ),
+        build::ModuleImport::fromPackage(
+            &"assetHelper",
+            assets,
+            fs::PathView::init(&"helper.nia"),
+        ),
     ];
     let rootModule = b.addModule(
-        build::ModuleOptions::init(&appName, fs::PathView::init(&srcMain))
+        build::ModuleOptions::fromPackage(&appName, assets, fs::PathView::init(&srcMain))
             .withImports(&imports[..]),
     ).?;
     let app = b.addExecutable(

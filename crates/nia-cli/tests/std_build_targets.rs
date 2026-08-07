@@ -161,6 +161,22 @@ fn rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
     }
 }
 
+fn rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Packages,
+            } => true,
+            _ => false,
+        },
+    }
+}
+
 fn rejectsInvalidPlanModule(result: build::Error!void, index: usize) bool {
     switch result {
         !ok => {
@@ -378,6 +394,24 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &"other-package",
         fs::PathView::init(&"packages/other"),
     )).exit().?;
+    if not rejectsForeignPackageModule(api.addModule(build::ModuleOptions::fromPackage(
+        &"foreign-package-module",
+        otherPackage,
+        fs::PathView::init(&"main.nia"),
+    ))) {
+        return process::exit(20)!;
+    }
+    let foreignPackageImports = [build::ModuleImport::fromPackage(
+        &"foreignPackageImport",
+        otherPackage,
+        fs::PathView::init(&"helper.nia"),
+    )];
+    if not rejectsForeignPackageModule(api.addModule(
+        build::ModuleOptions::init(&"foreign-package-import", fs::PathView::init(&"main.nia"))
+            .withImports(&foreignPackageImports),
+    )) {
+        return process::exit(21)!;
+    }
     let foreignPackageArguments = [build::CommandArgument::packageInput(
         otherPackage,
         fs::PathView::init(&"input.txt"),
