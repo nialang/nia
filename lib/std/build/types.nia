@@ -75,6 +75,22 @@ pub struct ModuleHandle {
     index: usize,
 }
 
+pub struct PackageHandle {
+    ownerId: usize,
+    index: usize,
+}
+
+pub struct PackageOptions {
+    name: &[char],
+    root: fs::PathView,
+}
+
+pub(pkg) struct Package {
+    index: usize,
+    name: string::String,
+    root: fs::PathBuf,
+}
+
 pub struct AggregateStep {
     marker: u8,
 }
@@ -118,6 +134,7 @@ pub(pkg) union CommandArgumentPayload {
 pub struct CommandArgument {
     kind: CommandArgumentKind,
     payload: CommandArgumentPayload,
+    package: PackageHandle,
 }
 
 pub enum ActionResourceClass: i32 {
@@ -162,6 +179,7 @@ pub(pkg) union OwnedCommandArgumentPayload {
 pub(pkg) struct OwnedCommandArgument {
     kind: CommandArgumentKind,
     payload: OwnedCommandArgumentPayload,
+    package: PackageHandle,
 }
 
 pub(pkg) struct OwnedCommandEnvironmentInput {
@@ -267,6 +285,7 @@ pub struct Build {
     planValidated: bool,
     steps: collections::ArrayList[Step],
     dependencies: collections::ArrayList[StepDependency],
+    packages: collections::ArrayList[Package],
     modules: collections::ArrayList[Module],
     executables: collections::ArrayList[ExecutableTarget],
 }

@@ -2170,6 +2170,14 @@ and can use `std`. The generated runner injects package-root context into
 `toolchainExecutable()` is the `nia` executable that launched the build. The
 toolchain creates the build and cache directories before executing the runner.
 The current `std::build` surface is intentionally small:
+`addPackage(PackageOptions::init(name, relativeRoot))` records a local package
+root and returns an owner-checked handle. `rootPackage()` returns the matching
+handle for the package containing `build.nia`, and
+`CommandArgument::packageInput(handle, path)` preserves that package key in the
+frozen logical path. Package roots are canonical paths relative to the root
+package; no absolute host path, registry resolution, version solver, download,
+or network policy enters the plan. Cross-package compiler module maps remain a
+separate unfinished surface.
 `addModule(ModuleOptions::init(name, rootSource))` records a package-rooted
 source module, while `ModuleOptions::fromBuild(name,
 BuildPathView::init(path))` records a build-rooted source such as generated
@@ -2233,7 +2241,7 @@ one action slot, and charges `Conservative` the complete action capacity. This
 prevents unknown external work from overlapping same-wave actions without
 creating a private executor or weakening compiler query and LLVM memory limits.
 
-Build protocol schema 5 also separates an external command's environment and
+Build protocol schema 6 adds canonical local-package roots and also separates an external command's environment and
 cache declarations. Existing commands inherit the coordinator environment and
 are uncacheable by default. A command may clear that environment and then add
 explicit owned name/value entries. Only a command that clears the environment,

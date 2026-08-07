@@ -241,7 +241,19 @@ fn assert_configured_build_success(
     let plan = nia_build::read_build_plan(&plan_path).expect("decode published build plan");
     assert_eq!(plan.schema_version(), nia_build::BUILD_PLAN_SCHEMA_VERSION);
     assert_eq!(plan.root_package().as_str(), "root");
-    assert_eq!(plan.packages().len(), 1);
+    assert_eq!(plan.packages().len(), 2);
+    let assets = plan
+        .packages()
+        .iter()
+        .find(|package| package.key.as_str() == "assets")
+        .expect("declared local package");
+    assert_eq!(assets.root, "packages/assets");
+    let root = plan
+        .packages()
+        .iter()
+        .find(|package| package.key.as_str() == "root")
+        .expect("root package");
+    assert!(root.root.is_empty());
     assert_eq!(plan.modules().len(), 2);
     assert_eq!(plan.modules()[0].key.name(), "app");
     assert_eq!(
@@ -399,7 +411,7 @@ fn assert_configured_build_success(
             assert_eq!(inputs.len(), 3);
             assert!(matches!(
                 inputs[0].root(),
-                nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
+                nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
             ));
             assert_eq!(inputs[0].protocol_path(), "tool-input.txt");
             assert!(matches!(
@@ -504,7 +516,7 @@ fn assert_configured_build_success(
     assert!(!workspace.join(".nia-build/worker").exists());
     assert_eq!(
         std::fs::read(workspace.join(".nia-build/transformed.txt")).unwrap(),
-        b"ROADMAP\n"
+        b"EXTERNAL ROADMAP\n"
     );
     assert_eq!(
         std::fs::read(workspace.join(".nia-build/transformed.meta")).unwrap(),

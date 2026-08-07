@@ -1248,13 +1248,20 @@ impl DriverActionExecutor {
     ) -> Result<PathBuf, CoordinatorError> {
         let mut path = match logical.root() {
             LogicalPathRoot::Package(package) => {
-                if package != self.plan.root_package() {
-                    return Err(CoordinatorError::UnmappedPackage {
+                let package = self
+                    .plan
+                    .packages()
+                    .iter()
+                    .find(|candidate| &candidate.key == package)
+                    .ok_or_else(|| CoordinatorError::UnmappedPackage {
                         action: action.key.clone(),
                         package: package.clone(),
-                    });
+                    })?;
+                let mut root = self.invocation.package_root.clone();
+                if !package.root.is_empty() {
+                    root.extend(package.root.split('/'));
                 }
-                self.invocation.package_root.clone()
+                root
             }
             LogicalPathRoot::Build => self.invocation.build_dir.clone(),
             LogicalPathRoot::Cache => self.invocation.cache_dir.clone(),
@@ -2572,6 +2579,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target(),
             artifact_target: target(),
@@ -2609,6 +2617,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target(),
             artifact_target: target(),
@@ -2973,6 +2982,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target(),
             artifact_target: target(),
@@ -3087,6 +3097,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target(),
             artifact_target: target(),
@@ -3127,6 +3138,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target.clone(),
             artifact_target: target,
@@ -3165,6 +3177,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: mismatched,
             artifact_target: target_spec(invocation.toolchain.artifact_target()),
@@ -3192,6 +3205,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: host,
             artifact_target: artifact,
@@ -3234,6 +3248,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: host,
             artifact_target: artifact.clone(),
@@ -3281,6 +3296,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: host,
             artifact_target: artifact_target.clone(),
@@ -3333,6 +3349,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: host,
             artifact_target: artifact_target.clone(),
@@ -4263,6 +4280,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target_spec(invocation.toolchain.host_target()),
             artifact_target: target_spec(invocation.toolchain.artifact_target()),
@@ -4309,6 +4327,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target_spec(invocation.toolchain.host_target()),
             artifact_target: target_spec(invocation.toolchain.artifact_target()),
@@ -4362,6 +4381,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target_spec(invocation.toolchain.host_target()),
             artifact_target: target_spec(invocation.toolchain.artifact_target()),

@@ -222,6 +222,16 @@ pub struct PlanModule {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanPackage {
     pub key: PackageKey,
+    /// Package root relative to the invocation's root package.
+    /// The root package is represented by the empty path.
+    pub root: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageRootError {
+    RootPackageMustBeEmpty,
+    ExternalPackageMustBeNonempty,
+    InvalidPath(LogicalPathError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -368,6 +378,10 @@ pub struct BuildPlan {
 pub enum PlanError {
     DuplicatePackage(PackageKey),
     MissingPackage(PackageKey),
+    InvalidPackageRoot {
+        package: PackageKey,
+        error: PackageRootError,
+    },
     DuplicateModule(ModuleKey),
     DuplicateArtifact(ArtifactKey),
     DuplicateAction(ActionKey),
@@ -544,6 +558,21 @@ fn canonicalize_packages(
     )?;
     if !packages.iter().any(|package| &package.key == root_package) {
         return Err(PlanError::MissingPackage(root_package.clone()));
+    }
+    for package in packages {
+        let is_root = &package.key == root_package;
+        let invalid = |error| PlanError::InvalidPackageRoot {
+            package: package.key.clone(),
+            error,
+        };
+        if is_root && !package.root.is_empty() {
+            return Err(invalid(PackageRootError::RootPackageMustBeEmpty));
+        }
+        if !is_root && package.root.is_empty() {
+            return Err(invalid(PackageRootError::ExternalPackageMustBeNonempty));
+        }
+        LogicalPath::new(LogicalPathRoot::Build, &package.root)
+            .map_err(|error| invalid(PackageRootError::InvalidPath(error)))?;
     }
     Ok(())
 }
@@ -1217,6 +1246,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target(),
             artifact_target: target(),
@@ -1256,6 +1286,58 @@ mod tests {
             LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "src\\a"),
             Err(LogicalPathError::Backslash)
         );
+    }
+
+    #[test]
+    fn freeze_validates_declared_package_roots() {
+        let mut value = draft(false);
+        value.packages.push(PlanPackage {
+            key: PackageKey::new("assets").unwrap(),
+            root: "packages/assets".to_string(),
+        });
+        let plan = BuildPlan::freeze(value.clone()).unwrap();
+        assert_eq!(plan.packages()[0].key.as_str(), "assets");
+        assert_eq!(plan.packages()[0].root, "packages/assets");
+
+        value
+            .packages
+            .iter_mut()
+            .find(|package| package.key == PackageKey::root())
+            .unwrap()
+            .root = "moved-root".to_string();
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidPackageRoot {
+                package,
+                error: PackageRootError::RootPackageMustBeEmpty,
+            }) if package == PackageKey::root()
+        ));
+
+        let mut value = draft(false);
+        value.packages.push(PlanPackage {
+            key: PackageKey::new("assets").unwrap(),
+            root: "packages/../assets".to_string(),
+        });
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidPackageRoot {
+                package,
+                error: PackageRootError::InvalidPath(LogicalPathError::ParentDirectory),
+            }) if package.as_str() == "assets"
+        ));
+
+        let mut value = draft(false);
+        value.packages.push(PlanPackage {
+            key: PackageKey::new("assets").unwrap(),
+            root: String::new(),
+        });
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidPackageRoot {
+                package,
+                error: PackageRootError::ExternalPackageMustBeNonempty,
+            }) if package.as_str() == "assets"
+        ));
     }
 
     #[test]
@@ -1315,6 +1397,7 @@ mod tests {
             root_package: PackageKey::root(),
             packages: vec![PlanPackage {
                 key: PackageKey::root(),
+                root: String::new(),
             }],
             host_target: target(),
             artifact_target: target(),

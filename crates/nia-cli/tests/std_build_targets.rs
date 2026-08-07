@@ -129,6 +129,38 @@ fn rejectsForeignStep(result: build::Error!void) bool {
     }
 }
 
+fn rejectsInvalidPackage(result: build::Error!build::PackageHandle, index: usize) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Package(actual),
+            } => actual == index,
+            _ => false,
+        },
+    }
+}
+
+fn rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
+    switch result {
+        !handle => {
+            _ = handle;
+            false
+        },
+        error! => switch error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Packages,
+            } => true,
+            _ => false,
+        },
+    }
+}
+
 fn rejectsInvalidPlanModule(result: build::Error!void, index: usize) bool {
     switch result {
         !ok => {
@@ -290,6 +322,48 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )) {
         return process::exit(10)!;
     }
+    if not rejectsInvalidPackage(
+        api.addPackage(build::PackageOptions::init(
+            &"root",
+            fs::PathView::init(&"packages/root"),
+        )),
+        1usize,
+    ) {
+        return process::exit(17)!;
+    }
+    let assets = api.addPackage(build::PackageOptions::init(
+        &"assets",
+        fs::PathView::init(&"packages/assets"),
+    )).exit().?;
+    if not rejectsInvalidPackage(
+        api.addPackage(build::PackageOptions::init(
+            &"assets",
+            fs::PathView::init(&"packages/other"),
+        )),
+        2usize,
+    ) or not rejectsInvalidPackage(
+        api.addPackage(build::PackageOptions::init(
+            &"other",
+            fs::PathView::init(&"packages/assets"),
+        )),
+        2usize,
+    ) or not rejectsInvalidPackage(
+        api.addPackage(build::PackageOptions::init(
+            &"escape",
+            fs::PathView::init(&"../escape"),
+        )),
+        2usize,
+    ) {
+        return process::exit(18)!;
+    }
+    let packageArguments = [build::CommandArgument::packageInput(
+        assets,
+        fs::PathView::init(&"input.txt"),
+    )];
+    _ = api.addExternalCommandStep(
+        &"package-input",
+        build::ExternalCommandOptions::search(&"tool").withArguments(&packageArguments),
+    ).exit().?;
 
     let mut other = initBuild(init, &mut allocator).exit().?;
     defer other.deinit().exit().?;
@@ -300,6 +374,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
         build::ExecutableOptions::init(&"other-app", otherModule),
     ).exit().?;
     let otherStep = other.addEmitExecutableStep(&"other-emit", otherExecutable).exit().?;
+    let otherPackage = other.addPackage(build::PackageOptions::init(
+        &"other-package",
+        fs::PathView::init(&"packages/other"),
+    )).exit().?;
+    let foreignPackageArguments = [build::CommandArgument::packageInput(
+        otherPackage,
+        fs::PathView::init(&"input.txt"),
+    )];
+    if not rejectsForeignPackageInput(api.addExternalCommandStep(
+        &"foreign-package-input",
+        build::ExternalCommandOptions::search(&"tool")
+            .withArguments(&foreignPackageArguments),
+    )) {
+        return process::exit(19)!;
+    }
     if not rejectsForeignModule(api.addExecutable(
         build::ExecutableOptions::init(&"foreign-module", otherModule),
     )) {

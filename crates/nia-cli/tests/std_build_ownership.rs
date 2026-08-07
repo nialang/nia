@@ -483,7 +483,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     allocator.disableFailure();
     let commandArguments = [
         build::CommandArgument::literal(&"first"),
-        build::CommandArgument::packageInput(fs::PathView::init(&"input.txt")),
+        build::CommandArgument::packageInput(api.rootPackage(), fs::PathView::init(&"input.txt")),
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"output.txt")),
     ];
     let beforeCommand = allocator.activeAllocations;
