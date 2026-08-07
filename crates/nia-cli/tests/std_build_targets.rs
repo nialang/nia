@@ -506,6 +506,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ).exit().?;
     _ = api.addCheckExecutableStep(&"host-check", hostExecutable).exit().?;
     _ = api.addEmitExecutableStep(&"host-emit", hostExecutable).exit().?;
+    let object = api.addObject(
+        build::ObjectOptions::init(&"objects", moduleHandle)
+            .withOutputName(&"objects-dir"),
+    ).exit().?;
+    _ = api.addEmitObjectStep(&"object-emit", object).exit().?;
     api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
     !{}
 }
@@ -544,6 +549,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &artifact_emit.kind,
         nia_build::ActionKind::CompilerEmit { target, .. }
             if target == plan.artifact_target()
+    ));
+    let object_emit = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "object-emit")
+        .expect("object emit action");
+    assert!(matches!(
+        &object_emit.kind,
+        nia_build::ActionKind::CompilerEmit { artifact, target }
+            if target == plan.artifact_target()
+                && plan.artifacts().iter().any(|item| {
+                    item.key.name() == "objects"
+                        && item.kind == nia_build::PlanArtifactKind::ObjectSet
+                        && item.output.protocol_path() == "objects-dir"
+                        && item.root_module.name() == "main"
+                        && artifact == &item.key
+                })
     ));
     for name in ["host-check", "host-emit"] {
         let action = plan

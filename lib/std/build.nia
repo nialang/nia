@@ -23,6 +23,8 @@ pub using types::{
     ExternalCommandOptions,
     ExecutableHandle,
     ExecutableOptions,
+    ObjectHandle,
+    ObjectOptions,
     ModuleHandle,
     ModuleImport,
     ModuleOptions,

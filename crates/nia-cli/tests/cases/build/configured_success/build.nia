@@ -14,9 +14,11 @@ fn configure(b: &mut build::Build) build::Error!void {
     let appName = "app";
     let workerName = "worker";
     let hostToolName = "host-tool";
+    let objectName = "objects";
     let outputName = "custom-app";
     let workerOutputName = "custom-worker";
     let hostToolOutputName = "custom-host-tool";
+    let objectOutputName = "custom-objects";
     let buildStepName = "build";
     let checkStepName = "check";
     let runStepName = "run";
@@ -60,9 +62,14 @@ fn configure(b: &mut build::Build) build::Error!void {
             .forHost()
             .withOutputName(&hostToolOutputName),
     ).?;
+    let objects = b.addObject(
+        build::ObjectOptions::init(&objectName, rootModule)
+            .withOutputName(&objectOutputName),
+    ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
     _ = b.addEmitExecutableStep(&hostToolName, hostTool).?;
+    let objectStep = b.addEmitObjectStep(&objectName, objects).?;
     _ = b.addCheckExecutableStep(&checkStepName, app).?;
     _ = b.addGeneratedFileStep(
         &generateWorkerStepName,
@@ -113,6 +120,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     b.dependOn(toolStep, installStep).?;
     b.dependOn(toolStep, runStep).?;
     b.dependOn(toolStep, hostRunStep).?;
+    b.dependOn(toolStep, objectStep).?;
     b.setDefaultStep(toolStep).?;
     !{}
 }
