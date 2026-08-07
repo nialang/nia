@@ -4130,3 +4130,17 @@ typed artifact-root process action without introducing a second executor or a
 cacheable test result. The target conformance fixture constructs the relation
 and validates the resulting plan. Install relationships and the remaining
 artifact surface remain open.
+
+Phase G progress (2026-08-07, typed executable installation): std now exposes
+`Build::addInstallExecutableStep(name, target, BuildPathView::init(path))` as a
+typed build-root publication relation. The builder validates handle ownership,
+requires the target's existing emit step, retains the destination with explicit
+rollback cleanup, and the schema-7 plan carries the artifact key and logical
+destination without inventing a system prefix. The coordinator resolves the
+emitted artifact, copies it through the existing journaled output transaction,
+preserves executable permissions, locks the destination, and atomically
+replaces prior files. The configured fixture publishes and runs an installed
+copy, and focused plan/codec/coordinator tests cover missing artifacts,
+dependency closure, output collision, replacement, and permission retention.
+The system-prefix deployment policy, host compiler artifacts, object/library
+kinds, and the remaining artifact surface remain open.
