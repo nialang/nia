@@ -189,6 +189,19 @@ an emitted executable at another build-rooted path under `.nia-build/`, using
 the coordinator's typed dependency, output lock, journal, rollback, and atomic
 publication rules. It is build artifact publication, not a system-prefix
 installer.
+`addObject(ObjectOptions::init(name, rootModule))` declares a target-aware
+ObjectSet and `addEmitObjectStep` publishes the complete Driver codegen-unit
+directory. ObjectSets are directory artifacts, not single objects or archives.
+`addStaticArchive(StaticArchiveOptions::init(name, rootModule))` declares a
+typed archive; `addEmitStaticArchiveStep` and
+`addInstallStaticArchiveStep` emit and stage its file through the same journaled
+transaction. `ExecutableOptions::withStaticArchives` feeds declared archives
+to the linker in source order, while
+`CommandArgument::staticArchiveInput` gives external tools an exact archive
+file input. Handles are owner-checked and target-role mismatches, duplicates,
+missing producers, and ObjectSet/archive substitutions are rejected before
+execution. Archive paths and bytes participate in the appropriate cache
+identities; no `-l` guessing or shared-directory scan is used.
 `RunOptions::withArguments` supplies retained arguments. Builder calls copy
 retained text, paths, imports, and run arguments, so local input arrays may
 leave scope before execution. `setDefaultStep(step)`

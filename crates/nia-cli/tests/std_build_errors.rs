@@ -33,7 +33,6 @@ fn initBuild(
     let emptyPath = fs::PathView::init(&empty);
     let currentTarget = target();
     build::Build::init(
-        init,
         allocator,
         emptyPath,
         emptyPath,
@@ -44,7 +43,7 @@ fn initBuild(
         currentTarget,
         build::OptimizationMode::O0,
         1u32,
-        1024usize,
+        null,
     )
 }
 

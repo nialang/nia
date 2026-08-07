@@ -1,6 +1,6 @@
 # Nia Build System Architecture
 
-Status: Phases A-F complete; Phase G artifact and package-boundary work in progress
+Status: Phases A-G complete; Phase H migration and hardening in progress
 
 The Rust-side `BuildInvocation` is resolved bootstrap state: package and
 toolchain paths, requested step, runner locations, and timing options. It is not
@@ -33,7 +33,13 @@ nia build
 
 The generated runner is a configuration process: it constructs, validates, and
 encodes the graph, but it cannot execute an action. The decoded frozen plan is
-the coordinator's only execution input.
+the coordinator's only execution input. Runner bootstrap state is carried in a
+private, invocation-qualified `.build-runner-*.config` file with its own magic,
+schema, bounded length-prefixed fields, checksum, and explicit requested-step
+tag. The runner receives only `--config <path>`; it does not interpret a
+positional path/target/optimization vector. The configuration file is created
+exclusively, synced before launch, and removed alongside the draft and transient
+runner executable on every normal success or failure path.
 
 ## 2. Current Owners
 
@@ -121,9 +127,9 @@ the runner draft on every normal success or failure path. The durable handoff is
 contents.
 
 Each build invocation compiles to a process/sequence-qualified runner executable
-and writes a matching private draft. Both transient files are retired when the
-runner finishes. Concurrent invocations therefore never remove, execute, or
-decode one another's runner state; canonical `build-plan.bin` publication
+and writes matching private configuration and draft files. All transient files
+are retired when the runner finishes. Concurrent invocations therefore never
+remove, execute, or decode one another's runner state; canonical `build-plan.bin` publication
 remains an atomic last-completed observation and is not the execution truth for
 an already decoded plan.
 

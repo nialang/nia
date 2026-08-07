@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env,
-    ffi::OsString,
-    fmt, fs, io,
+    env, fmt, fs, io,
+    io::Write,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
@@ -25,6 +24,7 @@ mod lock;
 mod output_recovery;
 mod plan;
 mod resources;
+mod runner_config;
 
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
@@ -97,6 +97,7 @@ pub struct BuildInvocation {
     pub cache_dir: PathBuf,
     pub runner_dir: PathBuf,
     pub runner_executable: PathBuf,
+    pub runner_config: PathBuf,
     pub plan_draft: PathBuf,
     pub plan_path: PathBuf,
     pub step: BuildStepSelection,
@@ -110,15 +111,6 @@ pub struct BuildInvocation {
 pub enum BuildStepSelection {
     Default,
     Named(String),
-}
-
-impl BuildStepSelection {
-    fn as_runner_arg(&self) -> Option<&str> {
-        match self {
-            Self::Default => None,
-            Self::Named(step) => Some(step),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +152,21 @@ pub enum BuildError {
     PreparePlanDraft {
         path: PathBuf,
         error: io::Error,
+    },
+    PrepareRunnerConfiguration {
+        path: PathBuf,
+        error: io::Error,
+    },
+    CleanupRunnerConfiguration {
+        path: PathBuf,
+        error: io::Error,
+    },
+    RunnerConfigurationFieldTooLarge {
+        role: &'static str,
+        len: usize,
+    },
+    RunnerConfigurationTooLarge {
+        len: usize,
     },
     ReadPlanDraft {
         path: PathBuf,
@@ -245,6 +252,24 @@ impl fmt::Display for BuildError {
                 f,
                 "failed to prepare build-plan draft `{}`: {error}",
                 path.display()
+            ),
+            Self::PrepareRunnerConfiguration { path, error } => write!(
+                f,
+                "failed to prepare build-runner configuration `{}`: {error}",
+                path.display()
+            ),
+            Self::CleanupRunnerConfiguration { path, error } => write!(
+                f,
+                "failed to remove build-runner configuration `{}`: {error}",
+                path.display()
+            ),
+            Self::RunnerConfigurationFieldTooLarge { role, len } => write!(
+                f,
+                "failed to encode build-runner configuration: {role} is {len} bytes",
+            ),
+            Self::RunnerConfigurationTooLarge { len } => write!(
+                f,
+                "failed to encode build-runner configuration: payload is {len} bytes",
             ),
             Self::ReadPlanDraft { path, error } => write!(
                 f,
@@ -475,6 +500,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
         runner_executable: runner_dir.join(format!("nia-build-runner-{transient_name}")),
+        runner_config: build_dir.join(format!(".build-runner-{transient_name}.config")),
         plan_draft: build_dir.join(format!(".build-plan-{transient_name}.draft")),
         plan_path: build_dir.join("build-plan.bin"),
         runner_dir,
@@ -521,7 +547,6 @@ using std::fmt;
 using std::fs;
 using std::io;
 using std::mem;
-using std::parse;
 using std::process;
 using std::string;
 using buildScript;
@@ -617,18 +642,73 @@ extend TargetText {
     }
 }
 
-fn textArg(
-    init: process::Init,
+struct ConfigCursor {
+    bytes: &[u8],
+    position: usize,
+}
+
+extend ConfigCursor {
+    fn init(bytes: &[u8]) ConfigCursor {
+        { bytes: bytes, position: 0 }
+    }
+
+    fn remaining(&self) usize {
+        self.bytes.len() - self.position
+    }
+
+    fn take(&mut self, count: usize) build::Error!&[u8] {
+        if count > self.remaining() {
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::RunnerConfiguration,
+            }!;
+        }
+        let start = self.position;
+        self.position += count;
+        !&self.bytes[start..self.position]
+    }
+
+    fn byte(&mut self) build::Error!u8 {
+        !self.take(1).?[0]
+    }
+
+    fn u32(&mut self) build::Error!u32 {
+        let bytes = self.take(4).?;
+        !((bytes[0] as u32)
+            | ((bytes[1] as u32) << 8u32)
+            | ((bytes[2] as u32) << 16u32)
+            | ((bytes[3] as u32) << 24u32))
+    }
+
+    fn u64(&mut self) build::Error!u64 {
+        let low = self.u32().? as u64;
+        let high = self.u32().? as u64;
+        !(low | (high << 32u64))
+    }
+
+    fn textBytes(&mut self) build::Error!&[u8] {
+        let len = self.u32().? as usize;
+        self.take(len)
+    }
+}
+
+fn runnerConfigChecksum(bytes: &[u8]) u64 {
+    let mut first = 1u32;
+    let mut second = 0u32;
+    for &byte in bytes {
+        first = (first + (byte as u32)) % 65521u32;
+        second = (second + first) % 65521u32;
+    }
+    ((second as u64) << 32u64) | (first as u64)
+}
+
+fn readText(
+    cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
-    index: usize,
     storage: &mut string::String,
     subject: build::ErrorSubject,
 ) build::Error!&[char] {
-    let arg = switch init.args().get(index) {
-        ?value => value,
-        null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
-    };
-    storage.* = switch string::String::fromUtf8(allocator, arg.bytes()) {
+    storage.* = switch string::String::fromUtf8(allocator, cursor.textBytes().?) {
         !text => text,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -648,22 +728,13 @@ fn textArg(
     !storage.text()
 }
 
-fn pathArg(
-    init: process::Init,
+fn readPath(
+    cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
-    index: usize,
     storage: &mut fs::PathBuf,
     subject: build::ErrorSubject,
 ) build::Error!fs::PathView {
-    let arg = switch init.args().get(index) {
-        ?value => {
-            value
-        },
-        null => {
-            return build::Error::Internal(build::ErrorOperation::Initialize)!;
-        },
-    };
-    storage.* = switch fs::PathBuf::fromUtf8(allocator, arg.bytes()) {
+    storage.* = switch fs::PathBuf::fromUtf8(allocator, cursor.textBytes().?) {
         !path => path,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -683,76 +754,24 @@ fn pathArg(
     !storage.view()
 }
 
-fn targetArg(
-    init: process::Init,
+fn readTarget(
+    cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
-    startIndex: usize,
     storage: &mut TargetText,
     subject: build::ErrorSubject,
 ) build::Error!build::TargetView {
-    let arch = textArg(init, allocator, startIndex, &mut storage.arch, subject).?;
-    let vendor = textArg(init, allocator, startIndex + 1, &mut storage.vendor, subject).?;
-    let os = textArg(init, allocator, startIndex + 2, &mut storage.os, subject).?;
-    let env = textArg(init, allocator, startIndex + 3, &mut storage.env, subject).?;
-    let abi = textArg(init, allocator, startIndex + 4, &mut storage.abi, subject).?;
-    let endian = textArg(init, allocator, startIndex + 5, &mut storage.endian, subject).?;
-    let pointerWidthArg = switch init.args().get(startIndex + 6) {
-        ?value => {
-            value
-        },
-        null => {
-            return build::Error::Internal(build::ErrorOperation::Initialize)!;
-        },
-    };
-    let pointerWidth = switch pointerWidthArg.parse[u32]() {
-        !value => {
-            value
-        },
-        error! => {
-            _ = error;
-            return build::Error::Invalid {
-                operation: build::ErrorOperation::Validate,
-                subject: subject,
-            }!;
-        },
-    };
+    let arch = readText(cursor, allocator, &mut storage.arch, subject).?;
+    let vendor = readText(cursor, allocator, &mut storage.vendor, subject).?;
+    let os = readText(cursor, allocator, &mut storage.os, subject).?;
+    let env = readText(cursor, allocator, &mut storage.env, subject).?;
+    let abi = readText(cursor, allocator, &mut storage.abi, subject).?;
+    let endian = readText(cursor, allocator, &mut storage.endian, subject).?;
+    let pointerWidth = cursor.u32().?;
     !build::TargetView::init(arch, vendor, os, env, abi, endian, pointerWidth)
 }
 
-fn u32Arg(
-    init: process::Init,
-    index: usize,
-    subject: build::ErrorSubject,
-) build::Error!u32 {
-    let arg = switch init.args().get(index) {
-        ?value => {
-            value
-        },
-        null => {
-            return build::Error::Internal(build::ErrorOperation::Initialize)!;
-        },
-    };
-    switch arg.parse[u32]() {
-        !value => !value,
-        error! => {
-            _ = error;
-            build::Error::Invalid {
-                operation: build::ErrorOperation::Validate,
-                subject: subject,
-            }!
-        },
-    }
-}
-
-fn optimizationArg(
-    init: process::Init,
-    index: usize,
-) build::Error!build::OptimizationMode {
-    let value = u32Arg(
-        init,
-        index,
-        build::ErrorSubject::BuildPlan,
-    ).?;
+fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationMode {
+    let value = cursor.u32().?;
     switch value {
         0 => !build::OptimizationMode::O0,
         1 => !build::OptimizationMode::O1,
@@ -767,10 +786,115 @@ fn optimizationArg(
     }
 }
 
+fn configPathArg(
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    storage: &mut fs::PathBuf,
+) build::Error!fs::PathView {
+    if init.args().len() != 3 {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }!;
+    }
+    let flag = switch init.args().get(1) {
+        ?value => value,
+        null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
+    };
+    if not flag.bytes().equals(&b"--config") {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }!;
+    }
+    let arg = switch init.args().get(2) {
+        ?value => value,
+        null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
+    };
+    storage.* = switch fs::PathBuf::fromUtf8(allocator, arg.bytes()) {
+        !path => path,
+        string::TextError::InvalidUtf8(error)! => {
+            _ = error;
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::RunnerConfiguration,
+            }!;
+        },
+        string::TextError::Allocation(error)! => {
+            return build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: build::ErrorSubject::RunnerConfiguration,
+                cause: build::ErrorCause::Memory(error),
+            }!;
+        },
+    };
+    !storage.view()
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().ok().exit().?;
+
+    let mut configPathStorage = fs::PathBuf::init();
+    defer configPathStorage.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let configPath = configPathArg(init, &mut allocator, &mut configPathStorage).reportAndExit(init).?;
+    let mut configFile = fs::File::open(configPath, fs::OpenOptions::read_only()).asBuildError(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    defer configFile.close().asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let configLen64 = configFile.len().asBuildError(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    if configLen64 < 24u64 or configLen64 > __NIA_RUNNER_CONFIG_MAX_BYTES__u64 {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.asExitCode()!;
+    }
+    let configLen = configLen64 as usize;
+    let configBytes = allocator.allocSlice[u8](configLen).asBuildError(
+        build::ErrorOperation::Retain,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    defer allocator.freeSlice(configBytes).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let mut readBuffer: [4096]u8 = [_]u8[0; 4096];
+    let mut configReader = configFile.reader(&mut readBuffer).asBuildError(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    configReader.readExact(configBytes).asBuildError(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+
+    let mut envelope = ConfigCursor::init(configBytes);
+    if not envelope.take(8).reportAndExit(init).?.equals(&b"__NIA_RUNNER_CONFIG_MAGIC__")
+        or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_SCHEMA_VERSION__u32
+    {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.asExitCode()!;
+    }
+    let payloadLen = envelope.u32().reportAndExit(init).? as usize;
+    let expectedChecksum = envelope.u64().reportAndExit(init).?;
+    if payloadLen != envelope.remaining() {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.asExitCode()!;
+    }
+    let payload = envelope.take(payloadLen).reportAndExit(init).?;
+    if expectedChecksum != runnerConfigChecksum(payload) {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.asExitCode()!;
+    }
+    let mut config = ConfigCursor::init(payload);
 
     let mut packageRootPath = fs::PathBuf::init();
     defer packageRootPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
@@ -783,25 +907,47 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut resourceRootPath = fs::PathBuf::init();
     defer resourceRootPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
 
-    let packageRoot = pathArg(init, &mut allocator, 1, &mut packageRootPath, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
-    let buildDir = pathArg(init, &mut allocator, 2, &mut buildDirPath, build::ErrorSubject::BuildDir).reportAndExit(init).?;
-    let cacheDir = pathArg(init, &mut allocator, 3, &mut cacheDirPath, build::ErrorSubject::CacheDir).reportAndExit(init).?;
-    let toolchainExecutable = pathArg(init, &mut allocator, 4, &mut toolchainPath, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
-    let toolchainResourceRoot = pathArg(init, &mut allocator, 5, &mut resourceRootPath, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
+    let packageRoot = readPath(&mut config, &mut allocator, &mut packageRootPath, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
+    let buildDir = readPath(&mut config, &mut allocator, &mut buildDirPath, build::ErrorSubject::BuildDir).reportAndExit(init).?;
+    let cacheDir = readPath(&mut config, &mut allocator, &mut cacheDirPath, build::ErrorSubject::CacheDir).reportAndExit(init).?;
+    let toolchainExecutable = readPath(&mut config, &mut allocator, &mut toolchainPath, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
+    let toolchainResourceRoot = readPath(&mut config, &mut allocator, &mut resourceRootPath, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
     let mut hostTargetText = TargetText::init();
     defer hostTargetText.deinit(&mut allocator, build::ErrorSubject::HostTarget).reportAndExit(init).?;
-    let hostTarget = targetArg(init, &mut allocator, 6, &mut hostTargetText, build::ErrorSubject::HostTarget).reportAndExit(init).?;
+    let hostTarget = readTarget(&mut config, &mut allocator, &mut hostTargetText, build::ErrorSubject::HostTarget).reportAndExit(init).?;
     let mut artifactTargetText = TargetText::init();
     defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
-    let artifactTarget = targetArg(init, &mut allocator, 13, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
-    let defaultOptimization = optimizationArg(init, 20).reportAndExit(init).?;
-    let planSchemaVersion = u32Arg(init, 21, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let artifactTarget = readTarget(&mut config, &mut allocator, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
+    let defaultOptimization = readOptimization(&mut config).reportAndExit(init).?;
+    let planSchemaVersion = config.u32().reportAndExit(init).?;
     let mut planDraftPath = fs::PathBuf::init();
     defer planDraftPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
-    let planDraft = pathArg(init, &mut allocator, 22, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let mut requestedStepText = string::String::init();
+    defer requestedStepText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
+    let requestedStep: ?&[char] = switch config.byte().reportAndExit(init).? {
+        0 => null,
+        1 => ?readText(
+            &mut config,
+            &mut allocator,
+            &mut requestedStepText,
+            build::ErrorSubject::RequestedStep,
+        ).reportAndExit(init).?,
+        _ => {
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::RunnerConfiguration,
+            }.asExitCode()!;
+        },
+    };
+    if config.remaining() != 0 {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.asExitCode()!;
+    }
 
     let mut api = build::Build::init(
-        init,
         &mut allocator,
 "#,
     );
@@ -815,7 +961,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         artifactTarget,
         defaultOptimization,
         planSchemaVersion,
-        23,
+        requestedStep,
 "#,
     );
     source.push_str(
@@ -858,6 +1004,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 "#,
     );
+    let source = source
+        .replace(
+            "__NIA_RUNNER_CONFIG_SCHEMA_VERSION__",
+            &runner_config::RUNNER_CONFIG_SCHEMA_VERSION.to_string(),
+        )
+        .replace(
+            "__NIA_RUNNER_CONFIG_MAX_BYTES__",
+            &runner_config::RUNNER_CONFIG_MAX_BYTES.to_string(),
+        )
+        .replace(
+            "__NIA_RUNNER_CONFIG_MAGIC__",
+            std::str::from_utf8(runner_config::RUNNER_CONFIG_MAGIC).unwrap(),
+        );
     Ok(BuildRunnerSource { path, source })
 }
 
@@ -935,9 +1094,10 @@ fn run_build_runner(
             });
         }
     }
+    prepare_runner_configuration(invocation)?;
     let mut command = Command::new(runner_executable);
     command.current_dir(&invocation.package_root);
-    command.args(build_runner_args(invocation));
+    command.arg("--config").arg(&invocation.runner_config);
     let result = match command.status() {
         Ok(status) if status.success() => match read_build_plan(&invocation.plan_draft) {
             Ok(plan) => publish_build_plan(&invocation.plan_path, &plan)
@@ -960,7 +1120,7 @@ fn run_build_runner(
             error,
         }),
     };
-    let cleanup = match fs::remove_file(&invocation.plan_draft) {
+    let plan_cleanup = match fs::remove_file(&invocation.plan_draft) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(BuildError::CleanupPlanDraft {
@@ -968,10 +1128,52 @@ fn run_build_runner(
             error,
         }),
     };
+    let config_cleanup = match fs::remove_file(&invocation.runner_config) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(BuildError::CleanupRunnerConfiguration {
+            path: invocation.runner_config.clone(),
+            error,
+        }),
+    };
+    let cleanup = plan_cleanup.and(config_cleanup);
     match result {
         Ok(plan) => cleanup.map(|()| plan),
         Err(error) => Err(error),
     }
+}
+
+fn prepare_runner_configuration(invocation: &BuildInvocation) -> Result<(), BuildError> {
+    let encoded = runner_config::encode(invocation)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&invocation.runner_config)
+        .map_err(|error| BuildError::PrepareRunnerConfiguration {
+            path: invocation.runner_config.clone(),
+            error,
+        })?;
+    let result = file.write_all(&encoded).and_then(|()| file.sync_all());
+    if let Err(error) = result {
+        drop(file);
+        return match fs::remove_file(&invocation.runner_config) {
+            Ok(()) => Err(BuildError::PrepareRunnerConfiguration {
+                path: invocation.runner_config.clone(),
+                error,
+            }),
+            Err(cleanup) if cleanup.kind() == io::ErrorKind::NotFound => {
+                Err(BuildError::PrepareRunnerConfiguration {
+                    path: invocation.runner_config.clone(),
+                    error,
+                })
+            }
+            Err(error) => Err(BuildError::CleanupRunnerConfiguration {
+                path: invocation.runner_config.clone(),
+                error,
+            }),
+        };
+    }
+    Ok(())
 }
 
 fn run_and_cleanup_build_runner(
@@ -991,54 +1193,6 @@ fn run_and_cleanup_build_runner(
         Ok(plan) => cleanup.map(|()| plan),
         Err(error) => Err(error),
     }
-}
-
-fn build_runner_args(invocation: &BuildInvocation) -> Vec<OsString> {
-    let mut args = vec![
-        invocation.package_root.as_os_str().to_owned(),
-        invocation.build_dir.as_os_str().to_owned(),
-        invocation.cache_dir.as_os_str().to_owned(),
-        invocation
-            .toolchain
-            .compiler_executable()
-            .as_os_str()
-            .to_owned(),
-        invocation.toolchain.resource_root().as_os_str().to_owned(),
-    ];
-    args.extend(target_runner_args(invocation.toolchain.host_target()).map(OsString::from));
-    args.extend(target_runner_args(invocation.toolchain.artifact_target()).map(OsString::from));
-    args.push(OsString::from(
-        optimization_runner_arg(invocation.optimization).to_string(),
-    ));
-    args.push(OsString::from(BUILD_PLAN_SCHEMA_VERSION.to_string()));
-    args.push(invocation.plan_draft.as_os_str().to_owned());
-    if let Some(step) = invocation.step.as_runner_arg() {
-        args.push(OsString::from(step));
-    }
-    args
-}
-
-fn optimization_runner_arg(optimization: OptimizationMode) -> u8 {
-    match optimization {
-        OptimizationMode::O0 => 0,
-        OptimizationMode::O1 => 1,
-        OptimizationMode::O2 => 2,
-        OptimizationMode::O3 => 3,
-        OptimizationMode::Os => 4,
-        OptimizationMode::Oz => 5,
-    }
-}
-
-fn target_runner_args(target: &nia_target_config::TargetConfig) -> [String; 7] {
-    [
-        target.arch.clone(),
-        target.vendor.clone(),
-        target.os.clone(),
-        target.env.clone(),
-        target.abi.clone(),
-        target.endian.clone(),
-        target.pointer_width.to_string(),
-    ]
 }
 
 fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
@@ -1084,7 +1238,7 @@ mod tests {
         }))
     }
 
-    fn test_toolchain_layout_for(
+    pub(crate) fn test_toolchain_layout_for(
         artifact_target: nia_target_config::TargetConfig,
     ) -> Arc<nia_toolchain::ToolchainLayout> {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1141,6 +1295,14 @@ mod tests {
                 .to_string_lossy()
                 .starts_with(".build-plan-")
         );
+        assert_eq!(plan.runner_config.parent(), Some(plan.build_dir.as_path()));
+        assert!(
+            plan.runner_config
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".build-runner-")
+        );
         assert_eq!(
             plan.plan_path,
             plan.package_root.join(".nia-build/build-plan.bin")
@@ -1162,10 +1324,39 @@ mod tests {
                 .expect("second invocation");
 
         assert_ne!(first.runner_executable, second.runner_executable);
+        assert_ne!(first.runner_config, second.runner_config);
         assert_ne!(first.plan_draft, second.plan_draft);
         assert_eq!(first.plan_path, second.plan_path);
         assert_eq!(first.build_dir, second.build_dir);
         assert_eq!(first.cache_dir, second.cache_dir);
+    }
+
+    #[test]
+    fn runner_configuration_publication_is_exclusive_and_preserves_collisions() {
+        let root = temp_root("runner_configuration_publication_is_exclusive");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
+        prepare_build_directories(&invocation).expect("prepare build directories");
+
+        prepare_runner_configuration(&invocation).expect("publish runner configuration");
+        let expected = runner_config::encode(&invocation).expect("encode expected configuration");
+        assert_eq!(
+            std::fs::read(&invocation.runner_config).expect("read runner configuration"),
+            expected
+        );
+        let error = prepare_runner_configuration(&invocation)
+            .expect_err("runner configuration collision must fail");
+        assert!(matches!(
+            error,
+            BuildError::PrepareRunnerConfiguration { error, .. }
+                if error.kind() == io::ErrorKind::AlreadyExists
+        ));
+        assert_eq!(
+            std::fs::read(&invocation.runner_config).expect("read preserved configuration"),
+            expected
+        );
     }
 
     #[test]
@@ -1188,45 +1379,50 @@ mod tests {
         assert!(runner.source.contains("using std::mem;"));
         assert!(runner.source.contains("using std::string;"));
         assert!(runner.source.contains("using buildScript;"));
-        assert!(runner.source.contains("fn pathArg("));
-        assert!(runner.source.contains("fn textArg("));
-        assert!(runner.source.contains("fn targetArg("));
-        assert!(runner.source.contains("fn optimizationArg("));
+        assert!(runner.source.contains("struct ConfigCursor"));
+        assert!(runner.source.contains("fn readPath("));
+        assert!(runner.source.contains("fn readText("));
+        assert!(runner.source.contains("fn readTarget("));
+        assert!(runner.source.contains("fn readOptimization("));
+        assert!(runner.source.contains("runnerConfigChecksum(payload)"));
+        assert!(runner.source.contains(&format!(
+            "envelope.u32().reportAndExit(init).? != {}u32",
+            runner_config::RUNNER_CONFIG_SCHEMA_VERSION
+        )));
+        assert!(runner.source.contains(&format!(
+            "configLen64 > {}u64",
+            runner_config::RUNNER_CONFIG_MAX_BYTES
+        )));
+        assert!(
+            runner
+                .source
+                .contains(std::str::from_utf8(runner_config::RUNNER_CONFIG_MAGIC).unwrap())
+        );
+        assert!(runner.source.contains("init.args().len() != 3"));
+        assert!(runner.source.contains("equals(&b\"--config\")"));
         assert!(runner.source.contains("fn reportAndExit("));
         assert!(runner.source.contains("fs::PathBuf::fromUtf8("));
         assert!(runner.source.contains("string::String::fromUtf8("));
         assert!(runner.source.contains("let mut api = build::Build::init("));
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 1,"));
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 2,"));
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 3,"));
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 4,"));
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 5,"));
-        assert!(
-            runner
-                .source
-                .contains("targetArg(init, &mut allocator, 6, &mut hostTargetText, build::ErrorSubject::HostTarget)")
-        );
-        assert!(
-            runner
-                .source
-                .contains("targetArg(init, &mut allocator, 13, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget)")
-        );
+        assert!(runner.source.contains("readPath(&mut config"));
+        assert!(runner.source.contains("readTarget(&mut config"));
         assert!(runner.source.contains("hostTarget,"));
         assert!(runner.source.contains("artifactTarget,"));
         assert!(
             runner
                 .source
-                .contains("let defaultOptimization = optimizationArg(init, 20)")
+                .contains("let defaultOptimization = readOptimization(&mut config)")
         );
         assert!(
             runner
                 .source
-                .contains("let planSchemaVersion = u32Arg(init, 21,")
+                .contains("let planSchemaVersion = config.u32()")
         );
-        assert!(runner.source.contains("pathArg(init, &mut allocator, 22,"));
         assert!(runner.source.contains("defaultOptimization,"));
         assert!(runner.source.contains("planSchemaVersion,"));
-        assert!(runner.source.contains("        23,"));
+        assert!(runner.source.contains("        requestedStep,"));
+        assert!(!runner.source.contains("pathArg("));
+        assert!(!runner.source.contains("stepArgIndex"));
         assert!(runner.source.contains("api.writePlanDraft(planDraft)"));
         assert!(runner.source.contains("api.reportError(error)"));
         assert!(runner.source.contains(").reportAndExit(init).?;"));
@@ -1263,31 +1459,26 @@ mod tests {
         .expect("build invocation");
 
         let config = build_runner_driver_config(&plan);
-        let args = build_runner_args(&plan);
+        let encoded = runner_config::encode(&plan).expect("encode runner configuration");
 
         assert_eq!(plan.optimization, OptimizationMode::Oz);
         assert_eq!(config.artifact_target, *toolchain.host_target());
         assert_ne!(config.artifact_target, *toolchain.artifact_target());
-        assert_eq!(args.len(), 23);
-        assert_eq!(args[5], OsString::from(&toolchain.host_target().arch));
+        assert_eq!(&encoded[..8], b"NIARUNCF");
         assert_eq!(
-            args[11],
-            OsString::from(toolchain.host_target().pointer_width.to_string())
+            u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
+            runner_config::RUNNER_CONFIG_SCHEMA_VERSION
         );
-        assert_eq!(args[12], OsString::from("artifact-arch"));
-        assert_eq!(args[13], OsString::from("artifact-vendor"));
-        assert_eq!(args[14], OsString::from("artifact-os"));
-        assert_eq!(args[15], OsString::from("artifact-env"));
-        assert_eq!(args[16], OsString::from("artifact-abi"));
-        assert_eq!(args[17], OsString::from("big"));
-        assert_eq!(args[18], OsString::from("32"));
-        assert_eq!(args[19], OsString::from("5"));
-        assert_eq!(
-            args[20],
-            OsString::from(BUILD_PLAN_SCHEMA_VERSION.to_string())
+        assert!(
+            encoded
+                .windows("artifact-arch".len())
+                .any(|value| value == b"artifact-arch")
         );
-        assert_eq!(args[21], plan.plan_draft.as_os_str());
-        assert_eq!(args[22], OsString::from("inspect"));
+        assert!(
+            encoded
+                .windows("inspect".len())
+                .any(|value| value == b"inspect")
+        );
     }
 
     #[test]
@@ -1303,7 +1494,7 @@ mod tests {
         .expect("build invocation");
 
         assert_eq!(plan.step, BuildStepSelection::Named("install".to_string()));
-        assert_eq!(plan.step.as_runner_arg(), Some("install"));
+        assert_eq!(plan.step, BuildStepSelection::Named("install".to_string()));
     }
 
     #[test]
