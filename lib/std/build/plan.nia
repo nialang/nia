@@ -12,6 +12,7 @@ using error::ErrorSubject as Subject;
 using types::{
     Build,
     ExecutableTarget,
+    ObjectTarget,
     Module,
     OptimizationMode,
     Step,
@@ -235,11 +236,21 @@ extend PlanEncoder {
         self.writeU8(1)
     }
 
+    fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module], packages: &[types::Package]) Error!void {
+        let moduleRecord = modules[target.rootModule.index];
+        self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+        self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+        self.writeU8(1).?;
+        self.writeBuildPath(target.outputName.text()).?;
+        self.writeU8(0)
+    }
+
     fn writeAction(
         &mut self,
         step: Step,
         modules: &[Module],
         executables: &[ExecutableTarget],
+        objects: &[ObjectTarget],
         hostTarget: TargetView,
         artifactTarget: TargetView,
         packages: &[types::Package],
@@ -267,6 +278,12 @@ extend PlanEncoder {
             },
             StepKind::EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
+                self.writeU8(1).?;
+                self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
+            },
+            StepKind::EmitObject => {
+                let target = objects[step.payload.object.target.index];
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
                 self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?)
@@ -441,9 +458,12 @@ extend PlanEncoder {
         for &moduleRecord in build.modules.iter() {
             self.writeModule(moduleRecord, build.packages.asSlice()).?;
         }
-        self.writeCount(build.executables.len()).?;
+        self.writeCount(build.executables.len() + build.objects.len()).?;
         for &target in build.executables.iter() {
             self.writeArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
+        }
+        for &target in build.objects.iter() {
+            self.writeObjectArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
         }
         self.writeCount(build.steps.len()).?;
         for &step in build.steps.iter() {
@@ -451,6 +471,7 @@ extend PlanEncoder {
                 step,
                 build.modules.asSlice(),
                 build.executables.asSlice(),
+                build.objects.asSlice(),
                 build.hostTarget(),
                 build.artifactTarget(),
                 build.packages.asSlice(),

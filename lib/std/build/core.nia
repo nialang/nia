@@ -25,7 +25,9 @@ using types::{
     GeneratedFileStep,
     UncacheableStep,
     ExecutableHandle,
+    ObjectHandle,
     ExecutableStep,
+    ObjectStep,
     RunOptions,
     RunExecutableStep,
     InstallExecutableStep,
@@ -54,6 +56,8 @@ using types::{
     TargetRole,
     ExecutableOptions,
     ExecutableTarget,
+    ObjectOptions,
+    ObjectTarget,
     BuildPaths,
     BuildPathView,
     StepPayload,
@@ -178,6 +182,7 @@ extend Build {
             packages: collections::ArrayList[Package]::init(),
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
+            objects: collections::ArrayList[ObjectTarget]::init(),
         }
     }
 
@@ -202,6 +207,12 @@ extend Build {
             rememberCleanupError(&mut firstError, self.executables.asMutSlice()[index].deinit(self.allocator));
         }
         rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError(Operation::Release, Subject::Executables));
+        index = self.objects.len();
+        while index != 0 {
+            index -= 1;
+            rememberCleanupError(&mut firstError, self.objects.asMutSlice()[index].deinit(self.allocator));
+        }
+        rememberCleanupError(&mut firstError, self.objects.deinit(self.allocator).asBuildError(Operation::Release, Subject::Objects));
         index = self.modules.len();
         while index != 0 {
             index -= 1;
@@ -318,6 +329,11 @@ extend Build {
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
         self.addStepRecord(name, StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
+    }
+
+    pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
+        self.validateObjectHandle(target).?;
+        self.addStepRecord(name, StepKind::EmitObject, { object: ObjectStep::init(target) })
     }
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
@@ -608,12 +624,69 @@ extend Build {
             },
             null => {},
         }
+        switch self.findObject(options.name) {
+            ?old => {
+                _ = old;
+                return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Executable(handle.index()),
+                }!;
+            },
+            null => {},
+        }
         let mut target = ExecutableTarget::init(self.allocator, options, outputName, handle.index()).?;
         let mut transferred = false;
         defer if not transferred {
             target.deinit(self.allocator).?;
         };
         self.executables.push(self.allocator, target).asBuildError(Operation::Retain, Subject::Executables).?;
+        transferred = true;
+        self.planValidated = false;
+        !handle
+    }
+
+    pub fn addObject(&mut self, options: ObjectOptions) Error!ObjectHandle {
+        let handle = ObjectHandle::init(self.ownerId, self.objects.len());
+        if not isValidStableName(options.name) {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
+        }
+        self.validateModuleHandle(options.rootModule).?;
+        let outputName = objectOutputName(options);
+        if not isValidOutputName(outputName) {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
+        }
+        switch self.findObject(options.name) {
+            ?old => {
+                _ = old;
+                return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Object(handle.index()),
+                }!;
+            },
+            null => {},
+        }
+        switch self.findExecutable(options.name) {
+            ?old => {
+                _ = old;
+                return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Object(handle.index()),
+                }!;
+            },
+            null => {},
+        }
+        let mut target = ObjectTarget::init(self.allocator, options, outputName, handle.index()).?;
+        let mut transferred = false;
+        defer if not transferred {
+            target.deinit(self.allocator).?;
+        };
+        self.objects.push(self.allocator, target).asBuildError(Operation::Retain, Subject::Objects).?;
         transferred = true;
         self.planValidated = false;
         !handle
@@ -686,6 +759,9 @@ extend Build {
             ].rootModule.index(),
             StepKind::EmitExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
+            ].rootModule.index(),
+            StepKind::EmitObject => ?self.objects.asSlice()[
+                step.payload.object.target.index()
             ].rootModule.index(),
             StepKind::TestExecutable => ?self.executables.asSlice()[
                 step.payload.runExecutable.target.index()
@@ -919,6 +995,15 @@ extend Build {
         null
     }
 
+    fn findObject(&self, name: &[char]) ?ObjectTarget {
+        for &target in self.objects.iter() {
+            if target.name.equals(name) {
+                return ?target;
+            }
+        }
+        null
+    }
+
     fn findModule(&self, name: &[char]) ?Module {
         for &moduleRecord in self.modules.iter() {
             if moduleRecord.name.equals(name) {
@@ -958,6 +1043,16 @@ extend Build {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Executable(handle.index()),
+            }!;
+        }
+        !{}
+    }
+
+    fn validateObjectHandle(&self, handle: ObjectHandle) Error!void {
+        if handle.ownerId() != self.ownerId or handle.index() >= self.objects.len() {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
             }!;
         }
         !{}
@@ -1060,6 +1155,15 @@ extend ExecutableHandle {
     }
 }
 
+extend ObjectHandle {
+    fn init(ownerId: usize, index: usize) ObjectHandle {
+        { ownerId: ownerId, index: index }
+    }
+
+    fn ownerId(&self) usize { self.ownerId }
+    fn index(&self) usize { self.index }
+}
+
 extend ModuleHandle {
     fn init(ownerId: usize, index: usize) ModuleHandle {
         { ownerId: ownerId, index: index }
@@ -1128,6 +1232,12 @@ extend GeneratedFileStep {
 
 extend ExecutableStep {
     fn init(target: ExecutableHandle) ExecutableStep {
+        { target: target }
+    }
+}
+
+extend ObjectStep {
+    fn init(target: ObjectHandle) ObjectStep {
         { target: target }
     }
 }
@@ -1982,6 +2092,38 @@ extend ExecutableTarget {
     }
 }
 
+extend ObjectTarget {
+    pub fn init(
+        allocator: &mut mem::Allocator,
+        options: ObjectOptions,
+        outputName: &[char],
+        index: usize,
+    ) Error!ObjectTarget {
+        let mut target: ObjectTarget = {
+            index: index,
+            name: string::String::init(),
+            rootModule: options.rootModule,
+            outputName: string::String::init(),
+            targetRole: options.targetRole,
+        };
+        let mut transferred = false;
+        defer if not transferred {
+            target.deinit(allocator).?;
+        };
+        target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Object(index)).?;
+        target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Object(index)).?;
+        transferred = true;
+        !target
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::Object(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Object(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
 extend TargetView {
     pub fn init(
         arch: &[char],
@@ -2124,7 +2266,44 @@ extend ExecutableOptions {
     }
 }
 
+extend ObjectOptions {
+    pub fn init(name: &[char], rootModule: ModuleHandle) ObjectOptions {
+        {
+            name: name,
+            rootModule: rootModule,
+            outputName: null,
+            targetRole: TargetRole::Artifact,
+        }
+    }
+
+    pub fn withOutputName(self, outputName: &[char]) ObjectOptions {
+        {
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: ?outputName,
+            targetRole: self.targetRole,
+        }
+    }
+
+    pub fn forHost(self) ObjectOptions {
+        {
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            targetRole: TargetRole::Host,
+        }
+    }
+}
+
 fn executableOutputName(options: ExecutableOptions) &[char] {
+    if options.outputName is ?name {
+        name
+    } else {
+        options.name
+    }
+}
+
+fn objectOutputName(options: ObjectOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {

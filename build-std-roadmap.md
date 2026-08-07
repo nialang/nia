@@ -4177,3 +4177,15 @@ choice. Focused codec, plan, and coordinator tests cover round-trip identity,
 directory publication, and invalid installation. The public `std::build` object
 declaration API, static-library/archive semantics, and the remaining artifact
 surface remain open; no compatibility alias or implicit archive policy is added.
+
+Phase G progress (2026-08-07, public object-set declarations): `std::build` now
+exposes typed `ObjectHandle`, `ObjectOptions`, and `ObjectTarget` values with
+owner-checked allocation, target-role selection, and `addEmitObjectStep`.
+Object-set artifacts and emit actions are encoded by the same canonical plan
+writer as executable artifacts, while executable-only run/test/install edges
+remain typed and reject object handles. The maintained configured package now
+declares an object set, emits it after its generated source producer, includes
+that producer in the default selected closure, and verifies the published
+codegen-unit directory and telemetry. Focused API conformance and end-to-end
+build tests pass. Static-library/archive semantics and the remaining artifact
+surface remain open; no archive behavior is inferred from ObjectSet.
