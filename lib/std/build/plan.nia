@@ -360,6 +360,10 @@ extend PlanEncoder {
                         let target = executables[argument.payload.artifact.index];
                         self.writeU8(1).?;
                         self.writeArtifactPath(target.name.text(), packages).?;
+                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                        let target = objects[argument.payload.object.index];
+                        self.writeU8(1).?;
+                        self.writeArtifactPath(target.name.text(), packages).?;
                     } else if argument.kind == CommandArgumentKind::BuildOutput {
                         self.writeU8(2).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
@@ -379,6 +383,7 @@ extend PlanEncoder {
                     if argument.kind == CommandArgumentKind::PackageInput
                         or argument.kind == CommandArgumentKind::BuildInput
                         or argument.kind == CommandArgumentKind::ArtifactInput
+                        or argument.kind == CommandArgumentKind::ObjectInput
                     {
                         inputCount += 1;
                     }
@@ -391,6 +396,9 @@ extend PlanEncoder {
                         self.writeBuildPath(argument.payload.value.text()).?;
                     } else if argument.kind == CommandArgumentKind::ArtifactInput {
                         let target = executables[argument.payload.artifact.index];
+                        self.writeArtifactPath(target.name.text(), packages).?;
+                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                        let target = objects[argument.payload.object.index];
                         self.writeArtifactPath(target.name.text(), packages).?;
                     }
                 }

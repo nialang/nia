@@ -4202,3 +4202,13 @@ of the host/artifact non-aliasing guard.
 The same conformance program now creates an object in a second Build and proves
 `addEmitObjectStep` rejects that foreign handle, extending the owner-identity
 guard beyond executable artifacts.
+Phase G progress (2026-08-07, ObjectSet consumer and directory-input cache
+boundary): external commands now accept a typed `objectInput(ObjectHandle)`
+relation. The builder validates object ownership and the matching emit
+producer, while plan encoding preserves the ObjectSet artifact path and
+dependency closure. External-command cache schema v3 fingerprints canonical
+regular-file and directory-tree inputs, rejects symlinks/non-regular entries,
+and classifies directory content edits as `Inputs`. The configured production
+fixture consumes the emitted object directory and the focused cache matrix
+proves cold, warm, and directory-edit behavior. This prepares archive actions
+to consume ObjectSet without treating ObjectSet itself as an archive.

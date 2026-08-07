@@ -429,7 +429,7 @@ fn assert_configured_build_success(
                 &[
                     nia_build::CommandArgument::Literal("-c".to_string()),
                     nia_build::CommandArgument::Literal(
-                        "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
+                        "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
                             .to_string()
                     ),
                     nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
@@ -437,6 +437,7 @@ fn assert_configured_build_success(
                     nia_build::CommandArgument::OutputPath(outputs[1].clone()),
                     nia_build::CommandArgument::OutputPath(outputs[0].clone()),
                     nia_build::CommandArgument::InputPath(inputs[1].clone()),
+                    nia_build::CommandArgument::InputPath(inputs[3].clone()),
                     nia_build::CommandArgument::InputPath(inputs[2].clone()),
                 ]
             );
@@ -452,7 +453,7 @@ fn assert_configured_build_success(
                     value: Some("fixture".to_string()),
                 }]
             );
-            assert_eq!(inputs.len(), 3);
+            assert_eq!(inputs.len(), 4);
             assert!(matches!(
                 inputs[0].root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
@@ -465,9 +466,14 @@ fn assert_configured_build_success(
             assert!(inputs[1].components().is_empty());
             assert!(matches!(
                 inputs[2].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
             ));
             assert!(inputs[2].components().is_empty());
+            assert!(matches!(
+                inputs[3].root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+            ));
+            assert!(inputs[3].components().is_empty());
             assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),

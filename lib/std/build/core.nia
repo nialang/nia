@@ -453,6 +453,17 @@ extend Build {
                             }!,
                         }
                         artifactInputCount += 1;
+                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                        let target = argument.payload.object;
+                        self.validateObjectHandle(target).?;
+                        switch self.findEmitObjectStep(target) {
+                            ?producer => _ = producer,
+                            null => return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Step(self.steps.len()),
+                            }!,
+                        }
+                        artifactInputCount += 1;
                     } else if argument.kind == CommandArgumentKind::PackageInput {
                         self.validatePackageHandle(argument.package).?;
                     }
@@ -489,6 +500,15 @@ extend Build {
                 for &argument in arguments.iter() {
                     if argument.kind == CommandArgumentKind::ArtifactInput {
                         let producer = switch self.findEmitStep(argument.payload.artifact) {
+                            ?producer => producer,
+                            null => return Error::Invalid {
+                                operation: Operation::Validate,
+                                subject: Subject::Step(handle.index()),
+                            }!,
+                        };
+                        self.dependOn(result, producer).?;
+                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                        let producer = switch self.findEmitObjectStep(argument.payload.object) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -1025,6 +1045,18 @@ extend Build {
         null
     }
 
+    fn findEmitObjectStep(&self, target: ObjectHandle) ?StepHandle {
+        for &step in self.steps.iter() {
+            if step.kind == StepKind::EmitObject
+                and step.payload.object.target.ownerId() == target.ownerId()
+                and step.payload.object.target.index() == target.index()
+            {
+                return ?StepHandle::init(self.ownerId, step.index);
+            }
+        }
+        null
+    }
+
     fn rollbackLastStep(&mut self) Error!void {
         switch self.steps.pop() {
             ?step => {
@@ -1379,6 +1411,14 @@ extend CommandArgument {
             package: PackageHandle::init(0, 0),
         }
     }
+
+    pub fn objectInput(object: ObjectHandle) CommandArgument {
+        {
+            kind: CommandArgumentKind::ObjectInput,
+            payload: { object: object },
+            package: PackageHandle::init(0, 0),
+        }
+    }
 }
 
 extend ExternalCommandOptions {
@@ -1489,6 +1529,13 @@ extend OwnedCommandArgument {
                 package: argument.package,
             };
         }
+        if argument.kind == CommandArgumentKind::ObjectInput {
+            return !{
+                kind: argument.kind,
+                payload: { object: argument.payload.object },
+                package: argument.package,
+            };
+        }
         let value = string::String::fromSlice(
             allocator,
             argument.payload.value,
@@ -1497,7 +1544,7 @@ extend OwnedCommandArgument {
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
-        if self.kind == CommandArgumentKind::ArtifactInput {
+        if self.kind == CommandArgumentKind::ArtifactInput or self.kind == CommandArgumentKind::ObjectInput {
             return !{};
         }
         self.payload.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
@@ -1754,7 +1801,9 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
     switch options.arguments {
         ?arguments => {
             for &argument in arguments.iter() {
-                if argument.kind == CommandArgumentKind::ArtifactInput {
+                if argument.kind == CommandArgumentKind::ArtifactInput
+                    or argument.kind == CommandArgumentKind::ObjectInput
+                {
                     continue;
                 }
                 let value = argument.payload.value;

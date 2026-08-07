@@ -161,10 +161,14 @@ adds that producer dependency, and encodes the artifact as an external-command
 program with a package-root working directory and no declared outputs. Freeze
 independently rejects an Artifact-root command lacking the matching compiler
 emit in its dependency closure. An ordinary external command can declare the
-same relationship through `CommandArgument::artifactInput`: the builder
-validates the handle owner, requires its emit step, retains the typed artifact
-input, and adds the producer edge. Freeze applies the same closure check to
-every Artifact-root program and input. The coordinator closes stdin, forwards
+same relationship through `CommandArgument::artifactInput` for executable
+artifacts or `CommandArgument::objectInput` for ObjectSet directories. The
+builder validates the handle owner, requires its matching emit step, retains
+the typed artifact input, and adds the producer edge. Freeze applies the same
+closure check to every Artifact-root program and input. Declared-input cache
+schema v3 fingerprints regular files and recursively validated directory trees
+in canonical entry order; symlinks and other non-regular entries are rejected.
+The coordinator closes stdin, forwards
 stdout/stderr while retaining a bounded 64-KiB tail for each stream, enforces a
 seven-minute timeout, and retires the owned process group on timeout or after
 the leader exits. Spawn, wait, timeout, capture, and nonzero-exit failures retain

@@ -904,7 +904,7 @@ impl DriverActionExecutor {
         let inputs = resolved_inputs
             .iter()
             .map(|(logical, path)| {
-                read_external_identity_file(action, path, "read declared")
+                read_external_identity_input(action, path, "read declared")
                     .map(|contents| ((*logical).clone(), contents))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1512,6 +1512,109 @@ fn read_external_identity_file(
         operation,
         error,
     })
+}
+
+fn read_external_identity_input(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+) -> Result<Vec<u8>, CoordinatorError> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+            operation,
+            error,
+        })?;
+    if metadata.is_file() {
+        return fs::read(path).map_err(|error| CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+            operation,
+            error,
+        });
+    }
+    if metadata.is_dir() {
+        return read_external_identity_directory(action, path, operation);
+    }
+    Err(CoordinatorError::ExternalCommandIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error: io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cache input must be a regular file or directory",
+        ),
+    })
+}
+
+fn read_external_identity_directory(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+) -> Result<Vec<u8>, CoordinatorError> {
+    let mut entries = fs::read_dir(path)
+        .map_err(|error| CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+            operation,
+            error,
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+            operation,
+            error,
+        })?;
+    entries.sort_by(|left, right| {
+        left.file_name()
+            .as_encoded_bytes()
+            .cmp(right.file_name().as_encoded_bytes())
+    });
+    let mut encoded = b"NIA-DIR1\0".to_vec();
+    encoded.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+    for entry in entries {
+        let name = entry.file_name();
+        let name_bytes = name.as_encoded_bytes();
+        encoded.extend_from_slice(&(name_bytes.len() as u64).to_le_bytes());
+        encoded.extend_from_slice(name_bytes);
+        let child = entry.path();
+        let metadata =
+            fs::symlink_metadata(&child).map_err(|error| CoordinatorError::ExternalCommandIo {
+                action: action.key.clone(),
+                path: child.clone(),
+                operation,
+                error,
+            })?;
+        if metadata.is_file() {
+            encoded.push(0);
+            let bytes = fs::read(&child).map_err(|error| CoordinatorError::ExternalCommandIo {
+                action: action.key.clone(),
+                path: child,
+                operation,
+                error,
+            })?;
+            encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            encoded.extend_from_slice(&bytes);
+        } else if metadata.is_dir() {
+            encoded.push(1);
+            let nested = read_external_identity_directory(action, &child, operation)?;
+            encoded.extend_from_slice(&(nested.len() as u64).to_le_bytes());
+            encoded.extend_from_slice(&nested);
+        } else {
+            return Err(CoordinatorError::ExternalCommandIo {
+                action: action.key.clone(),
+                path: child,
+                operation,
+                error: io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "cache input tree contains a non-regular entry",
+                ),
+            });
+        }
+    }
+    Ok(encoded)
 }
 
 fn read_staged_external_outputs(
@@ -4665,6 +4768,20 @@ mod tests {
             "tool-input.txt",
         )
         .unwrap();
+        cacheable_command_plan_with_input(invocation, mode, input)
+    }
+
+    fn cacheable_directory_command_plan(invocation: &BuildInvocation, mode: &str) -> BuildPlan {
+        let input =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "input-dir").unwrap();
+        cacheable_command_plan_with_input(invocation, mode, input)
+    }
+
+    fn cacheable_command_plan_with_input(
+        invocation: &BuildInvocation,
+        mode: &str,
+        input: LogicalPath,
+    ) -> BuildPlan {
         let first = LogicalPath::new(LogicalPathRoot::Build, "tool/first.txt").unwrap();
         let second = LogicalPath::new(LogicalPathRoot::Build, "tool/second.txt").unwrap();
         BuildPlan::freeze(BuildPlanDraft {
@@ -4687,7 +4804,7 @@ mod tests {
                     arguments: vec![
                         CommandArgument::Literal("-c".to_string()),
                         CommandArgument::Literal(
-                            "printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; printf meta > \"$3\""
+                            "if test -d \"$1\"; then printf '%s:DIRECTORY' \"$MODE\" > \"$2\"; else printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; fi; printf meta > \"$3\""
                                 .to_string(),
                         ),
                         CommandArgument::Literal("nia-cached-tool".to_string()),
@@ -4863,13 +4980,57 @@ mod tests {
     }
 
     #[test]
+    fn external_command_cache_fingerprints_directory_inputs() {
+        let invocation = test_invocation();
+        let input = invocation.package_root.join("input-dir");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("unit-a.o"), b"first").unwrap();
+        let plan = cacheable_directory_command_plan(&invocation, "directory");
+
+        let cold = execute_build_plan(&plan, &invocation).unwrap();
+        assert!(matches!(
+            only_external_cache_outcome(&cold),
+            ActionCacheOutcome::Miss(_)
+        ));
+        let warm = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(only_external_cache_outcome(&warm), &ActionCacheOutcome::Hit);
+
+        fs::write(input.join("unit-a.o"), b"changed").unwrap();
+        let changed = execute_build_plan(&plan, &invocation).unwrap();
+        assert_eq!(
+            only_external_cache_outcome(&changed),
+            &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                crate::ActionCacheInvalidation::Inputs,
+            ]))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_command_cache_rejects_directory_symlink_inputs() {
+        let invocation = test_invocation();
+        let input = invocation.package_root.join("input-dir");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("unit-a.o"), b"first").unwrap();
+        std::os::unix::fs::symlink("unit-a.o", input.join("link.o")).unwrap();
+        let plan = cacheable_directory_command_plan(&invocation, "directory");
+
+        let error = execute_build_plan(&plan, &invocation).unwrap_err();
+        assert!(matches!(
+            error,
+            CoordinatorError::ExternalCommandIo { error, .. }
+                if error.kind() == io::ErrorKind::InvalidData
+        ));
+    }
+
+    #[test]
     fn corrupt_external_command_record_is_retired_and_rebuilt() {
         let invocation = test_invocation();
         fs::create_dir_all(&invocation.package_root).unwrap();
         fs::write(invocation.package_root.join("tool-input.txt"), b"source").unwrap();
         let plan = cacheable_command_plan(&invocation, "repair");
         execute_build_plan(&plan, &invocation).unwrap();
-        let namespace = invocation.cache_dir.join("actions/external-commands/v2");
+        let namespace = invocation.cache_dir.join("actions/external-commands/v3");
         let key_directory = fs::read_dir(namespace)
             .unwrap()
             .next()
