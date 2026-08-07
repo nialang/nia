@@ -233,6 +233,12 @@ are reclaimed without allowing an older same-process guard to remove a newer
 lock.
 Directory publication replaces the complete previous tree, so stale codegen
 unit files cannot survive a later emit with a different unit set.
+ObjectSet actions currently remain coordinator-cache misses by design: the
+Driver owns native codegen-unit reuse, and the coordinator republishes the
+complete directory through its transaction. A future build-level restore must
+first expose a typed Driver-owned object-set reference; storing a second copy
+of compiler work products in the build cache would violate the single-cache
+owner boundary.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide
