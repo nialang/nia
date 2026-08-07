@@ -10,6 +10,7 @@ pub enum StepKind: i32 {
     CheckExecutable = 2,
     EmitExecutable = 3,
     EmitObject = 10,
+    EmitStaticArchive = 11,
     GeneratedFile = 4,
     RunExecutable = 5,
     TestExecutable = 8,
@@ -79,6 +80,11 @@ pub struct ObjectHandle {
     index: usize,
 }
 
+pub struct StaticArchiveHandle {
+    ownerId: usize,
+    index: usize,
+}
+
 pub struct ModuleHandle {
     ownerId: usize,
     index: usize,
@@ -119,6 +125,10 @@ pub struct ExecutableStep {
 
 pub struct ObjectStep {
     target: ObjectHandle,
+}
+
+pub struct StaticArchiveStep {
+    target: StaticArchiveHandle,
 }
 
 pub struct RunOptions {
@@ -222,6 +232,7 @@ pub union StepPayload {
     aggregate: AggregateStep,
     executable: ExecutableStep,
     object: ObjectStep,
+    staticArchive: StaticArchiveStep,
     generatedFile: GeneratedFileStep,
     runExecutable: RunExecutableStep,
     installExecutable: InstallExecutableStep,
@@ -305,6 +316,21 @@ pub struct ObjectTarget {
     targetRole: TargetRole,
 }
 
+pub struct StaticArchiveOptions {
+    name: &[char],
+    rootModule: ModuleHandle,
+    outputName: ?&[char],
+    targetRole: TargetRole,
+}
+
+pub struct StaticArchiveTarget {
+    index: usize,
+    name: string::String,
+    rootModule: ModuleHandle,
+    outputName: string::String,
+    targetRole: TargetRole,
+}
+
 pub struct BuildPaths {
     packageRoot: fs::PathBuf,
     buildDir: fs::PathBuf,
@@ -332,4 +358,5 @@ pub struct Build {
     modules: collections::ArrayList[Module],
     executables: collections::ArrayList[ExecutableTarget],
     objects: collections::ArrayList[ObjectTarget],
+    staticArchives: collections::ArrayList[StaticArchiveTarget],
 }

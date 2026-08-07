@@ -4257,3 +4257,14 @@ Driver-cache restoration after output deletion, and continued rejection on the
 executable-only install edge. Public `std::build` archive declarations and
 typed external-command, installation, and executable-link relationships remain
 the next slices.
+Public archive declaration progress (2026-08-07): `std::build` now exposes
+owner-checked `StaticArchiveHandle` and `StaticArchiveOptions` values plus
+`addEmitStaticArchiveStep`. Archive declarations retain the root module,
+artifact/host target role, and explicit-or-default output name, encode the
+schema-9 `StaticArchive` tag, and receive generated root/import producer
+dependencies through the same compiler-step validation as executable and
+ObjectSet artifacts. The target conformance fixture proves artifact and host
+roles plus foreign-handle rejection; the maintained configured package executes
+the Driver-owned archive path and verifies a published archive file. Typed
+external-command input, installation, and executable-link relations remain the
+next archive slices rather than being routed through existing artifact kinds.

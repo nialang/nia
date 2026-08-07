@@ -246,9 +246,8 @@ owner boundary.
 
 ### Static archive gate
 
-`StaticArchive` is deliberately not an alias for `ObjectSet`. Before the public
-artifact kind or `std::build` declaration is added, the owner contract must
-answer all of these questions together:
+`StaticArchive` is deliberately not an alias for `ObjectSet`. Its owner
+contract answers these questions explicitly:
 
 - whether archive creation consumes a Driver-owned object reference set or a
   published ObjectSet directory;
@@ -294,11 +293,19 @@ archive a published ObjectSet directory and does not keep a second copy of the
 archive bytes. Static archives remain invalid on the executable-only install
 edge.
 
-The public `std::build` declaration and typed command-input, installation, and
-executable-link relationships are still open. Until those relationships are
-owned, `ObjectSet` remains the only public object-directory artifact and plan
-validation rejects only the uses it can prove invalid. A system `ar`/`llvm-ar`
-command must not become an implicit second linker/cache owner.
+The public `std::build` surface exposes owner-checked `StaticArchiveHandle` and
+`StaticArchiveOptions` declarations plus `addEmitStaticArchiveStep`. Options
+select artifact or host target role and may provide an explicit output name;
+the default output name is the declaration name, matching the existing
+executable and ObjectSet policy rather than inferring a platform filename.
+Archive emit steps participate in generated root/import producer discovery and
+encode the schema-9 artifact tag directly.
+
+Typed command-input, installation, and executable-link relationships remain
+open. Until those relationships are owned, archive handles cannot be smuggled
+through executable/ObjectSet edges, and the executable-only install edge
+continues to reject archive artifacts. A system `ar`/`llvm-ar` command must not
+become an implicit second linker/cache owner.
 
 The selected closure executes in deterministic readiness waves. Each wave is
 submitted to a `QuerySession`, so build actions share the process-wide

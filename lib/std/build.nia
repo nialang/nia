@@ -25,6 +25,8 @@ pub using types::{
     ExecutableOptions,
     ObjectHandle,
     ObjectOptions,
+    StaticArchiveHandle,
+    StaticArchiveOptions,
     ModuleHandle,
     ModuleImport,
     ModuleOptions,
