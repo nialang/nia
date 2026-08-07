@@ -4192,3 +4192,7 @@ surface remain open; no archive behavior is inferred from ObjectSet. The
 coordinator's object-set acceptance test also seeds a stale codegen-unit file
 and proves complete directory replacement removes it, preserving the
 transactional output invariant when the unit set changes.
+ObjectSet coordinator-cache restore remains an explicit follow-up gate: the
+current path intentionally relies on Driver-owned native object reuse and does
+not duplicate compiler work products in the build cache. A future restore
+requires a typed Driver reference contract before it can be added safely.
