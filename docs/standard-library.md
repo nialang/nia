@@ -56,7 +56,7 @@ providers.
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
 | `mem` allocators/layout | runner allocation and owned collections | explicit provenance and release contracts accepted; rollback/deinit failures remain visible | retain capability; ordinary slice copy/compare no longer lives here |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | unmanaged collection protocol, owned extraction, batch reservation, and initialized-value mutation accepted | retain narrow initialized-value surface; continue deep element-cleanup design |
-| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed `&[char]` and owned `String` accepted; continue validated UTF-8 and formatting exploration |
+| `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; `Utf8View` validates borrowed encoded bytes; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed/owned scalar text and validated UTF-8 view accepted; keep conversion roles distinct |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
@@ -400,6 +400,21 @@ collapsing a filesystem, pipe, or bounded-buffer failure into
 presentation; a caller writing already-constructed text does not need a dummy
 `"{}"` template or a one-element trait-object array.
 
+`unicode::Utf8View` is the nominal borrowed validated UTF-8 role. `fromBytes`
+scans the complete input with `decodeUtf8First`, accepts an empty byte slice,
+and retains both byte length and scalar count. Construction preserves the exact
+`Utf8DecodeError`; successful values expose their original bytes and iterate as
+decoded `char` scalars without allocation. As with every borrowed Nia view, the
+caller keeps the backing bytes alive and unchanged for the view's use.
+
+`String::fromUtf8` and `appendUtf8` validate raw bytes into `Utf8View` before
+allocation or mutation, preserving `TextError::InvalidUtf8` at that raw input
+boundary. Callers that already hold a validated view use `fromUtf8View` and
+`appendUtf8View`; those operations can fail only with `mem::Error` and reserve
+the complete scalar capacity before publishing mutation. This keeps arbitrary
+bytes, validated encoded text, and owned scalar text as separate types without
+repeating the whole-buffer validation contract.
+
 `PathView` remains a nominal borrowed scalar path and `PathBuf` owns a `String`.
 `PathBuf::fromString` is its ownership-transfer constructor. It does not expose
 a second raw-slice adoption path; callers that intentionally adopt an
@@ -439,7 +454,7 @@ dispatch, and LLVM before deleting each builtin declaration.
 | borrowed scalar text | `&[char]` | literals, slices, format/build/path input | none for borrowing | native slice role accepted; no nominal wrapper |
 | owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | naming, mutation, relations, collections, receiver parsing, unmanaged ownership, and the complete vertical workflow accepted |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
-| UTF-8 sequence | borrowed bytes decoded one scalar at a time or streamed from scalar text | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8`, `Writer::writeUtf8` | `Utf8DecodeError`, `TextError`, or the concrete writer error | scalar decode, owned whole-buffer decode, transactional append, allocation-free stream encoding, and provider-closure evidence accepted; nominal validated view remains open |
+| UTF-8 sequence | validated borrowed `Utf8View`; raw `&[u8]` remains arbitrary bytes | `Utf8View::fromBytes`, `decodeUtf8First`, `String::fromUtf8View`, raw-byte `String::fromUtf8`, and `Writer::writeUtf8` | `Utf8DecodeError` during validation, `mem::Error` after validation, `TextError` for combined raw-byte ownership, or the concrete writer error | nominal validation, scalar iteration/count, owned conversion, transactional append, stream encoding, and provider-closure evidence accepted |
 | C string | `CStringView` over NUL-terminated bytes; allocator-owned `CString` | `CStringView::fromBytes`; `CString::fromBytes`, `fromView`, and scalar-text `fromText`; `fromPtrUnchecked` remains trusted-only | `CStringError` for view validation; `CStringBuildError` distinguishes `ContainsNul` from `mem::Error` allocation causes | checked view and owned storage accepted; OS-facing ownership remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
