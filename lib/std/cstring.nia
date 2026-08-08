@@ -1,4 +1,7 @@
+using pkg::collections;
 using pkg::fmt;
+using pkg::math;
+using pkg::mem;
 using pkg::parse;
 using pkg::slice;
 
@@ -8,8 +11,96 @@ pub enum CStringError: i32 {
     InteriorNul = 3,
 }
 
+pub enum CStringBuildError {
+    ContainsNul,
+    Allocation(mem::Error),
+}
+
 pub struct CStringView {
     ptr: &u8,
+}
+
+pub struct CString {
+    bytes: collections::ArrayList[u8],
+}
+
+extend CString {
+    pub fn init(allocator: &mut mem::Allocator) CStringBuildError!CString {
+        let mut bytes = collections::ArrayList[u8]::initCapacity(allocator, 1).asCStringBuildError().?;
+        bytes.appendAssumeCapacity(0);
+        !CString { bytes: bytes }
+    }
+
+    pub fn fromBytes(allocator: &mut mem::Allocator, bytes: &[u8]) CStringBuildError!CString {
+        for &byte in bytes {
+            if byte == 0 {
+                return CStringBuildError::ContainsNul!;
+            }
+        }
+        let capacity = switch bytes.len().checked_add(1) {
+            ?value => value,
+            null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
+        };
+        let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).asCStringBuildError().?;
+        output.appendSliceAssumeCapacity(bytes);
+        output.appendAssumeCapacity(0);
+        !CString { bytes: output }
+    }
+
+    pub fn fromView(allocator: &mut mem::Allocator, view: CStringView) CStringBuildError!CString {
+        CString::fromBytes(allocator, view.bytes())
+    }
+
+    pub fn fromText(allocator: &mut mem::Allocator, text: &[char]) CStringBuildError!CString {
+        let mut byteLen: usize = 0;
+        for &ch in text {
+            if ch.codepoint() == 0 {
+                return CStringBuildError::ContainsNul!;
+            }
+            byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+                ?value => value,
+                null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
+            };
+        }
+        let capacity = switch byteLen.checked_add(1) {
+            ?value => value,
+            null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
+        };
+        let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).asCStringBuildError().?;
+        for &ch in text {
+            output.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
+        }
+        output.appendAssumeCapacity(0);
+        !CString { bytes: output }
+    }
+
+    pub fn view(&self) CStringView {
+        CStringView::fromPtrUnchecked(self.bytes.asSlice().ptr())
+    }
+
+    pub fn rawPtr(&self) &u8 {
+        self.bytes.asSlice().ptr()
+    }
+
+    pub fn bytes(&self) &[u8] {
+        &self.bytes.asSlice()[0..self.bytes.len() - 1]
+    }
+
+    pub fn nulTerminatedBytes(&self) &[u8] {
+        self.bytes.asSlice()
+    }
+
+    pub fn len(&self) usize {
+        self.bytes.len() - 1
+    }
+
+    pub fn isEmpty(&self) bool {
+        self.len() == 0
+    }
+
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.bytes.deinit(allocator)
+    }
 }
 
 extend CStringView {
@@ -48,6 +139,10 @@ extend CStringView {
         & self.ptr[0..self.len()]
     }
 
+    pub fn nulTerminatedBytes(&self) &[u8] {
+        &self.ptr[0..self.len() + 1]
+    }
+
     pub fn isEmpty(&self) bool {
         self.len() == 0
     }
@@ -62,6 +157,16 @@ extend CStringView {
     where T: parse::FromRadix[CStringView]
     {
         [T]::fromRadix(self, radix)
+    }
+}
+
+extend CString : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        self.view().format(formatter)
+    }
+
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+        self.view().format_spec(formatter, spec)
     }
 }
 
@@ -103,5 +208,14 @@ where T: parse::FromRadix[&[u8]]
 
     fn fromRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
         input.bytes().parseRadix[T](radix)
+    }
+}
+
+extend[T] mem::Error!T {
+    fn asCStringBuildError(self) CStringBuildError!T {
+        switch self {
+            !value => !value,
+            error! => CStringBuildError::Allocation(error)!,
+        }
     }
 }

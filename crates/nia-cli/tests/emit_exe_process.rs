@@ -1839,6 +1839,67 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(5)!;
     }
 
+    let mut ownedCstring = std::CString::fromBytes(page, &b"owned").exit().?;
+    defer ownedCstring.deinit(page).exit().?;
+    if ownedCstring.len() != 5
+        or ownedCstring.bytes()[0] != b'o'
+        or ownedCstring.rawPtr()[5] != 0
+        or ownedCstring.view().len() != 5
+    {
+        return process::exit(51)!;
+    }
+    let mut emptyCstring = std::CString::init(page).exit().?;
+    defer emptyCstring.deinit(page).exit().?;
+    if not emptyCstring.isEmpty() or emptyCstring.nulTerminatedBytes().len() != 1 {
+        return process::exit(58)!;
+    }
+    let borrowedCstring = std::CStringView::fromPtrUnchecked((&b"copy\0").ptr());
+    let mut copiedCstring = std::CString::fromView(page, borrowedCstring).exit().?;
+    defer copiedCstring.deinit(page).exit().?;
+    if not copiedCstring.view().bytes().equals(&b"copy") {
+        return process::exit(52)!;
+    }
+    let mut unicodeCstring = std::CString::fromText(page, &"nia λ").exit().?;
+    defer unicodeCstring.deinit(page).exit().?;
+    if unicodeCstring.bytes().len() != 6 or unicodeCstring.rawPtr()[5] != 0xbbu8 {
+        return process::exit(53)!;
+    }
+    switch std::CString::fromBytes(page, &b"bad\0input") {
+        !value => {
+            _ = value;
+            return process::exit(54)!;
+        },
+        std::CStringBuildError::ContainsNul! => {},
+        error! => {
+            _ = error;
+            return process::exit(55)!;
+        },
+    }
+    switch std::CString::fromText(page, &"bad\0input") {
+        !value => {
+            _ = value;
+            return process::exit(59)!;
+        },
+        std::CStringBuildError::ContainsNul! => {},
+        error! => {
+            _ = error;
+            return process::exit(60)!;
+        },
+    }
+    let mut cstringTiny: [1]u8 = [0];
+    let mut cstringFixed = mem::FixedBufferAllocator::init(&mut cstringTiny[..]);
+    switch std::CString::fromText(&mut cstringFixed, &"out") {
+        !value => {
+            _ = value;
+            return process::exit(56)!;
+        },
+        std::CStringBuildError::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(57)!;
+        },
+    }
+
     let utf8: [6]u8 = [b'n', b'i', b'a', b' ', 0xceu8, 0xbbu8];
     if std::String::fromUtf8(page, &utf8) is !value {
         let mut decoded = value;

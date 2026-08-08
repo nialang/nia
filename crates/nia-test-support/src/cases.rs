@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::BTreeMap,
+    ffi::OsStr,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -171,6 +172,9 @@ pub fn copy_case_tree(source: &Path, destination: &Path) {
         let source_path = entry.path();
         let destination_path = destination.join(entry.file_name());
         if source_path.is_dir() {
+            if is_generated_case_state(entry.file_name().as_ref()) {
+                continue;
+            }
             copy_case_tree(&source_path, &destination_path);
         } else {
             fs::copy(&source_path, &destination_path).unwrap_or_else(|error| {
@@ -184,6 +188,10 @@ pub fn copy_case_tree(source: &Path, destination: &Path) {
     }
 }
 
+fn is_generated_case_state(name: &OsStr) -> bool {
+    name == OsStr::new(".nia-build") || name == OsStr::new(".nia-cache")
+}
+
 pub fn fixture_relative_path(manifest_path: &Path, value: String) -> PathBuf {
     let path = PathBuf::from(value);
     assert!(
@@ -195,4 +203,31 @@ pub fn fixture_relative_path(manifest_path: &Path, value: String) -> PathBuf {
         manifest_path.display()
     );
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_case_tree_excludes_generated_build_and_cache_state() {
+        let root = crate::test_dir("copy-case-tree-generated-state");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::create_dir_all(source.join("nested/.nia-cache")).expect("create nested cache state");
+        fs::create_dir_all(source.join(".nia-build")).expect("create build state");
+        fs::write(source.join("nested/input.nia"), b"fn main() void {}")
+            .expect("write ordinary fixture input");
+        fs::write(source.join(".fixture-config"), b"kept").expect("write ordinary fixture dotfile");
+        fs::write(source.join("nested/.nia-cache/stale"), b"cache")
+            .expect("write cached fixture state");
+        fs::write(source.join(".nia-build/output"), b"build").expect("write build fixture state");
+
+        copy_case_tree(&source, &destination);
+
+        assert!(destination.join("nested/input.nia").is_file());
+        assert!(destination.join(".fixture-config").is_file());
+        assert!(!destination.join("nested/.nia-cache").exists());
+        assert!(!destination.join(".nia-build").exists());
+    }
 }
