@@ -633,6 +633,8 @@ The representative fixture covers multiple requirements in one real package:
 | warm build | no-op package state and exact compiler/link cache counters |
 | source edit | invalidation of one source-dependent artifact |
 | module-map edit | runner/plan change and changed explicit module input |
+| corrupt cache | every current build-action entry rejected as corrupt and rebuilt over warm compiler artifacts |
+| recovered warm | repaired build-action entries hit with no object/link rebuild |
 | failed action | explicit uncacheable action rejection with no successful-build claim |
 | multi-artifact package | graph and artifact counts plus deterministic selected closure |
 
@@ -649,11 +651,14 @@ Machine acceptance covers the complete sequence. Clean requires at least one
 cacheable action and classifies every lookup as a miss; warm requires the same
 lookup count, all action hits, and zero object/link misses. Source and module-map
 edits must report their corresponding typed invalidation category and rebuild
-both object and link products. The selected failing step must execute no step,
-action, or action-cache lookup while reporting exactly one action failure. The
-expected action count is derived from the clean state rather than frozen to a
-fixture-era constant, so adding a declared artifact cannot make a correct warm
-build fail the harness.
+both object and link products. The harness then overwrites every current
+build-action entry, requires every lookup to classify the entry as corrupt while
+retaining warm object/link products, and requires the following recovered-warm
+run to hit every repaired entry. The selected failing step must execute no
+step, action, or action-cache lookup while reporting exactly one action failure.
+The expected action count is derived from the clean state rather than frozen to
+a fixture-era constant, so adding a declared artifact cannot make a correct
+warm build fail the harness.
 
 The 2026-07-29 Phase A sample on a Linux/WSL resource view with 8.19 GB effective
 memory recorded clean/warm wall time of 14.21/4.53 seconds and outer peak RSS of
@@ -732,7 +737,8 @@ hosted acceptance boundary for this matrix. It installs the pinned Ubuntu LLVM
 toolchain, runs formatting, strict all-feature Clippy, workspace checks and
 tests, executes the configured multi-artifact and copied-toolchain relocation
 suites, then runs one resource-accounted release baseline containing clean,
-warm, source-edit, module-map-edit, and failed-action states. The workflow
+warm, source-edit, module-map-edit, corrupt-cache, recovered-warm, and
+failed-action states. The workflow
 publishes the machine-readable baseline as an artifact. A local run or a static
 workflow test proves only configuration; Phase H cannot claim hosted acceptance
 until a successful GitHub run supplies the external evidence.

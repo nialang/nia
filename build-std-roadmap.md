@@ -4660,3 +4660,16 @@ invalidation categories and rebuild object/link products; the selected failing
 step must execute no step, action, or cache lookup while reporting exactly one
 action failure. Unit regressions prove missing edit invalidation and accidental
 failed-step execution both reject the report.
+
+Phase H progress (2026-08-09, corruption-recovery baseline): the release
+baseline now corrupts every current build-action cache entry after the targeted
+edits, requires every cacheable action to classify that state as corruption
+while reusing the still-valid compiler object/link products, and follows it
+with a recovered-warm state that must hit every repaired action entry. The
+machine report records the number of entries deliberately damaged and moves to
+schema 3. Hosted evidence can therefore demonstrate corruption recovery in the
+same auditable workload as clean, warm, targeted edits, and failed-action
+isolation. A real one-sample release run damaged five accumulated entries; all
+three current action lookups reported corrupt misses with zero object/link
+misses, and the recovered-warm run then hit all three repaired entries. An
+actual successful hosted run and uploaded report remain external.

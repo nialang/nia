@@ -230,9 +230,10 @@ release compiler:
 python3 tools/build_baseline.py
 ```
 
-By default it runs clean, warm, source-edit, module-map-edit, and failed-action
-states sequentially in each of three fresh isolated workspaces. It refuses to
-start under memory pressure, enforces subprocess timeouts, and writes
+By default it runs clean, warm, source-edit, module-map-edit, corrupt-cache,
+recovered-warm, and failed-action states sequentially in each of three fresh
+isolated workspaces. It refuses to start under memory pressure, enforces
+subprocess timeouts, and writes
 machine-readable runner compile/run/plan timings, cache acceptance checks, and
 median/p95 wall/RSS evidence under `target/nia-build-baseline/`.
 
@@ -299,8 +300,8 @@ language states are tracked through Git tags.
 - [tools/perf.py](tools/perf.py): release compiler baseline runner; use
   [tools/perf_compare.py](tools/perf_compare.py) for resource-aware comparisons.
 - [.github/workflows/build-std.yml](.github/workflows/build-std.yml): managed
-  build/std correctness matrix for clean/warm/edit/failure builds, relocation,
-  installed artifact execution, and workspace validation.
+  build/std correctness matrix for clean/warm/edit/corruption/failure builds,
+  relocation, installed artifact execution, and workspace validation.
 - [.github/workflows/performance.yml](.github/workflows/performance.yml): managed
   LLVM performance guard and main-branch baseline artifact retention.
 

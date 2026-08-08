@@ -1,8 +1,11 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from tools.build_baseline import (
     BUILD_STAGE_NAMES,
     build_command,
+    corrupt_action_cache,
     json_lines,
     parse_build_reports,
     summarize_runs,
@@ -54,6 +57,30 @@ class BuildBaselineTests(unittest.TestCase):
                     "build.action_cache_invalidation_module": 1,
                     "llvm.object_reuse_misses": 1,
                     "link.result_reuse_misses": 1,
+                },
+            ),
+            {
+                **self.acceptance_result(
+                    "corrupt_cache",
+                    {
+                        "build.action_cache_lookups": action_count,
+                        "build.action_cache_misses": action_count,
+                        "build.action_cache_miss_corrupt": action_count,
+                        "build.action_cache_hits": 0,
+                        "llvm.object_reuse_misses": 0,
+                        "link.result_reuse_misses": 0,
+                    },
+                ),
+                "corrupted_action_cache_entries": action_count,
+            },
+            self.acceptance_result(
+                "recovered_warm",
+                {
+                    "build.action_cache_lookups": action_count,
+                    "build.action_cache_hits": action_count,
+                    "build.action_cache_misses": 0,
+                    "llvm.object_reuse_misses": 0,
+                    "link.result_reuse_misses": 0,
                 },
             ),
             self.acceptance_result(
@@ -206,7 +233,7 @@ class BuildBaselineTests(unittest.TestCase):
 
     def test_failed_action_acceptance_rejects_executed_actions(self):
         results = self.passing_acceptance_results()
-        results[4]["measurement"]["counters"]["build.actions_executed"] = 1
+        results[6]["measurement"]["counters"]["build.actions_executed"] = 1
 
         acceptance = workload_acceptance(results)
 
@@ -218,6 +245,42 @@ class BuildBaselineTests(unittest.TestCase):
             and check["counter"] == "build.actions_executed"
         )
         self.assertEqual(action_check["found"], 1)
+
+    def test_corruption_acceptance_requires_repair_and_warm_reuse(self):
+        results = self.passing_acceptance_results()
+        results[4]["measurement"]["counters"][
+            "build.action_cache_miss_corrupt"
+        ] = 2
+        results[5]["measurement"]["counters"]["build.action_cache_hits"] = 2
+
+        acceptance = workload_acceptance(results)
+
+        self.assertFalse(acceptance["passed"])
+        failed = {
+            (check["state"], check["counter"])
+            for check in acceptance["checks"]
+            if not check["passed"]
+        }
+        self.assertIn(
+            ("corrupt_cache", "build.action_cache_miss_corrupt"), failed
+        )
+        self.assertIn(("recovered_warm", "build.action_cache_hits"), failed)
+
+    def test_corrupt_action_cache_overwrites_only_action_entries(self):
+        with TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            first = workspace / ".nia-cache/actions/generated-files/v1/a/one.entry"
+            second = workspace / ".nia-cache/actions/compiler-emits/v3/b/two.entry"
+            ignored = workspace / ".nia-cache/actions/compiler-emits/v3/b/lock.tmp"
+            for path in (first, second, ignored):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"valid")
+
+            self.assertEqual(corrupt_action_cache(workspace), 2)
+            injected = b"nia build baseline injected corruption\n"
+            self.assertEqual(first.read_bytes(), injected)
+            self.assertEqual(second.read_bytes(), injected)
+            self.assertEqual(ignored.read_bytes(), b"valid")
 
     def test_ignores_non_json_stderr(self):
         self.assertEqual(json_lines("error: ordinary diagnostic\nnot-json"), [])
