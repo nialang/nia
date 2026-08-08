@@ -402,6 +402,75 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if drainedCount != 2 or drainedTotal != 120 or not map.isEmpty() {
         return process::exit(18)!;
     }
+
+    let mut ownedPage = mem::PageAllocator::init();
+    let mut ownedAllocator = mem::GeneralPurposeAllocator::init(&mut ownedPage);
+    let mut ownedMap = std::HashMap[std::String, std::String]::initSeed(29u64);
+    ownedMap.reserve(&mut ownedAllocator, 2).exit().?;
+
+    let storedKey = std::String::fromSlice(&mut ownedAllocator, &"owned").exit().?;
+    let storedValue = std::String::fromSlice(&mut ownedAllocator, &"first").exit().?;
+    if ownedMap.insertAssumeCapacity(storedKey, storedValue) is ?unexpected {
+        _ = unexpected;
+        return process::exit(19)!;
+    }
+
+    let replacementKey = std::String::fromSlice(&mut ownedAllocator, &"owned").exit().?;
+    let replacementValue = std::String::fromSlice(&mut ownedAllocator, &"second").exit().?;
+    if ownedMap.insertAssumeCapacity(replacementKey, replacementValue) is ?replacement {
+        let mut parts = replacement;
+        if not parts.rejectedKey().equals(&"owned")
+            or not parts.replacedValue().equals(&"first")
+        {
+            return process::exit(20)!;
+        }
+        parts.rejectedKeyMut().deinit(&mut ownedAllocator).exit().?;
+        parts.replacedValueMut().deinit(&mut ownedAllocator).exit().?;
+    } else {
+        return process::exit(21)!;
+    }
+
+    let absentKey = std::String::fromSlice(&mut ownedAllocator, &"owned").exit().?;
+    let absentValue = std::String::fromSlice(&mut ownedAllocator, &"third").exit().?;
+    if ownedMap.insertIfAbsentAssumeCapacity(absentKey, absentValue) is ?rejected {
+        let mut parts = rejected;
+        parts.keyMut().deinit(&mut ownedAllocator).exit().?;
+        parts.valueMut().deinit(&mut ownedAllocator).exit().?;
+    } else {
+        return process::exit(22)!;
+    }
+
+    let entryKey = std::String::fromSlice(&mut ownedAllocator, &"owned").exit().?;
+    let entryValue = std::String::fromSlice(&mut ownedAllocator, &"fourth").exit().?;
+    let ownedEntryResult = ownedMap.getOrInsertAssumeCapacity(entryKey, entryValue);
+    if ownedEntryResult.intoRejected() is ?rejected {
+        let mut parts = rejected;
+        parts.keyMut().deinit(&mut ownedAllocator).exit().?;
+        parts.valueMut().deinit(&mut ownedAllocator).exit().?;
+    } else {
+        return process::exit(23)!;
+    }
+
+    let otherKey = std::String::fromSlice(&mut ownedAllocator, &"other").exit().?;
+    let otherValue = std::String::fromSlice(&mut ownedAllocator, &"fifth").exit().?;
+    if ownedMap.insertAssumeCapacity(otherKey, otherValue) is ?unexpected {
+        _ = unexpected;
+        return process::exit(24)!;
+    }
+
+    let mut ownedDrained = 0usize;
+    for mut entry in ownedMap.drain() {
+        entry.keyMut().deinit(&mut ownedAllocator).exit().?;
+        entry.valueMut().deinit(&mut ownedAllocator).exit().?;
+        ownedDrained += 1;
+    }
+    if ownedDrained != 2 or not ownedMap.isEmpty() {
+        return process::exit(25)!;
+    }
+    ownedMap.deinit(&mut ownedAllocator).exit().?;
+    if ownedAllocator.deinit().exit().? != mem::DeinitStatus::Ok {
+        return process::exit(26)!;
+    }
     !{}
 }
 "#,
