@@ -4530,6 +4530,19 @@ external C-string views to process startup argument/environment adapters. This
 closes the C-string OS-facing ownership item without introducing a second
 native storage abstraction.
 
+Standard-library reconstruction completion (2026-08-08, owned map element
+cleanup batch): `HashMapEntry` now exposes `keyMut()` and `valueMut()`, while
+`HashMapReplacement` exposes `rejectedKeyMut()` and `replacedValueMut()`. These
+paired accessors close the ownership hole in the former consuming-only surface:
+when both fields own allocations, callers can deinitialize both in place rather
+than consuming one field and losing access to the other. Runtime conformance
+uses `HashMap[String, String]` to exercise replacement payloads, if-absent and
+get-or-insert rejection, complete drain, backing-storage release, and a final
+leak-free general-purpose allocator status. `drain()` plus explicit part cleanup
+is the accepted deep-element protocol for unmanaged maps; automatic destructors
+and a speculative lazy callback entry API remain outside the current surface
+until a concrete workload requires them.
+
 Phase H and standard-library reconstruction progress (2026-08-08,
 unrestricted-provider deletion batch): `Dir::cwd` now opens `.` through the
 same beneath capability as other directory handles. The obsolete

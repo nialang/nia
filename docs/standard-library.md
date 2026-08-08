@@ -55,7 +55,7 @@ providers.
 | --- | --- | --- | --- |
 | `builtin`, primitive/layout/control | language and ABI foundation | retain candidate; compiler/runtime contract needs direct conformance | retain and version with toolchain resources |
 | `mem` allocators/layout | runner allocation and owned collections | explicit provenance and release contracts accepted; rollback/deinit failures remain visible | retain capability; ordinary slice copy/compare no longer lives here |
-| `collections::ArrayList` | steps, edges, modules, targets, path decoding | unmanaged collection protocol, owned extraction, batch reservation, and initialized-value mutation accepted | retain narrow initialized-value surface; continue deep element-cleanup design |
+| `collections::ArrayList` | steps, edges, modules, targets, path decoding | unmanaged collection protocol, owned extraction, batch reservation, and initialized-value mutation accepted | retain narrow initialized-value surface and explicit element ownership transfer |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; `Utf8View` validates borrowed encoded bytes; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed/owned scalar text and validated UTF-8 view accepted; keep conversion roles distinct |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
@@ -256,9 +256,13 @@ assume-capacity variants return those optionals directly with the same ownership
 results. This makes `if result is ?replacement` the ordinary single-branch
 cleanup spelling and removes the former `put`/`fetch_put`/`put_if_absent`
 surfaces that silently lost owned inputs.
-Returned entries transfer their fields with `intoKey()` and `intoValue()`;
-mutable entry views expose `valueMut()`. The former snake-case methods are
-absent rather than duplicated.
+Returned entries transfer a single field with `intoKey()` or `intoValue()`.
+When both fields own resources, `keyMut()` and `valueMut()` expose both fields
+for in-place cleanup before the entry is discarded. Replacements provide the
+same paired access through `rejectedKeyMut()` and `replacedValueMut()`; their
+single-field consuming accessors remain available when the other field is
+trivial. Mutable stored-entry views expose `valueMut()`. The former snake-case
+methods are absent rather than duplicated.
 
 For a fallible insertion, ownership remains with the caller until the method
 returns success; callers transferring allocating named values use a conditional
@@ -271,9 +275,10 @@ the same ownership result. The former value-taking operation and the
 uninitialized no-value `get_or_put` operations are physically absent. Maintained
 String conformance explicitly takes back rejected keys from replacement,
 if-absent, and entry insertion, deinitializes them, then removes and
-deinitializes the stored key. Deep element cleanup, a future lazy construction
-entry API, and allocator-aware element cleanup remain open. The container's
-own backing allocation follows the accepted unmanaged allocator protocol.
+deinitializes the stored key. Conformance with both owned `String` keys and
+values cleans replacement payloads, rejected entries, and every drained entry,
+then obtains a leak-free general-purpose allocator status. The container's own
+backing allocation follows the accepted unmanaged allocator protocol.
 
 `HashMap::drain()` is the explicit bulk ownership-transfer path. Its iterator
 scans the bucket array once and returns owned `HashMapEntry` values, so callers
@@ -282,7 +287,10 @@ operations. Each produced entry is removed immediately; stopping early leaves
 unvisited entries in the map. Exhaustion restores the empty control table and
 retains capacity for reuse. `ArrayList::pop()` provides the corresponding
 owned-element extraction primitive for lists. Neither container stores an
-allocator or infers element cleanup.
+allocator or infers element cleanup. Automatic element destructors and a lazy
+callback entry API are not part of the accepted contract: no current workload
+requires either protocol, and explicit transfer preserves allocator identity
+and type-specific cleanup errors without storing hidden callbacks.
 
 `ArrayList` exposes only initialized-value operations. `push`, `appendSlice`,
 `insert`, `insertSlice`, and `replaceRange` finish initialization before

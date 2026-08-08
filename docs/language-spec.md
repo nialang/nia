@@ -145,7 +145,12 @@ without allocation failure. The former no-value `get_or_put` operations are
 absent because they exposed an uninitialized stored value.
 `drain()` returns a `HashMapDrain` iterator of owned `HashMapEntry` values.
 Each `next()` removes exactly the entry it returns; exhausting the iterator
-leaves the map empty while retaining reusable capacity.
+leaves the map empty while retaining reusable capacity. Owned entries expose
+`keyMut()` and `valueMut()` so allocating key and value fields can both be
+deinitialized in place before the entry is discarded. `HashMapReplacement`
+provides the corresponding `rejectedKeyMut()` and `replacedValueMut()` pair;
+its consuming single-field accessors remain useful when the other field has no
+cleanup obligation.
 Reviewed map APIs use lower-camel names without compatibility aliases. `clear`
 retains capacity, `deinit` releases allocation, `reserve` accepts additional
 capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.

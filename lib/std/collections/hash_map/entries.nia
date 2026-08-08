@@ -45,6 +45,14 @@ where K: Sized, V: Sized
         &self.value
     }
 
+    pub fn keyMut(&mut self) &mut K {
+        &mut self.key
+    }
+
+    pub fn valueMut(&mut self) &mut V {
+        &mut self.value
+    }
+
     pub fn intoKey(self) K {
         self.key
     }
@@ -107,6 +115,14 @@ where K: Sized, V: Sized
 
     pub fn replacedValue(&self) &V {
         &self.replacedValue
+    }
+
+    pub fn rejectedKeyMut(&mut self) &mut K {
+        &mut self.rejectedKey
+    }
+
+    pub fn replacedValueMut(&mut self) &mut V {
+        &mut self.replacedValue
     }
 
     pub fn intoRejectedKey(self) K {
