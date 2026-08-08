@@ -151,9 +151,17 @@ where W: Writer
     }
 
     pub fn flush(&mut self) Error!void {
-        if self.len != 0 {
-            self.writer.writeAll(& self.buffer[0..self.len]).?;
-            self.len = 0;
+        while self.len != 0 {
+            let n = self.writer.write(& self.buffer[0..self.len]).?;
+            if n == 0 {
+                return self.shortWrite()!;
+            }
+            if n == self.len {
+                self.len = 0;
+            } else {
+                _ = (&mut self.buffer[0..(self.len - n)]).copyFrom(&self.buffer[n..self.len]);
+                self.len -= n;
+            }
         }
         self.writer.flush()
     }
