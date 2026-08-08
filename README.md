@@ -298,6 +298,9 @@ language states are tracked through Git tags.
 - [benchmarks/](benchmarks/): fixed compiler performance workloads.
 - [tools/perf.py](tools/perf.py): release compiler baseline runner; use
   [tools/perf_compare.py](tools/perf_compare.py) for resource-aware comparisons.
+- [.github/workflows/build-std.yml](.github/workflows/build-std.yml): managed
+  build/std correctness matrix for clean/warm/edit/failure builds, relocation,
+  installed artifact execution, and workspace validation.
 - [.github/workflows/performance.yml](.github/workflows/performance.yml): managed
   LLVM performance guard and main-branch baseline artifact retention.
 
