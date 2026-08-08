@@ -2292,7 +2292,13 @@ Scalar lowering uses operation-scoped
 allocator-owned C strings and carries `mem::Error` as an allocation variant of
 `OperationError`; no filesystem or process facade depends on a fixed 4096-byte
 path buffer. `Command` applies the same owned lowering to its executable and
-working-directory paths.
+working-directory paths. Command argument and exact-environment byte arenas are
+fully populated before their `argv`/`envp` pointer arrays are constructed, so
+arena growth cannot invalidate retained pointers. On Linux those allocations
+remain live across `fork` while the parent waits on the close-on-exec spawn-error
+pipe; the wait ends only after `execve` consumes them or reports failure. The
+inherited environment is a process-lifetime view of the startup stack, while
+`spawnRaw` is the explicit caller-owned native-pointer escape hatch.
 
 Global module-map options:
 

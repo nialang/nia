@@ -172,8 +172,11 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   environment into temporary NUL-terminated UTF-8 storage, insert the
   executable path as argv[0], and reject embedded NUL scalars before invoking
   the OS. `spawnWithAllocator` and `runWithAllocator` provide the same lowering
-  with caller-controlled temporary allocation. `spawnRaw` is the explicit
-  low-level pointer-array boundary.
+  with caller-controlled temporary allocation. Byte arenas are complete before
+  their native pointer arrays are built and remain alive until native spawn has
+  consumed them. The inherited `Env` view borrows the process-lifetime startup
+  environment. `spawnRaw` is the explicit low-level pointer-array boundary;
+  callers retain responsibility for NUL/NULL termination and pointer lifetime.
 - `process::Error` is a closed payload enum. `Allocation(mem::Error)` and
   `Path(fs::PathError)` preserve lowering failures;
   `ArgumentContainsNul(index)` identifies the zero-based element of the

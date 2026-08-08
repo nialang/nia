@@ -347,6 +347,8 @@ fn appendCStringPointers(
     bytes: &[u8],
     pointers: &mut collections::ArrayList[&u8],
 ) Error!void {
+    // Callers finish a non-empty arena of adjacent NUL-terminated strings
+    // before taking any pointers into it.
     let mut start: usize = 0;
     while start < bytes.len() {
         pointers.push(allocator, &bytes[start]).asProcessAllocationError().?;

@@ -512,7 +512,7 @@ dispatch, and LLVM before deleting each builtin declaration.
 | owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | naming, mutation, relations, collections, receiver parsing, unmanaged ownership, and the complete vertical workflow accepted |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | validated borrowed `Utf8View`; raw `&[u8]` remains arbitrary bytes | `Utf8View::fromBytes`, `decodeUtf8First`, `String::fromUtf8View`, raw-byte `String::fromUtf8`, and `Writer::writeUtf8` | `Utf8DecodeError` during validation, `mem::Error` after validation, `TextError` for combined raw-byte ownership, or the concrete writer error | nominal validation, scalar iteration/count, owned conversion, transactional append, stream encoding, and provider-closure evidence accepted |
-| C string | `CStringView` over NUL-terminated bytes; allocator-owned `CString` | `CStringView::fromBytes`; `CString::fromBytes`, `fromView`, and scalar-text `fromText`; `fromPtrUnchecked` remains trusted-only | `CStringError` for view validation; `CStringBuildError` distinguishes `ContainsNul` from `mem::Error` allocation causes | checked view and owned storage accepted; OS-facing ownership remains open |
+| C string | `CStringView` over NUL-terminated bytes; allocator-owned `CString` | `CStringView::fromBytes`; `CString::fromBytes`, `fromView`, and scalar-text `fromText`; `fromPtrUnchecked` remains trusted-only | `CStringError` for view validation; `CStringBuildError` distinguishes `ContainsNul` from `mem::Error` allocation causes | checked views, owned storage, and OS-facing process/path ownership accepted |
 | filesystem path | `PathView` / `PathBuf` over scalar text; validated `NativePathView`; contained `RelativePathView` / `RelativeNativePathView` for `Dir` calls | typed UTF-8 ownership, allocator-owned scalar and mutation-parent lowering, checked NUL-terminated native bytes, or checked relative conversion | `TextError`, `mem::Error`, `PathError`, then contextual `OperationError`; stream/handle calls retain `fs::Error` | scalar ownership, native representation, Linux lexical/symlink-contained Dir roots, dynamic lowering, and path-operation context accepted |
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed executable/cwd/argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves allocation, lowering, spawn, and lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, dynamic scalar paths, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
 
@@ -541,7 +541,19 @@ copied into one invocation-local byte arena before the native pointer array is
 built. This keeps pointer lifetimes stable until `exec`, makes the command
 boundary reuse the public C-string validation/encoding contract, and releases
 the per-argument owner on every success or failure path. The configuration value
-does not retain caller-built native argv storage.
+does not retain caller-built native argv storage. Exact environment entries use
+the same ordering: all validated `name=value\0` bytes are complete before any
+`envp` pointer is retained. The executable and working directory have separate
+owned C-string arenas, so later lowering cannot relocate either pointer target.
+
+On Linux the child inherits those invocation arenas across `fork`. The parent
+waits on a close-on-exec error pipe, keeping every arena alive until `execve`
+has either consumed the pointers or returned a stage-specific error. Inherited
+`Env` storage points into the original process startup stack and remains borrowed
+for the process lifetime; exact and empty environments instead use invocation-
+local pointer arrays. `spawnRaw` is deliberately the one public
+trusted boundary: its caller must provide NUL-terminated path/strings and
+NULL-terminated `argv`/`envp` arrays that remain valid until spawn returns.
 
 ## 5. Ownership And Error Baseline
 
