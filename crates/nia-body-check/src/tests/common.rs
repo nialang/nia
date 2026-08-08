@@ -359,18 +359,18 @@ fn pipeline_with_options(
         "{:?}",
         normalization.diagnostics
     );
-    let extensions = include_visible_extensions
-        .then(|| {
-            visible_extension_methods(
-                module_id,
-                &module,
-                &defs,
-                &lowered,
-                &signatures,
-                &normalization,
-            )
-        })
-        .unwrap_or_default();
+    let extensions = if include_visible_extensions {
+        visible_extension_methods(
+            module_id,
+            &module,
+            &defs,
+            &lowered,
+            &signatures,
+            &normalization,
+        )
+    } else {
+        Default::default()
+    };
     let layouts = nia_layout::compute_layouts(
         &type_store,
         &defs,

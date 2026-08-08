@@ -286,12 +286,11 @@ fn add_reexport_provider_modules_matching(
     prefer_selected_branches: bool,
 ) -> TraversalResult<()> {
     let selected_paths = prefer_selected_branches.then(|| {
-        let selected = source_paths
+        source_paths
             .iter()
             .filter(|path| provider_branch_is_semantic_selected(db, graph, facade_module, path))
             .cloned()
-            .collect::<Vec<_>>();
-        selected
+            .collect::<Vec<_>>()
     });
     let source_paths = if prefer_selected_branches {
         if let Some(paths) = selected_paths.as_deref().filter(|paths| !paths.is_empty()) {

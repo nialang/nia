@@ -437,15 +437,15 @@ pub enum PlanError {
         reason: &'static str,
     },
     MissingGeneratedSourceProducer {
-        action: ActionKey,
-        module: ModuleKey,
-        path: LogicalPath,
+        action: Box<ActionKey>,
+        module: Box<ModuleKey>,
+        path: Box<LogicalPath>,
     },
     GeneratedSourceProducerOutsideClosure {
-        action: ActionKey,
-        module: ModuleKey,
-        path: LogicalPath,
-        producer: ActionKey,
+        action: Box<ActionKey>,
+        module: Box<ModuleKey>,
+        path: Box<LogicalPath>,
+        producer: Box<ActionKey>,
     },
     MissingDefaultStep,
     InvalidTarget {
@@ -1221,27 +1221,27 @@ fn validate_generated_source_dependencies(draft: &BuildPlanDraft) -> Result<(), 
             }
             let Some(producer) = producers.get(module_path).copied() else {
                 return Err(PlanError::MissingGeneratedSourceProducer {
-                    action: action.key.clone(),
-                    module: (*module_key).clone(),
-                    path: module_path.clone(),
+                    action: Box::new(action.key.clone()),
+                    module: Box::new((*module_key).clone()),
+                    path: Box::new(module_path.clone()),
                 });
             };
             if !steps_by_action.contains_key(producer) {
                 return Err(PlanError::GeneratedSourceProducerOutsideClosure {
-                    action: action.key.clone(),
-                    module: (*module_key).clone(),
-                    path: module_path.clone(),
-                    producer: (*producer).clone(),
+                    action: Box::new(action.key.clone()),
+                    module: Box::new((*module_key).clone()),
+                    path: Box::new(module_path.clone()),
+                    producer: Box::new((*producer).clone()),
                 });
             }
             for consumer_step in consumer_steps {
                 let dependency_actions = dependency_action_closure(consumer_step, &step_by_key)?;
                 if !dependency_actions.contains(producer) {
                     return Err(PlanError::GeneratedSourceProducerOutsideClosure {
-                        action: action.key.clone(),
-                        module: (*module_key).clone(),
-                        path: module_path.clone(),
-                        producer: (*producer).clone(),
+                        action: Box::new(action.key.clone()),
+                        module: Box::new((*module_key).clone()),
+                        path: Box::new(module_path.clone()),
+                        producer: Box::new((*producer).clone()),
                     });
                 }
             }

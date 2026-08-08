@@ -78,31 +78,33 @@ impl CompilerEmitCacheLinkInput {
     }
 }
 
+pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
+    pub(crate) action: &'a ActionKey,
+    pub(crate) artifact: &'a PlanArtifact,
+    pub(crate) module: &'a PlanModule,
+    pub(crate) packages: &'a [PlanPackage],
+    pub(crate) target: &'a TargetSpec,
+    pub(crate) manifest: &'a SourceInputManifest,
+    pub(crate) toolchain: &'a ToolchainIdentity,
+    pub(crate) link_environment: ExecutableCacheEnvironment,
+    pub(crate) link_inputs: &'a [CompilerEmitCacheLinkInput],
+}
+
 impl CompilerEmitCacheIdentity {
-    pub(crate) fn new(
-        action: &ActionKey,
-        artifact: &PlanArtifact,
-        module: &PlanModule,
-        packages: &[PlanPackage],
-        target: &TargetSpec,
-        manifest: &SourceInputManifest,
-        toolchain: &ToolchainIdentity,
-        link_environment: ExecutableCacheEnvironment,
-        link_inputs: &[CompilerEmitCacheLinkInput],
-    ) -> Option<Self> {
+    pub(crate) fn new(input: CompilerEmitCacheIdentityInput<'_>) -> Option<Self> {
         let compiler = CompilerCheckCacheIdentity::new(
-            action,
-            module,
-            packages,
-            target,
+            input.action,
+            input.module,
+            input.packages,
+            input.target,
             crate::Runtime::Freestanding,
-            manifest,
-            toolchain,
+            input.manifest,
+            input.toolchain,
         )?;
-        let output = logical_path_identity(&artifact.output);
-        let artifact = artifact_identity(artifact);
-        let link_environment = link_environment.encode().to_vec();
-        let link_inputs = link_inputs_identity(link_inputs);
+        let output = logical_path_identity(&input.artifact.output);
+        let artifact = artifact_identity(input.artifact);
+        let link_environment = input.link_environment.encode().to_vec();
+        let link_inputs = link_inputs_identity(input.link_inputs);
         let components = EmitFingerprintComponents {
             compiler: compiler.fingerprints.components,
             artifact: bytes_fingerprint("nia.build.compiler-emit.artifact.v1", &artifact),
