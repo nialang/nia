@@ -4481,3 +4481,12 @@ sentinel, and ordinary directory capability workflows. `mkdirat`, `unlinkat`,
 `renameat`, and `statx` remain host-semantic because Linux provides no resolve
 flags for those calls; complete containment for mutation and metadata remains
 open pending a parent-resolution design.
+
+Standard-library reconstruction progress (2026-08-08, symlink policy and
+provider-error batch): Linux `ENOSYS` and `ELOOP` now have distinct typed OS/fs
+errors, so an unavailable `openat2` capability is observable and cannot be
+silently treated as an ordinary system failure. Runtime coverage proves that a
+symlink resolving to another entry inside the directory remains allowed under
+the default follow policy, while `OpenDirOptions::noFollow` rejects a final
+directory symlink. The containment contract remains limited to handle-opening
+operations; mutation and metadata parent resolution remain open.

@@ -35,6 +35,8 @@ pub enum Errno: i32 {
     BrokenPipe = 32,
     OutOfRange = 34,
     TooLong = 36,
+    Unsupported = 38,
+    SymlinkLoop = 40,
     NotEmpty = 39,
     _,
 }

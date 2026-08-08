@@ -468,6 +468,9 @@ unrestricted `openat`. `mkdirat`, `unlinkat`, `renameat`, and `statx` still
 follow host semantics because they have no equivalent resolve flags; complete
 containment for those operations remains open. `File::open` and `File::create`
 continue to take ordinary `PathView` values and retain process-path semantics.
+The provider preserves `ENOSYS` as `Unsupported` for kernels without
+`openat2`, and reports final-component `O_NOFOLLOW` rejection as the distinct
+`SymlinkLoop` error where supported by the host.
 Public fs methods use lower camel case with no aliases, including `getCwd`,
 `openFile`, `createFile`, `readOnly`, and `fileId`.
 
