@@ -1370,8 +1370,8 @@ fn main(p: Pair) {}
 }
 
 #[test]
-fn std_linux_statx_layout_matches_kernel_abi() {
-    let root = temp_dir("std_linux_statx_layout_matches_kernel_abi");
+fn std_linux_filesystem_struct_layouts_match_kernel_abi() {
+    let root = temp_dir("std_linux_filesystem_struct_layouts_match_kernel_abi");
     write(
         &root.join("main.nia"),
         r#"
@@ -1408,6 +1408,30 @@ fn main(dir: &fs::Dir, path: fs::RelativePathView) void {
             align: 8
         }
     );
+
+    let open_types_module = program
+        .modules
+        .iter()
+        .find(|module| module.path.as_str().ends_with("std/os/linux/types.nia"))
+        .expect("std::os::linux::types module");
+    let open_how_id = open_types_module
+        .defs
+        .module_scope
+        .types
+        .get(&sym("OpenHow"))
+        .expect("OpenHow def");
+    let open_how_layout = open_types_module
+        .layouts
+        .structs
+        .get(&open_how_id)
+        .expect("OpenHow layout");
+    assert_eq!(
+        open_how_layout.layout,
+        nia_layout::TypeLayout { size: 24, align: 8 }
+    );
+    assert_eq!(open_how_layout.fields[0].offset, 0);
+    assert_eq!(open_how_layout.fields[1].offset, 8);
+    assert_eq!(open_how_layout.fields[2].offset, 16);
 }
 
 #[test]

@@ -4511,3 +4511,12 @@ and stat owner, together with their unused resolve/stat flag constants.
 Structural searches prove no remaining production caller can bypass the
 accepted handle-opening or metadata containment paths. Filesystem mutation
 parent resolution remains open.
+
+Standard-library reconstruction progress (2026-08-08, Linux filesystem ABI
+evidence batch): Driver layout evidence now locks `open_how` to the kernel
+version-zero ABI of three `u64` fields at offsets 0/8/16, size 24, and alignment
+8 alongside the existing 256-byte `statx` assertion. Loader-query evidence
+selects `Dir::metadata` through the fs file provider and proves the complete
+Linux fd/stat/types provider chain is present. These checks make the raw
+syscall boundary and its demand-loaded consumer explicit before mutation parent
+resolution is added.

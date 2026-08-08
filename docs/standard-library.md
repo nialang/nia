@@ -475,6 +475,9 @@ The provider preserves `ENOSYS` as `Unsupported` for kernels without
 No unrestricted directory-open or path-based metadata adapter remains beneath
 the fs facade; `Dir::cwd` and directory-relative metadata use the same accepted
 beneath provider boundary as ordinary `Dir` handle operations.
+Compiler layout tests lock the Linux `open_how` and `statx` structures to their
+kernel UAPI sizes and alignments, and loader tests retain the complete metadata
+provider chain.
 Public fs methods use lower camel case with no aliases, including `getCwd`,
 `openFile`, `createFile`, `readOnly`, and `fileId`.
 
