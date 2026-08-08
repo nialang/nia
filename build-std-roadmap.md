@@ -4449,6 +4449,10 @@ ordinary process-path semantics. Runtime evidence covers absolute, leading and
 embedded parent traversal, a terminal parent component, native absolute and
 native parent traversal, and successful nested relative creation. Existing
 file, directory, metadata, iteration, closed-handle, non-UTF-8 native-path, and
-loader-query matrices remain the regression boundary. This closes lexical root
-containment. Symlink containment still requires `openat2` or an equivalent OS
-capability, and dynamic scalar path lowering still remains open.
+loader-query matrices remain the regression boundary. Follow-up boundary
+evidence proves unrestricted scalar and native views are nominally rejected by
+`Dir`, exact-component matching does not reject `.`, empty, repeated-separator,
+or `..b` spellings, and relative validation selects the path provider without
+loading file I/O. This closes lexical root containment. Symlink containment
+still requires `openat2` or an equivalent OS capability, and dynamic scalar
+path lowering still remains open.
