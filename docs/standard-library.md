@@ -472,6 +472,9 @@ continue to take ordinary `PathView` values and retain process-path semantics.
 The provider preserves `ENOSYS` as `Unsupported` for kernels without
 `openat2`, and reports final-component `O_NOFOLLOW` rejection as the distinct
 `SymlinkLoop` error where supported by the host.
+No unrestricted directory-open or path-based metadata adapter remains beneath
+the fs facade; `Dir::cwd` and directory-relative metadata use the same accepted
+beneath provider boundary as ordinary `Dir` handle operations.
 Public fs methods use lower camel case with no aliases, including `getCwd`,
 `openFile`, `createFile`, `readOnly`, and `fileId`.
 

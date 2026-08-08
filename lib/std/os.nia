@@ -187,15 +187,6 @@ pub(pkg) fn openAtBeneath(
     !FileHandle::fromPlatform(handle)
 }
 
-pub(pkg) fn openDirAt(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileHandle {
-    let handle = platform::open_dir_at(
-        dir.platform(),
-        path,
-        followSymlinks,
-    ).asOsError().?;
-    !FileHandle::fromPlatform(handle)
-}
-
 pub(pkg) fn createDirAt(dir: FileHandle, path: &u8, permissions: u32) Error!void {
     platform::create_dir_at(dir.platform(), path, permissions).asOsError()
 }
@@ -220,15 +211,6 @@ pub(pkg) fn renameAt(
         new_dir.platform(),
         new_path,
     ).asOsError()
-}
-
-pub(pkg) fn metadataAt(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {
-    let metadata = platform::metadata_at(
-        dir.platform(),
-        path,
-        followSymlinks,
-    ).asOsError().?;
-    !metadata.asOsMetadata()
 }
 
 pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {

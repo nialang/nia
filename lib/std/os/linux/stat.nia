@@ -4,8 +4,6 @@ using pkg::os::linux::types;
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 using types::OpenHow;
 
-const at_symlink_no_follow: usize = 0x100usize;
-const at_no_automount: usize = 0x800usize;
 const at_empty_path: usize = 0x1000usize;
 const statx_type: u32 = 0x00000001u32;
 const statx_mode: u32 = 0x00000002u32;
@@ -72,14 +70,6 @@ pub extern struct Statx {
 pub fn metadata_fd(fd: FileDescriptor) Errno!FileMetadata {
     let empty = b"\0";
     statx_at(fd, &empty[0], at_empty_path, statx_request_basic)
-}
-
-pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
-    let mut flags = at_no_automount;
-    if not follow_symlinks {
-        flags = flags | at_symlink_no_follow;
-    }
-    statx_at(dir, path, flags, statx_request_basic)
 }
 
 pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {

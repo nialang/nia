@@ -56,9 +56,15 @@ extend Dir {
 
     pub fn cwd() Error!Dir {
         let current = b".\0";
-        let handle = os::openDirAt(
+        let handle = os::openAtBeneath(
             os::cwd(),
             &current[0],
+            os::OpenMode::ReadOnly,
+            true,
+            false,
+            false,
+            false,
+            0,
             true,
         ).as_fs_error().?;
         !Dir::fromOwnedDescriptor(handle)
