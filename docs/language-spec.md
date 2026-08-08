@@ -249,8 +249,11 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   carries only argument and environment startup views; it has no `io()`
   capability plumbing.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
-  `print` helper traps if the stderr write or flush fails; use `std::io` and
-  explicit error propagation for application stdout or recoverable I/O.
+  `print` helper returns `debug::Error!void`: `Format(fmt::Error)` preserves
+  template/presentation failures and `Flush(fs::Error)` preserves the stderr
+  flush cause. Executable entry points may use `.exit().?` for the standard
+  process-status mapping. Use `std::io` directly when output destination,
+  buffering, or recovery policy belongs to the application.
 - `std::fmt` defines the formatting protocol used by writer `.print(...)`.
   Format arguments are passed as a
   slice of trait-object handles, usually written as an addressed array literal

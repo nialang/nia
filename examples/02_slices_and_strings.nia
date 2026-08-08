@@ -131,7 +131,7 @@ pub fn main(init: Init) ExitCode!void {
             &stable_bytes_len,
             &copied_len,
         ],
-    );
+    ).exit().?;
 
     !{}
 }

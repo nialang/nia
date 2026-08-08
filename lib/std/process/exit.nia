@@ -1,4 +1,5 @@
 using pkg::cstring;
+using pkg::debug;
 using pkg::error;
 using pkg::fmt;
 using pkg::fs;
@@ -7,6 +8,27 @@ using pkg::mem;
 using pkg::process::types;
 
 using types::{Error, ExitCode, SpawnError, SystemError};
+
+extend debug::Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        switch self {
+            debug::Error::Format(cause) => cause.asExitCode(),
+            debug::Error::Flush(cause) => cause.asExitCode(),
+        }
+    }
+}
+
+extend debug::Error {
+    pub fn asExitCode(self) ExitCode {
+        self.into_error()
+    }
+}
+
+extend[T] debug::Error!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}
 
 extend cstring::CStringBuildError : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {

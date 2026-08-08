@@ -256,8 +256,8 @@ slices, structs and enums, control flow, standard-library I/O, collections,
 generics, traits, error handling, and multi-file imports. They use the current
 executable entry contract:
 `pub fn main(process::Init) process::ExitCode!void`. They print visible results
-with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output through
-`std::io` and `std::fmt`.
+with the fallible `std::debug::print(...).exit().?` boundary, and
+`03_stdout.nia` shows explicit stdout output through `std::io` and `std::fmt`.
 
 ## Documentation
 

@@ -104,7 +104,7 @@ using std::os;
 }
 
 #[test]
-fn repository_examples_parse_and_representative_examples_check() {
+fn repository_examples_parse_and_check() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let examples_dir = manifest_dir
         .parent()
@@ -141,16 +141,7 @@ fn repository_examples_parse_and_representative_examples_check() {
         );
     }
 
-    for example in [
-        "00_minimal.nia",
-        "01_values_control_flow.nia",
-        "02_slices_and_strings.nia",
-        "03_stdout.nia",
-        "06_optional_error.nia",
-        "09_hash_map.nia",
-        "10_process_command.nia",
-        "modules/main.nia",
-    ] {
+    for example in examples {
         let path = examples_dir.join(example);
         let output = support::nia_command()
             .arg("check")
@@ -163,7 +154,7 @@ fn repository_examples_parse_and_representative_examples_check() {
 
         assert!(
             output.status.success(),
-            "representative example {example} failed\nstderr:\n{}",
+            "example {example} failed freestanding check\nstderr:\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
     }

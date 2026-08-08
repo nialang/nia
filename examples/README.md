@@ -10,8 +10,8 @@ Each top-level `.nia` file uses the current entry contract:
 
 Most examples print their results through `std::debug::print`, a stderr debug
 printing helper for small programs and diagnostics. It keeps example programs
-focused on the language feature being shown; if the underlying stderr write or
-flush fails, it traps instead of silently ignoring the failure.
+focused on the language feature being shown while returning formatting or flush
+errors explicitly. Executable examples propagate that result with `.exit().?`.
 
 `03_stdout.nia` shows the explicit application-output path with
 `std::io.FileWriter` and `std::fmt`: create a stdout buffer, write formatted text,

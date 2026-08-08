@@ -4543,6 +4543,19 @@ is the accepted deep-element protocol for unmanaged maps; automatic destructors
 and a speculative lazy callback entry API remain outside the current surface
 until a concrete workload requires them.
 
+Phase H and standard-library reconstruction completion (2026-08-08, debug
+failure-flow batch): `debug::print` no longer traps on ordinary formatting or
+stderr failures. Its closed `debug::Error` retains either the exact `fmt::Error`
+or the final flush's `fs::Error`, and the process conversion maps each payload
+through its native exit-code contract. Every maintained example now propagates
+debug output with `.exit().?`; examples whose helper formerly returned only
+`mem::Error` use an `ExitCode` error boundary so allocation, cleanup, formatting,
+and output failures keep their own mappings. Runtime evidence distinguishes an
+invalid template from `BadFd` after launching with stderr closed, while existing
+debug-format output remains covered by the HashMap executable. Structural trap
+audit leaves only documented randomized-HashMap convenience traps and explicit
+assume-capacity/private collection invariants in repository std.
+
 Phase H and standard-library reconstruction progress (2026-08-08,
 unrestricted-provider deletion batch): `Dir::cwd` now opens `.` through the
 same beneath capability as other directory handles. The obsolete

@@ -21,18 +21,18 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-fn run(init: Init) mem::Error!void {
+fn run(init: Init) ExitCode!void {
     _ = init;
 
     let mut page = mem::PageAllocator::init();
     // ArenaAllocator gets pages from a child allocator and frees/reset them as
     // a group. It is a good fit for phase-local scratch data.
     let mut arena = mem::ArenaAllocator::init(&mut page);
-    defer arena.deinit().?;
+    defer arena.deinit().exit().?;
     let allocator = &mut arena;
 
     let mut scores = std::ArrayList[i32]::init();
-    fillScores(&mut scores, allocator).?;
+    fillScores(&mut scores, allocator).exit().?;
 
     let mut firstTotal = sum(scores.asSlice());
     let mut firstCapacity = arena.capacity();
@@ -40,10 +40,10 @@ fn run(init: Init) mem::Error!void {
 
     // Every slice or container allocation from the arena becomes invalid after
     // reset. Only keep copied scalar results across this boundary.
-    arena.reset().?;
+    arena.reset().exit().?;
 
     // New allocations after reset may reuse retained arena storage.
-    let mut labels = allocator.allocSlice[u8](16).?;
+    let mut labels = allocator.allocSlice[u8](16).exit().?;
     // This is mutable byte storage, not a string literal; string and
     // byte-string literal forms are covered in 02_slices_and_strings.nia.
     labels[0] = b'o';
@@ -63,12 +63,12 @@ fn run(init: Init) mem::Error!void {
             &retainedUsed,
             &bytesLen,
         ],
-    );
+    ).exit().?;
 
     !{}
 }
 
 pub fn main(init: Init) ExitCode!void {
-    run(init).exit().?;
+    run(init).?;
     !{}
 }

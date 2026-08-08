@@ -9,7 +9,7 @@ pub fn main(init: Init) ExitCode!void {
     // a program only needs debug output.
     _ = init;
     // Format arguments are passed as a slice of value handles.
-    debug::print(&"hello from nia\n", &[]);
+    debug::print(&"hello from nia\n", &[]).exit().?;
     // Success is the value side of the ExitCode!void error union.
     !{}
 }
