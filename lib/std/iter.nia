@@ -48,25 +48,6 @@ where I: Iterator
     }
 }
 
-extend[I] Take[I] : DoubleEndedIterator
-where I: DoubleEndedIterator
-{
-    pub fn nextBack(&mut self) ?[Take[I] as Iterator]::Item {
-        if self.remaining == 0 {
-            return null;
-        }
-        switch self.iter.nextBack() {
-            ?value => {
-                self.remaining -= 1;
-                ?value
-            },
-            null => {
-                null
-            },
-        }
-    }
-}
-
 extend[I] Rev[I]
 where I: DoubleEndedIterator
 {

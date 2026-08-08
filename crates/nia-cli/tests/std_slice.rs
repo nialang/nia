@@ -14,6 +14,7 @@ fn emit_exe_std_slice_direct_borrowed_iteration() {
         &main,
         r#"
 using std::cmp;
+using std::iter;
 using std::process;
 using std::slice;
 
@@ -87,6 +88,95 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let iter = (&values[..]).iter();
     if iter.len() != 5 or iter.isEmpty() {
         return process::exit(5)!;
+    }
+
+    let mut mixed = (&values[..]).iter();
+    if mixed.next() is ?value {
+        if value.* != 2 {
+            return process::exit(47)!;
+        }
+    } else {
+        return process::exit(47)!;
+    }
+    if mixed.nextBack() is ?value {
+        if value.* != 11 {
+            return process::exit(48)!;
+        }
+    } else {
+        return process::exit(48)!;
+    }
+    if mixed.nextBack() is ?value {
+        if value.* != 7 {
+            return process::exit(49)!;
+        }
+    } else {
+        return process::exit(49)!;
+    }
+    if mixed.len() != 2 {
+        return process::exit(50)!;
+    }
+
+    let mut taken = (0usize..10usize).iter().take(3usize);
+    if taken.next() is ?value {
+        if value != 0usize {
+            return process::exit(51)!;
+        }
+    } else {
+        return process::exit(51)!;
+    }
+    if taken.next() is ?value {
+        if value != 1usize {
+            return process::exit(52)!;
+        }
+    } else {
+        return process::exit(52)!;
+    }
+    if taken.next() is ?value {
+        if value != 2usize {
+            return process::exit(53)!;
+        }
+    } else {
+        return process::exit(53)!;
+    }
+    if taken.next() is ?unexpected {
+        _ = unexpected;
+        return process::exit(54)!;
+    }
+
+    let mut rear = (0usize..10usize).iter().rev().take(3usize);
+    if rear.next() is ?value {
+        if value != 9usize {
+            return process::exit(55)!;
+        }
+    } else {
+        return process::exit(55)!;
+    }
+    if rear.next() is ?value {
+        if value != 8usize {
+            return process::exit(56)!;
+        }
+    } else {
+        return process::exit(56)!;
+    }
+    if rear.next() is ?value {
+        if value != 7usize {
+            return process::exit(57)!;
+        }
+    } else {
+        return process::exit(57)!;
+    }
+
+    let mut maximum = (u8::MAX..).iter();
+    if maximum.next() is ?value {
+        if value != u8::MAX {
+            return process::exit(58)!;
+        }
+    } else {
+        return process::exit(58)!;
+    }
+    if maximum.next() is ?unexpected {
+        _ = unexpected;
+        return process::exit(59)!;
     }
 
     let valueSlice = &values[..];
@@ -348,6 +438,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     !{}
 }
+
 "#,
     )
     .expect("write test source");
@@ -368,4 +459,30 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn check_std_take_does_not_claim_double_ended_iteration() {
+    let root = temp_dir("check_std_take_does_not_claim_double_ended_iteration");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+
+fn main() void {
+    _ = (0usize..10usize).iter().take(3usize).rev();
+}
+"#,
+    )
+    .expect("write invalid take reverse source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check take double-ended boundary");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown struct field `rev`"), "{stderr}");
 }
