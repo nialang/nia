@@ -4430,9 +4430,8 @@ native validation selects the fs path provider without selecting file I/O.
 
 `Dir::cwd`, `openDir`, and `renameTo` are accepted as explicit relative
 resolution bases, not as containment sandboxes. Absolute paths and symlink
-traversal continue to follow host semantics. Root-containment policy and removal
-of fixed scalar path-encoding capacity remain open; native representation and
-path-operation contextual errors are closed.
+traversal continue to follow host semantics. Root-containment policy remains
+open; native representation and path-operation contextual errors are closed.
 
 Standard-library reconstruction progress (2026-08-08, typed lexical filesystem
 roots batch): `RelativePathView` and `RelativeNativePathView` now separate
@@ -4454,5 +4453,18 @@ evidence proves unrestricted scalar and native views are nominally rejected by
 `Dir`, exact-component matching does not reject `.`, empty, repeated-separator,
 or `..b` spellings, and relative validation selects the path provider without
 loading file I/O. This closes lexical root containment. Symlink containment
-still requires `openat2` or an equivalent OS capability, and dynamic scalar
-path lowering still remains open.
+still requires `openat2` or an equivalent OS capability.
+
+Standard-library reconstruction progress (2026-08-08, dynamic scalar path
+lowering batch): filesystem scalar operations now expose default and
+`WithAllocator` forms, lower through allocator-owned `CString` storage, and
+carry allocation failure as `OperationError::Allocation { operation, cause }`.
+The default path uses `PageAllocator`; native path-view operations remain
+allocation-free. Process command executable and working-directory paths use
+the same owned lowering, removing the last facade-level use of the fixed
+4096-byte scalar path buffer. Long-path runtime evidence reaches the OS and
+retains contextual `TooLong` stage errors; deterministic fixed-buffer tests
+prove filesystem OOM retains its operation and publishes no file. Build error
+formatting, process exit mapping, configured build, filesystem/process suites,
+and loader-query closure all pass. Only symlink containment remains open in
+this path-root area.

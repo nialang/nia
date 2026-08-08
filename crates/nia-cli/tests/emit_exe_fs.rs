@@ -303,6 +303,92 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_scalar_paths_lower_with_dynamic_storage() {
+    let root = temp_dir("emit_exe_std_fs_scalar_paths_lower_with_dynamic_storage");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut page = mem::PageAllocator::init();
+    let allocator: &mut mem::Allocator = &mut page;
+    let mut longPath = fs::PathBuf::init();
+    defer longPath.deinit(allocator).exit().?;
+    let mut index: usize = 0;
+    while index < 5000usize {
+        longPath.push(allocator, 'a').exit().?;
+        index += 1;
+    }
+
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let longRelative = longPath.view().relative().exit().?;
+    switch cwd.createFileWithAllocator(allocator, longRelative, fs::CreateOptions::init()) {
+        !file => { _ = file; return process::exit(1)!; },
+        fs::OperationError::System {
+            operation: fs::Operation::CreateFile,
+            cause: fs::Error::TooLong,
+        }! => {},
+        error! => { _ = error; return process::exit(2)!; },
+    }
+
+    let mut tinyStorage: [1]u8 = [0];
+    let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
+    let rejected = fs::RelativePathView::fromText(&"must-not-exist.txt").exit().?;
+    switch cwd.createFileWithAllocator(&mut tiny, rejected, fs::CreateOptions::init()) {
+        !file => { _ = file; return process::exit(3)!; },
+        fs::OperationError::Allocation {
+            operation: fs::Operation::CreateFile,
+            cause: mem::Error::OutOfMemory,
+        }! => {},
+        error! => { _ = error; return process::exit(4)!; },
+    }
+
+    let mut fixedStorage: [128]u8 = [0; 128];
+    let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage[..]);
+    let accepted = fs::RelativePathView::fromText(&"allocated.txt").exit().?;
+    let mut file = cwd.createFileWithAllocator(
+        &mut fixed,
+        accepted,
+        fs::CreateOptions::init(),
+    ).exit().?;
+    file.close().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs dynamic scalar paths");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted dynamic scalar path executable")
+            .code(),
+        Some(0)
+    );
+    assert!(root.join("allocated.txt").is_file());
+    assert!(!root.join("must-not-exist.txt").exists());
+}
+
+#[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
     let data_path = root.join("data.txt");

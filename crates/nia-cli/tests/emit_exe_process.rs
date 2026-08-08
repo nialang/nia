@@ -237,6 +237,73 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_command_paths_lower_with_dynamic_storage() {
+    let root = temp_dir("emit_exe_std_process_command_paths_lower_with_dynamic_storage");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let mut page = mem::PageAllocator::init();
+    let allocator: &mut mem::Allocator = &mut page;
+    let mut longPath = std::PathBuf::init();
+    defer longPath.deinit(allocator).exit().?;
+    let mut index: usize = 0;
+    while index < 5000usize {
+        longPath.push(allocator, 'a').exit().?;
+        index += 1;
+    }
+
+    let executable = process::Command::init(longPath.view(), init.env());
+    switch executable.spawnWithAllocator(allocator) {
+        !child => { _ = child; return process::exit(1)!; },
+        process::Error::Spawn(
+            process::SpawnError::Exec(process::SystemError::TooLong),
+        )! => {},
+        error! => { _ = error; return process::exit(2)!; },
+    }
+
+    let cwd = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
+        .withCwd(longPath.view());
+    switch cwd.spawnWithAllocator(allocator) {
+        !child => { _ = child; return process::exit(3)!; },
+        process::Error::Spawn(
+            process::SpawnError::Cwd(process::SystemError::TooLong),
+        )! => {},
+        error! => { _ = error; return process::exit(4)!; },
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std process dynamic paths");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .status_timeout("run emitted std process dynamic paths executable")
+            .code(),
+        Some(0)
+    );
+}
+
+#[test]
 fn emit_exe_std_process_command_configures_exact_environment() {
     let root = temp_dir("emit_exe_std_process_command_configures_exact_environment");
     let main = root.join("main.nia");

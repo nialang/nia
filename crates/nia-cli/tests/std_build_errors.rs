@@ -190,7 +190,15 @@ fn build_filesystem_operation_errors_preserve_context() {
 using std::build;
 using std::fs;
 using std::io;
+using std::mem;
 using std::process;
+
+fn allocationFailure() fs::OperationError!void {
+    fs::OperationError::Allocation {
+        operation: fs::Operation::CreateFile,
+        cause: mem::Error::OutOfMemory,
+    }!
+}
 
 fn pathFailure() fs::OperationError!void {
     fs::OperationError::Path {
@@ -208,27 +216,37 @@ fn systemFailure() fs::OperationError!void {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    let path = switch pathFailure().asBuildError(
+    let allocation = switch allocationFailure().asBuildError(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
         !ok => { _ = ok; return process::exit(1)!; },
         cause! => cause,
     };
-    let system = switch systemFailure().asBuildError(
+    let path = switch pathFailure().asBuildError(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
         !ok => { _ = ok; return process::exit(2)!; },
         cause! => cause,
     };
-    if (path.asExitCode() as i32) != 22 or (system.asExitCode() as i32) != 2 {
-        return process::exit(3)!;
+    let system = switch systemFailure().asBuildError(
+        build::ErrorOperation::Publish,
+        build::ErrorSubject::BuildPlan,
+    ) {
+        !ok => { _ = ok; return process::exit(3)!; },
+        cause! => cause,
+    };
+    if (allocation.asExitCode() as i32) != 12
+        or (path.asExitCode() as i32) != 22
+        or (system.asExitCode() as i32) != 2
+    {
+        return process::exit(4)!;
     }
 
-    let mut buffer: [256]u8 = [_]u8[0; 256];
+    let mut buffer: [384]u8 = [_]u8[0; 384];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
-    stdout.print(&"{}\n{}\n", &[&path, &system]).exit().?;
+    stdout.print(&"{}\n{}\n{}\n", &[&allocation, &path, &system]).exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -255,6 +273,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
         concat!(
+            "publish build plan: filesystem/create file/allocation/out of memory\n",
             "publish build plan: filesystem/open file/path/contains NUL\n",
             "publish build plan: filesystem/open file/not found\n",
         )

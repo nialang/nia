@@ -138,8 +138,6 @@ extend Command {
     }
 
     pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
-        let mut pathStorage: [os::maxPathBytes]u8 = [_]u8[0; os::maxPathBytes];
-        let encodedPath = self.path.encode(&mut pathStorage[..]).asProcessPathError().?;
         switch self.environment {
             CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
             CommandEnvironment::Inherit(env) => { _ = env; },
@@ -148,7 +146,7 @@ extend Command {
 
         let mut argumentBytes = collections::ArrayList[u8]::init();
         defer argumentBytes.deinit(allocator).asProcessAllocationError().?;
-        argumentBytes.appendSlice(allocator, encodedPath.nulTerminatedBytes()).asProcessAllocationError().?;
+        appendPath(allocator, &mut argumentBytes, self.path).?;
         switch self.arguments {
             ?arguments => {
                 let mut argumentIndex: usize = 0;
@@ -194,11 +192,12 @@ extend Command {
         options.setStdin(self.stdin.asOsStdio()).asCommandSpawnSetupError().?;
         options.setStdout(self.stdout.asOsStdio()).asCommandSpawnSetupError().?;
         options.setStderr(self.stderr.asOsStdio()).asCommandSpawnSetupError().?;
-        let mut cwdStorage: [os::maxPathBytes]u8 = [_]u8[0; os::maxPathBytes];
+        let mut cwdBytes = collections::ArrayList[u8]::init();
+        defer cwdBytes.deinit(allocator).asProcessAllocationError().?;
         switch self.cwd {
             ?cwd => {
-                let encodedCwd = cwd.encode(&mut cwdStorage[..]).asProcessPathError().?;
-                options.setCwd(encodedCwd.ptr());
+                appendPath(allocator, &mut cwdBytes, cwd).?;
+                options.setCwd(cwdBytes.asSlice().ptr());
             },
             null => {},
         }
@@ -254,6 +253,21 @@ fn appendArgument(
             cstring::CStringBuildError::ContainsNul => return Error::ArgumentContainsNul(argumentIndex)!,
             cstring::CStringBuildError::Allocation(error) => return Error::Allocation(error)!,
         },
+    };
+    defer owned.deinit(allocator).asProcessAllocationError().?;
+    bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
+    !{}
+}
+
+fn appendPath(
+    allocator: &mut mem::Allocator,
+    bytes: &mut collections::ArrayList[u8],
+    path: fs::PathView,
+) Error!void {
+    let mut owned = switch cstring::CString::fromText(allocator, path.text()) {
+        !value => value,
+        cstring::CStringBuildError::ContainsNul! => return Error::Path(fs::PathError::ContainsNul)!,
+        cstring::CStringBuildError::Allocation(cause)! => return Error::Allocation(cause)!,
     };
     defer owned.deinit(allocator).asProcessAllocationError().?;
     bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
@@ -343,15 +357,6 @@ fn appendCStringPointers(
     }
     pointers.push(allocator, 0usize as &u8).asProcessAllocationError().?;
     !{}
-}
-
-extend[T] fs::PathError!T {
-    fn asProcessPathError(self) Error!T {
-        switch self {
-            !value => !value,
-            cause! => Error::Path(cause)!,
-        }
-    }
 }
 
 fn commandSpawnError(cause: os::SpawnError) Error {

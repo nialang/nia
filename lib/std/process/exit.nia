@@ -63,6 +63,10 @@ extend fs::PathError {
 extend fs::OperationError : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
         switch self {
+            fs::OperationError::Allocation { operation, cause } => {
+                _ = operation;
+                cause.asExitCode()
+            },
             fs::OperationError::Path { operation, cause } => {
                 _ = operation;
                 cause.asExitCode()

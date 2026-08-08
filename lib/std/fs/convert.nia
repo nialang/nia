@@ -1,5 +1,6 @@
 using pkg::error;
 using pkg::fs::types;
+using pkg::mem;
 using pkg::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
@@ -50,6 +51,15 @@ extend[T] Error!T {
         switch self {
             !value => !value,
             cause! => OperationError::System { operation: operation, cause: cause }!,
+        }
+    }
+}
+
+extend[T] mem::Error!T {
+    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+        switch self {
+            !value => !value,
+            cause! => OperationError::Allocation { operation: operation, cause: cause }!,
         }
     }
 }

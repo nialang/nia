@@ -381,6 +381,11 @@ fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::E
 
 fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::OperationError) fmt::Error!void {
     switch cause {
+        fs::OperationError::Allocation { operation, cause } => {
+            writeFileSystemOperation(formatter, operation).?;
+            formatter.write_text(&"/allocation/").?;
+            writeMemoryCause(formatter, cause)
+        },
         fs::OperationError::Path { operation, cause } => {
             writeFileSystemOperation(formatter, operation).?;
             formatter.write_text(&"/path/").?;

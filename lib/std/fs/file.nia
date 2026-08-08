@@ -1,7 +1,9 @@
+using pkg::cstring;
 using pkg::fs::convert;
 using pkg::fs::options;
 using pkg::fs::path;
 using pkg::fs::types;
+using pkg::mem;
 using pkg::os;
 
 using types::{
@@ -13,6 +15,7 @@ using types::{
     File,
     Metadata,
     MetadataOptions,
+    NativePathView,
     OpenDirOptions,
     OpenOptions,
     Operation,
@@ -26,8 +29,25 @@ pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
     os::getcwd(buffer).as_fs_error()
 }
 
-const max_path_bytes: usize = os::maxPathBytes;
 const max_i64_as_u64: u64 = 9223372036854775807u64;
+
+fn lowerPath(
+    allocator: &mut mem::Allocator,
+    path: PathView,
+    operation: Operation,
+) OperationError!cstring::CString {
+    switch cstring::CString::fromText(allocator, path.text()) {
+        !value => !value,
+        cstring::CStringBuildError::ContainsNul! => OperationError::Path {
+            operation: operation,
+            cause: types::PathError::ContainsNul,
+        }!,
+        cstring::CStringBuildError::Allocation(cause)! => OperationError::Allocation {
+            operation: operation,
+            cause: cause,
+        }!,
+    }
+}
 
 extend Dir {
     fn fromOwnedDescriptor(handle: os::FileHandle) Dir {
@@ -45,43 +65,124 @@ extend Dir {
     }
 
     pub fn openFile(&self, path: RelativePathView, options: OpenOptions) OperationError!File {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.openFileWithAllocator(allocator, path, options)
+    }
+
+    pub fn openFileWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+        options: OpenOptions,
+    ) OperationError!File {
+        let mut owned = lowerPath(allocator, path.path(), Operation::OpenFile).?;
+        defer owned.deinit(allocator).withOperation(Operation::OpenFile).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::OpenFile).?;
         self.openNativeFile(native, options)
     }
 
     pub fn openDir(&self, path: RelativePathView, options: OpenDirOptions) OperationError!Dir {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenDir).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.openDirWithAllocator(allocator, path, options)
+    }
+
+    pub fn openDirWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+        options: OpenDirOptions,
+    ) OperationError!Dir {
+        let mut owned = lowerPath(allocator, path.path(), Operation::OpenDir).?;
+        defer owned.deinit(allocator).withOperation(Operation::OpenDir).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::OpenDir).?;
         self.openNativeDir(native, options)
     }
 
     pub fn createFile(&self, path: RelativePathView, options: CreateOptions) OperationError!File {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.createFileWithAllocator(allocator, path, options)
+    }
+
+    pub fn createFileWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+        options: CreateOptions,
+    ) OperationError!File {
+        let mut owned = lowerPath(allocator, path.path(), Operation::CreateFile).?;
+        defer owned.deinit(allocator).withOperation(Operation::CreateFile).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::CreateFile).?;
         self.createNativeFile(native, options)
     }
 
     pub fn createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!void {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateDir).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.createDirWithAllocator(allocator, path, options)
+    }
+
+    pub fn createDirWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+        options: CreateDirOptions,
+    ) OperationError!void {
+        let mut owned = lowerPath(allocator, path.path(), Operation::CreateDir).?;
+        defer owned.deinit(allocator).withOperation(Operation::CreateDir).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::CreateDir).?;
         self.createNativeDir(native, options)
     }
 
     pub fn deleteFile(&self, path: RelativePathView) OperationError!void {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteFile).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.deleteFileWithAllocator(allocator, path)
+    }
+
+    pub fn deleteFileWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+    ) OperationError!void {
+        let mut owned = lowerPath(allocator, path.path(), Operation::DeleteFile).?;
+        defer owned.deinit(allocator).withOperation(Operation::DeleteFile).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::DeleteFile).?;
         self.deleteNativeFile(native)
     }
 
     pub fn deleteDir(&self, path: RelativePathView) OperationError!void {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteDir).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.deleteDirWithAllocator(allocator, path)
+    }
+
+    pub fn deleteDirWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+    ) OperationError!void {
+        let mut owned = lowerPath(allocator, path.path(), Operation::DeleteDir).?;
+        defer owned.deinit(allocator).withOperation(Operation::DeleteDir).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::DeleteDir).?;
         self.deleteNativeDir(native)
     }
 
     pub fn rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!void {
-        self.renameTo(oldPath, self, newPath)
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.renameWithAllocator(allocator, oldPath, newPath)
+    }
+
+    pub fn renameWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        oldPath: RelativePathView,
+        newPath: RelativePathView,
+    ) OperationError!void {
+        self.renameToWithAllocator(allocator, oldPath, self, newPath)
     }
 
     pub fn renameTo(
@@ -90,16 +191,42 @@ extend Dir {
         newDir: &Dir,
         newPath: RelativePathView,
     ) OperationError!void {
-        let mut oldStorage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let mut newStorage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let oldNative = oldPath.encode(&mut oldStorage[..]).withOperation(Operation::Rename).?;
-        let newNative = newPath.encode(&mut newStorage[..]).withOperation(Operation::Rename).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.renameToWithAllocator(allocator, oldPath, newDir, newPath)
+    }
+
+    pub fn renameToWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        oldPath: RelativePathView,
+        newDir: &Dir,
+        newPath: RelativePathView,
+    ) OperationError!void {
+        let mut oldOwned = lowerPath(allocator, oldPath.path(), Operation::Rename).?;
+        defer oldOwned.deinit(allocator).withOperation(Operation::Rename).?;
+        let mut newOwned = lowerPath(allocator, newPath.path(), Operation::Rename).?;
+        defer newOwned.deinit(allocator).withOperation(Operation::Rename).?;
+        let oldNative = RelativeNativePathView::fromBytes(oldOwned.nulTerminatedBytes()).withOperation(Operation::Rename).?;
+        let newNative = RelativeNativePathView::fromBytes(newOwned.nulTerminatedBytes()).withOperation(Operation::Rename).?;
         self.renameNativeTo(oldNative, newDir, newNative)
     }
 
     pub fn metadata(&self, path: RelativePathView, options: MetadataOptions) OperationError!Metadata {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::Metadata).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.metadataWithAllocator(allocator, path, options)
+    }
+
+    pub fn metadataWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativePathView,
+        options: MetadataOptions,
+    ) OperationError!Metadata {
+        let mut owned = lowerPath(allocator, path.path(), Operation::Metadata).?;
+        defer owned.deinit(allocator).withOperation(Operation::Metadata).?;
+        let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::Metadata).?;
         self.nativeMetadata(native, options)
     }
 
@@ -220,8 +347,19 @@ extend File {
     }
 
     pub fn open(path: PathView, options: OpenOptions) OperationError!File {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        File::openWithAllocator(allocator, path, options)
+    }
+
+    pub fn openWithAllocator(
+        allocator: &mut mem::Allocator,
+        path: PathView,
+        options: OpenOptions,
+    ) OperationError!File {
+        let mut owned = lowerPath(allocator, path, Operation::OpenFile).?;
+        defer owned.deinit(allocator).withOperation(Operation::OpenFile).?;
+        let native = NativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::OpenFile).?;
         let handle = os::openAt(
             os::cwd(),
             native.ptr(),
@@ -235,8 +373,19 @@ extend File {
     }
 
     pub fn create(path: PathView, options: CreateOptions) OperationError!File {
-        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        File::createWithAllocator(allocator, path, options)
+    }
+
+    pub fn createWithAllocator(
+        allocator: &mut mem::Allocator,
+        path: PathView,
+        options: CreateOptions,
+    ) OperationError!File {
+        let mut owned = lowerPath(allocator, path, Operation::CreateFile).?;
+        defer owned.deinit(allocator).withOperation(Operation::CreateFile).?;
+        let native = NativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::CreateFile).?;
         let handle = os::openAt(
             os::cwd(),
             native.ptr(),
