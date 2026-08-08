@@ -30,8 +30,25 @@ pub enum Error: i32 {
 
 pub enum PathError: i32 {
     ContainsNul = 1,
+    MissingTerminator = 22,
     TooLong = 36,
     _,
+}
+
+pub enum Operation {
+    OpenFile,
+    OpenDir,
+    CreateFile,
+    CreateDir,
+    DeleteFile,
+    DeleteDir,
+    Rename,
+    Metadata,
+}
+
+pub enum OperationError {
+    Path { operation: Operation, cause: PathError },
+    System { operation: Operation, cause: Error },
 }
 
 pub enum OpenMode: i32 {
@@ -61,7 +78,8 @@ pub struct PathBuf {
     text: string::String,
 }
 
-pub struct EncodedPath {
+// NativePathView borrows a validated NUL-terminated native byte sequence.
+pub struct NativePathView {
     ptr: &u8,
     len: usize,
 }
@@ -140,11 +158,11 @@ extend DirEntry {
         self.name
     }
 
-    pub fn is_dot(&self) bool {
+    pub fn isDot(&self) bool {
         self.name.len() == 1usize and self.name[0] == b'.'
     }
 
-    pub fn is_dot_dot(&self) bool {
+    pub fn isDotDot(&self) bool {
         self.name.len() == 2usize and self.name[0] == b'.' and self.name[1] == b'.'
     }
 }
@@ -221,11 +239,11 @@ extend Metadata {
         self.kind
     }
 
-    pub fn file_id(&self) ?u64 {
+    pub fn fileId(&self) ?u64 {
         self.file_id
     }
 
-    pub fn link_count(&self) ?u32 {
+    pub fn linkCount(&self) ?u32 {
         self.link_count
     }
 
@@ -237,7 +255,7 @@ extend Metadata {
         self.permissions
     }
 
-    pub fn preferred_block_size(&self) u32 {
+    pub fn preferredBlockSize(&self) u32 {
         self.preferred_block_size
     }
 
@@ -249,7 +267,7 @@ extend Metadata {
         self.modified
     }
 
-    pub fn status_changed(&self) ?Timestamp {
+    pub fn statusChanged(&self) ?Timestamp {
         self.status_changed
     }
 }

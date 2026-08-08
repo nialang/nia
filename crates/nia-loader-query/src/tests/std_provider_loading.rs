@@ -162,6 +162,35 @@ file.writer(buffer)
 }
 
 #[test]
+fn query_loader_loads_native_path_validation_without_file_operations() {
+    let root = temp_dir("query_loader_loads_native_path_validation_without_file_operations");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::fs::{NativePathView, PathError};
+
+fn main(bytes: &[u8]) PathError!NativePathView {
+NativePathView::fromBytes(bytes)
+}
+"#,
+    );
+
+    let program = load_program_with_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("NativePathView"),
+        "fromBytes",
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/fs.nia");
+    assert_module_loaded(&program, "lib/std/fs/types.nia");
+    assert_module_loaded(&program, "lib/std/fs/path.nia");
+    assert_module_not_loaded(&program, "lib/std/fs/file.nia");
+}
+
+#[test]
 fn query_loader_forwards_provider_requests_to_the_selected_reexport_source() {
     let root = temp_dir("query_loader_forwards_provider_requests_to_the_selected_reexport_source");
     let main_path = root.join("main.nia");

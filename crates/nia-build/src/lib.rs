@@ -865,7 +865,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut configPathStorage = fs::PathBuf::init();
     defer configPathStorage.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
     let configPath = configPathArg(init, &mut allocator, &mut configPathStorage).reportAndExit(init).?;
-    let mut configFile = fs::File::open(configPath, fs::OpenOptions::read_only()).asBuildError(
+    let mut configFile = fs::File::open(configPath, fs::OpenOptions::readOnly()).asBuildError(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;

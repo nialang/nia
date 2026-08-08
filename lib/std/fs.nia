@@ -9,24 +9,26 @@ using pkg::fs::options;
 using pkg::fs::path;
 using pkg::fs::types;
 
-pub using file::getcwd;
+pub using file::getCwd;
 pub using types::{
     CreateDirOptions,
     CreateOptions,
     Dir,
     DirEntry,
     DirIterator,
-    EncodedPath,
     Error,
     File,
     FileKind,
     Metadata,
     MetadataOptions,
+    NativePathView,
     OpenDirOptions,
     OpenMode,
     OpenOptions,
     PathBuf,
     PathError,
     PathView,
+    Operation,
+    OperationError,
     Timestamp,
 };

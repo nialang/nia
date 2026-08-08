@@ -2,7 +2,7 @@ using pkg::error;
 using pkg::fs::types;
 using pkg::os;
 
-using types::{DirEntry, Error, FileKind, Metadata, Timestamp};
+using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
 
 extend os::Error : error::IntoError[Error] {
     fn into_error(self) Error {
@@ -42,6 +42,24 @@ extend os::Error {
 extend[T] os::Error!T {
     pub(pkg) fn as_fs_error(self) Error!T {
         self.cast_error()
+    }
+}
+
+extend[T] Error!T {
+    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+        switch self {
+            !value => !value,
+            cause! => OperationError::System { operation: operation, cause: cause }!,
+        }
+    }
+}
+
+extend[T] PathError!T {
+    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+        switch self {
+            !value => !value,
+            cause! => OperationError::Path { operation: operation, cause: cause }!,
+        }
     }
 }
 

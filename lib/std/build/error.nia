@@ -52,6 +52,7 @@ pub enum ErrorCause {
     Memory(mem::Error),
     Format(fmt::Error),
     FileSystem(fs::Error),
+    FileSystemOperation(fs::OperationError),
     Process(process::Error),
     Exit(process::Term),
 }
@@ -113,6 +114,7 @@ extend ErrorCause {
                 fs::Error::OutOfMemory => process::exit(12),
                 _ => process::exit(5),
             },
+            ErrorCause::FileSystemOperation(cause) => cause.asExitCode(),
             ErrorCause::Process(cause) => cause.asExitCode(),
             ErrorCause::Exit(cause) => {
                 _ = cause;
@@ -155,6 +157,19 @@ extend[T] fs::Error!T {
                 operation: operation,
                 subject: subject,
                 cause: ErrorCause::FileSystem(cause),
+            }!,
+        }
+    }
+}
+
+extend[T] fs::OperationError!T {
+    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+        switch self {
+            !value => !value,
+            cause! => Error::Failure {
+                operation: operation,
+                subject: subject,
+                cause: ErrorCause::FileSystemOperation(cause),
             }!,
         }
     }
@@ -251,6 +266,10 @@ extend ErrorCause : fmt::Format {
             ErrorCause::FileSystem(cause) => {
                 writeCausePrefix(formatter, &"filesystem").?;
                 writeFileSystemCause(formatter, cause)
+            },
+            ErrorCause::FileSystemOperation(cause) => {
+                writeCausePrefix(formatter, &"filesystem").?;
+                writeFileSystemOperationCause(formatter, cause)
             },
             ErrorCause::Process(cause) => {
                 writeCausePrefix(formatter, &"process").?;
@@ -360,6 +379,34 @@ fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::E
     }
 }
 
+fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::OperationError) fmt::Error!void {
+    switch cause {
+        fs::OperationError::Path { operation, cause } => {
+            writeFileSystemOperation(formatter, operation).?;
+            formatter.write_text(&"/path/").?;
+            writePathCause(formatter, cause)
+        },
+        fs::OperationError::System { operation, cause } => {
+            writeFileSystemOperation(formatter, operation).?;
+            formatter.write_text(&"/").?;
+            writeFileSystemCause(formatter, cause)
+        },
+    }
+}
+
+fn writeFileSystemOperation(formatter: &mut fmt::Formatter, operation: fs::Operation) fmt::Error!void {
+    formatter.write_text(switch operation {
+        fs::Operation::OpenFile => &"open file",
+        fs::Operation::OpenDir => &"open directory",
+        fs::Operation::CreateFile => &"create file",
+        fs::Operation::CreateDir => &"create directory",
+        fs::Operation::DeleteFile => &"delete file",
+        fs::Operation::DeleteDir => &"delete directory",
+        fs::Operation::Rename => &"rename",
+        fs::Operation::Metadata => &"metadata",
+    })
+}
+
 fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!void {
     switch cause {
         process::Error::Allocation(cause) => {
@@ -427,6 +474,7 @@ fn writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryEr
 fn writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Error!void {
     switch cause {
         fs::PathError::ContainsNul => formatter.write_text(&"contains NUL"),
+        fs::PathError::MissingTerminator => formatter.write_text(&"missing terminator"),
         fs::PathError::TooLong => formatter.write_text(&"too long"),
         _ => formatter.write_text(&"unknown"),
     }

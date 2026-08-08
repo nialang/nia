@@ -41,6 +41,32 @@ extend fs::Error {
     }
 }
 
+extend fs::OperationError : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        switch self {
+            fs::OperationError::Path { operation, cause } => {
+                _ = operation;
+                switch cause {
+                    fs::PathError::ContainsNul => exit(22),
+                    fs::PathError::MissingTerminator => exit(22),
+                    fs::PathError::TooLong => exit(36),
+                    _ => exit(255),
+                }
+            },
+            fs::OperationError::System { operation, cause } => {
+                _ = operation;
+                cause.asExitCode()
+            },
+        }
+    }
+}
+
+extend fs::OperationError {
+    pub fn asExitCode(self) ExitCode {
+        self.into_error()
+    }
+}
+
 pub fn exit(code: i32) ExitCode {
     code as ExitCode
 }
@@ -98,6 +124,7 @@ extend Error : error::IntoError[ExitCode] {
             Error::Allocation(cause) => cause.asExitCode(),
             Error::Path(cause) => switch cause {
                 fs::PathError::ContainsNul => exit(22),
+                fs::PathError::MissingTerminator => exit(22),
                 fs::PathError::TooLong => exit(36),
                 _ => exit(255),
             },
@@ -153,6 +180,12 @@ extend[T] Error!T {
 }
 
 extend[T] fs::Error!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}
+
+extend[T] fs::OperationError!T {
     pub fn exit(self) ExitCode!T {
         self.cast_error()
     }
