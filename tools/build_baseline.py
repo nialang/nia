@@ -247,10 +247,12 @@ def validate_workload(results: list[dict[str, Any]]) -> None:
 
 
 def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
+    clean = results[0]
     warm = results[1]
+    expected_actions = counter(clean, "build.action_cache_lookups")
     expectations = {
-        "build.action_cache_lookups": 1,
-        "build.action_cache_hits": 1,
+        "build.action_cache_lookups": expected_actions,
+        "build.action_cache_hits": expected_actions,
         "build.action_cache_misses": 0,
         "llvm.object_reuse_misses": 0,
         "link.result_reuse_misses": 0,
@@ -265,6 +267,16 @@ def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
         }
         for name, expected in expectations.items()
     ]
+    checks.insert(
+        0,
+        {
+            "state": "clean",
+            "counter": "build.action_cache_lookups",
+            "expected": "> 0",
+            "found": expected_actions,
+            "passed": expected_actions > 0,
+        },
+    )
     return {
         "passed": all(check["passed"] for check in checks),
         "checks": checks,

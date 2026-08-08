@@ -4640,3 +4640,13 @@ edit, and failed-action states. A Python structural test locks these required
 commands, triggers, and evidence publication. The workflow deliberately does
 not claim external acceptance from local validation; a successful hosted run
 and its uploaded JSON remain the outstanding Phase H evidence item.
+
+Phase H progress (2026-08-09, release baseline acceptance maintenance): a real
+single-sample release run exercised clean, warm, source-edit, module-map-edit,
+and failed-action states and exposed a stale acceptance assumption: the
+multi-artifact fixture performs three action-cache lookups, not one. The
+baseline validator now derives warm lookup/hit expectations from the clean
+state and requires that clean state to contain at least one cache action. The
+local run retained zero warm object/link misses and passed every state contract;
+its initial false acceptance was a tooling defect, not a build correctness
+failure.
