@@ -397,6 +397,7 @@ fn emit_exe_std_fs_dir_rejects_symlink_escape_without_side_effects() {
     let outside = temp_dir("emit_exe_std_fs_dir_symlink_escape_target");
     std::fs::write(outside.join("sentinel.txt"), b"outside").expect("write outside sentinel");
     std::fs::create_dir(outside.join("sentinel-dir")).expect("create outside sentinel directory");
+    std::fs::write(root.join("rename-source.txt"), b"source").expect("write rename source");
     symlink(&*outside, root.join("escape")).expect("create escape symlink");
 
     let main = root.join("main.nia");
@@ -424,6 +425,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let deleteDirPath = fs::RelativePathView::fromText(&"escape/sentinel-dir").exit().?;
     switch cwd.deleteDir(deleteDirPath) {
         !ok => { _ = ok; return process::exit(6)!; },
+        error! => { _ = error; },
+    }
+    let localSource = fs::RelativePathView::fromText(&"rename-source.txt").exit().?;
+    let outsideDestination = fs::RelativePathView::fromText(&"escape/renamed.txt").exit().?;
+    switch cwd.rename(localSource, outsideDestination) {
+        !ok => { _ = ok; return process::exit(7)!; },
+        error! => { _ = error; },
+    }
+    let outsideSource = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
+    let localDestination = fs::RelativePathView::fromText(&"stolen.txt").exit().?;
+    switch cwd.rename(outsideSource, localDestination) {
+        !ok => { _ = ok; return process::exit(8)!; },
         error! => { _ = error; },
     }
     let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
@@ -473,6 +486,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert!(!outside.join("new-dir").exists());
     assert!(outside.join("sentinel-dir").is_dir());
+    assert_eq!(
+        std::fs::read(root.join("rename-source.txt")).expect("read rename source"),
+        b"source"
+    );
+    assert!(!outside.join("renamed.txt").exists());
+    assert!(!root.join("stolen.txt").exists());
 }
 
 #[cfg(unix)]
@@ -523,6 +542,72 @@ pub fn main(init: process::Init) process::ExitCode!void {
             .status_timeout("run emitted internal symlink executable")
             .code(),
         Some(0)
+    );
+}
+
+#[test]
+fn emit_exe_std_fs_rename_to_resolves_both_directory_roots() {
+    let root = temp_dir("emit_exe_std_fs_rename_to_resolves_both_directory_roots");
+    std::fs::create_dir(root.join("source")).expect("create source directory");
+    std::fs::create_dir(root.join("destination")).expect("create destination directory");
+    std::fs::write(root.join("source/item.txt"), b"item").expect("write source item");
+
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let mut source = cwd.openDir(
+        fs::RelativePathView::fromText(&"source").exit().?,
+        fs::OpenDirOptions::init(),
+    ).exit().?;
+    defer source.close().exit().?;
+    let mut destination = cwd.openDir(
+        fs::RelativePathView::fromText(&"destination").exit().?,
+        fs::OpenDirOptions::init(),
+    ).exit().?;
+    defer destination.close().exit().?;
+    source.renameTo(
+        fs::RelativePathView::fromText(&"item.txt").exit().?,
+        &destination,
+        fs::RelativePathView::fromText(&"moved.txt").exit().?,
+    ).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs cross-dir rename");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted cross-dir rename executable")
+            .code(),
+        Some(0)
+    );
+    assert!(!root.join("source/item.txt").exists());
+    assert_eq!(
+        std::fs::read(root.join("destination/moved.txt")).expect("read moved item"),
+        b"item"
     );
 }
 

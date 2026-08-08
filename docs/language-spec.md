@@ -3545,10 +3545,13 @@ leading `/` as `PathError::Absolute` and a complete `..` component as
 `PathError::ParentTraversal`. The check is lexical: empty components, `.`
 components, and repeated separators remain valid and are not normalized.
 Every path-taking `Dir` method accepts the corresponding relative view, so an
-absolute or parent-traversing spelling cannot reach the OS `*at` call. This
-contract does not prevent a symlink beneath the directory from resolving
-outside it. `File::open` and `File::create` retain ordinary `PathView`
-parameters and process-path semantics.
+absolute or parent-traversing spelling cannot reach the OS `*at` call. On the
+Linux provider, handle and metadata resolution uses `openat2` beneath the root;
+mutation operations first resolve stable parent descriptors beneath each root
+and pass only the final component to `mkdirat`, `unlinkat`, or `renameat`.
+Symlinks may resolve within the root but cannot redirect a public `Dir`
+operation outside it. `File::open` and `File::create` retain ordinary
+`PathView` parameters and process-path semantics.
 
 The CLI surface is:
 

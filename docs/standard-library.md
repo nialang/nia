@@ -59,7 +59,7 @@ providers.
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; `Utf8View` validates borrowed encoded bytes; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed/owned scalar text and validated UTF-8 view accepted; keep conversion roles distinct |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
-| `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership, validated native and relative path views, typed Dir-relative resolution, allocator-backed scalar lowering, and contextual path operations; symlink containment remains | retain path roles and operation errors; settle symlink containment |
+| `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership, validated native and relative path views, typed Dir-relative resolution, allocator-backed scalar lowering, contextual path operations, and Linux symlink containment | retain accepted path roles, operation errors, and contained provider boundary |
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
 | `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
@@ -467,12 +467,10 @@ therefore cannot reach an `*at` operation. On Linux, `Dir::openFile`,
 `openDir`, `createFile`, and `metadata` use the provider's `openat2` beneath capability,
 which rejects symlink redirection outside the root without falling back to
 unrestricted path resolution. Metadata opens an `O_PATH` descriptor and calls
-`statx(AT_EMPTY_PATH)` on that stable result. `mkdirat`, `unlinkat`, and
-`unlinkat` and `renameat` still follow host semantics because they have no
-equivalent resolve flags; complete containment for those mutations remains
-open. Directory creation and deletion resolve a stable parent fd before calling
-`mkdirat` or `unlinkat`; only rename still retains unrestricted parent
-resolution.
+`statx(AT_EMPTY_PATH)` on that stable result. Directory creation, deletion, and
+rename dynamically split parent/name components, resolve every parent beneath
+its corresponding root, and call `mkdirat`, `unlinkat`, or `renameat` only with
+stable parent fds and final single-component names.
 `File::open` and `File::create`
 continue to take ordinary `PathView` values and retain process-path semantics.
 The provider preserves `ENOSYS` as `Unsupported` for kernels without
@@ -515,7 +513,7 @@ dispatch, and LLVM before deleting each builtin declaration.
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | validated borrowed `Utf8View`; raw `&[u8]` remains arbitrary bytes | `Utf8View::fromBytes`, `decodeUtf8First`, `String::fromUtf8View`, raw-byte `String::fromUtf8`, and `Writer::writeUtf8` | `Utf8DecodeError` during validation, `mem::Error` after validation, `TextError` for combined raw-byte ownership, or the concrete writer error | nominal validation, scalar iteration/count, owned conversion, transactional append, stream encoding, and provider-closure evidence accepted |
 | C string | `CStringView` over NUL-terminated bytes; allocator-owned `CString` | `CStringView::fromBytes`; `CString::fromBytes`, `fromView`, and scalar-text `fromText`; `fromPtrUnchecked` remains trusted-only | `CStringError` for view validation; `CStringBuildError` distinguishes `ContainsNul` from `mem::Error` allocation causes | checked view and owned storage accepted; OS-facing ownership remains open |
-| filesystem path | `PathView` / `PathBuf` over scalar text; validated `NativePathView`; lexical-root `RelativePathView` / `RelativeNativePathView` for `Dir` calls | typed UTF-8 ownership, allocator-owned scalar lowering, checked NUL-terminated native bytes, or checked relative conversion | `TextError`, `mem::Error`, `PathError`, then contextual `OperationError`; stream/handle calls retain `fs::Error` | scalar ownership, native representation, lexical Dir roots, dynamic lowering, and path-operation context accepted; symlink containment remains open |
+| filesystem path | `PathView` / `PathBuf` over scalar text; validated `NativePathView`; contained `RelativePathView` / `RelativeNativePathView` for `Dir` calls | typed UTF-8 ownership, allocator-owned scalar and mutation-parent lowering, checked NUL-terminated native bytes, or checked relative conversion | `TextError`, `mem::Error`, `PathError`, then contextual `OperationError`; stream/handle calls retain `fs::Error` | scalar ownership, native representation, Linux lexical/symlink-contained Dir roots, dynamic lowering, and path-operation context accepted |
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed executable/cwd/argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves allocation, lowering, spawn, and lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, dynamic scalar paths, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is

@@ -253,7 +253,7 @@ extend Dir {
         defer newOwned.deinit(allocator).withOperation(Operation::Rename).?;
         let oldNative = RelativeNativePathView::fromBytes(oldOwned.nulTerminatedBytes()).withOperation(Operation::Rename).?;
         let newNative = RelativeNativePathView::fromBytes(newOwned.nulTerminatedBytes()).withOperation(Operation::Rename).?;
-        self.renameNativeTo(oldNative, newDir, newNative)
+        self.renameNativeToWithAllocator(allocator, oldNative, newDir, newNative)
     }
 
     pub fn metadata(&self, path: RelativePathView, options: MetadataOptions) OperationError!Metadata {
@@ -425,11 +425,62 @@ extend Dir {
         newDir: &Dir,
         newPath: RelativeNativePathView,
     ) OperationError!void {
-        os::renameAt(
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.renameNativeToWithAllocator(allocator, oldPath, newDir, newPath)
+    }
+
+    pub fn renameNativeToWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        oldPath: RelativeNativePathView,
+        newDir: &Dir,
+        newPath: RelativeNativePathView,
+    ) OperationError!void {
+        let oldBytes = oldPath.bytes();
+        let oldSplit = parentSplit(oldBytes, false);
+        let current = b".";
+        let mut oldParent = switch oldSplit.separator {
+            ?index => lowerNativeBytes(allocator, &oldBytes[0..index], Operation::Rename).?,
+            null => lowerNativeBytes(allocator, &current[..], Operation::Rename).?,
+        };
+        defer oldParent.deinit(allocator).withOperation(Operation::Rename).?;
+        let oldNameStart = switch oldSplit.separator {
+            ?index => index + 1usize,
+            null => 0usize,
+        };
+        let mut oldName = lowerNativeBytes(
+            allocator,
+            &oldBytes[oldNameStart..oldSplit.end],
+            Operation::Rename,
+        ).?;
+        defer oldName.deinit(allocator).withOperation(Operation::Rename).?;
+
+        let newBytes = newPath.bytes();
+        let newSplit = parentSplit(newBytes, false);
+        let mut newParent = switch newSplit.separator {
+            ?index => lowerNativeBytes(allocator, &newBytes[0..index], Operation::Rename).?,
+            null => lowerNativeBytes(allocator, &current[..], Operation::Rename).?,
+        };
+        defer newParent.deinit(allocator).withOperation(Operation::Rename).?;
+        let newNameStart = switch newSplit.separator {
+            ?index => index + 1usize,
+            null => 0usize,
+        };
+        let mut newName = lowerNativeBytes(
+            allocator,
+            &newBytes[newNameStart..newSplit.end],
+            Operation::Rename,
+        ).?;
+        defer newName.deinit(allocator).withOperation(Operation::Rename).?;
+
+        os::renameAtBeneath(
             self.borrowHandle().withOperation(Operation::Rename).?,
-            oldPath.ptr(),
+            oldParent.rawPtr(),
+            oldName.rawPtr(),
             newDir.borrowHandle().withOperation(Operation::Rename).?,
-            newPath.ptr(),
+            newParent.rawPtr(),
+            newName.rawPtr(),
         ).as_fs_error().withOperation(Operation::Rename)
     }
 

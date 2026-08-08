@@ -205,17 +205,21 @@ pub(pkg) fn deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: 
     platform::delete_at_beneath(dir.platform(), parent, name, directory).asOsError()
 }
 
-pub(pkg) fn renameAt(
+pub(pkg) fn renameAtBeneath(
     old_dir: FileHandle,
-    old_path: &u8,
+    old_parent: &u8,
+    old_name: &u8,
     new_dir: FileHandle,
-    new_path: &u8,
+    new_parent: &u8,
+    new_name: &u8,
 ) Error!void {
-    platform::rename_at(
+    platform::rename_at_beneath(
         old_dir.platform(),
-        old_path,
+        old_parent,
+        old_name,
         new_dir.platform(),
-        new_path,
+        new_parent,
+        new_name,
     ).asOsError()
 }
 

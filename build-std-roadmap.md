@@ -4502,6 +4502,18 @@ metadata before the outside sentinel is touched. Only create-directory,
 delete-file, delete-directory, and rename parent resolution remain open in the
 filesystem containment slice.
 
+Standard-library reconstruction completion (2026-08-08, contained rename and
+filesystem-root closure): rename now dynamically lowers old/new parent and name
+components, resolves each parent beneath its own `Dir` root with `openat2`, and
+invokes `renameat` only after both stable parent fds exist. Runtime evidence
+covers same-root rename, cross-`Dir::renameTo`, outside-symlink source rejection,
+outside-symlink destination rejection, and preservation of every source and
+outside destination on rejection. The unrestricted facade/provider rename
+adapters are removed; only the fd owner retains the one-component syscall
+primitive. Together with contained open/create-file/open-dir/metadata/mkdir/
+unlink paths, this closes lexical and symlink containment for every public
+directory-relative filesystem operation on the accepted Linux provider.
+
 Phase H and standard-library reconstruction progress (2026-08-08,
 unrestricted-provider deletion batch): `Dir::cwd` now opens `.` through the
 same beneath capability as other directory handles. The obsolete
