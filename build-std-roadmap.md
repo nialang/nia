@@ -4628,3 +4628,14 @@ while the existing partial-write, fixed-buffer, filesystem, child-pipe, exact
 read, formatting, and debug-output tests retain the adjacent error matrix. This
 closes the io cleanup/recovery maturity item without adding implicit flush or
 destructor behavior.
+
+Phase H progress (2026-08-09, managed build/std correctness workflow):
+`.github/workflows/build-std.yml` now defines the hosted Linux acceptance path
+for build/std work. It pins the repository's Ubuntu LLVM identity, runs strict
+format/check/Clippy and workspace tests, executes the configured multi-artifact
+fixture and copied installed-toolchain relocation suite, and invokes the
+resource-accounted release baseline for clean, warm, source-edit, module-map-
+edit, and failed-action states. A Python structural test locks these required
+commands, triggers, and evidence publication. The workflow deliberately does
+not claim external acceptance from local validation; a successful hosted run
+and its uploaded JSON remain the outstanding Phase H evidence item.

@@ -1,0 +1,130 @@
+name: build-std correctness
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/build-std.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "lib/**"
+      - "examples/**"
+      - "benchmarks/build/**"
+      - "tools/build_baseline.py"
+      - "tools/perf.py"
+      - "tools/test_build_std_workflow.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-std.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "lib/**"
+      - "examples/**"
+      - "benchmarks/build/**"
+      - "tools/build_baseline.py"
+      - "tools/perf.py"
+      - "tools/test_build_std_workflow.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-std-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  correctness:
+    name: Build/std correctness matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+      LLVM_SYS_221_PREFIX: /usr/lib/llvm-22
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Install LLVM 22.1 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes curl gnupg
+          curl --fail --silent --show-error --location \
+            https://apt.llvm.org/llvm-snapshot.gpg.key \
+            --output "${RUNNER_TEMP}/llvm-snapshot.gpg.key"
+          gpg --dearmor < "${RUNNER_TEMP}/llvm-snapshot.gpg.key" \
+            | sudo tee /usr/share/keyrings/apt.llvm.org.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm-22.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --yes llvm-22-dev lld-22
+          /usr/lib/llvm-22/bin/llvm-config --version
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: nia-build-std-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            nia-build-std-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Check workflow and Python tooling
+        run: python3 -m unittest tools.test_build_std_workflow
+
+      - name: Format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --all-features
+
+      - name: Run build/std integration suites
+        run: |
+          cargo test -p nia-cli --test build_cases --no-default-features -- --nocapture
+          cargo test -p nia-cli --test toolchain_relocation --no-default-features -- --nocapture
+          cargo test -p nia-cli --test commands --no-default-features -- --nocapture
+
+      - name: Run workspace tests
+        run: cargo test --workspace --all-features
+
+      - name: Build release compiler
+        run: cargo build --release -p nia-cli
+
+      - name: Run clean/warm/edit/failure build baseline
+        run: |
+          python3 tools/build_baseline.py \
+            --nia target/release/nia \
+            --resource-root lib \
+            --repetitions 1 \
+            --timeout-seconds 600 \
+            --output target/nia-build-baseline/hosted.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("target/nia-build-baseline/hosted.json").read_text())
+          if report["acceptance"]["passed"] is not True:
+              raise SystemExit("hosted build baseline acceptance failed")
+          print("hosted build baseline acceptance: passed")
+          PY
+
+      - name: Publish build/std evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nia-build-std-evidence
+          path: target/nia-build-baseline/hosted.json
+          if-no-files-found: warn
+          retention-days: 14
