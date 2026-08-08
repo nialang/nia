@@ -220,6 +220,35 @@ path.relative()
 }
 
 #[test]
+fn query_loader_loads_contained_metadata_provider_chain() {
+    let root = temp_dir("query_loader_loads_contained_metadata_provider_chain");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::fs;
+
+fn main(dir: &fs::Dir, path: fs::RelativePathView) void {
+    _ = dir.metadata(path, fs::MetadataOptions::init());
+}
+"#,
+    );
+
+    let program = load_program_with_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("Dir"),
+        "metadata",
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/fs/file.nia");
+    assert_module_loaded(&program, "lib/std/os/linux/fd.nia");
+    assert_module_loaded(&program, "lib/std/os/linux/stat.nia");
+    assert_module_loaded(&program, "lib/std/os/linux/types.nia");
+}
+
+#[test]
 fn query_loader_forwards_provider_requests_to_the_selected_reexport_source() {
     let root = temp_dir("query_loader_forwards_provider_requests_to_the_selected_reexport_source");
     let main_path = root.join("main.nia");
