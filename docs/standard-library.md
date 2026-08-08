@@ -57,10 +57,10 @@ providers.
 | `mem` allocators/layout | runner allocation and owned collections | explicit provenance and release contracts accepted; rollback/deinit failures remain visible | retain capability; ordinary slice copy/compare no longer lives here |
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | unmanaged collection protocol, owned extraction, batch reservation, and initialized-value mutation accepted | retain narrow initialized-value surface and explicit element ownership transfer |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; `Utf8View` validates borrowed encoded bytes; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed/owned scalar text and validated UTF-8 view accepted; keep conversion roles distinct |
-| `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
+| `slice` and iterators | graph scans, argv/import construction | borrowed iteration, checked access, double-ended boundaries, forward-only take, and range limits are reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and the accepted minimal adapters |
 | `fmt` | runner diagnostics and telemetry | formatting and debug output preserve template versus stderr-flush failures | retain typed formatting and diagnostic-output boundaries |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership, validated native and relative path views, typed Dir-relative resolution, allocator-backed scalar lowering, contextual path operations, and Linux symlink containment | retain accepted path roles, operation errors, and contained provider boundary |
-| `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
+| `io` | stdout/stderr/files | blocking file/standard-stream adapters hide raw handles and require only caller storage; Reader/Writer naming, child-pipe errors, and retry-safe partial buffered writes are reviewed | retain direct blocking adapters, generic buffering, precise errors, and explicit flush ownership |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
 | `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
 | `build` | graph declaration and immutable-plan encoding | owner-checked typed handles, retained text/path values, contextual errors, no action executor | retain the reviewed builder/plan boundary; continue Phase H hardening |
@@ -415,6 +415,13 @@ collapsing a filesystem, pipe, or bounded-buffer failure into
 `fmt::Error::Write`. Formatting remains the path for templates and value
 presentation; a caller writing already-constructed text does not need a dummy
 `"{}"` template or a one-element trait-object array.
+
+`BufferedWriter::flush` transfers one successful write prefix at a time. After
+a later underlying error, `buffered()` contains only the still-unwritten suffix,
+so retrying cannot duplicate bytes already accepted by the writer. A zero-byte
+write returns the underlying writer's `shortWrite()` value and retains the
+complete pending buffer. Once every byte has transferred, the final underlying
+`flush` owns any later error; the outer buffer is then correctly empty.
 
 `debug::print` is a fallible stderr convenience rather than a panic boundary.
 Its `debug::Error::Format` payload preserves checked-template and presentation

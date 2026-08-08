@@ -247,7 +247,9 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   `FileWriter::stderr(buffer)`, and `File.reader/writer(buffer)` hide platform
   handles and need no runtime backend object. `process::Init` consequently
   carries only argument and environment startup views; it has no `io()`
-  capability plumbing.
+  capability plumbing. `BufferedWriter::flush` removes each successfully
+  written prefix immediately, retaining only the unwritten suffix after a later
+  error; a zero-byte write returns `shortWrite` without discarding pending data.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper returns `debug::Error!void`: `Format(fmt::Error)` preserves
   template/presentation failures and `Flush(fs::Error)` preserves the stderr

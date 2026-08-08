@@ -1241,6 +1241,151 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_io_buffered_writer_retains_only_unwritten_bytes_after_failure() {
+    let root =
+        temp_dir("emit_exe_std_io_buffered_writer_retains_only_unwritten_bytes_after_failure");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::io;
+using std::process;
+using std::slice;
+
+enum RetryError {
+    Injected,
+    ShortWrite,
+}
+
+struct RetryWriter {
+    inner: io::FixedBufferWriter,
+    attempt: usize,
+}
+
+extend RetryWriter {
+    fn init(buffer: &mut [u8]) RetryWriter {
+        { inner: io::FixedBufferWriter::init(buffer), attempt: 0 }
+    }
+
+    fn written(&self) &[u8] {
+        self.inner.written()
+    }
+}
+
+extend RetryWriter : io::Writer {
+    type Error = RetryError;
+
+    fn shortWrite(&self) Error {
+        RetryError::ShortWrite
+    }
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        if self.attempt == 1usize {
+            self.attempt += 1usize;
+            return RetryError::Injected!;
+        }
+        self.attempt += 1usize;
+        let mut count = bytes.len();
+        if count > 2usize {
+            count = 2usize;
+        }
+        switch self.inner.write(&bytes[0..count]) {
+            !written => { !written },
+            error! => { _ = error; RetryError::ShortWrite! },
+        }
+    }
+}
+
+struct ZeroWriter {
+    attempts: usize,
+}
+
+extend ZeroWriter : io::Writer {
+    type Error = RetryError;
+
+    fn shortWrite(&self) Error {
+        RetryError::ShortWrite
+    }
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        _ = bytes;
+        self.attempts += 1usize;
+        !0usize
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut storage: [16]u8 = [0; 16];
+    let mut backing = RetryWriter::init(&mut storage[..]);
+    let mut bufferedStorage: [8]u8 = [0; 8];
+    let mut writer = io::BufferedWriter[RetryWriter]::init(
+        &mut backing,
+        &mut bufferedStorage[..],
+    );
+    switch writer.writeAll(&b"abcdef") {
+        !ok => { _ = ok; },
+        error! => { _ = error; return process::exit(1)!; },
+    }
+    switch writer.flush() {
+        !ok => { _ = ok; return process::exit(2)!; },
+        RetryError::Injected! => {},
+        RetryError::ShortWrite! => { return process::exit(3)!; },
+    }
+    if writer.len() != 4usize
+        or not writer.buffered().equals(&b"cdef")
+        or not backing.written().equals(&b"ab")
+    {
+        return process::exit(4)!;
+    }
+    switch writer.flush() {
+        !ok => { _ = ok; },
+        error! => { _ = error; return process::exit(5)!; },
+    }
+    if writer.len() != 0usize or not backing.written().equals(&b"abcdef") {
+        return process::exit(6)!;
+    }
+
+    let mut zero = ZeroWriter { attempts: 0 };
+    let mut zeroStorage: [4]u8 = [0; 4];
+    let mut stalled = io::BufferedWriter[ZeroWriter]::init(&mut zero, &mut zeroStorage[..]);
+    switch stalled.writeAll(&b"xy") {
+        !ok => { _ = ok; },
+        error! => { _ = error; return process::exit(7)!; },
+    }
+    switch stalled.flush() {
+        !ok => { _ = ok; return process::exit(8)!; },
+        RetryError::ShortWrite! => {},
+        RetryError::Injected! => { return process::exit(9)!; },
+    }
+    if stalled.len() != 2usize or not stalled.buffered().equals(&b"xy") or zero.attempts != 1usize {
+        return process::exit(10)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write buffered writer recovery source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe buffered writer recovery");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run buffered writer recovery executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_use_std_io_buffered_reader() {
     let root = temp_dir("emit_exe_can_use_std_io_buffered_reader");
     let main = root.join("main.nia");

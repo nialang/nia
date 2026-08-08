@@ -4614,3 +4614,17 @@ reverse-then-take, mixed front/back slice iteration, and an open range at the
 integer maximum; a compile-fail boundary proves `take(...).rev()` cannot regain
 the rejected semantic claim. The specialized iterator operation audit is
 closed without adding a speculative exact-size trait.
+
+Standard-library reconstruction completion (2026-08-08, buffered I/O recovery
+batch): generic `BufferedWriter::flush` no longer delegates the complete pending
+slice to opaque `writeAll`. It advances and compacts its buffer after every
+successful partial write, so a later underlying error exposes only the
+unwritten suffix and a retry cannot duplicate an already accepted prefix. A
+zero-progress writer returns its typed `shortWrite` error without consuming any
+pending bytes; after complete transfer, the underlying flush remains the owner
+of its own failure. Executable fault injection proves partial-write/error/retry
+produces the exact byte stream and zero-progress preserves the complete buffer,
+while the existing partial-write, fixed-buffer, filesystem, child-pipe, exact
+read, formatting, and debug-output tests retain the adjacent error matrix. This
+closes the io cleanup/recovery maturity item without adding implicit flush or
+destructor behavior.
