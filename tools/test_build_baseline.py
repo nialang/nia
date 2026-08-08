@@ -119,6 +119,40 @@ class BuildBaselineTests(unittest.TestCase):
         )
         self.assertEqual(llvm["found"], 15)
 
+    def test_warm_acceptance_scales_with_clean_action_count(self):
+        clean = {
+            "name": "clean",
+            "measurement": {
+                "counters": {
+                    "build.action_cache_lookups": 3,
+                }
+            },
+        }
+        warm = {
+            "name": "warm",
+            "measurement": {
+                "counters": {
+                    "build.action_cache_lookups": 3,
+                    "build.action_cache_hits": 3,
+                    "build.action_cache_misses": 0,
+                    "llvm.object_reuse_misses": 0,
+                    "link.result_reuse_misses": 0,
+                }
+            },
+        }
+
+        acceptance = workload_acceptance([clean, warm])
+
+        self.assertTrue(acceptance["passed"])
+        self.assertEqual(
+            next(
+                check
+                for check in acceptance["checks"]
+                if check["counter"] == "build.action_cache_hits"
+            )["expected"],
+            3,
+        )
+
     def test_ignores_non_json_stderr(self):
         self.assertEqual(json_lines("error: ordinary diagnostic\nnot-json"), [])
 
