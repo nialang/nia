@@ -239,36 +239,46 @@ extend Dir {
     }
 
     pub fn openNativeFile(&self, path: RelativeNativePathView, options: OpenOptions) OperationError!File {
-        let handle = os::openAt(
+        let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(Operation::OpenFile).?,
             path.ptr(),
             options.osMode().as_fs_error().withOperation(Operation::OpenFile).?,
             false,
             false,
             false,
+            false,
             0,
+            true,
         ).as_fs_error().withOperation(Operation::OpenFile).?;
         !File::fromOwnedDescriptor(handle)
     }
 
     pub fn openNativeDir(&self, path: RelativeNativePathView, options: OpenDirOptions) OperationError!Dir {
-        let handle = os::openDirAt(
+        let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(Operation::OpenDir).?,
             path.ptr(),
+            os::OpenMode::ReadOnly,
+            true,
+            false,
+            false,
+            false,
+            0,
             options.followSymlinks(),
         ).as_fs_error().withOperation(Operation::OpenDir).?;
         !Dir::fromOwnedDescriptor(handle)
     }
 
     pub fn createNativeFile(&self, path: RelativeNativePathView, options: CreateOptions) OperationError!File {
-        let handle = os::openAt(
+        let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(Operation::CreateFile).?,
             path.ptr(),
             options.osMode().as_fs_error().withOperation(Operation::CreateFile).?,
+            false,
             true,
             options.truncate(),
             options.isExclusive(),
             options.permissions(),
+            true,
         ).as_fs_error().withOperation(Operation::CreateFile).?;
         !File::fromOwnedDescriptor(handle)
     }

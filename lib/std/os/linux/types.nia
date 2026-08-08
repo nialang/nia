@@ -7,6 +7,9 @@ pub const open_truncate: i32 = 0o1000;
 pub const open_directory: i32 = 0o200000;
 pub const open_no_follow: i32 = 0o400000;
 pub const open_close_on_exec: i32 = 0o2000000;
+pub const resolve_no_magiclinks: u64 = 0x02u64;
+pub const resolve_no_symlinks: u64 = 0x04u64;
+pub const resolve_beneath: u64 = 0x08u64;
 pub const close_on_exec: i32 = 0o2000000;
 pub const wait_no_hang: usize = 1usize;
 pub const sigterm: i32 = 15;
@@ -134,6 +137,12 @@ pub struct SpawnOptions {
     stdout: StdIo,
     stderr: StdIo,
     cwd: ?&u8,
+}
+
+pub extern struct OpenHow {
+    flags: u64,
+    mode: u64,
+    resolve: u64,
 }
 
 extend Errno {

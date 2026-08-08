@@ -461,9 +461,12 @@ methods remain allocation-free.
 resolution bases. Every scalar `Dir` path parameter is a `RelativePathView`,
 every native parameter is a `RelativeNativePathView`, and `renameTo` names both
 source and destination bases. Absolute paths and lexical parent traversal
-therefore cannot reach an `*at` operation. This is not yet a full containment
-sandbox: symlinks can still resolve outside the directory until an `openat2`
-or equivalent provider contract is accepted. `File::open` and `File::create`
+therefore cannot reach an `*at` operation. On Linux, `Dir::openFile`,
+`openDir`, and `createFile` use the provider's `openat2` beneath capability,
+which rejects symlink redirection outside the root without falling back to
+unrestricted `openat`. `mkdirat`, `unlinkat`, `renameat`, and `statx` still
+follow host semantics because they have no equivalent resolve flags; complete
+containment for those operations remains open. `File::open` and `File::create`
 continue to take ordinary `PathView` values and retain process-path semantics.
 Public fs methods use lower camel case with no aliases, including `getCwd`,
 `openFile`, `createFile`, `readOnly`, and `fileId`.

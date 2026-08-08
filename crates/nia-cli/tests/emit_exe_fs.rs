@@ -388,6 +388,71 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(!root.join("must-not-exist.txt").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn emit_exe_std_fs_dir_rejects_symlink_escape_without_side_effects() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_dir("emit_exe_std_fs_dir_rejects_symlink_escape_without_side_effects");
+    let outside = temp_dir("emit_exe_std_fs_dir_symlink_escape_target");
+    std::fs::write(outside.join("sentinel.txt"), b"outside").expect("write outside sentinel");
+    symlink(&*outside, root.join("escape")).expect("create escape symlink");
+
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
+    switch cwd.openFile(path, fs::OpenOptions::readOnly()) {
+        !file => { return process::exit(1)!; },
+        fs::OperationError::System {
+            operation: fs::Operation::OpenFile,
+            cause: fs::Error::CrossDevice,
+        }! => {},
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs symlink containment");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted symlink containment executable")
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        std::fs::read(outside.join("sentinel.txt")).expect("read outside sentinel"),
+        b"outside"
+    );
+}
+
 #[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");

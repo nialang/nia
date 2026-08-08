@@ -69,6 +69,30 @@ pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!
     fd::open_dir_at(dir, path, follow_symlinks)
 }
 
+pub fn open_at_beneath(
+    dir: FileDescriptor,
+    path: &u8,
+    mode: OpenMode,
+    directory: bool,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+    follow_symlinks: bool,
+) Errno!FileDescriptor {
+    fd::open_at_beneath(
+        dir,
+        path,
+        mode,
+        directory,
+        create,
+        truncate,
+        exclusive,
+        permissions,
+        follow_symlinks,
+    )
+}
+
 pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!void {
     fd::create_dir_at(dir, path, permissions)
 }

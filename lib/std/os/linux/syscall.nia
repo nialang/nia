@@ -21,6 +21,7 @@ pub using platform::{
     mmap,
     munmap,
     openat,
+    openat2,
     pipe2,
     read,
     renameat,

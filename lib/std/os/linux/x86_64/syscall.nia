@@ -18,6 +18,7 @@ pub const getcwd: usize = 79usize;
 pub const chdir: usize = 80usize;
 pub const getdents64: usize = 217usize;
 pub const openat: usize = 257usize;
+pub const openat2: usize = 437usize;
 pub const mkdirat: usize = 258usize;
 pub const unlinkat: usize = 263usize;
 pub const renameat: usize = 264usize;
