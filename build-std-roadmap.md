@@ -4358,3 +4358,31 @@ checks cycle detection. Resource-budget mutex poisoning is recovered without a
 second panic, and coordinator staged-output cleanup no longer relies on
 `expect`. Remaining resource capacity/release assertions are documented as
 internal ownership invariants.
+
+Standard-library reconstruction progress (2026-08-08, owned C-string and
+command lowering batch): `CString` now owns an allocator-backed byte list with
+one explicit trailing NUL. `fromBytes` accepts an unterminated payload and
+rejects interior NUL bytes, `fromView` copies an already validated view, and
+`fromText` counts and encodes scalar UTF-8 before publishing the result. Empty
+payloads remain valid C strings; `bytes()` excludes the terminator while
+`nulTerminatedBytes()` and `rawPtr()` are the native boundary. `deinit` is
+explicit, and `CStringBuildError::ContainsNul` remains distinct from allocation
+causes, including the process `exit` conversion.
+
+Command argument lowering now constructs each borrowed scalar argument through
+that owned C-string boundary, copies its terminated bytes into invocation-local
+argv storage, and releases the temporary owner before spawn returns. The
+configuration remains borrowed and immutable; callers no longer need to build
+native C strings or pointer arrays. Runtime conformance covers empty, Unicode,
+interior-NUL, fixed-buffer allocation failure, view-copy, terminator, and
+explicit-cleanup cases, alongside the existing process execution fixture. This
+closes owned C-string storage and command-owned argument construction; the
+lower-level `std::os` naming/ownership audit and filesystem native roots/context
+remain open.
+
+The integrated configured build also exposed ignored `.nia-build` and
+`.nia-cache` directories left beneath a source fixture being copied into every
+temporary workspace. Case-tree copying now excludes those two generated state
+roots at every depth while retaining ordinary nested files and other dotfiles;
+focused support coverage and a clean configured build prevent stale local cache
+state from becoming test input.

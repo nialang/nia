@@ -28,7 +28,7 @@ pub module unicode;
 
 pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap, HashMapInitError};
-pub using cstring::{CStringError, CStringView};
+pub using cstring::{CString, CStringBuildError, CStringError, CStringView};
 pub using fs::{PathBuf, PathView};
 pub using string::{String, TextError, TextFormatError};
 

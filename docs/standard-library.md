@@ -440,7 +440,7 @@ dispatch, and LLVM before deleting each builtin declaration.
 | owned mutable scalar text | `String` over `ArrayList[char]` | copy/append/replace/join/UTF-8/format with explicit allocator; reserved batches and borrowed split iteration | `mem::Error`, `TextError`, `TextFormatError` | naming, mutation, relations, collections, receiver parsing, unmanaged ownership, and the complete vertical workflow accepted |
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | borrowed bytes decoded one scalar at a time or streamed from scalar text | `decodeUtf8First`, `String::fromUtf8`, `String::appendUtf8`, `Writer::writeUtf8` | `Utf8DecodeError`, `TextError`, or the concrete writer error | scalar decode, owned whole-buffer decode, transactional append, allocation-free stream encoding, and provider-closure evidence accepted; nominal validated view remains open |
-| C string | `CStringView` over NUL-terminated bytes | `fromBytes`; `fromPtrUnchecked` at trusted pointer boundaries | `CStringError` (`EmptyInput`, `MissingTerminator`, `InteriorNul`) | checked slice construction accepted; owned C-string design remains open |
+| C string | `CStringView` over NUL-terminated bytes; allocator-owned `CString` | `CStringView::fromBytes`; `CString::fromBytes`, `fromView`, and scalar-text `fromText`; `fromPtrUnchecked` remains trusted-only | `CStringError` for view validation; `CStringBuildError` distinguishes `ContainsNul` from `mem::Error` allocation causes | checked view and owned storage accepted; OS-facing ownership remains open |
 | filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
 
@@ -450,6 +450,26 @@ interchangeable with scalar count. A NUL scalar is valid scalar text but is
 rejected when crossing a C-string or encoded-path boundary. Invalid UTF-8 is a
 decode failure before a path exists; OS path rejection occurs after
 representation conversion.
+
+Owned C strings are an explicit byte-storage boundary. `CString` always owns an
+`ArrayList[u8]` whose final byte is the terminator; an empty payload is therefore
+valid and still has one allocated terminator byte. `fromBytes` accepts payload
+bytes without a terminator and rejects every interior NUL, `fromView` copies a
+validated `CStringView`, and `fromText` performs a two-pass UTF-8 encoding while
+rejecting a NUL scalar. `bytes()` excludes the terminator, while
+`nulTerminatedBytes()` and `rawPtr()` expose it only for native calls. The
+allocator is supplied to construction and `deinit`; no implicit destructor or
+allocator is stored in the value. `CStringBuildError` keeps invalid-input and
+allocation causes distinct, and the process exit conversion maps them through
+the same typed error boundary as other standard-library allocations.
+
+`process::Command` still borrows its immutable configuration and scalar argument
+views. At spawn, each argument is first materialized as an owned `CString`, then
+copied into one invocation-local byte arena before the native pointer array is
+built. This keeps pointer lifetimes stable until `exec`, makes the command
+boundary reuse the public C-string validation/encoding contract, and releases
+the per-argument owner on every success or failure path. The configuration value
+does not retain caller-built native argv storage.
 
 ## 5. Ownership And Error Baseline
 

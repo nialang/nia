@@ -1,4 +1,5 @@
 using pkg::collections;
+using pkg::cstring;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
@@ -247,25 +248,15 @@ fn appendArgument(
     argument: &[char],
     argumentIndex: usize,
 ) Error!void {
-    let mut byteLen: usize = 0;
-    for &ch in argument {
-        if ch.codepoint() == 0 {
-            return Error::ArgumentContainsNul(argumentIndex)!;
-        }
-        byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
-            ?value => value,
-            null => return Error::Allocation(mem::Error::OutOfMemory)!,
-        };
-    }
-    let needed = switch byteLen.checked_add(1) {
-        ?value => value,
-        null => return Error::Allocation(mem::Error::OutOfMemory)!,
+    let mut owned = switch cstring::CString::fromText(allocator, argument) {
+        !value => value,
+        cause! => switch cause {
+            cstring::CStringBuildError::ContainsNul => return Error::ArgumentContainsNul(argumentIndex)!,
+            cstring::CStringBuildError::Allocation(error) => return Error::Allocation(error)!,
+        },
     };
-    bytes.reserve(allocator, needed).asProcessAllocationError().?;
-    for &ch in argument {
-        bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
-    }
-    bytes.appendAssumeCapacity(0);
+    defer owned.deinit(allocator).asProcessAllocationError().?;
+    bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
     !{}
 }
 
