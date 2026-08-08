@@ -159,6 +159,32 @@ pub(pkg) fn openAt(
     !FileHandle::fromPlatform(handle)
 }
 
+pub(pkg) fn openAtBeneath(
+    dir: FileHandle,
+    path: &u8,
+    mode: OpenMode,
+    directory: bool,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+    followSymlinks: bool,
+) Error!FileHandle {
+    let platformMode = mode.asPlatformOpenMode().?;
+    let handle = platform::open_at_beneath(
+        dir.platform(),
+        path,
+        platformMode,
+        directory,
+        create,
+        truncate,
+        exclusive,
+        permissions,
+        followSymlinks,
+    ).asOsError().?;
+    !FileHandle::fromPlatform(handle)
+}
+
 pub(pkg) fn openDirAt(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileHandle {
     let handle = platform::open_dir_at(
         dir.platform(),

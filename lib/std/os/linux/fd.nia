@@ -2,7 +2,7 @@ using pkg::os::linux::syscall;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
 
-using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, Pipe, SeekWhence};
+using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
 const linux_dirent64_reclen_offset: usize = 16usize;
 const linux_dirent64_type_offset: usize = 18usize;
@@ -204,6 +204,53 @@ pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!
         path as usize,
         flags as usize,
         0,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !FileDescriptor::init(ret as i32)
+    }
+}
+
+// openat2 resolves every component beneath the directory fd, including symlinks.
+pub fn open_at_beneath(
+    dir: FileDescriptor,
+    path: &u8,
+    mode: OpenMode,
+    directory: bool,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+    follow_symlinks: bool,
+) Errno!FileDescriptor {
+    let mut flags = mode as i32;
+    if directory {
+        flags = flags + types::open_directory;
+    }
+    if create {
+        flags = flags + types::open_create;
+    }
+    if exclusive {
+        flags = flags + types::open_exclusive;
+    }
+    if truncate {
+        flags = flags + types::open_truncate;
+    }
+    if not follow_symlinks {
+        flags = flags + types::open_no_follow;
+    }
+    let how = OpenHow {
+        flags: flags as u64,
+        mode: permissions as u64,
+        resolve: types::resolve_beneath | types::resolve_no_magiclinks,
+    };
+    let ret = syscall::syscall4(
+        syscall::openat2,
+        dir.raw() as usize,
+        path as usize,
+        &how as usize,
+        std::builtin::size[OpenHow](),
     );
     if ret < 0 {
         ret.syscall_error()!

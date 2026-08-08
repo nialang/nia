@@ -4468,3 +4468,16 @@ prove filesystem OOM retains its operation and publishes no file. Build error
 formatting, process exit mapping, configured build, filesystem/process suites,
 and loader-query closure all pass. Only symlink containment remains open in
 this path-root area.
+
+Standard-library reconstruction progress (2026-08-08, Linux symlink-beneath
+batch): the Linux provider now exposes the x86_64 `openat2` syscall and its
+kernel `open_how` ABI with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`. Directory
+relative `openFile`, `openDir`, and `createFile` use this capability, so nested
+and absolute symlinks cannot redirect those handle-opening operations outside
+their `Dir` root; unsupported kernels return the provider's typed system error
+without falling back to `openat`. Runtime evidence covers an absolute symlink
+to an outside directory, rejection without reading or modifying the outside
+sentinel, and ordinary directory capability workflows. `mkdirat`, `unlinkat`,
+`renameat`, and `statx` remain host-semantic because Linux provides no resolve
+flags for those calls; complete containment for mutation and metadata remains
+open pending a parent-resolution design.
