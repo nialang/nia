@@ -3531,6 +3531,13 @@ payloads. These checked operations are the only constructors of
 immediate OS calls. Path-taking filesystem operations retain their exact
 `Operation` and path/system cause in `OperationError`.
 
+`OperationError::Allocation` retains allocator failure and the operation that
+requested the scalar lowering. Default scalar filesystem methods use a
+`PageAllocator`; each also has a `WithAllocator` form for explicit allocation
+ownership. They lower through an owned NUL-terminated C string rather than a
+fixed-size stack buffer. Native path methods continue to consume validated
+borrowed bytes without allocation.
+
 Directory-relative operations require a distinct validated role.
 `RelativePathView::fromText`, `PathView::relative`,
 `RelativeNativePathView::fromBytes`, and `NativePathView::relative` reject a
