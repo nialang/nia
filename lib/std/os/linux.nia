@@ -107,13 +107,22 @@ pub fn delete_at_beneath(
     fd::delete_at_beneath(dir, parent, name, directory)
 }
 
-pub fn rename_at(
+pub fn rename_at_beneath(
     old_dir: FileDescriptor,
-    old_path: &u8,
+    old_parent: &u8,
+    old_name: &u8,
     new_dir: FileDescriptor,
-    new_path: &u8,
+    new_parent: &u8,
+    new_name: &u8,
 ) Errno!void {
-    fd::rename_at(old_dir, old_path, new_dir, new_path)
+    fd::rename_at_beneath(
+        old_dir,
+        old_parent,
+        old_name,
+        new_dir,
+        new_parent,
+        new_name,
+    )
 }
 
 pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {

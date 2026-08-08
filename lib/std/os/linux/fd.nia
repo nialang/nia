@@ -343,6 +343,46 @@ pub fn rename_at(
     }
 }
 
+pub fn rename_at_beneath(
+    old_dir: FileDescriptor,
+    old_parent: &u8,
+    old_name: &u8,
+    new_dir: FileDescriptor,
+    new_parent: &u8,
+    new_name: &u8,
+) Errno!void {
+    let old_parent_handle = open_at_beneath(
+        old_dir,
+        old_parent,
+        OpenMode::ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        true,
+    ).?;
+    defer _ = old_parent_handle.close();
+    let new_parent_handle = open_at_beneath(
+        new_dir,
+        new_parent,
+        OpenMode::ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        true,
+    ).?;
+    defer _ = new_parent_handle.close();
+    rename_at(
+        old_parent_handle,
+        old_name,
+        new_parent_handle,
+        new_name,
+    )
+}
+
 pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
     if offset >= buffer.len() {
         return null;
