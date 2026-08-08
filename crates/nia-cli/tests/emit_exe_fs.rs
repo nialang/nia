@@ -34,8 +34,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
-    cwd.createDir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()).exit().?;
-    let mut file = cwd.createFile(path.view(), fs::CreateOptions::readWrite()).exit().?;
+    cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()).exit().?;
+    let mut file = cwd.createFile(path.view().relative().exit().?, fs::CreateOptions::readWrite()).exit().?;
     let mut buffer: [16]u8 = [0; 16];
     let mut writer = file.writer(&mut buffer[..]).exit().?;
     writer.writeAll(&b"joined").exit().?;
@@ -165,7 +165,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
-    let mut file = cwd.createNativeFile(native, fs::CreateOptions::init()).exit().?;
+    let relative = native.relative().exit().?;
+    let mut file = cwd.createNativeFile(relative, fs::CreateOptions::init()).exit().?;
     file.close().exit().?;
     !{}
 }
@@ -198,6 +199,93 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_relative_paths_enforce_lexical_roots() {
+    let root = temp_dir("emit_exe_std_fs_relative_paths_enforce_lexical_roots");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    switch fs::RelativePathView::fromText(&"/absolute") {
+        !path => { _ = path; return process::exit(1)!; },
+        fs::PathError::Absolute! => {},
+        error! => { _ = error; return process::exit(2)!; },
+    }
+    switch fs::RelativePathView::fromText(&"../outside") {
+        !path => { _ = path; return process::exit(3)!; },
+        fs::PathError::ParentTraversal! => {},
+        error! => { _ = error; return process::exit(4)!; },
+    }
+    switch fs::PathView::init(&"a/../outside").relative() {
+        !path => { _ = path; return process::exit(5)!; },
+        fs::PathError::ParentTraversal! => {},
+        error! => { _ = error; return process::exit(6)!; },
+    }
+    switch fs::RelativePathView::fromText(&"a/..") {
+        !path => { _ = path; return process::exit(7)!; },
+        fs::PathError::ParentTraversal! => {},
+        error! => { _ = error; return process::exit(8)!; },
+    }
+
+    let absoluteBytes: [3]u8 = [b'/', b'x', 0];
+    switch fs::RelativeNativePathView::fromBytes(&absoluteBytes[..]) {
+        !path => { _ = path; return process::exit(9)!; },
+        fs::PathError::Absolute! => {},
+        error! => { _ = error; return process::exit(10)!; },
+    }
+    let parentBytes: [7]u8 = [b'a', b'/', b'.', b'.', b'/', b'x', 0];
+    let native = switch fs::NativePathView::fromBytes(&parentBytes[..]) {
+        !path => path,
+        error! => { _ = error; return process::exit(11)!; },
+    };
+    switch native.relative() {
+        !path => { _ = path; return process::exit(12)!; },
+        fs::PathError::ParentTraversal! => {},
+        error! => { _ = error; return process::exit(13)!; },
+    }
+
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let nested = fs::RelativePathView::fromText(&"nested").exit().?;
+    cwd.createDir(nested, fs::CreateDirOptions::init()).exit().?;
+    let child = fs::RelativePathView::fromText(&"nested/inside.txt").exit().?;
+    let mut file = cwd.createFile(child, fs::CreateOptions::init()).exit().?;
+    file.close().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs relative path roots");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted relative path roots executable")
+            .code(),
+        Some(0)
+    );
+    assert!(root.join("nested").join("inside.txt").is_file());
+    assert!(!root.join("outside").exists());
+}
+
+#[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
     let data_path = root.join("data.txt");
@@ -211,7 +299,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let mut path = fs::PathView::init(&"data.txt");
+    let mut path = fs::RelativePathView::fromText(&"data.txt").exit().?;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => {
@@ -588,7 +676,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             }
         },
     }
-    switch cwd.createFile(fs::PathView::init(&"bad.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::RelativePathView::fromText(&"bad.txt").exit().?, fs::CreateOptions::init()) {
         !file => {
             _ = file;
             return process::exit(7)!;
@@ -887,7 +975,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(9)!;
         },
     }
-    switch cwd.metadata(path, fs::MetadataOptions::init()) {
+    switch cwd.metadata(path.relative().exit().?, fs::MetadataOptions::init()) {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
                 return process::exit(10)!;
@@ -1025,7 +1113,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let mut path = fs::PathView::init(&"nia-λ.txt");
+    let mut path = fs::RelativePathView::fromText(&"nia-λ.txt").exit().?;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => {
@@ -1226,7 +1314,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    let mut path = fs::PathView::init(&"bad\0path");
+    let mut path = fs::RelativePathView::fromText(&"bad\0path").exit().?;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => {
@@ -1255,7 +1343,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }! => {},
         err! => { _ = err; return process::exit(2)!; },
     }
-    let missing = fs::PathView::init(&"definitely-missing.nia-test-file");
+    let missing = fs::RelativePathView::fromText(&"definitely-missing.nia-test-file").exit().?;
     switch cwd.openFile(missing, fs::OpenOptions::readOnly()) {
         !value => {
             let mut file = value;
@@ -1326,7 +1414,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
     };
     let mut file: fs::File;
-    switch cwd.createFile(fs::PathView::init(&"delete-me.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::RelativePathView::fromText(&"delete-me.txt").exit().?, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1342,7 +1430,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     }
-    switch cwd.deleteFile(fs::PathView::init(&"delete-me.txt")) {
+    switch cwd.deleteFile(fs::RelativePathView::fromText(&"delete-me.txt").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1350,7 +1438,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     }
-    switch cwd.openFile(fs::PathView::init(&"delete-me.txt"), fs::OpenOptions::readOnly()) {
+    switch cwd.openFile(fs::RelativePathView::fromText(&"delete-me.txt").exit().?, fs::OpenOptions::readOnly()) {
         !file => {
             _ = file;
             return process::exit(4)!;
@@ -1359,7 +1447,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.deleteFile(fs::PathView::init(&"bad\0path")) {
+    switch cwd.deleteFile(fs::RelativePathView::fromText(&"bad\0path").exit().?) {
         !ok => {
             _ = ok;
             return process::exit(5)!;
@@ -1428,7 +1516,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
     };
 
-    switch cwd.createDir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
@@ -1438,7 +1526,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut file: fs::File;
-    switch cwd.createFile(fs::PathView::init(&"old-name.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::RelativePathView::fromText(&"old-name.txt").exit().?, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1455,7 +1543,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.rename(fs::PathView::init(&"old-name.txt"), fs::PathView::init(&"subdir/new-name.txt")) {
+    switch cwd.rename(
+        fs::RelativePathView::fromText(&"old-name.txt").exit().?,
+        fs::RelativePathView::fromText(&"subdir/new-name.txt").exit().?,
+    ) {
         !ok => {
             _ = ok;
         },
@@ -1464,7 +1555,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.openFile(fs::PathView::init(&"old-name.txt"), fs::OpenOptions::readOnly()) {
+    switch cwd.openFile(fs::RelativePathView::fromText(&"old-name.txt").exit().?, fs::OpenOptions::readOnly()) {
         !value => {
             _ = value;
             return process::exit(5)!;
@@ -1473,7 +1564,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.openFile(fs::PathView::init(&"subdir/new-name.txt"), fs::OpenOptions::readOnly()) {
+    switch cwd.openFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").exit().?, fs::OpenOptions::readOnly()) {
         !value => {
             file = value;
         },
@@ -1490,7 +1581,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.deleteDir(fs::PathView::init(&"subdir")) {
+    switch cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").exit().?) {
         !ok => {
             _ = ok;
             return process::exit(8)!;
@@ -1499,7 +1590,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.deleteFile(fs::PathView::init(&"subdir/new-name.txt")) {
+    switch cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1507,7 +1598,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(9)!;
         },
     }
-    switch cwd.deleteDir(fs::PathView::init(&"subdir")) {
+    switch cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1516,7 +1607,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.createDir(fs::PathView::init(&"bad\0path"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::RelativePathView::fromText(&"bad\0path").exit().?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
             return process::exit(11)!;
@@ -1584,7 +1675,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             error! => {},
         }
     };
-    switch cwd.createDir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
@@ -1594,7 +1685,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut subdir: fs::Dir;
-    switch cwd.openDir(fs::PathView::init(&"subdir"), fs::OpenDirOptions::init()) {
+    switch cwd.openDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::OpenDirOptions::init()) {
         !value => {
             subdir = value;
         },
@@ -1604,7 +1695,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut file: fs::File;
-    switch subdir.createFile(fs::PathView::init(&"inside.txt"), fs::CreateOptions::init()) {
+    switch subdir.createFile(fs::RelativePathView::fromText(&"inside.txt").exit().?, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1621,7 +1712,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch subdir.openFile(fs::PathView::init(&"inside.txt"), fs::OpenOptions::readOnly()) {
+    switch subdir.openFile(fs::RelativePathView::fromText(&"inside.txt").exit().?, fs::OpenOptions::readOnly()) {
         !value => {
             file = value;
         },
@@ -1647,7 +1738,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.openDir(fs::PathView::init(&"subdir/inside.txt"), fs::OpenDirOptions::init()) {
+    switch cwd.openDir(fs::RelativePathView::fromText(&"subdir/inside.txt").exit().?, fs::OpenDirOptions::init()) {
         !value => {
             _ = value;
             return process::exit(8)!;
@@ -1656,7 +1747,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.deleteFile(fs::PathView::init(&"subdir/inside.txt")) {
+    switch cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/inside.txt").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1664,7 +1755,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(9)!;
         },
     }
-    switch cwd.deleteDir(fs::PathView::init(&"subdir")) {
+    switch cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1727,7 +1818,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.createDir(fs::PathView::init(&"entries"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::RelativePathView::fromText(&"entries").exit().?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
@@ -1737,7 +1828,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut first: fs::File;
-    switch cwd.createFile(fs::PathView::init(&"entries/alpha.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::RelativePathView::fromText(&"entries/alpha.txt").exit().?, fs::CreateOptions::init()) {
         !value => {
             first = value;
         },
@@ -1755,7 +1846,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut second: fs::File;
-    switch cwd.createFile(fs::PathView::init(&"entries/beta.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::RelativePathView::fromText(&"entries/beta.txt").exit().?, fs::CreateOptions::init()) {
         !value => {
             second = value;
         },
@@ -1773,7 +1864,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut dir: fs::Dir;
-    switch cwd.openDir(fs::PathView::init(&"entries"), fs::OpenDirOptions::init()) {
+    switch cwd.openDir(fs::RelativePathView::fromText(&"entries").exit().?, fs::OpenDirOptions::init()) {
         !value => {
             dir = value;
         },
@@ -1833,7 +1924,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(13)!;
         },
     }
-    switch cwd.deleteFile(fs::PathView::init(&"entries/alpha.txt")) {
+    switch cwd.deleteFile(fs::RelativePathView::fromText(&"entries/alpha.txt").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1841,7 +1932,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(14)!;
         },
     }
-    switch cwd.deleteFile(fs::PathView::init(&"entries/beta.txt")) {
+    switch cwd.deleteFile(fs::RelativePathView::fromText(&"entries/beta.txt").exit().?) {
         !ok => {
             _ = ok;
         },
@@ -1849,7 +1940,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(15)!;
         },
     }
-    switch cwd.deleteDir(fs::PathView::init(&"entries")) {
+    switch cwd.deleteDir(fs::RelativePathView::fromText(&"entries").exit().?) {
         !ok => {
             _ = ok;
         },

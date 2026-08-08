@@ -28,6 +28,8 @@ pub using types::{
     PathBuf,
     PathError,
     PathView,
+    RelativeNativePathView,
+    RelativePathView,
     Operation,
     OperationError,
     Timestamp,

@@ -30,6 +30,8 @@ pub enum Error: i32 {
 
 pub enum PathError: i32 {
     ContainsNul = 1,
+    Absolute = 2,
+    ParentTraversal = 3,
     MissingTerminator = 22,
     TooLong = 36,
     _,
@@ -74,6 +76,11 @@ pub struct PathView {
     text: &[char],
 }
 
+// RelativePathView is validated to contain neither an absolute root nor a `..` component.
+pub struct RelativePathView {
+    path: PathView,
+}
+
 pub struct PathBuf {
     text: string::String,
 }
@@ -82,6 +89,11 @@ pub struct PathBuf {
 pub struct NativePathView {
     ptr: &u8,
     len: usize,
+}
+
+// RelativeNativePathView applies the same lexical root contract to native bytes.
+pub struct RelativeNativePathView {
+    path: NativePathView,
 }
 
 // DirEntry names point into the iterator buffer and are overwritten by later next calls.

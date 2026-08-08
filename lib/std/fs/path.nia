@@ -4,7 +4,14 @@ using pkg::mem;
 using pkg::slice;
 using pkg::string;
 
-using types::{NativePathView, PathBuf, PathError, PathView};
+using types::{
+    NativePathView,
+    PathBuf,
+    PathError,
+    PathView,
+    RelativeNativePathView,
+    RelativePathView,
+};
 
 extend PathView {
     pub fn init(text: &[char]) PathView {
@@ -13,6 +20,10 @@ extend PathView {
 
     pub fn text(&self) &[char] {
         self.text
+    }
+
+    pub fn relative(self) PathError!RelativePathView {
+        RelativePathView::fromPath(self)
     }
 
     pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
@@ -39,6 +50,34 @@ extend PathView {
         }
         storage[out] = 0;
         !NativePathView::init(storage.ptr(), out)
+    }
+}
+
+extend RelativePathView {
+    fn init(path: PathView) RelativePathView {
+        { path: path }
+    }
+
+    pub fn fromText(text: &[char]) PathError!RelativePathView {
+        RelativePathView::fromPath(PathView::init(text))
+    }
+
+    pub fn fromPath(path: PathView) PathError!RelativePathView {
+        validateRelativeText(path.text()).?;
+        !RelativePathView::init(path)
+    }
+
+    pub fn path(&self) PathView {
+        self.path
+    }
+
+    pub fn text(&self) &[char] {
+        self.path.text()
+    }
+
+    pub fn encode(&self, storage: &mut [u8]) PathError!RelativeNativePathView {
+        let native = self.path.encode(storage).?;
+        !RelativeNativePathView::init(native)
     }
 }
 
@@ -167,6 +206,10 @@ extend NativePathView {
         !NativePathView::init(bytes.ptr(), len)
     }
 
+    pub fn relative(self) PathError!RelativeNativePathView {
+        RelativeNativePathView::fromNative(self)
+    }
+
     pub fn ptr(&self) &u8 {
         self.ptr
     }
@@ -182,4 +225,90 @@ extend NativePathView {
     pub fn nulTerminatedBytes(&self) &[u8] {
         &self.ptr[0..(self.len + 1)]
     }
+}
+
+extend RelativeNativePathView {
+    fn init(path: NativePathView) RelativeNativePathView {
+        { path: path }
+    }
+
+    pub fn fromBytes(bytes: &[u8]) PathError!RelativeNativePathView {
+        let native = NativePathView::fromBytes(bytes).?;
+        RelativeNativePathView::fromNative(native)
+    }
+
+    pub fn fromNative(path: NativePathView) PathError!RelativeNativePathView {
+        validateRelativeBytes(path.bytes()).?;
+        !RelativeNativePathView::init(path)
+    }
+
+    pub fn native(&self) NativePathView {
+        self.path
+    }
+
+    pub fn bytes(&self) &[u8] {
+        self.path.bytes()
+    }
+
+    pub fn nulTerminatedBytes(&self) &[u8] {
+        self.path.nulTerminatedBytes()
+    }
+
+    pub fn ptr(&self) &u8 {
+        self.path.ptr()
+    }
+}
+
+fn validateRelativeText(text: &[char]) PathError!void {
+    if text.len() != 0 and text[0] == '/' {
+        return PathError::Absolute!;
+    }
+    let mut componentStart: usize = 0;
+    let mut index: usize = 0;
+    while index < text.len() {
+        if text[index] == '/' {
+            if index - componentStart == 2
+                and text[componentStart] == '.'
+                and text[componentStart + 1] == '.'
+            {
+                return PathError::ParentTraversal!;
+            }
+            componentStart = index + 1;
+        }
+        index += 1;
+    }
+    if text.len() - componentStart == 2
+        and text[componentStart] == '.'
+        and text[componentStart + 1] == '.'
+    {
+        return PathError::ParentTraversal!;
+    }
+    !{}
+}
+
+fn validateRelativeBytes(bytes: &[u8]) PathError!void {
+    if bytes.len() != 0 and bytes[0] == b'/' {
+        return PathError::Absolute!;
+    }
+    let mut componentStart: usize = 0;
+    let mut index: usize = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'/' {
+            if index - componentStart == 2
+                and bytes[componentStart] == b'.'
+                and bytes[componentStart + 1] == b'.'
+            {
+                return PathError::ParentTraversal!;
+            }
+            componentStart = index + 1;
+        }
+        index += 1;
+    }
+    if bytes.len() - componentStart == 2
+        and bytes[componentStart] == b'.'
+        and bytes[componentStart + 1] == b'.'
+    {
+        return PathError::ParentTraversal!;
+    }
+    !{}
 }

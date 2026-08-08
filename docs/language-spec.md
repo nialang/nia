@@ -3531,6 +3531,18 @@ payloads. These checked operations are the only constructors of
 immediate OS calls. Path-taking filesystem operations retain their exact
 `Operation` and path/system cause in `OperationError`.
 
+Directory-relative operations require a distinct validated role.
+`RelativePathView::fromText`, `PathView::relative`,
+`RelativeNativePathView::fromBytes`, and `NativePathView::relative` reject a
+leading `/` as `PathError::Absolute` and a complete `..` component as
+`PathError::ParentTraversal`. The check is lexical: empty components, `.`
+components, and repeated separators remain valid and are not normalized.
+Every path-taking `Dir` method accepts the corresponding relative view, so an
+absolute or parent-traversing spelling cannot reach the OS `*at` call. This
+contract does not prevent a symlink beneath the directory from resolving
+outside it. `File::open` and `File::create` retain ordinary `PathView`
+parameters and process-path semantics.
+
 The CLI surface is:
 
 ```text
