@@ -118,6 +118,10 @@ pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!
     fd::metadata_at(dir, path, follow_symlinks)
 }
 
+pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
+    stat::metadata_at_beneath(dir, path, follow_symlinks)
+}
+
 pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
     fd::dir_entry_at(buffer, offset)
 }

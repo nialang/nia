@@ -320,7 +320,7 @@ extend Dir {
     }
 
     pub fn nativeMetadata(&self, path: RelativeNativePathView, options: MetadataOptions) OperationError!Metadata {
-        let metadata = os::metadataAt(
+        let metadata = os::metadataAtBeneath(
             self.borrowHandle().withOperation(Operation::Metadata).?,
             path.ptr(),
             options.followSymlinks(),

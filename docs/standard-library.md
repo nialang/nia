@@ -462,11 +462,12 @@ resolution bases. Every scalar `Dir` path parameter is a `RelativePathView`,
 every native parameter is a `RelativeNativePathView`, and `renameTo` names both
 source and destination bases. Absolute paths and lexical parent traversal
 therefore cannot reach an `*at` operation. On Linux, `Dir::openFile`,
-`openDir`, and `createFile` use the provider's `openat2` beneath capability,
+`openDir`, `createFile`, and `metadata` use the provider's `openat2` beneath capability,
 which rejects symlink redirection outside the root without falling back to
-unrestricted `openat`. `mkdirat`, `unlinkat`, `renameat`, and `statx` still
-follow host semantics because they have no equivalent resolve flags; complete
-containment for those operations remains open. `File::open` and `File::create`
+unrestricted path resolution. Metadata opens an `O_PATH` descriptor and calls
+`statx(AT_EMPTY_PATH)` on that stable result. `mkdirat`, `unlinkat`, and
+`renameat` still follow host semantics because they have no equivalent resolve
+flags; complete containment for those mutations remains open. `File::open` and `File::create`
 continue to take ordinary `PathView` values and retain process-path semantics.
 The provider preserves `ENOSYS` as `Unsupported` for kernels without
 `openat2`, and reports final-component `O_NOFOLLOW` rejection as the distinct

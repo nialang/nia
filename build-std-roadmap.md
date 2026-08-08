@@ -4490,3 +4490,14 @@ symlink resolving to another entry inside the directory remains allowed under
 the default follow policy, while `OpenDirOptions::noFollow` rejects a final
 directory symlink. The containment contract remains limited to handle-opening
 operations; mutation and metadata parent resolution remain open.
+
+Standard-library reconstruction progress (2026-08-08, contained metadata
+batch): Linux directory-relative metadata now resolves the path with
+`openat2(O_PATH, RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS)` and queries the
+resulting stable descriptor through `statx(AT_EMPTY_PATH)`. Intermediate
+symlinks therefore cannot redirect metadata outside the `Dir` root, while the
+existing follow/no-follow option still controls the final component. Runtime
+evidence covers ordinary file metadata and rejection of outside-symlink
+metadata before the outside sentinel is touched. Only create-directory,
+delete-file, delete-directory, and rename parent resolution remain open in the
+filesystem containment slice.

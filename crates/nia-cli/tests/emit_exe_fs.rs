@@ -411,6 +411,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
     let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
+    switch cwd.metadata(path, fs::MetadataOptions::init()) {
+        !metadata => { _ = metadata; return process::exit(3)!; },
+        error! => { _ = error; },
+    }
     switch cwd.openFile(path, fs::OpenOptions::readOnly()) {
         !file => { return process::exit(1)!; },
         fs::OperationError::System {

@@ -2,6 +2,7 @@ using pkg::os::linux::syscall;
 using pkg::os::linux::types;
 
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
+using types::OpenHow;
 
 const at_symlink_no_follow: usize = 0x100usize;
 const at_no_automount: usize = 0x800usize;
@@ -79,6 +80,36 @@ pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!
         flags = flags | at_symlink_no_follow;
     }
     statx_at(dir, path, flags, statx_request_basic)
+}
+
+pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
+    let mut flags = types::open_path;
+    if not follow_symlinks {
+        flags = flags + types::open_no_follow;
+    }
+    let how = OpenHow {
+        flags: flags as u64,
+        mode: 0u64,
+        resolve: types::resolve_beneath | types::resolve_no_magiclinks,
+    };
+    let ret = syscall::syscall4(
+        syscall::openat2,
+        dir.raw() as usize,
+        path as usize,
+        &how as usize,
+        std::builtin::size[OpenHow](),
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        let handle = FileDescriptor::init(ret as i32);
+        let result = metadata_fd(handle);
+        switch handle.close() {
+            !ok => { _ = ok; },
+            error! => { _ = error; },
+        }
+        result
+    }
 }
 
 fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {

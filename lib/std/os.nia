@@ -231,6 +231,15 @@ pub(pkg) fn metadataAt(dir: FileHandle, path: &u8, followSymlinks: bool) Error!F
     !metadata.asOsMetadata()
 }
 
+pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {
+    let metadata = platform::metadata_at_beneath(
+        dir.platform(),
+        path,
+        followSymlinks,
+    ).asOsError().?;
+    !metadata.asOsMetadata()
+}
+
 pub(pkg) fn mapPages(len: usize, align: usize) Error!&mut u8 {
     platform::map_pages(len, align).asOsError()
 }
