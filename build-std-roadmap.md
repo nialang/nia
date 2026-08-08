@@ -4514,6 +4514,22 @@ primitive. Together with contained open/create-file/open-dir/metadata/mkdir/
 unlink paths, this closes lexical and symlink containment for every public
 directory-relative filesystem operation on the accepted Linux provider.
 
+Standard-library reconstruction completion (2026-08-08, OS-facing C-string
+ownership batch): typed process commands finish each invocation-local argument
+or exact-environment byte arena before constructing its native pointer array.
+Linux spawn retains those arenas across `fork` and waits on the close-on-exec
+error pipe until `execve` consumes the pointers or returns a stage-specific
+failure. Inherited `Env` values borrow the kernel-provided startup vectors for
+the process lifetime; empty environments use a local NULL array, and `spawnRaw`
+remains the single explicit caller-owned pointer boundary. Runtime conformance
+drives 32 scalar payload arguments and 16 exact environment entries through
+repeated arena and pointer-list growth into `/bin/sh`, then injects failure at
+the first pointer-table allocation and proves every completed byte allocation
+is cleaned without entering native spawn. Structural review confines unchecked
+external C-string views to process startup argument/environment adapters. This
+closes the C-string OS-facing ownership item without introducing a second
+native storage abstraction.
+
 Phase H and standard-library reconstruction progress (2026-08-08,
 unrestricted-provider deletion batch): `Dir::cwd` now opens `.` through the
 same beneath capability as other directory handles. The obsolete

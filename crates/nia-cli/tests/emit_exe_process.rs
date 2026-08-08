@@ -455,6 +455,154 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_command_keeps_native_invocation_storage_stable() {
+    let root = temp_dir("emit_exe_std_process_command_keeps_native_invocation_storage_stable");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+struct RejectPointerAllocator {
+    backing: mem::PageAllocator,
+    activeAllocations: usize,
+    rejectedPointerTable: bool,
+}
+
+extend RejectPointerAllocator {
+    fn init() RejectPointerAllocator {
+        {
+            backing: mem::PageAllocator::init(),
+            activeAllocations: 0usize,
+            rejectedPointerTable: false,
+        }
+    }
+
+    fn active(&self) usize {
+        self.activeAllocations
+    }
+
+    fn rejectedPointers(&self) bool {
+        self.rejectedPointerTable
+    }
+}
+
+extend RejectPointerAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if not layout.isEmpty()
+            and layout.align() == std::builtin::align[&u8]()
+            and not self.rejectedPointerTable
+        {
+            self.rejectedPointerTable = true;
+            return mem::Error::OutOfMemory!;
+        }
+        let block = self.backing.alloc(layout).?;
+        if not block.isEmpty() {
+            self.activeAllocations += 1usize;
+        }
+        !block
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!void {
+        self.backing.free(block).?;
+        if not block.isEmpty() {
+            if self.activeAllocations == 0usize {
+                return mem::Error::Invalid!;
+            }
+            self.activeAllocations -= 1usize;
+        }
+        !{}
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let arguments: [35]&[char] = [
+        &"-c",
+        &"test \"$#\" = 32 || exit 1; for value in \"$@\"; do test \"$value\" = \"payload-λ\" || exit 2; done; test \"$E00$E01$E02$E03$E04$E05$E06$E07$E08$E09$E10$E11$E12$E13$E14$E15\" = \"0123456789abcdef\"",
+        &"nia",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+        &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
+    ];
+    let environment: [16]process::EnvEntry = [
+        process::EnvEntry::init(&"E00", &"0"),
+        process::EnvEntry::init(&"E01", &"1"),
+        process::EnvEntry::init(&"E02", &"2"),
+        process::EnvEntry::init(&"E03", &"3"),
+        process::EnvEntry::init(&"E04", &"4"),
+        process::EnvEntry::init(&"E05", &"5"),
+        process::EnvEntry::init(&"E06", &"6"),
+        process::EnvEntry::init(&"E07", &"7"),
+        process::EnvEntry::init(&"E08", &"8"),
+        process::EnvEntry::init(&"E09", &"9"),
+        process::EnvEntry::init(&"E10", &"a"),
+        process::EnvEntry::init(&"E11", &"b"),
+        process::EnvEntry::init(&"E12", &"c"),
+        process::EnvEntry::init(&"E13", &"d"),
+        process::EnvEntry::init(&"E14", &"e"),
+        process::EnvEntry::init(&"E15", &"f"),
+    ];
+    let dense = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withEnvironment(&environment);
+    let term = dense.run().exit().?;
+    if not term.succeeded() {
+        return process::exit(3)!;
+    }
+
+    let mut rejecting = RejectPointerAllocator::init();
+    let allocator: &mut mem::Allocator = &mut rejecting;
+    let noPointers = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
+    switch noPointers.spawnWithAllocator(allocator) {
+        !child => {
+            _ = child;
+            return process::exit(4)!;
+        },
+        process::Error::Allocation(mem::Error::OutOfMemory)! => {},
+        error! => {
+            _ = error;
+            return process::exit(5)!;
+        },
+    }
+    if not rejecting.rejectedPointers() {
+        return process::exit(6)!;
+    }
+    if rejecting.active() != 0usize {
+        return process::exit(7)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write native process invocation ownership source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std process native storage ownership");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .status_timeout("run emitted std process native storage ownership executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_process_command_can_ignore_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_ignore_stdout");
     let main = root.join("main.nia");
