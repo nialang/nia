@@ -410,6 +410,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
+    let createPath = fs::RelativePathView::fromText(&"escape/new-dir").exit().?;
+    switch cwd.createDir(createPath, fs::CreateDirOptions::init()) {
+        !ok => { _ = ok; return process::exit(4)!; },
+        error! => { _ = error; },
+    }
     let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
     switch cwd.metadata(path, fs::MetadataOptions::init()) {
         !metadata => { _ = metadata; return process::exit(3)!; },
@@ -455,6 +460,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         std::fs::read(outside.join("sentinel.txt")).expect("read outside sentinel"),
         b"outside"
     );
+    assert!(!outside.join("new-dir").exists());
 }
 
 #[cfg(unix)]

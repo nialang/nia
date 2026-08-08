@@ -254,6 +254,27 @@ pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!voi
     }
 }
 
+pub fn create_dir_at_beneath(
+    dir: FileDescriptor,
+    parent: &u8,
+    name: &u8,
+    permissions: u32,
+) Errno!void {
+    let parent_handle = open_at_beneath(
+        dir,
+        parent,
+        OpenMode::ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        true,
+    ).?;
+    defer _ = parent_handle.close();
+    create_dir_at(parent_handle, name, permissions)
+}
+
 pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!void {
     let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
     if ret < 0 {

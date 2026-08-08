@@ -187,8 +187,18 @@ pub(pkg) fn openAtBeneath(
     !FileHandle::fromPlatform(handle)
 }
 
-pub(pkg) fn createDirAt(dir: FileHandle, path: &u8, permissions: u32) Error!void {
-    platform::create_dir_at(dir.platform(), path, permissions).asOsError()
+pub(pkg) fn createDirAtBeneath(
+    dir: FileHandle,
+    parent: &u8,
+    name: &u8,
+    permissions: u32,
+) Error!void {
+    platform::create_dir_at_beneath(
+        dir.platform(),
+        parent,
+        name,
+        permissions,
+    ).asOsError()
 }
 
 pub(pkg) fn deleteFileAt(dir: FileHandle, path: &u8) Error!void {

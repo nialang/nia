@@ -4520,3 +4520,18 @@ selects `Dir::metadata` through the fs file provider and proves the complete
 Linux fd/stat/types provider chain is present. These checks make the raw
 syscall boundary and its demand-loaded consumer explicit before mutation parent
 resolution is added.
+
+Standard-library reconstruction progress (2026-08-08, contained create-dir
+batch): directory creation now splits a validated relative native path into an
+allocator-owned parent path and final component, resolves the parent through
+`openat2(RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS)`, and calls `mkdirat` only on
+that stable parent fd and one final name. Parent/name lowering is dynamically
+sized rather than reviving a whole-path fixed buffer; scalar and explicit
+native allocator entry points preserve `OperationError::Allocation` context,
+while the default native entry uses `PageAllocator`. Trailing and repeated
+separators retain their accepted create semantics. Runtime evidence rejects
+creation through an outside symlink without publishing the outside directory,
+and the complete filesystem executable matrix passes. The now-unused
+facade-level unrestricted `createDirAt`/`create_dir_at` adapters are physically
+removed. Delete-file, delete-directory, and rename parent resolution remain
+open.

@@ -31,6 +31,11 @@ pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
 
 const max_i64_as_u64: u64 = 9223372036854775807u64;
 
+struct CreateDirSplit {
+    end: usize,
+    separator: ?usize,
+}
+
 fn lowerPath(
     allocator: &mut mem::Allocator,
     path: PathView,
@@ -47,6 +52,39 @@ fn lowerPath(
             cause: cause,
         }!,
     }
+}
+
+fn lowerNativeBytes(
+    allocator: &mut mem::Allocator,
+    bytes: &[u8],
+    operation: Operation,
+) OperationError!cstring::CString {
+    switch cstring::CString::fromBytes(allocator, bytes) {
+        !value => !value,
+        cstring::CStringBuildError::ContainsNul! => OperationError::Path {
+            operation: operation,
+            cause: types::PathError::ContainsNul,
+        }!,
+        cstring::CStringBuildError::Allocation(cause)! => OperationError::Allocation {
+            operation: operation,
+            cause: cause,
+        }!,
+    }
+}
+
+fn createDirSplit(bytes: &[u8]) CreateDirSplit {
+    let mut end = bytes.len();
+    while end != 0usize and bytes[end - 1usize] == b'/' {
+        end -= 1usize;
+    }
+    let mut index = end;
+    while index != 0usize {
+        index -= 1usize;
+        if bytes[index] == b'/' {
+            return CreateDirSplit { end: end, separator: ?index };
+        }
+    }
+    CreateDirSplit { end: end, separator: null }
 }
 
 extend Dir {
@@ -139,7 +177,7 @@ extend Dir {
         let mut owned = lowerPath(allocator, path.path(), Operation::CreateDir).?;
         defer owned.deinit(allocator).withOperation(Operation::CreateDir).?;
         let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::CreateDir).?;
-        self.createNativeDir(native, options)
+        self.createNativeDirWithAllocator(allocator, native, options)
     }
 
     pub fn deleteFile(&self, path: RelativePathView) OperationError!void {
@@ -290,9 +328,35 @@ extend Dir {
     }
 
     pub fn createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!void {
-        os::createDirAt(
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.createNativeDirWithAllocator(allocator, path, options)
+    }
+
+    pub fn createNativeDirWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativeNativePathView,
+        options: CreateDirOptions,
+    ) OperationError!void {
+        let bytes = path.bytes();
+        let split = createDirSplit(bytes);
+        let current = b".";
+        let mut parent = switch split.separator {
+            ?index => lowerNativeBytes(allocator, &bytes[0..index], Operation::CreateDir).?,
+            null => lowerNativeBytes(allocator, &current[..], Operation::CreateDir).?,
+        };
+        defer parent.deinit(allocator).withOperation(Operation::CreateDir).?;
+        let nameStart = switch split.separator {
+            ?index => index + 1usize,
+            null => 0usize,
+        };
+        let mut name = lowerNativeBytes(allocator, &bytes[nameStart..split.end], Operation::CreateDir).?;
+        defer name.deinit(allocator).withOperation(Operation::CreateDir).?;
+        os::createDirAtBeneath(
             self.borrowHandle().withOperation(Operation::CreateDir).?,
-            path.ptr(),
+            parent.rawPtr(),
+            name.rawPtr(),
             options.permissions(),
         ).as_fs_error().withOperation(Operation::CreateDir)
     }
