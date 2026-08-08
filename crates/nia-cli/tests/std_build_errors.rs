@@ -178,3 +178,86 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn build_filesystem_operation_errors_preserve_context() {
+    let root = temp_dir("build_filesystem_operation_errors_preserve_context");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::build;
+using std::fs;
+using std::io;
+using std::process;
+
+fn pathFailure() fs::OperationError!void {
+    fs::OperationError::Path {
+        operation: fs::Operation::OpenFile,
+        cause: fs::PathError::ContainsNul,
+    }!
+}
+
+fn systemFailure() fs::OperationError!void {
+    fs::OperationError::System {
+        operation: fs::Operation::OpenFile,
+        cause: fs::Error::NotFound,
+    }!
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let path = switch pathFailure().asBuildError(
+        build::ErrorOperation::Publish,
+        build::ErrorSubject::BuildPlan,
+    ) {
+        !ok => { _ = ok; return process::exit(1)!; },
+        cause! => cause,
+    };
+    let system = switch systemFailure().asBuildError(
+        build::ErrorOperation::Publish,
+        build::ErrorSubject::BuildPlan,
+    ) {
+        !ok => { _ = ok; return process::exit(2)!; },
+        cause! => cause,
+    };
+    if (path.asExitCode() as i32) != 22 or (system.asExitCode() as i32) != 2 {
+        return process::exit(3)!;
+    }
+
+    let mut buffer: [256]u8 = [_]u8[0; 256];
+    let mut stdout = io::FileWriter::stdout(&mut buffer);
+    stdout.print(&"{}\n{}\n", &[&path, &system]).exit().?;
+    stdout.flush().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write filesystem build error source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile filesystem build error fixture");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output =
+        Command::new(&exe).output_timeout_without_resources("run filesystem build error fixture");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        concat!(
+            "publish build plan: filesystem/open file/path/contains NUL\n",
+            "publish build plan: filesystem/open file/not found\n",
+        )
+    );
+    assert!(output.stderr.is_empty());
+}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt};
 use std::process::Command;
 
 mod support;
@@ -34,8 +34,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
-    cwd.create_dir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()).exit().?;
-    let mut file = cwd.create_file(path.view(), fs::CreateOptions::read_write()).exit().?;
+    cwd.createDir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()).exit().?;
+    let mut file = cwd.createFile(path.view(), fs::CreateOptions::readWrite()).exit().?;
     let mut buffer: [16]u8 = [0; 16];
     let mut writer = file.writer(&mut buffer[..]).exit().?;
     writer.writeAll(&b"joined").exit().?;
@@ -85,7 +85,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut buffer: [4096]u8 = [0; 4096];
-    let cwd = switch fs::getcwd(&mut buffer[..]) {
+    let cwd = switch fs::getCwd(&mut buffer[..]) {
         !value => {
             value
         },
@@ -128,6 +128,75 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(unix)]
+#[test]
+fn emit_exe_std_fs_native_paths_preserve_non_utf8_bytes() {
+    let root = temp_dir("emit_exe_std_fs_native_paths_preserve_non_utf8_bytes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let missingTerminator: [1]u8 = [b'x'];
+    switch fs::NativePathView::fromBytes(&missingTerminator[..]) {
+        !value => { _ = value; return process::exit(1)!; },
+        fs::PathError::MissingTerminator! => {},
+        error! => { _ = error; return process::exit(2)!; },
+    }
+    let interiorNul: [3]u8 = [b'x', 0, 0];
+    switch fs::NativePathView::fromBytes(&interiorNul[..]) {
+        !value => { _ = value; return process::exit(3)!; },
+        fs::PathError::ContainsNul! => {},
+        error! => { _ = error; return process::exit(4)!; },
+    }
+
+    let nativeBytes: [13]u8 = [b'n', b'a', b't', b'i', b'v', b'e', b'-', 0xffu8, b'.', b'b', b'i', b'n', 0];
+    let native = switch fs::NativePathView::fromBytes(&nativeBytes[..]) {
+        !value => value,
+        error! => { _ = error; return process::exit(5)!; },
+    };
+    if native.len() != 12usize or native.bytes()[7] != 0xffu8 {
+        return process::exit(6)!;
+    }
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let mut file = cwd.createNativeFile(native, fs::CreateOptions::init()).exit().?;
+    file.close().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs native path");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted native path executable")
+            .code(),
+        Some(0)
+    );
+
+    let native_name = std::ffi::OsStr::from_bytes(b"native-\xff.bin");
+    assert!(root.join(native_name).is_file());
+}
+
 #[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
@@ -161,7 +230,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
     };
     let mut file: fs::File;
-    switch cwd.create_file(path, fs::CreateOptions::read_write()) {
+    switch cwd.createFile(path, fs::CreateOptions::readWrite()) {
         !value => {
             file = value;
         },
@@ -197,7 +266,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut opened: fs::File;
-    switch cwd.open_file(path, fs::OpenOptions::read_only()) {
+    switch cwd.openFile(path, fs::OpenOptions::readOnly()) {
         !value => {
             opened = value;
         },
@@ -278,7 +347,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file: fs::File;
-    switch fs::File::create(path, fs::CreateOptions::read_write()) {
+    switch fs::File::create(path, fs::CreateOptions::readWrite()) {
         !value => {
             file = value;
         },
@@ -314,7 +383,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut opened: fs::File;
-    switch fs::File::open(path, fs::OpenOptions::read_only()) {
+    switch fs::File::open(path, fs::OpenOptions::readOnly()) {
         !value => {
             opened = value;
         },
@@ -519,16 +588,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
             }
         },
     }
-    switch cwd.create_file(fs::PathView::init(&"bad.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::PathView::init(&"bad.txt"), fs::CreateOptions::init()) {
         !file => {
             _ = file;
             return process::exit(7)!;
         },
-        error! => {
-            if error != fs::Error::BadFd {
-                return process::exit(8)!;
-            }
-        },
+        fs::OperationError::System {
+            operation: fs::Operation::CreateFile,
+            cause: fs::Error::BadFd,
+        }! => {},
+        error! => { _ = error; return process::exit(8)!; },
     }
     !{}
 }
@@ -571,7 +640,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file: fs::File;
-    switch fs::File::create(path, fs::CreateOptions::read_write()) {
+    switch fs::File::create(path, fs::CreateOptions::readWrite()) {
         !value => {
             file = value;
         },
@@ -609,7 +678,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(5)!;
         },
     }
-    switch file.seek_by(0) {
+    switch file.seekBy(0) {
         !value => {
             if value != 6u64 {
                 return process::exit(6)!;
@@ -619,7 +688,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(7)!;
         },
     }
-    switch file.seek_to(2u64) {
+    switch file.seekTo(2u64) {
         !value => {
             if value != 2u64 {
                 return process::exit(8)!;
@@ -629,7 +698,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(9)!;
         },
     }
-    switch file.seek_by(1i64) {
+    switch file.seekBy(1i64) {
         !value => {
             if value != 3u64 {
                 return process::exit(10)!;
@@ -639,7 +708,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(11)!;
         },
     }
-    switch file.seek_from_end(-2i64) {
+    switch file.seekFromEnd(-2i64) {
         !value => {
             if value != 4u64 {
                 return process::exit(12)!;
@@ -658,7 +727,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(14)!;
         },
     }
-    switch file.seek_to(9223372036854775808u64) {
+    switch file.seekTo(9223372036854775808u64) {
         !value => {
             _ = value;
             return process::exit(20)!;
@@ -756,7 +825,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file: fs::File;
-    switch fs::File::create(path, fs::CreateOptions::read_write()) {
+    switch fs::File::create(path, fs::CreateOptions::readWrite()) {
         !value => {
             file = value;
         },
@@ -792,7 +861,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             if metadata.size() != 8u64 {
                 return process::exit(5)!;
             }
-            switch metadata.link_count() {
+            switch metadata.linkCount() {
                 ?value => {
                     if value == 0u32 {
                         return process::exit(6)!;
@@ -800,7 +869,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 },
                 null => {},
             }
-            if metadata.preferred_block_size() == 0u32 {
+            if metadata.preferredBlockSize() == 0u32 {
                 return process::exit(7)!;
             }
         },
@@ -834,7 +903,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 null => {},
             }
             _ = metadata.modified().seconds();
-            switch metadata.status_changed() {
+            switch metadata.statusChanged() {
                 ?time => {
                     _ = time.nanos();
                 },
@@ -975,7 +1044,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
     };
     let mut file: fs::File;
-    switch cwd.create_file(path, fs::CreateOptions::init()) {
+    switch cwd.createFile(path, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1175,29 +1244,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
             error! => {},
         }
     };
-    switch cwd.open_file(path, fs::OpenOptions::read_only()) {
+    switch cwd.openFile(path, fs::OpenOptions::readOnly()) {
         !file => {
             _ = file;
             return process::exit(1)!;
         },
-        err! => {
-            if err != fs::Error::Invalid {
-                return process::exit(2)!;
-            }
-        },
+        fs::OperationError::Path {
+            operation: fs::Operation::OpenFile,
+            cause: fs::PathError::ContainsNul,
+        }! => {},
+        err! => { _ = err; return process::exit(2)!; },
     }
     let missing = fs::PathView::init(&"definitely-missing.nia-test-file");
-    switch cwd.open_file(missing, fs::OpenOptions::read_only()) {
+    switch cwd.openFile(missing, fs::OpenOptions::readOnly()) {
         !value => {
             let mut file = value;
             file.close().exit().?;
             return process::exit(3)!;
         },
-        err! => {
-            if err != fs::Error::NotFound {
-                return process::exit(4)!;
-            }
-        },
+        fs::OperationError::System {
+            operation: fs::Operation::OpenFile,
+            cause: fs::Error::NotFound,
+        }! => {},
+        err! => { _ = err; return process::exit(4)!; },
     }
     !{}
 }
@@ -1257,7 +1326,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
     };
     let mut file: fs::File;
-    switch cwd.create_file(fs::PathView::init(&"delete-me.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::PathView::init(&"delete-me.txt"), fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1273,7 +1342,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     }
-    switch cwd.delete_file(fs::PathView::init(&"delete-me.txt")) {
+    switch cwd.deleteFile(fs::PathView::init(&"delete-me.txt")) {
         !ok => {
             _ = ok;
         },
@@ -1281,7 +1350,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(3)!;
         },
     }
-    switch cwd.open_file(fs::PathView::init(&"delete-me.txt"), fs::OpenOptions::read_only()) {
+    switch cwd.openFile(fs::PathView::init(&"delete-me.txt"), fs::OpenOptions::readOnly()) {
         !file => {
             _ = file;
             return process::exit(4)!;
@@ -1290,7 +1359,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.delete_file(fs::PathView::init(&"bad\0path")) {
+    switch cwd.deleteFile(fs::PathView::init(&"bad\0path")) {
         !ok => {
             _ = ok;
             return process::exit(5)!;
@@ -1359,7 +1428,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
     };
 
-    switch cwd.create_dir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
@@ -1369,7 +1438,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut file: fs::File;
-    switch cwd.create_file(fs::PathView::init(&"old-name.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::PathView::init(&"old-name.txt"), fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1395,7 +1464,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.open_file(fs::PathView::init(&"old-name.txt"), fs::OpenOptions::read_only()) {
+    switch cwd.openFile(fs::PathView::init(&"old-name.txt"), fs::OpenOptions::readOnly()) {
         !value => {
             _ = value;
             return process::exit(5)!;
@@ -1404,7 +1473,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.open_file(fs::PathView::init(&"subdir/new-name.txt"), fs::OpenOptions::read_only()) {
+    switch cwd.openFile(fs::PathView::init(&"subdir/new-name.txt"), fs::OpenOptions::readOnly()) {
         !value => {
             file = value;
         },
@@ -1421,7 +1490,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.delete_dir(fs::PathView::init(&"subdir")) {
+    switch cwd.deleteDir(fs::PathView::init(&"subdir")) {
         !ok => {
             _ = ok;
             return process::exit(8)!;
@@ -1430,7 +1499,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.delete_file(fs::PathView::init(&"subdir/new-name.txt")) {
+    switch cwd.deleteFile(fs::PathView::init(&"subdir/new-name.txt")) {
         !ok => {
             _ = ok;
         },
@@ -1438,7 +1507,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(9)!;
         },
     }
-    switch cwd.delete_dir(fs::PathView::init(&"subdir")) {
+    switch cwd.deleteDir(fs::PathView::init(&"subdir")) {
         !ok => {
             _ = ok;
         },
@@ -1447,7 +1516,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.create_dir(fs::PathView::init(&"bad\0path"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::PathView::init(&"bad\0path"), fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
             return process::exit(11)!;
@@ -1515,7 +1584,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             error! => {},
         }
     };
-    switch cwd.create_dir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::PathView::init(&"subdir"), fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
@@ -1525,7 +1594,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut subdir: fs::Dir;
-    switch cwd.open_dir(fs::PathView::init(&"subdir"), fs::OpenDirOptions::init()) {
+    switch cwd.openDir(fs::PathView::init(&"subdir"), fs::OpenDirOptions::init()) {
         !value => {
             subdir = value;
         },
@@ -1535,7 +1604,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut file: fs::File;
-    switch subdir.create_file(fs::PathView::init(&"inside.txt"), fs::CreateOptions::init()) {
+    switch subdir.createFile(fs::PathView::init(&"inside.txt"), fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
@@ -1552,7 +1621,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch subdir.open_file(fs::PathView::init(&"inside.txt"), fs::OpenOptions::read_only()) {
+    switch subdir.openFile(fs::PathView::init(&"inside.txt"), fs::OpenOptions::readOnly()) {
         !value => {
             file = value;
         },
@@ -1578,7 +1647,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.open_dir(fs::PathView::init(&"subdir/inside.txt"), fs::OpenDirOptions::init()) {
+    switch cwd.openDir(fs::PathView::init(&"subdir/inside.txt"), fs::OpenDirOptions::init()) {
         !value => {
             _ = value;
             return process::exit(8)!;
@@ -1587,7 +1656,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.delete_file(fs::PathView::init(&"subdir/inside.txt")) {
+    switch cwd.deleteFile(fs::PathView::init(&"subdir/inside.txt")) {
         !ok => {
             _ = ok;
         },
@@ -1595,7 +1664,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(9)!;
         },
     }
-    switch cwd.delete_dir(fs::PathView::init(&"subdir")) {
+    switch cwd.deleteDir(fs::PathView::init(&"subdir")) {
         !ok => {
             _ = ok;
         },
@@ -1658,7 +1727,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    switch cwd.create_dir(fs::PathView::init(&"entries"), fs::CreateDirOptions::init()) {
+    switch cwd.createDir(fs::PathView::init(&"entries"), fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
@@ -1668,7 +1737,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut first: fs::File;
-    switch cwd.create_file(fs::PathView::init(&"entries/alpha.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::PathView::init(&"entries/alpha.txt"), fs::CreateOptions::init()) {
         !value => {
             first = value;
         },
@@ -1686,7 +1755,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut second: fs::File;
-    switch cwd.create_file(fs::PathView::init(&"entries/beta.txt"), fs::CreateOptions::init()) {
+    switch cwd.createFile(fs::PathView::init(&"entries/beta.txt"), fs::CreateOptions::init()) {
         !value => {
             second = value;
         },
@@ -1704,7 +1773,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let mut dir: fs::Dir;
-    switch cwd.open_dir(fs::PathView::init(&"entries"), fs::OpenDirOptions::init()) {
+    switch cwd.openDir(fs::PathView::init(&"entries"), fs::OpenDirOptions::init()) {
         !value => {
             dir = value;
         },
@@ -1736,7 +1805,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 return process::exit(10)!;
             },
         };
-        if not value.is_dot() and not value.is_dot_dot() {
+        if not value.isDot() and not value.isDotDot() {
             count += 1usize;
             if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
                 return process::exit(9)!;
@@ -1764,7 +1833,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(13)!;
         },
     }
-    switch cwd.delete_file(fs::PathView::init(&"entries/alpha.txt")) {
+    switch cwd.deleteFile(fs::PathView::init(&"entries/alpha.txt")) {
         !ok => {
             _ = ok;
         },
@@ -1772,7 +1841,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(14)!;
         },
     }
-    switch cwd.delete_file(fs::PathView::init(&"entries/beta.txt")) {
+    switch cwd.deleteFile(fs::PathView::init(&"entries/beta.txt")) {
         !ok => {
             _ = ok;
         },
@@ -1780,7 +1849,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(15)!;
         },
     }
-    switch cwd.delete_dir(fs::PathView::init(&"entries")) {
+    switch cwd.deleteDir(fs::PathView::init(&"entries")) {
         !ok => {
             _ = ok;
         },

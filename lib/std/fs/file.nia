@@ -8,18 +8,20 @@ using types::{
     CreateDirOptions,
     CreateOptions,
     Dir,
-    EncodedPath,
+    DirIterator,
     Error,
     File,
     Metadata,
     MetadataOptions,
+    NativePathView,
     OpenDirOptions,
     OpenOptions,
+    Operation,
+    OperationError,
     PathView,
-    DirIterator,
 };
 
-pub fn getcwd(buffer: &mut [u8]) Error!&[u8] {
+pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
     os::getcwd(buffer).as_fs_error()
 }
 
@@ -27,7 +29,7 @@ const max_path_bytes: usize = os::maxPathBytes;
 const max_i64_as_u64: u64 = 9223372036854775807u64;
 
 extend Dir {
-    fn from_owned_descriptor(handle: os::FileHandle) Dir {
+    fn fromOwnedDescriptor(handle: os::FileHandle) Dir {
         { handle: ?handle }
     }
 
@@ -38,61 +40,61 @@ extend Dir {
             &current[0],
             true,
         ).as_fs_error().?;
-        !Dir::from_owned_descriptor(handle)
+        !Dir::fromOwnedDescriptor(handle)
     }
 
-    pub fn open_file(&self, path: PathView, options: OpenOptions) Error!File {
+    pub fn openFile(&self, path: PathView, options: OpenOptions) OperationError!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.open_encoded_file(encoded, options)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
+        self.openNativeFile(native, options)
     }
 
-    pub fn open_dir(&self, path: PathView, options: OpenDirOptions) Error!Dir {
+    pub fn openDir(&self, path: PathView, options: OpenDirOptions) OperationError!Dir {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.open_encoded_dir(encoded, options)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenDir).?;
+        self.openNativeDir(native, options)
     }
 
-    pub fn create_file(&self, path: PathView, options: CreateOptions) Error!File {
+    pub fn createFile(&self, path: PathView, options: CreateOptions) OperationError!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.create_encoded_file(encoded, options)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
+        self.createNativeFile(native, options)
     }
 
-    pub fn create_dir(&self, path: PathView, options: CreateDirOptions) Error!void {
+    pub fn createDir(&self, path: PathView, options: CreateDirOptions) OperationError!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.create_encoded_dir(encoded, options)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateDir).?;
+        self.createNativeDir(native, options)
     }
 
-    pub fn delete_file(&self, path: PathView) Error!void {
+    pub fn deleteFile(&self, path: PathView) OperationError!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.delete_encoded_file(encoded)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteFile).?;
+        self.deleteNativeFile(native)
     }
 
-    pub fn delete_dir(&self, path: PathView) Error!void {
+    pub fn deleteDir(&self, path: PathView) OperationError!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.delete_encoded_dir(encoded)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteDir).?;
+        self.deleteNativeDir(native)
     }
 
-    pub fn rename(&self, old_path: PathView, new_path: PathView) Error!void {
-        self.rename_to(old_path, self, new_path)
+    pub fn rename(&self, oldPath: PathView, newPath: PathView) OperationError!void {
+        self.renameTo(oldPath, self, newPath)
     }
 
-    pub fn rename_to(&self, old_path: PathView, new_dir: &Dir, new_path: PathView) Error!void {
-        let mut old_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let mut new_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let old_encoded = old_path.encode(&mut old_storage[..]).asFsError().?;
-        let new_encoded = new_path.encode(&mut new_storage[..]).asFsError().?;
-        self.rename_encoded_to(old_encoded, new_dir, new_encoded)
+    pub fn renameTo(&self, oldPath: PathView, newDir: &Dir, newPath: PathView) OperationError!void {
+        let mut oldStorage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut newStorage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let oldNative = oldPath.encode(&mut oldStorage[..]).withOperation(Operation::Rename).?;
+        let newNative = newPath.encode(&mut newStorage[..]).withOperation(Operation::Rename).?;
+        self.renameNativeTo(oldNative, newDir, newNative)
     }
 
-    pub fn metadata(&self, path: PathView, options: MetadataOptions) Error!Metadata {
+    pub fn metadata(&self, path: PathView, options: MetadataOptions) OperationError!Metadata {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
-        self.encoded_metadata(encoded, options)
+        let native = path.encode(&mut storage[..]).withOperation(Operation::Metadata).?;
+        self.nativeMetadata(native, options)
     }
 
     pub fn entries(&mut self, buffer: &mut [u8]) Error!DirIterator {
@@ -103,72 +105,78 @@ extend Dir {
         }
     }
 
-    pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
+    pub fn openNativeFile(&self, path: NativePathView, options: OpenOptions) OperationError!File {
         let handle = os::openAt(
-            self.borrowHandle().?,
+            self.borrowHandle().withOperation(Operation::OpenFile).?,
             path.ptr(),
-            options.os_mode().as_fs_error().?,
+            options.osMode().as_fs_error().withOperation(Operation::OpenFile).?,
             false,
             false,
             false,
             0,
-        ).as_fs_error().?;
-        !File::from_owned_descriptor(handle)
+        ).as_fs_error().withOperation(Operation::OpenFile).?;
+        !File::fromOwnedDescriptor(handle)
     }
 
-    pub fn open_encoded_dir(&self, path: EncodedPath, options: OpenDirOptions) Error!Dir {
+    pub fn openNativeDir(&self, path: NativePathView, options: OpenDirOptions) OperationError!Dir {
         let handle = os::openDirAt(
-            self.borrowHandle().?,
+            self.borrowHandle().withOperation(Operation::OpenDir).?,
             path.ptr(),
-            options.follow_symlinks(),
-        ).as_fs_error().?;
-        !Dir::from_owned_descriptor(handle)
+            options.followSymlinks(),
+        ).as_fs_error().withOperation(Operation::OpenDir).?;
+        !Dir::fromOwnedDescriptor(handle)
     }
 
-    pub fn create_encoded_file(&self, path: EncodedPath, options: CreateOptions) Error!File {
+    pub fn createNativeFile(&self, path: NativePathView, options: CreateOptions) OperationError!File {
         let handle = os::openAt(
-            self.borrowHandle().?,
+            self.borrowHandle().withOperation(Operation::CreateFile).?,
             path.ptr(),
-            options.os_mode().as_fs_error().?,
+            options.osMode().as_fs_error().withOperation(Operation::CreateFile).?,
             true,
             options.truncate(),
-            options.is_exclusive(),
+            options.isExclusive(),
             options.permissions(),
-        ).as_fs_error().?;
-        !File::from_owned_descriptor(handle)
+        ).as_fs_error().withOperation(Operation::CreateFile).?;
+        !File::fromOwnedDescriptor(handle)
     }
 
-    pub fn create_encoded_dir(&self, path: EncodedPath, options: CreateDirOptions) Error!void {
+    pub fn createNativeDir(&self, path: NativePathView, options: CreateDirOptions) OperationError!void {
         os::createDirAt(
-            self.borrowHandle().?,
+            self.borrowHandle().withOperation(Operation::CreateDir).?,
             path.ptr(),
             options.permissions(),
-        ).as_fs_error()
+        ).as_fs_error().withOperation(Operation::CreateDir)
     }
 
-    pub fn delete_encoded_file(&self, path: EncodedPath) Error!void {
-        os::deleteFileAt(self.borrowHandle().?, path.ptr()).as_fs_error()
-    }
-
-    pub fn delete_encoded_dir(&self, path: EncodedPath) Error!void {
-        os::deleteDirAt(self.borrowHandle().?, path.ptr()).as_fs_error()
-    }
-
-    pub fn rename_encoded_to(&self, old_path: EncodedPath, new_dir: &Dir, new_path: EncodedPath) Error!void {
-        os::renameAt(
-            self.borrowHandle().?,
-            old_path.ptr(),
-            new_dir.borrowHandle().?,
-            new_path.ptr(),
-        ).as_fs_error()
-    }
-
-    pub fn encoded_metadata(&self, path: EncodedPath, options: MetadataOptions) Error!Metadata {
-        let metadata = os::metadataAt(
-            self.borrowHandle().?,
+    pub fn deleteNativeFile(&self, path: NativePathView) OperationError!void {
+        os::deleteFileAt(
+            self.borrowHandle().withOperation(Operation::DeleteFile).?,
             path.ptr(),
-            options.follow_symlinks(),
-        ).as_fs_error().?;
+        ).as_fs_error().withOperation(Operation::DeleteFile)
+    }
+
+    pub fn deleteNativeDir(&self, path: NativePathView) OperationError!void {
+        os::deleteDirAt(
+            self.borrowHandle().withOperation(Operation::DeleteDir).?,
+            path.ptr(),
+        ).as_fs_error().withOperation(Operation::DeleteDir)
+    }
+
+    pub fn renameNativeTo(&self, oldPath: NativePathView, newDir: &Dir, newPath: NativePathView) OperationError!void {
+        os::renameAt(
+            self.borrowHandle().withOperation(Operation::Rename).?,
+            oldPath.ptr(),
+            newDir.borrowHandle().withOperation(Operation::Rename).?,
+            newPath.ptr(),
+        ).as_fs_error().withOperation(Operation::Rename)
+    }
+
+    pub fn nativeMetadata(&self, path: NativePathView, options: MetadataOptions) OperationError!Metadata {
+        let metadata = os::metadataAt(
+            self.borrowHandle().withOperation(Operation::Metadata).?,
+            path.ptr(),
+            options.followSymlinks(),
+        ).as_fs_error().withOperation(Operation::Metadata).?;
         !metadata.as_fs_metadata()
     }
 
@@ -196,38 +204,38 @@ extend Dir {
 }
 
 extend File {
-    fn from_owned_descriptor(handle: os::FileHandle) File {
+    fn fromOwnedDescriptor(handle: os::FileHandle) File {
         { handle: ?handle }
     }
 
-    pub fn open(path: PathView, options: OpenOptions) Error!File {
+    pub fn open(path: PathView, options: OpenOptions) OperationError!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
+        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
         let handle = os::openAt(
             os::cwd(),
-            encoded.ptr(),
-            options.os_mode().as_fs_error().?,
+            native.ptr(),
+            options.osMode().as_fs_error().withOperation(Operation::OpenFile).?,
             false,
             false,
             false,
             0,
-        ).as_fs_error().?;
-        !File::from_owned_descriptor(handle)
+        ).as_fs_error().withOperation(Operation::OpenFile).?;
+        !File::fromOwnedDescriptor(handle)
     }
 
-    pub fn create(path: PathView, options: CreateOptions) Error!File {
+    pub fn create(path: PathView, options: CreateOptions) OperationError!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        let encoded = path.encode(&mut storage[..]).asFsError().?;
+        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
         let handle = os::openAt(
             os::cwd(),
-            encoded.ptr(),
-            options.os_mode().as_fs_error().?,
+            native.ptr(),
+            options.osMode().as_fs_error().withOperation(Operation::CreateFile).?,
             true,
             options.truncate(),
-            options.is_exclusive(),
+            options.isExclusive(),
             options.permissions(),
-        ).as_fs_error().?;
-        !File::from_owned_descriptor(handle)
+        ).as_fs_error().withOperation(Operation::CreateFile).?;
+        !File::fromOwnedDescriptor(handle)
     }
 
     pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
@@ -247,18 +255,18 @@ extend File {
         !handle
     }
 
-    pub fn seek_to(&self, offset: u64) Error!u64 {
+    pub fn seekTo(&self, offset: u64) Error!u64 {
         if offset > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
         self.borrowHandle().?.seek(offset as i64, os::SeekWhence::Start).as_fs_error()
     }
 
-    pub fn seek_by(&self, delta: i64) Error!u64 {
+    pub fn seekBy(&self, delta: i64) Error!u64 {
         self.borrowHandle().?.seek(delta, os::SeekWhence::Current).as_fs_error()
     }
 
-    pub fn seek_from_end(&self, delta: i64) Error!u64 {
+    pub fn seekFromEnd(&self, delta: i64) Error!u64 {
         self.borrowHandle().?.seek(delta, os::SeekWhence::End).as_fs_error()
     }
 

@@ -2272,7 +2272,12 @@ own caller-allocated storage.
 operations report allocator failures directly. `PathBuf::joinComponent` is the
 single component-join operation; it reserves the full append before changing
 visible path text. `PathView::encode` and `PathBuf::encode` are the checked
-OS-byte boundary and the only ordinary constructors of `EncodedPath`.
+scalar-to-native-byte boundary. Together with checked
+`NativePathView::fromBytes`, they are the only constructors of the borrowed
+native representation. Path-taking filesystem calls preserve both their
+operation and path/system cause in `OperationError`; `Dir` handles provide
+explicit relative-resolution bases without yet claiming symlink or
+absolute-path containment.
 
 Global module-map options:
 

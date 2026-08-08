@@ -1,11 +1,10 @@
-using pkg::error;
 using pkg::fs::types;
 using pkg::math;
 using pkg::mem;
 using pkg::slice;
 using pkg::string;
 
-using types::{EncodedPath, Error, PathBuf, PathError, PathView};
+using types::{NativePathView, PathBuf, PathError, PathView};
 
 extend PathView {
     pub fn init(text: &[char]) PathView {
@@ -16,7 +15,7 @@ extend PathView {
         self.text
     }
 
-    pub fn encode(&self, storage: &mut [u8]) PathError!EncodedPath {
+    pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
         let mut out: usize = 0;
         for &ch in self.text() {
             if ch.codepoint() == 0 {
@@ -39,7 +38,7 @@ extend PathView {
             return PathError::TooLong!;
         }
         storage[out] = 0;
-        !EncodedPath::init(storage.ptr(), out)
+        !NativePathView::init(storage.ptr(), out)
     }
 }
 
@@ -103,7 +102,7 @@ extend PathBuf {
         appendComponentToString(allocator, component, &mut self.text)
     }
 
-    pub fn encode(&self, storage: &mut [u8]) PathError!EncodedPath {
+    pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
         self.view().encode(storage)
     }
 }
@@ -148,9 +147,24 @@ fn isSeparator(ch: char) bool {
     ch == '/'
 }
 
-extend EncodedPath {
-    fn init(ptr: &u8, len: usize) EncodedPath {
+extend NativePathView {
+    fn init(ptr: &u8, len: usize) NativePathView {
         { ptr: ptr, len: len }
+    }
+
+    pub fn fromBytes(bytes: &[u8]) PathError!NativePathView {
+        if bytes.len() == 0 or bytes[bytes.len() - 1] != 0 {
+            return PathError::MissingTerminator!;
+        }
+        let len = bytes.len() - 1;
+        let mut index: usize = 0;
+        while index < len {
+            if bytes[index] == 0 {
+                return PathError::ContainsNul!;
+            }
+            index += 1;
+        }
+        !NativePathView::init(bytes.ptr(), len)
     }
 
     pub fn ptr(&self) &u8 {
@@ -167,21 +181,5 @@ extend EncodedPath {
 
     pub fn nulTerminatedBytes(&self) &[u8] {
         &self.ptr[0..(self.len + 1)]
-    }
-}
-
-extend PathError : error::IntoError[Error] {
-    fn into_error(self) Error {
-        switch self {
-            PathError::ContainsNul => Error::Invalid,
-            PathError::TooLong => Error::TooLong,
-            _ => Error::Invalid,
-        }
-    }
-}
-
-extend[T] PathError!T {
-    pub(pkg) fn asFsError(self) Error!T {
-        self.cast_error()
     }
 }

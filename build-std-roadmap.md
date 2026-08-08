@@ -2457,8 +2457,8 @@ The public path surface is lower camel with no aliases. Duplicate
 `to_path_buf`/`from_path`, `join`/`join_component`, and
 `encode`/`encode_bytes` pairs are reduced to `fromView`, `joinComponent`, and
 one typed `encode`. Encoding distinguishes `PathError::ContainsNul` from
-`PathError::TooLong`, and `EncodedPath::init` is private so checked encoding is
-the only ordinary construction path. `joinComponent` reserves its complete
+`PathError::TooLong`, and the native-view initializer is private so checked
+encoding is the only ordinary construction path. `joinComponent` reserves its complete
 mutation before writing a separator, so OOM preserves the original path.
 Runtime conformance covers non-ASCII UTF-8 ownership, precise decode and encode
 errors, the terminating-NUL view, and join rollback under a bounded allocator.
@@ -4408,3 +4408,28 @@ broad/narrow text workflow selects the same semantic, body, and backend closure
 when it constructs `Utf8View` and transfers it into `String`. This closes
 nominal validated UTF-8 storage; filesystem roots/native representation and
 contextual errors remain open.
+
+Standard-library reconstruction progress (2026-08-08, native filesystem path
+and operation-context batch): the former scalar-encoding-only `EncodedPath`
+boundary is replaced by `NativePathView`. Scalar `PathView`/`PathBuf` encoding
+still produces checked NUL-terminated native bytes, while `fromBytes` validates
+an already-native borrowed sequence, rejects a missing terminator or interior
+NUL, and deliberately preserves non-UTF-8 payloads. No unchecked constructor or
+legacy encoded-path alias remains.
+
+Path-taking `Dir` and `File` calls now return `OperationError::Path` or
+`OperationError::System`, retaining the exact open/create/delete/rename/metadata
+operation and its precise `PathError` or `fs::Error` cause. Native and scalar
+entry points share that contract, build-plan publication retains it inside the
+outer build error, and process exit lowering preserves the underlying cause.
+The filesystem public surface is consistently lower camel without aliases.
+Runtime evidence covers precise invalid-path and missing-file context, closed
+root handles, a validated non-UTF-8 native filename, and all existing file,
+directory, metadata, seek, and iteration workflows. Loader evidence proves
+native validation selects the fs path provider without selecting file I/O.
+
+`Dir::cwd`, `openDir`, and `renameTo` are accepted as explicit relative
+resolution bases, not as containment sandboxes. Absolute paths and symlink
+traversal continue to follow host semantics. Root-containment policy and removal
+of fixed scalar path-encoding capacity remain open; native representation and
+path-operation contextual errors are closed.

@@ -3520,12 +3520,16 @@ than collapsing decoding and allocation failures into filesystem errors.
 `joinComponent(allocator, text)` reserves the complete mutation before changing
 visible text, so allocation failure preserves the original path. Pure PathBuf
 construction, mutation, and release report `mem::Error`.
-`PathView::encode(storage)` and `PathBuf::encode(storage)` are the sole checked
-OS-byte conversion operations. They return `PathError::ContainsNul` for an
-embedded NUL and `PathError::TooLong` when the caller's storage cannot contain
-the encoded bytes plus their terminator. `EncodedPath` can only be constructed
-by these checked operations; it exposes bytes with and without the terminating
-NUL for immediate OS calls.
+`PathView::encode(storage)` and `PathBuf::encode(storage)` are the checked
+scalar-to-native-byte conversion operations. They return
+`PathError::ContainsNul` for an embedded NUL and `PathError::TooLong` when the
+caller's storage cannot contain the encoded bytes plus its terminator.
+`NativePathView::fromBytes` independently validates already-native bytes,
+rejecting a missing terminator or interior NUL while preserving non-UTF-8
+payloads. These checked operations are the only constructors of
+`NativePathView`, which exposes bytes with and without the terminating NUL for
+immediate OS calls. Path-taking filesystem operations retain their exact
+`Operation` and path/system cause in `OperationError`.
 
 The CLI surface is:
 

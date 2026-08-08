@@ -4,15 +4,15 @@ using pkg::os;
 using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, OpenMode, OpenOptions};
 
 extend OpenOptions {
-    pub fn read_only() OpenOptions {
+    pub fn readOnly() OpenOptions {
         { mode: OpenMode::ReadOnly }
     }
 
-    pub fn write_only() OpenOptions {
+    pub fn writeOnly() OpenOptions {
         { mode: OpenMode::WriteOnly }
     }
 
-    pub fn read_write() OpenOptions {
+    pub fn readWrite() OpenOptions {
         { mode: OpenMode::ReadWrite }
     }
 
@@ -20,7 +20,7 @@ extend OpenOptions {
         self.mode
     }
 
-    pub(pkg) fn os_mode(&self) os::Error!os::OpenMode {
+    pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
         switch self.mode() {
             OpenMode::ReadOnly => !os::OpenMode::ReadOnly,
             OpenMode::WriteOnly => !os::OpenMode::WriteOnly,
@@ -35,11 +35,11 @@ extend OpenDirOptions {
         { follow_symlinks: true }
     }
 
-    pub fn no_follow() OpenDirOptions {
+    pub fn noFollow() OpenDirOptions {
         { follow_symlinks: false }
     }
 
-    pub fn follow_symlinks(&self) bool {
+    pub fn followSymlinks(&self) bool {
         self.follow_symlinks
     }
 }
@@ -49,11 +49,11 @@ extend MetadataOptions {
         { follow_symlinks: true }
     }
 
-    pub fn no_follow() MetadataOptions {
+    pub fn noFollow() MetadataOptions {
         { follow_symlinks: false }
     }
 
-    pub fn follow_symlinks(&self) bool {
+    pub fn followSymlinks(&self) bool {
         self.follow_symlinks
     }
 }
@@ -63,7 +63,7 @@ extend CreateOptions {
         { read: false, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
-    pub fn read_write() CreateOptions {
+    pub fn readWrite() CreateOptions {
         { read: true, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
@@ -79,7 +79,7 @@ extend CreateOptions {
         self.truncate
     }
 
-    pub fn is_exclusive(&self) bool {
+    pub fn isExclusive(&self) bool {
         self.exclusive
     }
 
@@ -87,7 +87,7 @@ extend CreateOptions {
         self.permissions
     }
 
-    pub(pkg) fn os_mode(&self) os::Error!os::OpenMode {
+    pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
         if self.read() {
             !os::OpenMode::ReadWrite
         } else {

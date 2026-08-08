@@ -59,7 +59,7 @@ providers.
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; `Utf8View` validates borrowed encoded bytes; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed/owned scalar text and validated UTF-8 view accepted; keep conversion roles distinct |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
 | `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
-| `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership and typed encoding boundary; fixed encoded path capacity and relative/root policy remain | retain path roles; redesign roots, OS representation, and contextual file errors |
+| `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership, validated native path views, Dir-relative resolution, and contextual path operations; fixed scalar-encoding capacity and containment policy remain | retain path roles and operation errors; settle root containment and dynamic scalar lowering |
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
 | `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
@@ -423,10 +423,31 @@ allocator-owned scalar slice do so at the underlying `String` boundary first.
 `PathBuf::fromUtf8` preserves `TextError`; callers no longer provide an
 ArrayList scratch buffer or receive a collapsed `fs::Error::Invalid`.
 `joinComponent` is the sole component-join spelling and reserves its full
-mutation before changing visible text. `encode` is the sole checked OS-byte
+mutation before changing visible text. `encode` is the checked scalar-to-native
 conversion and returns `PathError::ContainsNul` or `PathError::TooLong`.
-`EncodedPath` has no public unchecked constructor. Former snake-case and
-duplicate copy, join, and encode entry points have no aliases.
+
+`NativePathView` names the borrowed OS-call representation. It contains native
+bytes followed by exactly one NUL terminator; `fromBytes` rejects a missing
+terminator or an interior NUL while preserving non-UTF-8 bytes. `bytes()`
+excludes the terminator and `nulTerminatedBytes()` includes it. Scalar path
+encoding and checked native-byte validation are its only constructors, and the
+caller keeps the backing storage alive and unchanged while the view is used.
+
+Every path-taking `Dir` or `File` operation returns `OperationError`. Its
+`Path` and `System` variants retain the exact `Operation` together with the
+`PathError` or `fs::Error` cause, so `OpenFile/ContainsNul` cannot be confused
+with `OpenFile/NotFound` or a create/delete failure. Native methods such as
+`openNativeFile` use the same contextual contract. Handle-only and streaming
+operations continue to return `fs::Error` because they have no path conversion
+boundary.
+
+`Dir::cwd` and `openDir` produce owned directory handles used as explicit
+resolution bases for relative operations; `renameTo` names both source and
+destination bases. This is a resolution capability, not yet a containment
+sandbox: absolute paths and symlink traversal retain host OS semantics until
+the containment policy is separately accepted. Public fs methods use lower
+camel case with no aliases, including `getCwd`, `openFile`, `createFile`,
+`readOnly`, and `fileId`.
 
 The completed convenience-trait dispositions are deliberately asymmetric. `Char` is
 not a trait: checked scalar construction is `unicode::fromScalarValue`, backed
@@ -456,7 +477,7 @@ dispatch, and LLVM before deleting each builtin declaration.
 | arbitrary bytes | `&[u8]` / `&mut [u8]` | I/O and raw process/OS buffers; explicit `Writer::writeUtf8` from scalar text | owning I/O/process API or the concrete writer error | retained as non-text; no implicit UTF-8 meaning |
 | UTF-8 sequence | validated borrowed `Utf8View`; raw `&[u8]` remains arbitrary bytes | `Utf8View::fromBytes`, `decodeUtf8First`, `String::fromUtf8View`, raw-byte `String::fromUtf8`, and `Writer::writeUtf8` | `Utf8DecodeError` during validation, `mem::Error` after validation, `TextError` for combined raw-byte ownership, or the concrete writer error | nominal validation, scalar iteration/count, owned conversion, transactional append, stream encoding, and provider-closure evidence accepted |
 | C string | `CStringView` over NUL-terminated bytes; allocator-owned `CString` | `CStringView::fromBytes`; `CString::fromBytes`, `fromView`, and scalar-text `fromText`; `fromPtrUnchecked` remains trusted-only | `CStringError` for view validation; `CStringBuildError` distinguishes `ContainsNul` from `mem::Error` allocation causes | checked view and owned storage accepted; OS-facing ownership remains open |
-| filesystem path | `PathView` / `PathBuf` over scalar text; `EncodedPath` at OS calls | typed UTF-8 ownership and checked OS-byte encoding | `TextError`, `mem::Error`, then `PathError`; file calls map to `fs::Error` | scalar ownership and encoding accepted; OS-native representation, roots, and richer file context remain open |
+| filesystem path | `PathView` / `PathBuf` over scalar text; validated `NativePathView` at OS calls | typed UTF-8 ownership, checked scalar encoding, or checked NUL-terminated native bytes | `TextError`, `mem::Error`, `PathError`, then contextual `OperationError`; stream/handle calls retain `fs::Error` | scalar ownership, native representation, Dir-relative roots, and path-operation context accepted; containment and dynamic scalar lowering remain open |
 | process argument/environment and pipes | `Arg` / `EnvVar` byte views; borrowed scalar arguments; exact `EnvEntry` values; role-specific owned child pipes | `Command` typed argv/envp lowering; inherited/exact/empty environment modes; `ChildStdin: Writer`; `ChildStdout/ChildStderr: Reader`; explicit `spawnRaw` | closed `process::Error` preserves lowering/spawn/lifecycle causes; pipe operations use `io::Error`, invalidatable close state, and stream identity during child cleanup | typed command, environment, pipe ownership, process identity, and structured spawn/wait/kill causes accepted |
 
 Scalar count is `&[char].len()` or the owned text length. UTF-8 byte count is
