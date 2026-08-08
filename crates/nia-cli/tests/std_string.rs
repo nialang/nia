@@ -447,15 +447,68 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let page: &mut mem::Allocator = &mut pageAllocator;
 
     let input: [6]u8 = [0xe4u8, 0xbdu8, 0xa0u8, 0xe5u8, 0xa5u8, 0xbdu8];
-    let mut content = switch std::String::fromUtf8(page, &input) {
+    let utf8 = switch std::unicode::Utf8View::fromBytes(&input) {
         !value => value,
         error! => {
             _ = error;
             return process::exit(1)!;
         },
     };
+    if utf8.byteLen() != 6 or utf8.scalarCount() != 2 or utf8.isEmpty() {
+        return process::exit(18)!;
+    }
+    let mut scalarIndex: usize = 0;
+    for scalar in utf8 {
+        if scalarIndex == 0 and scalar.codepoint() != 0x4f60 {
+            return process::exit(19)!;
+        }
+        if scalarIndex == 1 and scalar.codepoint() != 0x597d {
+            return process::exit(20)!;
+        }
+        scalarIndex += 1;
+    }
+    if scalarIndex != utf8.scalarCount() {
+        return process::exit(21)!;
+    }
+    let mut utf8Iter = utf8.iter();
+    if utf8Iter.len() != 2 or utf8Iter.isEmpty() {
+        return process::exit(27)!;
+    }
+    if utf8Iter.next() is ?firstScalar {
+        if firstScalar.codepoint() != 0x4f60 or utf8Iter.len() != 1 {
+            return process::exit(28)!;
+        }
+    } else {
+        return process::exit(29)!;
+    }
+    _ = utf8Iter.next();
+    if not utf8Iter.isEmpty() {
+        return process::exit(30)!;
+    }
+    if utf8Iter.next() is ?unexpectedScalar {
+        _ = unexpectedScalar;
+        return process::exit(31)!;
+    }
+    let emptyUtf8 = switch std::unicode::Utf8View::fromBytes(&b"") {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(22)!;
+        },
+    };
+    if not emptyUtf8.isEmpty() or emptyUtf8.scalarCount() != 0 {
+        return process::exit(23)!;
+    }
+    let mut content = std::String::fromUtf8View(page, utf8).exit().?;
     defer content.deinit(page).exit().?;
-    content.append(page, &" / Nia").exit().?;
+    let suffixUtf8 = switch std::unicode::Utf8View::fromBytes(&b" / Nia") {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(26)!;
+        },
+    };
+    content.appendUtf8View(page, suffixUtf8).exit().?;
     let answer = 42;
     let contentArgs: [1]&fmt::Format = [&answer];
     switch content.appendFormat(page, &" #{}", &contentArgs) {
@@ -467,6 +520,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    switch std::unicode::Utf8View::fromBytes(&truncated) {
+        !value => {
+            _ = value;
+            return process::exit(24)!;
+        },
+        std::unicode::Utf8DecodeError::Truncated! => {},
+        error! => {
+            _ = error;
+            return process::exit(25)!;
+        },
+    }
     switch std::String::fromUtf8(page, &truncated) {
         !value => {
             let mut unexpected = value;

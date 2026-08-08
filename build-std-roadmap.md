@@ -4386,3 +4386,25 @@ temporary workspace. Case-tree copying now excludes those two generated state
 roots at every depth while retaining ordinary nested files and other dotfiles;
 focused support coverage and a clean configured build prevent stale local cache
 state from becoming test input.
+
+Standard-library reconstruction progress (2026-08-08, validated UTF-8 view
+batch): `unicode::Utf8View` now names a borrowed byte sequence whose complete
+UTF-8 validity, byte length, and scalar count are established once by
+`fromBytes`. Empty input is a valid empty view; malformed leading,
+continuation, truncated, overlong, and invalid-scalar forms retain the existing
+`Utf8DecodeError` categories. `Utf8ViewIter` yields decoded `char` values without
+allocation while tracking the remaining scalar count. The backing bytes remain
+caller-owned and must stay alive and unchanged, matching the standard borrowed
+view contract rather than pretending Nia currently infers a lifetime.
+
+`String::fromUtf8` and `appendUtf8` now validate through that nominal boundary.
+The new `fromUtf8View` and `appendUtf8View` paths accept prior validation and
+therefore report only `mem::Error`; complete capacity is reserved before any
+scalar mutation. The maintained end-to-end text/file/process executable checks
+non-ASCII byte/scalar counts, direct scalar iteration, empty views, precise
+truncation, view-based owned construction, and view-based append. The complete
+String suite still passes its invalid-UTF-8 and allocation rollback matrix. The
+broad/narrow text workflow selects the same semantic, body, and backend closure
+when it constructs `Utf8View` and transfers it into `String`. This closes
+nominal validated UTF-8 storage; filesystem roots/native representation and
+contextual errors remain open.

@@ -992,13 +992,22 @@ using std::fs;
 using std::io;
 using std::mem;
 using std::process;
+using std::unicode;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut allocationStorage: [512]u8 = [0; 512];
     let mut fixed = mem::FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
 
-    let mut text = string::String::fromSlice(allocator, &"Nia λ").exit().?;
+    let encodedText: [6]u8 = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
+    let utf8 = switch unicode::Utf8View::fromBytes(&encodedText) {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(3)!;
+        },
+    };
+    let mut text = string::String::fromUtf8View(allocator, utf8).exit().?;
     defer text.deinit(allocator).exit().?;
     let answer = 42;
     let formatArgs: [1]&fmt::Format = [&answer];
@@ -1047,13 +1056,22 @@ using std::fs::{CreateOptions, File};
 using std::io::{FileWriter, Writer};
 using std::mem::{Allocator, FixedBufferAllocator};
 using std::process::{Command, ExitCode, Init, StdIo, exit};
+using std::unicode::Utf8View;
 
 pub fn main(init: Init) ExitCode!void {
     let mut allocationStorage: [512]u8 = [0; 512];
     let mut fixed = FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut Allocator = &mut fixed;
 
-    let mut text = String::fromSlice(allocator, &"Nia λ").exit().?;
+    let encodedText: [6]u8 = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
+    let utf8 = switch Utf8View::fromBytes(&encodedText) {
+        !value => value,
+        error! => {
+            _ = error;
+            return exit(3)!;
+        },
+    };
+    let mut text = String::fromUtf8View(allocator, utf8).exit().?;
     defer text.deinit(allocator).exit().?;
     let answer = 42;
     let formatArgs: [1]&Format = [&answer];

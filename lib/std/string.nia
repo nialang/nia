@@ -51,49 +51,39 @@ extend String {
     }
 
     pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
-        let scalarCount = utf8ScalarCount(bytes).?;
-
-        let mut out = String::initCapacity(allocator, scalarCount).asTextError().?;
-        let mut complete = false;
-        defer if not complete {
-            out.deinit(allocator).asTextError().?;
+        let view = switch unicode::Utf8View::fromBytes(bytes) {
+            !value => value,
+            error! => return TextError::InvalidUtf8(error)!,
         };
-        let mut index: usize = 0;
-        while index < bytes.len() {
-            let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
-                !value => value,
-                error! => return TextError::InvalidUtf8(error)!,
-            };
-            out.text.appendAssumeCapacity(decoded.scalar());
-            index += decoded.byteLen();
+        String::fromUtf8View(allocator, view).asTextError()
+    }
+
+    pub fn fromUtf8View(allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!String {
+        let mut out = String::initCapacity(allocator, view.scalarCount()).?;
+        for scalar in view {
+            out.text.appendAssumeCapacity(scalar);
         }
-        complete = true;
         !out
     }
 
     pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!void {
-        let scalarCount = utf8ScalarCount(bytes).?;
-        let oldLen = self.len();
-        let newLen = switch oldLen.checked_add(scalarCount) {
-            ?value => value,
-            null => return TextError::Allocation(mem::Error::OutOfMemory)!,
+        let view = switch unicode::Utf8View::fromBytes(bytes) {
+            !value => value,
+            error! => return TextError::InvalidUtf8(error)!,
         };
-        self.text.ensureTotalCapacity(allocator, newLen).asTextError().?;
+        self.appendUtf8View(allocator, view).asTextError()
+    }
 
-        let mut complete = false;
-        defer if not complete {
-            self.text.truncate(oldLen);
+    pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!void {
+        let oldLen = self.len();
+        let newLen = switch oldLen.checked_add(view.scalarCount()) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
         };
-        let mut index: usize = 0;
-        while index < bytes.len() {
-            let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
-                !value => value,
-                error! => return TextError::InvalidUtf8(error)!,
-            };
-            self.text.appendAssumeCapacity(decoded.scalar());
-            index += decoded.byteLen();
+        self.text.ensureTotalCapacity(allocator, newLen).?;
+        for scalar in view {
+            self.text.appendAssumeCapacity(scalar);
         }
-        complete = true;
         !{}
     }
 
@@ -358,20 +348,6 @@ extend TextFormatWriter : io::Writer {
             },
         }
     }
-}
-
-fn utf8ScalarCount(bytes: &[u8]) TextError!usize {
-    let mut count: usize = 0;
-    let mut index: usize = 0;
-    while index < bytes.len() {
-        let decoded = switch unicode::decodeUtf8First(&bytes[index..]) {
-            !value => value,
-            error! => return TextError::InvalidUtf8(error)!,
-        };
-        count += 1;
-        index += decoded.byteLen();
-    }
-    !count
 }
 
 extend[T] mem::Error!T {

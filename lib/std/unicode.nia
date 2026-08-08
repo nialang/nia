@@ -11,6 +11,17 @@ pub struct DecodedUtf8Scalar {
     byteLen: usize,
 }
 
+pub struct Utf8View {
+    bytes: &[u8],
+    scalarCount: usize,
+}
+
+pub struct Utf8ViewIter {
+    bytes: &[u8],
+    byteIndex: usize,
+    remaining: usize,
+}
+
 pub enum Utf8DecodeError: i32 {
     Empty = 1,
     Truncated = 2,
@@ -45,6 +56,85 @@ extend DecodedUtf8Scalar {
 
     pub fn byteLen(&self) usize {
         self.byteLen
+    }
+}
+
+extend Utf8View {
+    pub fn fromBytes(bytes: &[u8]) Utf8DecodeError!Utf8View {
+        let mut scalarCount: usize = 0;
+        let mut byteIndex: usize = 0;
+        while byteIndex < bytes.len() {
+            let decoded = decodeUtf8First(&bytes[byteIndex..]).?;
+            byteIndex += decoded.byteLen();
+            scalarCount += 1;
+        }
+        !Utf8View { bytes: bytes, scalarCount: scalarCount }
+    }
+
+    pub fn bytes(&self) &[u8] {
+        self.bytes
+    }
+
+    pub fn byteLen(&self) usize {
+        self.bytes.len()
+    }
+
+    pub fn scalarCount(&self) usize {
+        self.scalarCount
+    }
+
+    pub fn isEmpty(&self) bool {
+        self.bytes.len() == 0
+    }
+}
+
+extend Utf8ViewIter {
+    fn init(view: Utf8View) Utf8ViewIter {
+        {
+            bytes: view.bytes(),
+            byteIndex: 0,
+            remaining: view.scalarCount(),
+        }
+    }
+
+    pub fn len(&self) usize {
+        self.remaining
+    }
+
+    pub fn isEmpty(&self) bool {
+        self.remaining == 0
+    }
+}
+
+extend Utf8View : Iterable {
+    type Item = char;
+    type Iter = Utf8ViewIter;
+
+    pub fn iter(&self) Utf8ViewIter {
+        Utf8ViewIter::init(self.*)
+    }
+}
+
+extend Utf8ViewIter : Iterator {
+    type Item = char;
+
+    pub fn next(&mut self) ?char {
+        if self.remaining == 0 {
+            return null;
+        }
+        let decoded = switch decodeUtf8First(&self.bytes[self.byteIndex..]) {
+            !value => value,
+            error! => {
+                // Only a caller-side mutation of the validated backing bytes can reach this branch.
+                _ = error;
+                self.byteIndex = self.bytes.len();
+                self.remaining = 0;
+                return null;
+            },
+        };
+        self.byteIndex += decoded.byteLen();
+        self.remaining -= 1;
+        ?decoded.scalar()
     }
 }
 
