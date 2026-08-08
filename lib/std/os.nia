@@ -27,6 +27,8 @@ pub(pkg) enum Error: i32 {
     BrokenPipe = 32,
     OutOfRange = 34,
     TooLong = 36,
+    Unsupported = 38,
+    SymlinkLoop = 40,
     NotEmpty = 39,
     System = 255,
     _,
@@ -299,6 +301,8 @@ extend platform::Errno : error::IntoError[Error] {
             platform::Errno::BrokenPipe => Error::BrokenPipe,
             platform::Errno::OutOfRange => Error::OutOfRange,
             platform::Errno::TooLong => Error::TooLong,
+            platform::Errno::Unsupported => Error::Unsupported,
+            platform::Errno::SymlinkLoop => Error::SymlinkLoop,
             platform::Errno::NotEmpty => Error::NotEmpty,
             _ => Error::System,
         }

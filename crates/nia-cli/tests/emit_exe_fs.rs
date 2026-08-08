@@ -453,6 +453,110 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn emit_exe_std_fs_dir_allows_symlink_that_resolves_inside_root() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_dir("emit_exe_std_fs_dir_allows_internal_symlink");
+    std::fs::write(root.join("real.txt"), b"inside").expect("write target file");
+    symlink("real.txt", root.join("alias.txt")).expect("create internal symlink");
+
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let path = fs::RelativePathView::fromText(&"alias.txt").exit().?;
+    let mut file = cwd.openFile(path, fs::OpenOptions::readOnly()).exit().?;
+    file.close().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs internal symlink");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted internal symlink executable")
+            .code(),
+        Some(0)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn emit_exe_std_fs_open_dir_no_follow_rejects_final_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_dir("emit_exe_std_fs_open_dir_no_follow_symlink");
+    std::fs::create_dir(root.join("real")).expect("create real directory");
+    symlink("real", root.join("alias")).expect("create directory symlink");
+
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    let path = fs::RelativePathView::fromText(&"alias").exit().?;
+    switch cwd.openDir(path, fs::OpenDirOptions::noFollow()) {
+        !dir => { return process::exit(1)!; },
+        error! => { _ = error; },
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe fs no-follow symlink");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .current_dir(&root)
+            .status_timeout("run emitted no-follow symlink executable")
+            .code(),
+        Some(0)
+    );
+}
+
 #[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");

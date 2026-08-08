@@ -28,6 +28,8 @@ extend os::Error : error::IntoError[Error] {
             os::Error::BrokenPipe => Error::BrokenPipe,
             os::Error::OutOfRange => Error::OutOfRange,
             os::Error::TooLong => Error::TooLong,
+            os::Error::Unsupported => Error::Unsupported,
+            os::Error::SymlinkLoop => Error::SymlinkLoop,
             os::Error::NotEmpty => Error::NotEmpty,
             _ => Error::System,
         }
