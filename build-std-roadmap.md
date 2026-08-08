@@ -4601,3 +4601,16 @@ allocation context, and the old facade-level unrestricted delete adapters are
 removed. Runtime evidence proves outside-symlink file and directory sentinels
 survive rejected deletion. Only rename's two-parent resolution remains open in
 the filesystem containment slice.
+
+Standard-library reconstruction progress (2026-08-08, iterator contract
+hardening batch): `Take[I]` no longer falsely implements
+`DoubleEndedIterator` for every double-ended source. The old `nextBack` selected
+from the end of the complete underlying sequence rather than the end of the
+taken prefix; for example, reversing `range.take(3)` could yield values outside
+that prefix. The current iterator protocol has no exact-size contract capable
+of implementing that operation correctly, so callers reverse the source before
+taking when they want its last values. Runtime evidence covers forward take,
+reverse-then-take, mixed front/back slice iteration, and an open range at the
+integer maximum; a compile-fail boundary proves `take(...).rev()` cannot regain
+the rejected semantic claim. The specialized iterator operation audit is
+closed without adding a speculative exact-size trait.

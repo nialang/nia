@@ -338,7 +338,10 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   `0usize..len`, `1i64..4i64`, `2usize..=4usize`, and `5usize..` are iterable
   directly; the backing iterator types live under `std::iter` as `Range`,
   `RangeInclusive`, and `RangeFrom`. Their `Step` trait is implemented for the
-  built-in integer types that have representable `MAX` values.
+  built-in integer types that have representable `MAX` values. `rev()` requires
+  `DoubleEndedIterator`; `take(limit)` is forward-only because the base iterator
+  protocol does not promise an exact remaining length. Use `rev().take(limit)`
+  to select values from the back of a double-ended source.
 
 The package-private std OS provider is Nia-defined, not libc. Platform-specific
 syscall backends are package-internal implementation details. A future

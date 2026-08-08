@@ -313,6 +313,14 @@ The protocol and range APIs use lower-camel `nextBack`, `forwardChecked`,
 `backwardChecked`, and `fromBounds` names; former snake-case spellings are not
 aliases.
 
+`take(limit)` is forward-only even when its source is double-ended. The current
+iterator protocol does not expose an exact remaining length, so taking directly
+from the source's back would select values outside the accepted prefix. Reverse
+a double-ended source before applying `take` when the intended sequence is the
+last `limit` values in reverse order. `Take` does not claim a false
+`DoubleEndedIterator` implementation merely to make `take(...).rev()` type
+check.
+
 Borrowed `ArrayList` parameters follow the same rule: both `&ArrayList[T]` and
 `&mut ArrayList[T]` are directly iterable and yield `&T`. Mutable element
 iteration remains the explicit `iterMut()` operation.
