@@ -645,6 +645,16 @@ run, records warm action/object/link acceptance, and summarizes wall, RSS,
 runner compilation, runner execution, and plan execution with median, p95, min,
 and max values. It must not be called implicitly by cheap unit tests.
 
+Machine acceptance covers the complete sequence. Clean requires at least one
+cacheable action and classifies every lookup as a miss; warm requires the same
+lookup count, all action hits, and zero object/link misses. Source and module-map
+edits must report their corresponding typed invalidation category and rebuild
+both object and link products. The selected failing step must execute no step,
+action, or action-cache lookup while reporting exactly one action failure. The
+expected action count is derived from the clean state rather than frozen to a
+fixture-era constant, so adding a declared artifact cannot make a correct warm
+build fail the harness.
+
 The 2026-07-29 Phase A sample on a Linux/WSL resource view with 8.19 GB effective
 memory recorded clean/warm wall time of 14.21/4.53 seconds and outer peak RSS of
 869/545 MB. Both warm compiler actions had exact object and link-result reuse;

@@ -249,34 +249,71 @@ def validate_workload(results: list[dict[str, Any]]) -> None:
 def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
     clean = results[0]
     warm = results[1]
+    source_edit = results[2]
+    module_map_edit = results[3]
+    failed_action = results[4]
     expected_actions = counter(clean, "build.action_cache_lookups")
-    expectations = {
-        "build.action_cache_lookups": expected_actions,
-        "build.action_cache_hits": expected_actions,
-        "build.action_cache_misses": 0,
-        "llvm.object_reuse_misses": 0,
-        "link.result_reuse_misses": 0,
-    }
-    checks = [
-        {
-            "state": "warm",
-            "counter": name,
-            "expected": expected,
-            "found": counter(warm, name),
-            "passed": counter(warm, name) == expected,
-        }
-        for name, expected in expectations.items()
-    ]
-    checks.insert(
-        0,
-        {
-            "state": "clean",
-            "counter": "build.action_cache_lookups",
-            "expected": "> 0",
-            "found": expected_actions,
-            "passed": expected_actions > 0,
-        },
+    checks = []
+
+    def exact(state: str, result: dict[str, Any], name: str, expected: int) -> None:
+        found = counter(result, name)
+        checks.append(
+            {
+                "state": state,
+                "counter": name,
+                "expected": expected,
+                "found": found,
+                "passed": found == expected,
+            }
+        )
+
+    def positive(state: str, result: dict[str, Any], name: str) -> None:
+        found = counter(result, name)
+        checks.append(
+            {
+                "state": state,
+                "counter": name,
+                "expected": "> 0",
+                "found": found,
+                "passed": found > 0,
+            }
+        )
+
+    positive("clean", clean, "build.action_cache_lookups")
+    exact("clean", clean, "build.action_cache_misses", expected_actions)
+    exact("clean", clean, "build.action_cache_hits", 0)
+
+    exact("warm", warm, "build.action_cache_lookups", expected_actions)
+    exact("warm", warm, "build.action_cache_hits", expected_actions)
+    exact("warm", warm, "build.action_cache_misses", 0)
+    exact("warm", warm, "llvm.object_reuse_misses", 0)
+    exact("warm", warm, "link.result_reuse_misses", 0)
+
+    exact("source_edit", source_edit, "build.action_cache_lookups", expected_actions)
+    positive("source_edit", source_edit, "build.action_cache_misses")
+    positive("source_edit", source_edit, "build.action_cache_invalidation_sources")
+    positive("source_edit", source_edit, "llvm.object_reuse_misses")
+    positive("source_edit", source_edit, "link.result_reuse_misses")
+
+    exact(
+        "module_map_edit",
+        module_map_edit,
+        "build.action_cache_lookups",
+        expected_actions,
     )
+    positive("module_map_edit", module_map_edit, "build.action_cache_misses")
+    positive(
+        "module_map_edit",
+        module_map_edit,
+        "build.action_cache_invalidation_module",
+    )
+    positive("module_map_edit", module_map_edit, "llvm.object_reuse_misses")
+    positive("module_map_edit", module_map_edit, "link.result_reuse_misses")
+
+    exact("failed_action", failed_action, "build.steps_executed", 0)
+    exact("failed_action", failed_action, "build.actions_executed", 0)
+    exact("failed_action", failed_action, "build.action_cache_lookups", 0)
+    exact("failed_action", failed_action, "build.action_failures", 1)
     return {
         "passed": all(check["passed"] for check in checks),
         "checks": checks,
