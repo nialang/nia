@@ -4501,3 +4501,13 @@ evidence covers ordinary file metadata and rejection of outside-symlink
 metadata before the outside sentinel is touched. Only create-directory,
 delete-file, delete-directory, and rename parent resolution remain open in the
 filesystem containment slice.
+
+Phase H and standard-library reconstruction progress (2026-08-08,
+unrestricted-provider deletion batch): `Dir::cwd` now opens `.` through the
+same beneath capability as other directory handles. The obsolete
+`openDirAt`/`open_dir_at` and path-based `metadataAt`/`metadata_at` chains are
+physically removed across the fs facade, OS facade, Linux provider, fd owner,
+and stat owner, together with their unused resolve/stat flag constants.
+Structural searches prove no remaining production caller can bypass the
+accepted handle-opening or metadata containment paths. Filesystem mutation
+parent resolution remains open.
