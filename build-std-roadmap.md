@@ -4650,3 +4650,13 @@ state and requires that clean state to contain at least one cache action. The
 local run retained zero warm object/link misses and passed every state contract;
 its initial false acceptance was a tooling defect, not a build correctness
 failure.
+
+Phase H progress (2026-08-09, targeted-edit acceptance matrix): release
+baseline acceptance now verifies every workload state rather than treating the
+warm cache as a proxy for the complete sequence. Clean must classify every
+action lookup as a miss; warm must classify all of them as hits with zero
+object/link misses; source and module-map edits must report their typed
+invalidation categories and rebuild object/link products; the selected failing
+step must execute no step, action, or cache lookup while reporting exactly one
+action failure. Unit regressions prove missing edit invalidation and accidental
+failed-step execution both reject the report.

@@ -11,6 +11,62 @@ from tools.build_baseline import (
 
 
 class BuildBaselineTests(unittest.TestCase):
+    def acceptance_result(self, name, counters):
+        return {
+            "name": name,
+            "measurement": {"counters": counters},
+        }
+
+    def passing_acceptance_results(self, action_count=3):
+        return [
+            self.acceptance_result(
+                "clean",
+                {
+                    "build.action_cache_lookups": action_count,
+                    "build.action_cache_misses": action_count,
+                },
+            ),
+            self.acceptance_result(
+                "warm",
+                {
+                    "build.action_cache_lookups": action_count,
+                    "build.action_cache_hits": action_count,
+                    "build.action_cache_misses": 0,
+                    "llvm.object_reuse_misses": 0,
+                    "link.result_reuse_misses": 0,
+                },
+            ),
+            self.acceptance_result(
+                "source_edit",
+                {
+                    "build.action_cache_lookups": action_count,
+                    "build.action_cache_misses": 1,
+                    "build.action_cache_invalidation_sources": 1,
+                    "llvm.object_reuse_misses": 1,
+                    "link.result_reuse_misses": 1,
+                },
+            ),
+            self.acceptance_result(
+                "module_map_edit",
+                {
+                    "build.action_cache_lookups": action_count,
+                    "build.action_cache_misses": 1,
+                    "build.action_cache_invalidation_module": 1,
+                    "llvm.object_reuse_misses": 1,
+                    "link.result_reuse_misses": 1,
+                },
+            ),
+            self.acceptance_result(
+                "failed_action",
+                {
+                    "build.steps_executed": 0,
+                    "build.actions_executed": 0,
+                    "build.action_cache_lookups": 0,
+                    "build.action_failures": 1,
+                },
+            ),
+        ]
+
     def timing_report(self, wall=0.4, rss=20, counters=None):
         return {
             "schema_version": 1,
@@ -97,19 +153,10 @@ class BuildBaselineTests(unittest.TestCase):
         self.assertEqual(summary["counters"]["build.runner_executions"]["min"], 1)
 
     def test_warm_acceptance_retains_failed_counter_evidence(self):
-        result = {
-            "name": "warm",
-            "measurement": {
-                "counters": {
-                    "build.action_cache_lookups": 1,
-                    "build.action_cache_hits": 1,
-                    "llvm.object_reuse_misses": 15,
-                    "link.result_reuse_misses": 0,
-                }
-            },
-        }
+        results = self.passing_acceptance_results(action_count=1)
+        results[1]["measurement"]["counters"]["llvm.object_reuse_misses"] = 15
 
-        acceptance = workload_acceptance([result, result])
+        acceptance = workload_acceptance(results)
 
         self.assertFalse(acceptance["passed"])
         llvm = next(
@@ -120,38 +167,57 @@ class BuildBaselineTests(unittest.TestCase):
         self.assertEqual(llvm["found"], 15)
 
     def test_warm_acceptance_scales_with_clean_action_count(self):
-        clean = {
-            "name": "clean",
-            "measurement": {
-                "counters": {
-                    "build.action_cache_lookups": 3,
-                }
-            },
-        }
-        warm = {
-            "name": "warm",
-            "measurement": {
-                "counters": {
-                    "build.action_cache_lookups": 3,
-                    "build.action_cache_hits": 3,
-                    "build.action_cache_misses": 0,
-                    "llvm.object_reuse_misses": 0,
-                    "link.result_reuse_misses": 0,
-                }
-            },
-        }
-
-        acceptance = workload_acceptance([clean, warm])
+        acceptance = workload_acceptance(self.passing_acceptance_results())
 
         self.assertTrue(acceptance["passed"])
         self.assertEqual(
             next(
                 check
                 for check in acceptance["checks"]
-                if check["counter"] == "build.action_cache_hits"
+                if check["state"] == "warm"
+                and check["counter"] == "build.action_cache_hits"
             )["expected"],
             3,
         )
+
+    def test_edit_acceptance_requires_typed_invalidation(self):
+        results = self.passing_acceptance_results()
+        results[2]["measurement"]["counters"].pop(
+            "build.action_cache_invalidation_sources"
+        )
+        results[3]["measurement"]["counters"].pop(
+            "build.action_cache_invalidation_module"
+        )
+
+        acceptance = workload_acceptance(results)
+
+        self.assertFalse(acceptance["passed"])
+        failed = {
+            (check["state"], check["counter"])
+            for check in acceptance["checks"]
+            if not check["passed"]
+        }
+        self.assertIn(
+            ("source_edit", "build.action_cache_invalidation_sources"), failed
+        )
+        self.assertIn(
+            ("module_map_edit", "build.action_cache_invalidation_module"), failed
+        )
+
+    def test_failed_action_acceptance_rejects_executed_actions(self):
+        results = self.passing_acceptance_results()
+        results[4]["measurement"]["counters"]["build.actions_executed"] = 1
+
+        acceptance = workload_acceptance(results)
+
+        self.assertFalse(acceptance["passed"])
+        action_check = next(
+            check
+            for check in acceptance["checks"]
+            if check["state"] == "failed_action"
+            and check["counter"] == "build.actions_executed"
+        )
+        self.assertEqual(action_check["found"], 1)
 
     def test_ignores_non_json_stderr(self):
         self.assertEqual(json_lines("error: ordinary diagnostic\nnot-json"), [])
