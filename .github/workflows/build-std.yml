@@ -102,7 +102,7 @@ jobs:
       - name: Build release compiler
         run: cargo build --release -p nia-cli
 
-      - name: Run clean/warm/edit/failure build baseline
+      - name: Run clean/warm/edit/corruption/failure build baseline
         run: |
           python3 tools/build_baseline.py \
             --nia target/release/nia \

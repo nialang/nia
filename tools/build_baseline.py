@@ -226,6 +226,8 @@ def validate_workload(results: list[dict[str, Any]]) -> None:
         "warm",
         "source_edit",
         "module_map_edit",
+        "corrupt_cache",
+        "recovered_warm",
         "failed_action",
     )
     if tuple(result.get("name") for result in results) != expected_names:
@@ -251,7 +253,9 @@ def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
     warm = results[1]
     source_edit = results[2]
     module_map_edit = results[3]
-    failed_action = results[4]
+    corrupt_cache = results[4]
+    recovered_warm = results[5]
+    failed_action = results[6]
     expected_actions = counter(clean, "build.action_cache_lookups")
     checks = []
 
@@ -309,6 +313,56 @@ def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
     )
     positive("module_map_edit", module_map_edit, "llvm.object_reuse_misses")
     positive("module_map_edit", module_map_edit, "link.result_reuse_misses")
+
+    corrupted_entries = corrupt_cache.get("corrupted_action_cache_entries", 0)
+    if not isinstance(corrupted_entries, int):
+        raise ValueError("corrupted action-cache entry count is not an integer")
+    checks.append(
+        {
+            "state": "corrupt_cache",
+            "counter": "baseline.corrupted_action_cache_entries",
+            "expected": "> 0",
+            "found": corrupted_entries,
+            "passed": corrupted_entries > 0,
+        }
+    )
+    exact(
+        "corrupt_cache",
+        corrupt_cache,
+        "build.action_cache_lookups",
+        expected_actions,
+    )
+    exact(
+        "corrupt_cache",
+        corrupt_cache,
+        "build.action_cache_misses",
+        expected_actions,
+    )
+    exact(
+        "corrupt_cache",
+        corrupt_cache,
+        "build.action_cache_miss_corrupt",
+        expected_actions,
+    )
+    exact("corrupt_cache", corrupt_cache, "build.action_cache_hits", 0)
+    exact("corrupt_cache", corrupt_cache, "llvm.object_reuse_misses", 0)
+    exact("corrupt_cache", corrupt_cache, "link.result_reuse_misses", 0)
+
+    exact(
+        "recovered_warm",
+        recovered_warm,
+        "build.action_cache_lookups",
+        expected_actions,
+    )
+    exact(
+        "recovered_warm",
+        recovered_warm,
+        "build.action_cache_hits",
+        expected_actions,
+    )
+    exact("recovered_warm", recovered_warm, "build.action_cache_misses", 0)
+    exact("recovered_warm", recovered_warm, "llvm.object_reuse_misses", 0)
+    exact("recovered_warm", recovered_warm, "link.result_reuse_misses", 0)
 
     exact("failed_action", failed_action, "build.steps_executed", 0)
     exact("failed_action", failed_action, "build.actions_executed", 0)
@@ -437,6 +491,19 @@ def run_state(
     }
 
 
+def corrupt_action_cache(workspace: Path) -> int:
+    entries = sorted(
+        path
+        for path in workspace.joinpath(".nia-cache", "actions").rglob("*.entry")
+        if path.is_file()
+    )
+    if not entries:
+        raise ValueError("build workload produced no action-cache entries to corrupt")
+    for path in entries:
+        path.write_bytes(b"nia build baseline injected corruption\n")
+    return len(entries)
+
+
 def run_workload(
     nia: Path, resource_root: Path, fixture: Path, timeout_seconds: int
 ) -> tuple[list[dict[str, Any]], Path]:
@@ -463,6 +530,15 @@ def run_workload(
             run_state(
                 nia, resource_root, workspace, "module_map_edit", timeout_seconds
             )
+        )
+        corrupted_entries = corrupt_action_cache(workspace)
+        corrupt_result = run_state(
+            nia, resource_root, workspace, "corrupt_cache", timeout_seconds
+        )
+        corrupt_result["corrupted_action_cache_entries"] = corrupted_entries
+        results.append(corrupt_result)
+        results.append(
+            run_state(nia, resource_root, workspace, "recovered_warm", timeout_seconds)
         )
         results.append(
             run_state(
@@ -520,7 +596,7 @@ def main() -> int:
             runs.append(results)
             temporaries.append(temporary)
         baseline = {
-            "schema_version": 2,
+            "schema_version": 3,
             "kind": "nia-build-baseline",
             "machine": machine_metadata(),
             "fixture": "benchmarks/build/representative",
