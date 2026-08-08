@@ -6,6 +6,7 @@ pub const open_exclusive: i32 = 0o200;
 pub const open_truncate: i32 = 0o1000;
 pub const open_directory: i32 = 0o200000;
 pub const open_no_follow: i32 = 0o400000;
+pub const open_path: i32 = 0x200000;
 pub const open_close_on_exec: i32 = 0o2000000;
 pub const resolve_no_magiclinks: u64 = 0x02u64;
 pub const resolve_no_symlinks: u64 = 0x04u64;

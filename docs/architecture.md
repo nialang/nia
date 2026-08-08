@@ -2282,8 +2282,9 @@ and every path-taking `Dir` method requires one of those roles before lowering
 to an OS `*at` operation. Ordinary `PathView` remains the process-path role for
 `File::open` and `File::create`. The directory capability blocks absolute and
 lexical parent escape. On Linux, handle-opening operations use an `openat2`
-provider boundary with `RESOLVE_BENEATH`; mutation and metadata calls retain
-their host `*at` semantics until a safe parent-resolution design exists. Scalar lowering uses operation-scoped
+provider boundary with `RESOLVE_BENEATH`; metadata resolves an `O_PATH` fd and
+queries it with `statx(AT_EMPTY_PATH)`. Mutation calls retain their host `*at`
+semantics until a safe parent-resolution design exists. Scalar lowering uses operation-scoped
 allocator-owned C strings and carries `mem::Error` as an allocation variant of
 `OperationError`; no filesystem or process facade depends on a fixed 4096-byte
 path buffer. `Command` applies the same owned lowering to its executable and
