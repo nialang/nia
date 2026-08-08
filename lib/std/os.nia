@@ -201,12 +201,8 @@ pub(pkg) fn createDirAtBeneath(
     ).asOsError()
 }
 
-pub(pkg) fn deleteFileAt(dir: FileHandle, path: &u8) Error!void {
-    platform::delete_file_at(dir.platform(), path).asOsError()
-}
-
-pub(pkg) fn deleteDirAt(dir: FileHandle, path: &u8) Error!void {
-    platform::delete_dir_at(dir.platform(), path).asOsError()
+pub(pkg) fn deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: bool) Error!void {
+    platform::delete_at_beneath(dir.platform(), parent, name, directory).asOsError()
 }
 
 pub(pkg) fn renameAt(

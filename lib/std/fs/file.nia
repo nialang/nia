@@ -31,7 +31,7 @@ pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
 
 const max_i64_as_u64: u64 = 9223372036854775807u64;
 
-struct CreateDirSplit {
+struct ParentSplit {
     end: usize,
     separator: ?usize,
 }
@@ -72,19 +72,19 @@ fn lowerNativeBytes(
     }
 }
 
-fn createDirSplit(bytes: &[u8]) CreateDirSplit {
+fn parentSplit(bytes: &[u8], trimTrailingSeparators: bool) ParentSplit {
     let mut end = bytes.len();
-    while end != 0usize and bytes[end - 1usize] == b'/' {
+    while trimTrailingSeparators and end != 0usize and bytes[end - 1usize] == b'/' {
         end -= 1usize;
     }
     let mut index = end;
     while index != 0usize {
         index -= 1usize;
         if bytes[index] == b'/' {
-            return CreateDirSplit { end: end, separator: ?index };
+            return ParentSplit { end: end, separator: ?index };
         }
     }
-    CreateDirSplit { end: end, separator: null }
+    ParentSplit { end: end, separator: null }
 }
 
 extend Dir {
@@ -194,7 +194,7 @@ extend Dir {
         let mut owned = lowerPath(allocator, path.path(), Operation::DeleteFile).?;
         defer owned.deinit(allocator).withOperation(Operation::DeleteFile).?;
         let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::DeleteFile).?;
-        self.deleteNativeFile(native)
+        self.deleteNativeFileWithAllocator(allocator, native)
     }
 
     pub fn deleteDir(&self, path: RelativePathView) OperationError!void {
@@ -211,7 +211,7 @@ extend Dir {
         let mut owned = lowerPath(allocator, path.path(), Operation::DeleteDir).?;
         defer owned.deinit(allocator).withOperation(Operation::DeleteDir).?;
         let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::DeleteDir).?;
-        self.deleteNativeDir(native)
+        self.deleteNativeDirWithAllocator(allocator, native)
     }
 
     pub fn rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!void {
@@ -340,7 +340,7 @@ extend Dir {
         options: CreateDirOptions,
     ) OperationError!void {
         let bytes = path.bytes();
-        let split = createDirSplit(bytes);
+        let split = parentSplit(bytes, true);
         let current = b".";
         let mut parent = switch split.separator {
             ?index => lowerNativeBytes(allocator, &bytes[0..index], Operation::CreateDir).?,
@@ -362,17 +362,61 @@ extend Dir {
     }
 
     pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!void {
-        os::deleteFileAt(
-            self.borrowHandle().withOperation(Operation::DeleteFile).?,
-            path.ptr(),
-        ).as_fs_error().withOperation(Operation::DeleteFile)
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.deleteNativeFileWithAllocator(allocator, path)
+    }
+
+    pub fn deleteNativeFileWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativeNativePathView,
+    ) OperationError!void {
+        self.deleteNativeWithAllocator(allocator, path, Operation::DeleteFile, false, false)
     }
 
     pub fn deleteNativeDir(&self, path: RelativeNativePathView) OperationError!void {
-        os::deleteDirAt(
-            self.borrowHandle().withOperation(Operation::DeleteDir).?,
-            path.ptr(),
-        ).as_fs_error().withOperation(Operation::DeleteDir)
+        let mut page = mem::PageAllocator::init();
+        let allocator: &mut mem::Allocator = &mut page;
+        self.deleteNativeDirWithAllocator(allocator, path)
+    }
+
+    pub fn deleteNativeDirWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativeNativePathView,
+    ) OperationError!void {
+        self.deleteNativeWithAllocator(allocator, path, Operation::DeleteDir, true, true)
+    }
+
+    fn deleteNativeWithAllocator(
+        &self,
+        allocator: &mut mem::Allocator,
+        path: RelativeNativePathView,
+        operation: Operation,
+        directory: bool,
+        trimTrailingSeparators: bool,
+    ) OperationError!void {
+        let bytes = path.bytes();
+        let split = parentSplit(bytes, trimTrailingSeparators);
+        let current = b".";
+        let mut parent = switch split.separator {
+            ?index => lowerNativeBytes(allocator, &bytes[0..index], operation).?,
+            null => lowerNativeBytes(allocator, &current[..], operation).?,
+        };
+        defer parent.deinit(allocator).withOperation(operation).?;
+        let nameStart = switch split.separator {
+            ?index => index + 1usize,
+            null => 0usize,
+        };
+        let mut name = lowerNativeBytes(allocator, &bytes[nameStart..split.end], operation).?;
+        defer name.deinit(allocator).withOperation(operation).?;
+        os::deleteAtBeneath(
+            self.borrowHandle().withOperation(operation).?,
+            parent.rawPtr(),
+            name.rawPtr(),
+            directory,
+        ).as_fs_error().withOperation(operation)
     }
 
     pub fn renameNativeTo(

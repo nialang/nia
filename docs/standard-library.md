@@ -470,7 +470,9 @@ unrestricted path resolution. Metadata opens an `O_PATH` descriptor and calls
 `statx(AT_EMPTY_PATH)` on that stable result. `mkdirat`, `unlinkat`, and
 `unlinkat` and `renameat` still follow host semantics because they have no
 equivalent resolve flags; complete containment for those mutations remains
-open. Directory creation resolves a stable parent fd before calling `mkdirat`.
+open. Directory creation and deletion resolve a stable parent fd before calling
+`mkdirat` or `unlinkat`; only rename still retains unrestricted parent
+resolution.
 `File::open` and `File::create`
 continue to take ordinary `PathView` values and retain process-path semantics.
 The provider preserves `ENOSYS` as `Unsupported` for kernels without

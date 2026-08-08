@@ -2285,8 +2285,9 @@ lexical parent escape. On Linux, handle-opening operations use an `openat2`
 provider boundary with `RESOLVE_BENEATH`; metadata resolves an `O_PATH` fd and
 queries it with `statx(AT_EMPTY_PATH)`. Directory creation dynamically lowers
 parent/name components, resolves the parent beneath the root, and applies
-`mkdirat` only to its stable fd. Delete and rename calls retain their host `*at`
-semantics until the same parent-resolution design is extended. Scalar lowering uses operation-scoped
+`mkdirat` only to its stable fd. Delete operations use the same design before
+`unlinkat`; rename retains host path resolution until both parents are resolved.
+Scalar lowering uses operation-scoped
 allocator-owned C strings and carries `mem::Error` as an allocation variant of
 `OperationError`; no filesystem or process facade depends on a fixed 4096-byte
 path buffer. `Command` applies the same owned lowering to its executable and
