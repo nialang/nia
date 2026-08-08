@@ -454,8 +454,10 @@ Scalar path methods have a default entry point backed by a `PageAllocator` and
 a `WithAllocator` variant for callers that own an operation allocator. They
 lower through allocator-owned `CString` storage, so paths longer than the
 platform's legacy fixed buffer reach the OS and receive its contextual result;
-allocation failure is reported as `OperationError::Allocation`. Native view
-methods remain allocation-free.
+allocation failure is reported as `OperationError::Allocation`. Native
+handle-opening and metadata methods remain allocation-free. Contained mutation
+methods that must split a parent path, beginning with `createNativeDir`, expose
+an allocator form and use `PageAllocator` by default.
 
 `Dir::cwd` and `openDir` produce owned directory handles used as explicit
 resolution bases. Every scalar `Dir` path parameter is a `RelativePathView`,
@@ -466,8 +468,10 @@ therefore cannot reach an `*at` operation. On Linux, `Dir::openFile`,
 which rejects symlink redirection outside the root without falling back to
 unrestricted path resolution. Metadata opens an `O_PATH` descriptor and calls
 `statx(AT_EMPTY_PATH)` on that stable result. `mkdirat`, `unlinkat`, and
-`renameat` still follow host semantics because they have no equivalent resolve
-flags; complete containment for those mutations remains open. `File::open` and `File::create`
+`unlinkat` and `renameat` still follow host semantics because they have no
+equivalent resolve flags; complete containment for those mutations remains
+open. Directory creation resolves a stable parent fd before calling `mkdirat`.
+`File::open` and `File::create`
 continue to take ordinary `PathView` values and retain process-path semantics.
 The provider preserves `ENOSYS` as `Unsupported` for kernels without
 `openat2`, and reports final-component `O_NOFOLLOW` rejection as the distinct

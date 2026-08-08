@@ -89,8 +89,13 @@ pub fn open_at_beneath(
     )
 }
 
-pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!void {
-    fd::create_dir_at(dir, path, permissions)
+pub fn create_dir_at_beneath(
+    dir: FileDescriptor,
+    parent: &u8,
+    name: &u8,
+    permissions: u32,
+) Errno!void {
+    fd::create_dir_at_beneath(dir, parent, name, permissions)
 }
 
 pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!void {
