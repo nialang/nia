@@ -2379,6 +2379,11 @@ implicitly.
 Every phase returns diagnostics instead of panicking on user source errors.
 Diagnostics should carry spans whenever source text is involved.
 
+The same rule applies below the compiler boundary. `std::debug::print` returns
+a closed error that separates formatting from the concrete stderr flush cause;
+maintained executables propagate it through the standard process conversion.
+Diagnostic convenience output is not an unchecked or invariant trap site.
+
 Implementation bugs may panic in tests, but normal invalid Nia programs should
 flow through diagnostic reporting.
 

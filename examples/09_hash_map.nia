@@ -6,24 +6,24 @@ using std::mem;
 using std::process;
 using process::{Init, ExitCode};
 
-fn run(init: Init) mem::Error!void {
+fn run(init: Init) ExitCode!void {
     _ = init;
 
     let mut page = mem::PageAllocator::init();
     let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
-    defer gpa.deinit().ok().?;
+    defer gpa.deinit().ok().exit().?;
     let allocator = &mut gpa;
 
     let mut scores = std::HashMap[i32, i32]::init();
-    defer scores.deinit(allocator).?;
+    defer scores.deinit(allocator).exit().?;
 
     // Reserve before repeated insertion when an approximate size is known.
-    scores.reserve(allocator, 8).?;
-    _ = scores.insert(allocator, 7, 70).?;
-    _ = scores.insert(allocator, 42, 420).?;
-    _ = scores.insert(allocator, 9, 90).?;
+    scores.reserve(allocator, 8).exit().?;
+    _ = scores.insert(allocator, 7, 70).exit().?;
+    _ = scores.insert(allocator, 42, 420).exit().?;
+    _ = scores.insert(allocator, 9, 90).exit().?;
     // getOrInsert returns the stored entry slot and any rejected input.
-    let mut answerSlot = scores.getOrInsert(allocator, 42, 0).?;
+    let mut answerSlot = scores.getOrInsert(allocator, 42, 0).exit().?;
     _ = answerSlot.intoRejected();
     answerSlot.value().* = answerSlot.value().* + 1;
     switch scores.getEntryMut(&42) {
@@ -31,7 +31,7 @@ fn run(init: Init) mem::Error!void {
             entry.valueMut().* = entry.value().* + 9;
         },
         null => {
-            return mem::Error::Invalid!;
+            return mem::Error::Invalid.asExitCode()!;
         },
     }
     for value in scores.valuesMut() {
@@ -44,7 +44,7 @@ fn run(init: Init) mem::Error!void {
             answer = value.*;
         },
         null => {
-            return mem::Error::Invalid!;
+            return mem::Error::Invalid.asExitCode()!;
         },
     }
 
@@ -57,7 +57,7 @@ fn run(init: Init) mem::Error!void {
             removedValue = entry.value().*;
         },
         null => {
-            return mem::Error::Invalid!;
+            return mem::Error::Invalid.asExitCode()!;
         },
     }
 
@@ -76,12 +76,12 @@ fn run(init: Init) mem::Error!void {
         &removedValue,
         &total,
         &hasSeven,
-    ]);
-    debug::print(&"hash_map entries={}\n", &[&scores]);
+    ]).exit().?;
+    debug::print(&"hash_map entries={}\n", &[&scores]).exit().?;
     !{}
 }
 
 pub fn main(init: Init) ExitCode!void {
-    run(init).exit().?;
+    run(init).?;
     !{}
 }

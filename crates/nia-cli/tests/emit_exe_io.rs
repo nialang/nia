@@ -652,6 +652,79 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_debug_print_returns_format_and_flush_errors() {
+    let root = temp_dir("emit_exe_std_debug_print_returns_format_and_flush_errors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::debug;
+using std::fmt;
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    switch debug::print(&"{", &[]) {
+        !ok => {
+            _ = ok;
+            return process::exit(1)!;
+        },
+        debug::Error::Format(fmt::Error::InvalidTemplate)! => {},
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+    }
+
+    switch debug::print(&"closed stderr\n", &[]) {
+        !ok => {
+            _ = ok;
+            return process::exit(3)!;
+        },
+        debug::Error::Flush(fs::Error::BadFd)! => {},
+        error! => {
+            _ = error;
+            return process::exit(4)!;
+        },
+    }
+
+    if (debug::Error::Format(fmt::Error::MissingArgument).asExitCode() as i32) != 22 {
+        return process::exit(5)!;
+    }
+    if (debug::Error::Flush(fs::Error::BadFd).asExitCode() as i32) != 9 {
+        return process::exit(6)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write debug error source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std debug errors");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let status = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("exec 2>&-; exec \"$1\"")
+        .arg("sh")
+        .arg(&exe)
+        .status_timeout("run emitted std debug error executable with closed stderr");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_parse_parses_primitives() {
     let root = temp_dir("emit_exe_std_parse_parses_primitives");
     let main = root.join("main.nia");

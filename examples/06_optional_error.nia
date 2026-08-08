@@ -53,7 +53,7 @@ pub fn main(init: Init) ExitCode!void {
         return exit(3)!;
     }
 
-    debug::print(&"optional/error pair_sum={} missing=error\n", &[&pair_sum]);
+    debug::print(&"optional/error pair_sum={} missing=error\n", &[&pair_sum]).exit().?;
 
     !{}
 }

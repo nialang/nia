@@ -63,7 +63,7 @@ pub fn main(init: Init) ExitCode!void {
     debug::print(
         &"point={} other={} grade={} total={}\n",
         &[&point_len2, &other_len2, &score, &total],
-    );
+    ).exit().?;
 
     !{}
 }

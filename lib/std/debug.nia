@@ -1,7 +1,13 @@
 using pkg::fmt;
+using pkg::fs;
 using pkg::io;
 
-pub fn print(template: &[char], args: &[&fmt::Format]) void {
+pub enum Error {
+    Format(fmt::Error),
+    Flush(fs::Error),
+}
+
+pub fn print(template: &[char], args: &[&fmt::Format]) Error!void {
     let mut buffer: [512]u8 = [_]u8[0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer);
 
@@ -9,16 +15,17 @@ pub fn print(template: &[char], args: &[&fmt::Format]) void {
         !ok => {
             _ = ok;
         },
-        error! => {
-            std::builtin::trap();
+        cause! => {
+            return Error::Format(cause)!;
         },
     }
     switch stderr.flush() {
         !ok => {
             _ = ok;
         },
-        error! => {
-            std::builtin::trap();
+        cause! => {
+            return Error::Flush(cause)!;
         },
     }
+    !{}
 }

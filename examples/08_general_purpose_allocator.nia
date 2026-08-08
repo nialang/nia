@@ -5,7 +5,7 @@ using std::mem;
 using std::process;
 using process::{Init, ExitCode};
 
-fn run(init: Init) mem::Error!void {
+fn run(init: Init) ExitCode!void {
     _ = init;
 
     let mut page = mem::PageAllocator::init();
@@ -13,18 +13,18 @@ fn run(init: Init) mem::Error!void {
     // mixed lifetimes. The page allocator is its low-level backing source.
     let gpa = &mut mem::GeneralPurposeAllocator::init(&mut page);
     // .ok() turns a leak report into mem::Error so examples fail on leaks.
-    defer gpa.deinit().ok().?;
+    defer gpa.deinit().ok().exit().?;
 
     let mut values = std::ArrayList[i32]::init();
     // Register container cleanup after allocator cleanup so it runs first.
-    defer values.deinit(gpa).?;
+    defer values.deinit(gpa).exit().?;
 
     // ArrayList asks for an allocator at each operation. Passing the handle
     // makes it explicit that the container uses this allocator's storage but
     // does not own the allocator itself.
-    values.push(gpa, 10).?;
-    values.push(gpa, 20).?;
-    values.push(gpa, 30).?;
+    values.push(gpa, 10).exit().?;
+    values.push(gpa, 20).exit().?;
+    values.push(gpa, 30).exit().?;
 
     let mut total = 0;
     for &value in values {
@@ -39,11 +39,11 @@ fn run(init: Init) mem::Error!void {
         &total,
         &used,
         &capacity,
-    ]);
+    ]).exit().?;
     !{}
 }
 
 pub fn main(init: Init) ExitCode!void {
-    run(init).exit().?;
+    run(init).?;
     !{}
 }

@@ -1352,20 +1352,20 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) mem::Error!void {
+fn run(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut map = std::HashMap[i32, i32]::initSeed(42u64);
-    defer map.deinit(&mut page).?;
+    defer map.deinit(&mut page).exit().?;
 
-    _ = map.insert(&mut page, 1, 10).?;
-    _ = map.insert(&mut page, 2, 20).?;
-    debug::print(&"hash_map={}\n", &[&map]);
+    _ = map.insert(&mut page, 1, 10).exit().?;
+    _ = map.insert(&mut page, 2, 20).exit().?;
+    debug::print(&"hash_map={}\n", &[&map]).exit().?;
     !{}
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    run(init).exit().?;
+    run(init).?;
     !{}
 }
 "#,

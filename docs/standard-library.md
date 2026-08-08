@@ -58,7 +58,7 @@ providers.
 | `collections::ArrayList` | steps, edges, modules, targets, path decoding | unmanaged collection protocol, owned extraction, batch reservation, and initialized-value mutation accepted | retain narrow initialized-value surface and explicit element ownership transfer |
 | `string` and `unicode` | names, UTF-8 path conversion, formatting | borrowed scalar text is `&[char]`; `Utf8View` validates borrowed encoded bytes; owned text follows the unmanaged collection protocol and supports reserved batches | borrowed/owned scalar text and validated UTF-8 view accepted; keep conversion roles distinct |
 | `slice` and iterators | graph scans, argv/import construction | borrowed iteration and core checked access reviewed; direct indexing and range slicing are the language's unchecked primitives | retain direct iteration, optional checked access, and minimal adapters; continue specialized operation audit |
-| `fmt` | runner diagnostics and telemetry | useful formatting core; template misuse collapses to `Internal` in build | retain capability; separate programmer-format errors from I/O diagnostics |
+| `fmt` | runner diagnostics and telemetry | formatting and debug output preserve template versus stderr-flush failures | retain typed formatting and diagnostic-output boundaries |
 | `fs` path/file/options | package/build/cache paths and generated files | reviewed scalar ownership, validated native and relative path views, typed Dir-relative resolution, allocator-backed scalar lowering, contextual path operations, and Linux symlink containment | retain accepted path roles, operation errors, and contained provider boundary |
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters now hide raw handles and require only caller storage; Reader/Writer naming and child-pipe errors are reviewed | retain direct blocking adapters and generic buffering; finish filesystem error/context and cleanup matrix |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
@@ -407,6 +407,14 @@ collapsing a filesystem, pipe, or bounded-buffer failure into
 `fmt::Error::Write`. Formatting remains the path for templates and value
 presentation; a caller writing already-constructed text does not need a dummy
 `"{}"` template or a one-element trait-object array.
+
+`debug::print` is a fallible stderr convenience rather than a panic boundary.
+Its `debug::Error::Format` payload preserves checked-template and presentation
+failures from `fmt`, while `debug::Error::Flush` preserves the concrete
+filesystem cause from the final stderr flush. The standard process conversion
+maps either payload through its native cause, so maintained executable examples
+use `debug::print(...).exit().?`. Applications needing a different buffering or
+recovery policy use `io::FileWriter` directly.
 
 `unicode::Utf8View` is the nominal borrowed validated UTF-8 role. `fromBytes`
 scans the complete input with `decodeUtf8First`, accepts an empty byte slice,
