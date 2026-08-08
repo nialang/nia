@@ -298,6 +298,31 @@ pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!void {
     }
 }
 
+pub fn delete_at_beneath(
+    dir: FileDescriptor,
+    parent: &u8,
+    name: &u8,
+    directory: bool,
+) Errno!void {
+    let parent_handle = open_at_beneath(
+        dir,
+        parent,
+        OpenMode::ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        true,
+    ).?;
+    defer _ = parent_handle.close();
+    if directory {
+        delete_dir_at(parent_handle, name)
+    } else {
+        delete_file_at(parent_handle, name)
+    }
+}
+
 pub fn rename_at(
     old_dir: FileDescriptor,
     old_path: &u8,

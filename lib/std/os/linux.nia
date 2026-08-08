@@ -98,12 +98,13 @@ pub fn create_dir_at_beneath(
     fd::create_dir_at_beneath(dir, parent, name, permissions)
 }
 
-pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!void {
-    fd::delete_file_at(dir, path)
-}
-
-pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!void {
-    fd::delete_dir_at(dir, path)
+pub fn delete_at_beneath(
+    dir: FileDescriptor,
+    parent: &u8,
+    name: &u8,
+    directory: bool,
+) Errno!void {
+    fd::delete_at_beneath(dir, parent, name, directory)
 }
 
 pub fn rename_at(

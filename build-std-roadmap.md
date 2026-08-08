@@ -4535,3 +4535,15 @@ and the complete filesystem executable matrix passes. The now-unused
 facade-level unrestricted `createDirAt`/`create_dir_at` adapters are physically
 removed. Delete-file, delete-directory, and rename parent resolution remain
 open.
+
+Standard-library reconstruction progress (2026-08-08, contained delete
+batch): file and directory deletion now dynamically split parent/name storage,
+resolve the parent through `openat2` beneath the `Dir` root, and invoke
+`unlinkat` only on the resulting stable parent fd. Directory paths trim trailing
+separators before selecting the final component; file paths retain a trailing
+empty component as a failing operation rather than risking deletion of a file
+spelled with a trailing slash. Scalar and native allocator forms preserve
+allocation context, and the old facade-level unrestricted delete adapters are
+removed. Runtime evidence proves outside-symlink file and directory sentinels
+survive rejected deletion. Only rename's two-parent resolution remains open in
+the filesystem containment slice.

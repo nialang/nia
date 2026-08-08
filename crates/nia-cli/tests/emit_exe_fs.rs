@@ -396,6 +396,7 @@ fn emit_exe_std_fs_dir_rejects_symlink_escape_without_side_effects() {
     let root = temp_dir("emit_exe_std_fs_dir_rejects_symlink_escape_without_side_effects");
     let outside = temp_dir("emit_exe_std_fs_dir_symlink_escape_target");
     std::fs::write(outside.join("sentinel.txt"), b"outside").expect("write outside sentinel");
+    std::fs::create_dir(outside.join("sentinel-dir")).expect("create outside sentinel directory");
     symlink(&*outside, root.join("escape")).expect("create escape symlink");
 
     let main = root.join("main.nia");
@@ -413,6 +414,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let createPath = fs::RelativePathView::fromText(&"escape/new-dir").exit().?;
     switch cwd.createDir(createPath, fs::CreateDirOptions::init()) {
         !ok => { _ = ok; return process::exit(4)!; },
+        error! => { _ = error; },
+    }
+    let deleteFilePath = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
+    switch cwd.deleteFile(deleteFilePath) {
+        !ok => { _ = ok; return process::exit(5)!; },
+        error! => { _ = error; },
+    }
+    let deleteDirPath = fs::RelativePathView::fromText(&"escape/sentinel-dir").exit().?;
+    switch cwd.deleteDir(deleteDirPath) {
+        !ok => { _ = ok; return process::exit(6)!; },
         error! => { _ = error; },
     }
     let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
@@ -461,6 +472,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         b"outside"
     );
     assert!(!outside.join("new-dir").exists());
+    assert!(outside.join("sentinel-dir").is_dir());
 }
 
 #[cfg(unix)]
