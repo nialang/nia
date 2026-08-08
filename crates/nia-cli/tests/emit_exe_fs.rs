@@ -249,6 +249,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => { _ = error; return process::exit(13)!; },
     }
 
+    let dot = fs::RelativePathView::fromText(&".").exit().?;
+    let repeated = fs::RelativePathView::fromText(&"a//b").exit().?;
+    let adjacent = fs::RelativePathView::fromText(&"a/..b/.../b").exit().?;
+    let empty = fs::RelativePathView::fromText(&"").exit().?;
+    if dot.text().len() != 1usize
+        or repeated.text().len() != 4usize
+        or adjacent.text().len() != 11usize
+        or empty.text().len() != 0usize
+    {
+        return process::exit(14)!;
+    }
+    let adjacentBytes: [4]u8 = [b'.', b'.', b'x', 0];
+    let adjacentNative = fs::RelativeNativePathView::fromBytes(&adjacentBytes[..]).exit().?;
+    if adjacentNative.bytes().len() != 3usize {
+        return process::exit(15)!;
+    }
+
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
     let nested = fs::RelativePathView::fromText(&"nested").exit().?;

@@ -1411,6 +1411,33 @@ fn main(dir: &fs::Dir, path: fs::RelativePathView) void {
 }
 
 #[test]
+fn std_dir_paths_reject_unvalidated_path_views() {
+    let root = temp_dir("std_dir_paths_reject_unvalidated_path_views");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::fs;
+
+fn scalar(dir: &fs::Dir, path: fs::PathView) void {
+    _ = dir.metadata(path, fs::MetadataOptions::init());
+}
+
+fn native(dir: &fs::Dir, path: fs::NativePathView) void {
+    _ = dir.nativeMetadata(path, fs::MetadataOptions::init());
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let mismatches = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch"))
+        .count();
+    assert_eq!(mismatches, 2, "{:?}", program.diagnostics);
+}
+
+#[test]
 fn checks_cross_module_struct_literals() {
     let root = temp_dir("checks_cross_module_struct_literals");
     write(
