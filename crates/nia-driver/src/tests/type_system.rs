@@ -1377,7 +1377,7 @@ fn std_linux_statx_layout_matches_kernel_abi() {
         r#"
 using std::fs;
 
-fn main(dir: &fs::Dir, path: fs::PathView) void {
+fn main(dir: &fs::Dir, path: fs::RelativePathView) void {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 "#,

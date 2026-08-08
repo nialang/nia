@@ -2275,9 +2275,14 @@ visible path text. `PathView::encode` and `PathBuf::encode` are the checked
 scalar-to-native-byte boundary. Together with checked
 `NativePathView::fromBytes`, they are the only constructors of the borrowed
 native representation. Path-taking filesystem calls preserve both their
-operation and path/system cause in `OperationError`; `Dir` handles provide
-explicit relative-resolution bases without yet claiming symlink or
-absolute-path containment.
+operation and path/system cause in `OperationError`.
+`RelativePathView` and `RelativeNativePathView` are validated lexical-root
+capabilities: construction rejects leading `/` and complete `..` components,
+and every path-taking `Dir` method requires one of those roles before lowering
+to an OS `*at` operation. Ordinary `PathView` remains the process-path role for
+`File::open` and `File::create`. The directory capability blocks absolute and
+lexical parent escape but does not claim symlink containment; that requires an
+`openat2` or equivalent provider boundary.
 
 Global module-map options:
 

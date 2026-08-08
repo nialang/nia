@@ -474,6 +474,8 @@ fn writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryEr
 fn writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Error!void {
     switch cause {
         fs::PathError::ContainsNul => formatter.write_text(&"contains NUL"),
+        fs::PathError::Absolute => formatter.write_text(&"is absolute"),
+        fs::PathError::ParentTraversal => formatter.write_text(&"contains parent traversal"),
         fs::PathError::MissingTerminator => formatter.write_text(&"missing terminator"),
         fs::PathError::TooLong => formatter.write_text(&"too long"),
         _ => formatter.write_text(&"unknown"),

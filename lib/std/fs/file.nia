@@ -13,12 +13,13 @@ using types::{
     File,
     Metadata,
     MetadataOptions,
-    NativePathView,
     OpenDirOptions,
     OpenOptions,
     Operation,
     OperationError,
     PathView,
+    RelativeNativePathView,
+    RelativePathView,
 };
 
 pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
@@ -43,47 +44,52 @@ extend Dir {
         !Dir::fromOwnedDescriptor(handle)
     }
 
-    pub fn openFile(&self, path: PathView, options: OpenOptions) OperationError!File {
+    pub fn openFile(&self, path: RelativePathView, options: OpenOptions) OperationError!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
         self.openNativeFile(native, options)
     }
 
-    pub fn openDir(&self, path: PathView, options: OpenDirOptions) OperationError!Dir {
+    pub fn openDir(&self, path: RelativePathView, options: OpenDirOptions) OperationError!Dir {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::OpenDir).?;
         self.openNativeDir(native, options)
     }
 
-    pub fn createFile(&self, path: PathView, options: CreateOptions) OperationError!File {
+    pub fn createFile(&self, path: RelativePathView, options: CreateOptions) OperationError!File {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
         self.createNativeFile(native, options)
     }
 
-    pub fn createDir(&self, path: PathView, options: CreateDirOptions) OperationError!void {
+    pub fn createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::CreateDir).?;
         self.createNativeDir(native, options)
     }
 
-    pub fn deleteFile(&self, path: PathView) OperationError!void {
+    pub fn deleteFile(&self, path: RelativePathView) OperationError!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteFile).?;
         self.deleteNativeFile(native)
     }
 
-    pub fn deleteDir(&self, path: PathView) OperationError!void {
+    pub fn deleteDir(&self, path: RelativePathView) OperationError!void {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteDir).?;
         self.deleteNativeDir(native)
     }
 
-    pub fn rename(&self, oldPath: PathView, newPath: PathView) OperationError!void {
+    pub fn rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!void {
         self.renameTo(oldPath, self, newPath)
     }
 
-    pub fn renameTo(&self, oldPath: PathView, newDir: &Dir, newPath: PathView) OperationError!void {
+    pub fn renameTo(
+        &self,
+        oldPath: RelativePathView,
+        newDir: &Dir,
+        newPath: RelativePathView,
+    ) OperationError!void {
         let mut oldStorage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let mut newStorage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let oldNative = oldPath.encode(&mut oldStorage[..]).withOperation(Operation::Rename).?;
@@ -91,7 +97,7 @@ extend Dir {
         self.renameNativeTo(oldNative, newDir, newNative)
     }
 
-    pub fn metadata(&self, path: PathView, options: MetadataOptions) OperationError!Metadata {
+    pub fn metadata(&self, path: RelativePathView, options: MetadataOptions) OperationError!Metadata {
         let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let native = path.encode(&mut storage[..]).withOperation(Operation::Metadata).?;
         self.nativeMetadata(native, options)
@@ -105,7 +111,7 @@ extend Dir {
         }
     }
 
-    pub fn openNativeFile(&self, path: NativePathView, options: OpenOptions) OperationError!File {
+    pub fn openNativeFile(&self, path: RelativeNativePathView, options: OpenOptions) OperationError!File {
         let handle = os::openAt(
             self.borrowHandle().withOperation(Operation::OpenFile).?,
             path.ptr(),
@@ -118,7 +124,7 @@ extend Dir {
         !File::fromOwnedDescriptor(handle)
     }
 
-    pub fn openNativeDir(&self, path: NativePathView, options: OpenDirOptions) OperationError!Dir {
+    pub fn openNativeDir(&self, path: RelativeNativePathView, options: OpenDirOptions) OperationError!Dir {
         let handle = os::openDirAt(
             self.borrowHandle().withOperation(Operation::OpenDir).?,
             path.ptr(),
@@ -127,7 +133,7 @@ extend Dir {
         !Dir::fromOwnedDescriptor(handle)
     }
 
-    pub fn createNativeFile(&self, path: NativePathView, options: CreateOptions) OperationError!File {
+    pub fn createNativeFile(&self, path: RelativeNativePathView, options: CreateOptions) OperationError!File {
         let handle = os::openAt(
             self.borrowHandle().withOperation(Operation::CreateFile).?,
             path.ptr(),
@@ -140,7 +146,7 @@ extend Dir {
         !File::fromOwnedDescriptor(handle)
     }
 
-    pub fn createNativeDir(&self, path: NativePathView, options: CreateDirOptions) OperationError!void {
+    pub fn createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!void {
         os::createDirAt(
             self.borrowHandle().withOperation(Operation::CreateDir).?,
             path.ptr(),
@@ -148,21 +154,26 @@ extend Dir {
         ).as_fs_error().withOperation(Operation::CreateDir)
     }
 
-    pub fn deleteNativeFile(&self, path: NativePathView) OperationError!void {
+    pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!void {
         os::deleteFileAt(
             self.borrowHandle().withOperation(Operation::DeleteFile).?,
             path.ptr(),
         ).as_fs_error().withOperation(Operation::DeleteFile)
     }
 
-    pub fn deleteNativeDir(&self, path: NativePathView) OperationError!void {
+    pub fn deleteNativeDir(&self, path: RelativeNativePathView) OperationError!void {
         os::deleteDirAt(
             self.borrowHandle().withOperation(Operation::DeleteDir).?,
             path.ptr(),
         ).as_fs_error().withOperation(Operation::DeleteDir)
     }
 
-    pub fn renameNativeTo(&self, oldPath: NativePathView, newDir: &Dir, newPath: NativePathView) OperationError!void {
+    pub fn renameNativeTo(
+        &self,
+        oldPath: RelativeNativePathView,
+        newDir: &Dir,
+        newPath: RelativeNativePathView,
+    ) OperationError!void {
         os::renameAt(
             self.borrowHandle().withOperation(Operation::Rename).?,
             oldPath.ptr(),
@@ -171,7 +182,7 @@ extend Dir {
         ).as_fs_error().withOperation(Operation::Rename)
     }
 
-    pub fn nativeMetadata(&self, path: NativePathView, options: MetadataOptions) OperationError!Metadata {
+    pub fn nativeMetadata(&self, path: RelativeNativePathView, options: MetadataOptions) OperationError!Metadata {
         let metadata = os::metadataAt(
             self.borrowHandle().withOperation(Operation::Metadata).?,
             path.ptr(),

@@ -41,17 +41,31 @@ extend fs::Error {
     }
 }
 
+extend fs::PathError : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        switch self {
+            fs::PathError::ContainsNul => exit(22),
+            fs::PathError::Absolute => exit(22),
+            fs::PathError::ParentTraversal => exit(22),
+            fs::PathError::MissingTerminator => exit(22),
+            fs::PathError::TooLong => exit(36),
+            _ => exit(255),
+        }
+    }
+}
+
+extend fs::PathError {
+    pub fn asExitCode(self) ExitCode {
+        self.into_error()
+    }
+}
+
 extend fs::OperationError : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
         switch self {
             fs::OperationError::Path { operation, cause } => {
                 _ = operation;
-                switch cause {
-                    fs::PathError::ContainsNul => exit(22),
-                    fs::PathError::MissingTerminator => exit(22),
-                    fs::PathError::TooLong => exit(36),
-                    _ => exit(255),
-                }
+                cause.asExitCode()
             },
             fs::OperationError::System { operation, cause } => {
                 _ = operation;
@@ -122,12 +136,7 @@ extend Error : error::IntoError[ExitCode] {
     fn into_error(self) ExitCode {
         switch self {
             Error::Allocation(cause) => cause.asExitCode(),
-            Error::Path(cause) => switch cause {
-                fs::PathError::ContainsNul => exit(22),
-                fs::PathError::MissingTerminator => exit(22),
-                fs::PathError::TooLong => exit(36),
-                _ => exit(255),
-            },
+            Error::Path(cause) => cause.asExitCode(),
             Error::ArgumentContainsNul(index) => {
                 _ = index;
                 exit(22)
@@ -180,6 +189,12 @@ extend[T] Error!T {
 }
 
 extend[T] fs::Error!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}
+
+extend[T] fs::PathError!T {
     pub fn exit(self) ExitCode!T {
         self.cast_error()
     }

@@ -4433,3 +4433,22 @@ resolution bases, not as containment sandboxes. Absolute paths and symlink
 traversal continue to follow host semantics. Root-containment policy and removal
 of fixed scalar path-encoding capacity remain open; native representation and
 path-operation contextual errors are closed.
+
+Standard-library reconstruction progress (2026-08-08, typed lexical filesystem
+roots batch): `RelativePathView` and `RelativeNativePathView` now separate
+directory-rooted path arguments from the ordinary process-path and native-byte
+roles. Checked construction rejects a leading `/` as `PathError::Absolute` and
+every complete `..` component as `PathError::ParentTraversal`; conversion from
+existing `PathView` and `NativePathView` values applies the same contract.
+Scalar encoding preserves the nominal relative role instead of returning an
+unrestricted native view.
+
+All scalar and native `Dir` path operations now require those relative roles,
+including both sides of rename, while `File::open` and `File::create` retain
+ordinary process-path semantics. Runtime evidence covers absolute, leading and
+embedded parent traversal, a terminal parent component, native absolute and
+native parent traversal, and successful nested relative creation. Existing
+file, directory, metadata, iteration, closed-handle, non-UTF-8 native-path, and
+loader-query matrices remain the regression boundary. This closes lexical root
+containment. Symlink containment still requires `openat2` or an equivalent OS
+capability, and dynamic scalar path lowering still remains open.
