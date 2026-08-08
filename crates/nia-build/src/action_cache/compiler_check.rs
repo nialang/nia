@@ -78,35 +78,39 @@ pub(super) struct FingerprintSet {
     pub(super) components: FingerprintComponents,
 }
 
+struct FingerprintSetInput<'a> {
+    module: &'a [u8],
+    package_roots: &'a [u8],
+    target: &'a [u8],
+    optimization: u8,
+    runtime: u8,
+    sources: QueryFingerprint,
+    toolchain: ToolchainComponents,
+}
+
 impl FingerprintSet {
-    fn new(
-        action: &ActionKey,
-        module: &[u8],
-        package_roots: &[u8],
-        target: &[u8],
-        optimization: u8,
-        runtime: u8,
-        sources: QueryFingerprint,
-        toolchain: ToolchainComponents,
-    ) -> Self {
+    fn new(action: &ActionKey, input: FingerprintSetInput<'_>) -> Self {
         let cache_key = action_key_fingerprint(action);
         let components = FingerprintComponents {
-            sources,
-            module: bytes_fingerprint("nia.build.compiler-check.module.v1", module),
+            sources: input.sources,
+            module: bytes_fingerprint("nia.build.compiler-check.module.v1", input.module),
             package_roots: bytes_fingerprint(
                 "nia.build.compiler-check.package-roots.v1",
-                package_roots,
+                input.package_roots,
             ),
-            target: bytes_fingerprint("nia.build.compiler-check.target.v1", target),
+            target: bytes_fingerprint("nia.build.compiler-check.target.v1", input.target),
             optimization: integer_fingerprint(
                 "nia.build.compiler-check.optimization.v1",
-                u64::from(optimization),
+                u64::from(input.optimization),
             ),
-            runtime: integer_fingerprint("nia.build.compiler-check.runtime.v1", u64::from(runtime)),
-            compiler: toolchain.compiler,
-            resource_layout: toolchain.resource_layout,
-            standard_library: toolchain.standard_library,
-            build_protocol: toolchain.build_protocol,
+            runtime: integer_fingerprint(
+                "nia.build.compiler-check.runtime.v1",
+                u64::from(input.runtime),
+            ),
+            compiler: input.toolchain.compiler,
+            resource_layout: input.toolchain.resource_layout,
+            standard_library: input.toolchain.standard_library,
+            build_protocol: input.toolchain.build_protocol,
         };
         Self {
             cache_key,
@@ -159,13 +163,15 @@ impl CompilerCheckCacheIdentity {
         Some(Self {
             fingerprints: FingerprintSet::new(
                 action,
-                &module_identity,
-                &package_roots,
-                &target_identity,
-                optimization,
-                runtime,
-                source_fingerprint,
-                ToolchainComponents::new(toolchain),
+                FingerprintSetInput {
+                    module: &module_identity,
+                    package_roots: &package_roots,
+                    target: &target_identity,
+                    optimization,
+                    runtime,
+                    sources: source_fingerprint,
+                    toolchain: ToolchainComponents::new(toolchain),
+                },
             ),
             action: action_identity(action),
             module: module_identity,
@@ -789,17 +795,19 @@ mod tests {
         let package_roots = vec![0, 0, 0, 0, 0, 0, 0, 0];
         let fingerprints = FingerprintSet::new(
             &action,
-            &module_identity,
-            &package_roots,
-            &target_identity,
-            optimization_tag(module.optimization),
-            runtime_tag(Runtime::Bare),
-            source_records_fingerprint(&sources),
-            ToolchainComponents {
-                compiler: fingerprint(1),
-                resource_layout: fingerprint(2),
-                standard_library: fingerprint(3),
-                build_protocol: fingerprint(4),
+            FingerprintSetInput {
+                module: &module_identity,
+                package_roots: &package_roots,
+                target: &target_identity,
+                optimization: optimization_tag(module.optimization),
+                runtime: runtime_tag(Runtime::Bare),
+                sources: source_records_fingerprint(&sources),
+                toolchain: ToolchainComponents {
+                    compiler: fingerprint(1),
+                    resource_layout: fingerprint(2),
+                    standard_library: fingerprint(3),
+                    build_protocol: fingerprint(4),
+                },
             },
         );
         CompilerCheckCacheIdentity {

@@ -1122,22 +1122,9 @@ pub fn main(init: Init) ExitCode!void {
     let unrelated = broad_work
         .0
         .iter()
-        .enumerate()
-        .map(|(_, module)| ("semantic", module))
-        .chain(
-            broad_work
-                .1
-                .iter()
-                .enumerate()
-                .map(|(_, module)| ("body", module)),
-        )
-        .chain(
-            broad_work
-                .2
-                .iter()
-                .enumerate()
-                .map(|(_, module)| ("backend", module)),
-        )
+        .map(|module| ("semantic", module))
+        .chain(broad_work.1.iter().map(|module| ("body", module)))
+        .chain(broad_work.2.iter().map(|module| ("backend", module)))
         .filter(|(_, module)| {
             module.starts_with("toolchain:/std/build")
                 || module.starts_with("toolchain:/std/collections/hash_map")

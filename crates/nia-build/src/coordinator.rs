@@ -31,10 +31,10 @@ use crate::{
     PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
-        CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheLinkInput,
-        CompilerEmitCacheLookup, ExternalCommandCache, ExternalCommandCacheIdentity,
-        ExternalCommandCacheLookup, GeneratedFileCache, GeneratedFileCacheIdentity,
-        GeneratedFileCacheLookup,
+        CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
+        CompilerEmitCacheLinkInput, CompilerEmitCacheLookup, ExternalCommandCache,
+        ExternalCommandCacheIdentity, ExternalCommandCacheLookup, GeneratedFileCache,
+        GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
     },
     lock::{ScopedFileLock, output_lock_path},
     output_recovery::{
@@ -1082,17 +1082,17 @@ impl DriverActionExecutor {
         let link_environment = driver.executable_cache_environment_for(&link_options);
         let cache = CompilerEmitCache::new(self.invocation.cache_dir.clone());
         let precheck_identity = link_environment.and_then(|environment| {
-            CompilerEmitCacheIdentity::new(
-                &action.key,
+            CompilerEmitCacheIdentity::new(CompilerEmitCacheIdentityInput {
+                action: &action.key,
                 artifact,
                 module,
-                self.plan.packages(),
+                packages: self.plan.packages(),
                 target,
-                &precheck_manifest,
-                self.invocation.toolchain.identity(),
-                environment,
-                &cache_link_inputs,
-            )
+                manifest: &precheck_manifest,
+                toolchain: self.invocation.toolchain.identity(),
+                link_environment: environment,
+                link_inputs: &cache_link_inputs,
+            })
         });
         let miss_reason = match precheck_identity.as_ref() {
             None => ActionCacheMissReason::Uncacheable,
@@ -1146,17 +1146,17 @@ impl DriverActionExecutor {
                 ActionCacheMissReason::Uncacheable,
             )));
         };
-        let Some(final_identity) = CompilerEmitCacheIdentity::new(
-            &action.key,
+        let Some(final_identity) = CompilerEmitCacheIdentity::new(CompilerEmitCacheIdentityInput {
+            action: &action.key,
             artifact,
             module,
-            self.plan.packages(),
+            packages: self.plan.packages(),
             target,
-            &linked.source_manifest,
-            self.invocation.toolchain.identity(),
+            manifest: &linked.source_manifest,
+            toolchain: self.invocation.toolchain.identity(),
             link_environment,
-            &cache_link_inputs,
-        ) else {
+            link_inputs: &cache_link_inputs,
+        }) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
             )));
@@ -1209,9 +1209,7 @@ impl DriverActionExecutor {
         if let Err(error) = written {
             return cleanup_staged_outputs(action, staged, Some(Box::new(error))).map(|()| None);
         }
-        if let Err(error) = publish_staged_outputs(action, staged) {
-            return Err(error);
-        }
+        publish_staged_outputs(action, staged)?;
         Ok(None)
     }
 
