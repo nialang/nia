@@ -102,8 +102,12 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         return_type: append.intern(TyKind::Optional { elem: nominal }),
         is_variadic: true,
     });
+    let opaque = append.intern(TyKind::Opaque);
+    let tuple = append.intern(TyKind::Tuple(vec![primitive, opaque, array]));
     let roots = [
         function,
+        tuple,
+        append.intern(TyKind::Tuple(Vec::new())),
         append.intern(TyKind::ConstOnly),
         append.intern(TyKind::VolatilePointer {
             is_readonly: false,

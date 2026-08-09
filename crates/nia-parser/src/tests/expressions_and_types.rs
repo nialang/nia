@@ -128,6 +128,30 @@ fn project(pair: (i32, bool)) i32 {{
 }
 
 #[test]
+fn reports_malformed_tuple_types_values_and_patterns() {
+    for (source, expected) in [
+        (
+            "fn malformed() () { let value = 1 as (i32, bool u8); }",
+            "expected `)` after tuple type",
+        ),
+        (
+            "fn value() () { let pair = (1, true false); }",
+            "expected `)` after tuple",
+        ),
+        (
+            "fn bind() () { let (first, second third) = (1, 2); }",
+            "expected binding pattern",
+        ),
+    ] {
+        let (_, errors) = parse_module(source);
+        assert!(
+            errors.iter().any(|error| error.message.contains(expected)),
+            "missing `{expected}` in {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn parses_opaque_only_as_a_distinct_type_syntax() {
     let (module, errors) = parse_module(
         r#"

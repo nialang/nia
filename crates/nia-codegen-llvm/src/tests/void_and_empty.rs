@@ -24,6 +24,17 @@ fn implicit_unit() {
     explicit_unit()
 }
 
+fn classify(pair: (i32, (bool, i32))) i32 {
+    if pair is (40, (true, value)) {
+        value
+    } else {
+        switch pair {
+            (left, (false, right)) => left + right,
+            (_, (_, fallback)) => fallback,
+        }
+    }
+}
+
 fn main() i32 {
     implicit_unit();
     let (left, enabled) = make_pair();
@@ -31,7 +42,7 @@ fn main() i32 {
     let mut nested = ((left, right), ());
     nested.0.0 = nested.0.0 + nested.0.1;
     let answer = nested.0.0;
-    if enabled { answer } else { 0 }
+    if enabled { answer + classify((40, (true, 1))) } else { 0 }
 }
 "#,
     )

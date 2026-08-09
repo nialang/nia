@@ -5,6 +5,74 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn emit_exe_tuple_values_projections_and_patterns() {
+    let root = temp_dir("emit_exe_tuple_values_projections_and_patterns");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+const fn const_select(value: (usize, (bool, usize))) usize {
+    switch value {
+        (left, (true, right)) => left + right,
+        (_, (_, fallback)) => fallback,
+    }
+}
+
+fn runtime_select(pair: (i32, (bool, i32))) i32 {
+    if pair is (40, (true, value)) {
+        value
+    } else {
+        switch pair {
+            (left, (false, right)) => left + right,
+            (_, (_, fallback)) => fallback,
+        }
+    }
+}
+
+const width: usize = const_select((3usize, (true, 5usize)));
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut pair = (40, (true, 2));
+    pair.0 += pair.1.1;
+    let (answer, (enabled, tail)) = pair;
+    if answer != 42 or not enabled or tail != 2 {
+        return process::exit(1)!;
+    }
+    if runtime_select((40, (true, 7))) != 7 {
+        return process::exit(2)!;
+    }
+    if width != 8 {
+        return process::exit(3)!;
+    }
+    let () = ();
+    !()
+}
+"#,
+    )
+    .expect("write tuple executable source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit tuple executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run tuple executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_switch_destructuring_matches_const_semantics() {
     let root = temp_dir("emit_exe_switch_destructuring_matches_const_semantics");
     let main = root.join("main.nia");

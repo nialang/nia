@@ -61,3 +61,84 @@ fn invalid(pair: (i32, bool), scalar: i32) {
         );
     }
 }
+
+#[test]
+fn tuple_patterns_work_in_binding_if_switch_and_for_contexts() {
+    let checked = pipeline(
+        r#"
+struct PairIter {}
+
+extend PairIter : Iterator {
+    type Item = (i32, i32);
+
+    fn next(&mut self) ?(i32, i32) {
+        null
+    }
+}
+
+fn classify(pair: (i32, (bool, i32))) i32 {
+    if pair is (40, (true, value)) {
+        value
+    } else {
+        switch pair {
+            (left, (false, right)) => left + right,
+            (_, (_, fallback)) => fallback,
+        }
+    }
+}
+
+fn main(pair: (i32, (bool, i32))) i32 {
+    let mut (left, (enabled, right)) = pair;
+    left += right;
+    let (mut selected, fixed) = (1, 2);
+    selected += fixed;
+    let () = ();
+
+    let mut total = left + selected;
+    let mut iter = PairIter {};
+    for (first, second) in iter {
+        total += first + second;
+    }
+
+    if enabled { total + classify(pair) } else { total }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn tuple_patterns_report_target_and_arity_mismatches() {
+    let checked = pipeline(
+        r#"
+fn main(pair: (i32, bool), scalar: i32) {
+    let (only,) = pair;
+    let (left, right) = scalar;
+    if pair is (value,) {
+        _ = value;
+    }
+    switch scalar {
+        (value,) => value,
+        _ => 0,
+    };
+}
+"#,
+    );
+
+    for expected in [
+        "binding pattern tuple arity mismatch: expected 2, found 1",
+        "binding pattern requires a tuple value",
+        "if pattern tuple arity mismatch: expected 2, found 1",
+        "switch pattern tuple pattern requires a tuple target",
+    ] {
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains(expected)),
+            "missing `{expected}` in {:?}",
+            checked.diagnostics
+        );
+    }
+}

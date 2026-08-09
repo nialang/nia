@@ -768,6 +768,65 @@ fn id(p: RawPtr[u8]) &u8 { p }
     }
 
     #[test]
+    fn recursively_substitutes_and_normalizes_tuple_alias_elements() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let (module, errors) = parse_module(
+            r#"
+type Nested[T] = (T, ((), T));
+fn id(value: Nested[u16]) (u16, ((), u16)) { value }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
+        assert!(
+            normalization.diagnostics.is_empty(),
+            "{:?}",
+            normalization.diagnostics
+        );
+
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
+            let TyKind::Nominal { .. } = ty else {
+                return false;
+            };
+            let Some(TyKind::Tuple(outer)) = type_store.get(normalization.normalize(ty_id)) else {
+                return false;
+            };
+            matches!(
+                outer.as_slice(),
+                [first, nested]
+                    if type_store.get(*first) == Some(&TyKind::Primitive(PrimitiveTy::U16))
+                        && matches!(
+                            type_store.get(*nested),
+                            Some(TyKind::Tuple(inner))
+                                if matches!(
+                                    inner.as_slice(),
+                                    [unit, second]
+                                        if type_store.get(*unit).is_some_and(TyKind::is_unit)
+                                            && type_store.get(*second)
+                                                == Some(&TyKind::Primitive(PrimitiveTy::U16))
+                                )
+                        )
+            )
+        }));
+    }
+
+    #[test]
     fn normalizes_layout_builtin_array_length_operand() {
         let mut module_ids = ModuleIdAllocator::new();
         let module_id = module_ids.allocate();
