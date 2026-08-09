@@ -260,7 +260,7 @@ fn std_io_file_writer_does_not_require_process_capability_plumbing() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
@@ -271,7 +271,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (1 as process::ExitCode)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     );
@@ -292,7 +292,7 @@ fn std_io_buffered_file_writer_flushes_explicitly() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [64]u8 = [0; 64];
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
@@ -313,7 +313,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (2 as process::ExitCode)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     );
@@ -334,7 +334,7 @@ fn std_fs_file_requires_an_explicit_writer_adapter() {
 using std::fs;
 using std::process;
 
-fn reject_file_writer(file: fs::File) process::ExitCode!void {
+fn reject_file_writer(file: fs::File) process::ExitCode!() {
     switch file.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
@@ -343,12 +343,12 @@ fn reject_file_writer(file: fs::File) process::ExitCode!void {
             return (1 as process::ExitCode)!;
         },
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     );
@@ -376,7 +376,7 @@ fn std_process_child_pipes_enforce_read_and_write_roles() {
 using std::io;
 using std::process;
 
-fn reject(stdout: process::ChildStdout, stdin: process::ChildStdin, bytes: &mut [u8]) void {
+fn reject(stdout: process::ChildStdout, stdin: process::ChildStdin, bytes: &mut [u8]) () {
     _ = stdout.write(bytes);
     _ = stdin.read(bytes);
 }
@@ -412,7 +412,7 @@ fn std_io_file_reader_does_not_require_process_capability_plumbing() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [64]u8 = [0; 64];
     let mut reader = io::FileReader::stdin(&mut buffer[..]);
     let mut bytes: [1]u8 = [0];
@@ -424,7 +424,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (1 as process::ExitCode)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     );
@@ -444,7 +444,7 @@ fn std_io_file_writer_does_not_require_a_runtime_backend_object() {
         r#"
 using std::io;
 
-fn main(buffer: &mut [u8]) void {
+fn main(buffer: &mut [u8]) () {
     let writer = io::FileWriter::stdout(buffer);
     _ = writer;
 }
@@ -544,9 +544,9 @@ fn freestanding_start_can_call_public_entry_main() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     );
@@ -994,7 +994,7 @@ using std::mem;
 using std::process;
 using std::unicode;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut allocationStorage: [512]u8 = [0; 512];
     let mut fixed = mem::FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
@@ -1043,7 +1043,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not term.succeeded() {
         return process::exit(2)!;
     }
-    !{}
+    !()
 }
 "#,
     );
@@ -1058,7 +1058,7 @@ using std::mem::{Allocator, FixedBufferAllocator};
 using std::process::{Command, ExitCode, Init, StdIo, exit};
 using std::unicode::Utf8View;
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     let mut allocationStorage: [512]u8 = [0; 512];
     let mut fixed = FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut Allocator = &mut fixed;
@@ -1107,7 +1107,7 @@ pub fn main(init: Init) ExitCode!void {
     if not term.succeeded() {
         return exit(2)!;
     }
-    !{}
+    !()
 }
 "#,
     );
@@ -1377,7 +1377,7 @@ fn std_facade_does_not_reexport_range_module_namespace() {
         r#"
 using std;
 
-fn main() void {
+fn main() () {
     let mut iter: std::range::Range[usize] = (1usize..3usize).iter();
     _ = iter;
 }
@@ -1422,7 +1422,7 @@ fn std_facade_type_can_be_imported_directly() {
         r#"
 using std::CStringView;
 
-fn main() void {
+fn main() () {
     switch CStringView::fromBytes(&b"nia\0") {
         !text => {
             _ = text;
@@ -1443,7 +1443,7 @@ fn std_facade_type_can_be_named_by_package_root_path() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() void {
+fn main() () {
     switch std::CStringView::fromBytes(&b"nia\0") {
         !text => {
             _ = text;
@@ -1554,7 +1554,7 @@ extend Key : std::HashMapContext[i32] {
     }
 }
 
-fn main() void {}
+fn main() () {}
 "#,
     );
 
@@ -1577,7 +1577,7 @@ fn std_os_does_not_expose_platform_implementation_modules() {
         r#"
 using std::os::linux::stat;
 
-fn main() void {}
+fn main() () {}
 "#,
     );
 
@@ -1606,7 +1606,7 @@ fn std_facades_do_not_expose_package_private_implementation_modules() {
     for path in private_paths {
         source.push_str(&format!("using {path};\n"));
     }
-    source.push_str("\nfn main() void {}\n");
+    source.push_str("\nfn main() () {}\n");
     write(&root.join("main.nia"), &source);
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -1821,7 +1821,7 @@ fn std_package_private_implementation_module_is_not_resolved_from_root_package()
         r#"
 using std::io::traits;
 
-fn main() void {}
+fn main() () {}
 "#,
     );
 
@@ -1846,9 +1846,9 @@ fn std_start_injected_for_executables_is_not_public_api() {
 using std::process;
 using std::start;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     );
@@ -2853,10 +2853,10 @@ module command;
 module output;
 using entry::command::cli;
 
-fn main() void {}
+fn main() () {}
 "#,
     );
-    write(&root.join("output.nia"), "pub fn write() void {}");
+    write(&root.join("output.nia"), "pub fn write() () {}");
     write(&root.join("command.nia"), "pub module cli;");
     std::fs::create_dir_all(root.join("command")).expect("create command dir");
     write(
@@ -2864,7 +2864,7 @@ fn main() void {}
         r#"
 using super::super::output;
 
-pub fn run() void {}
+pub fn run() () {}
 "#,
     );
 
@@ -2888,7 +2888,7 @@ fn failed_explicit_using_suppresses_dependent_name_cascades() {
 module api;
 using entry::api::{MissingType, missing_value};
 
-fn main() void {
+fn main() () {
     let value: MissingType = missing_value();
     _ = value;
 }

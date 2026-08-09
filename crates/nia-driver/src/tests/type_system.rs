@@ -115,7 +115,7 @@ where T: Marker {
     value: &T,
 }
 
-fn main(value: &Box[bool]) void {
+fn main(value: &Box[bool]) () {
     _ = value;
 }
 "#,
@@ -279,7 +279,7 @@ extend[T] RawPtr[T] {
     }
 }
 
-fn main(ptr: RawPtr[i32]) void {
+fn main(ptr: RawPtr[i32]) () {
     if ptr.is_null() {}
 }
 "#,
@@ -291,7 +291,7 @@ fn main(ptr: RawPtr[i32]) void {
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("cannot cast void to usize")),
+            .contains("cannot cast () to usize")),
         "{:?}",
         program.diagnostics
     );
@@ -317,7 +317,7 @@ extend i32 {
     fn is_zero(self) bool { self == 0 }
 }
 
-extend void {
+extend () {
     fn unit(self) i32 { 1 }
 }
 
@@ -442,7 +442,7 @@ extend Counter : Iterator {
     }
 }
 
-fn main() void {
+fn main() () {
     let mut iter = Counter {};
     for &value in iter {}
 }
@@ -466,7 +466,7 @@ fn rejects_for_binding_type_annotations() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() void {
+fn main() () {
     for value: usize in 0..3 {}
 }
 "#,
@@ -691,7 +691,7 @@ fn generic_nominal_trait_impl_body_uses_element_trait_bound_with_slice_impls() {
 struct Formatter {}
 
 trait Format {
-    fn format(& self, formatter: &mut Formatter) void;
+    fn format(& self, formatter: &mut Formatter) ();
 }
 
 struct List[T] {
@@ -699,14 +699,14 @@ struct List[T] {
 }
 
 extend i32 : Format {
-    fn format(& self, formatter: &mut Formatter) void {
+    fn format(& self, formatter: &mut Formatter) () {
         _ = formatter;
         _ = self;
     }
 }
 
 extend [char] : Format {
-    fn format(& self, formatter: &mut Formatter) void {
+    fn format(& self, formatter: &mut Formatter) () {
         _ = formatter;
         _ = self;
     }
@@ -715,7 +715,7 @@ extend [char] : Format {
 extend[T] [T] : Format
 where T: Sized + Format
 {
-    fn format(& self, formatter: &mut Formatter) void {
+    fn format(& self, formatter: &mut Formatter) () {
         self[0].format(formatter);
     }
 }
@@ -723,12 +723,12 @@ where T: Sized + Format
 extend[T] List[T] : Format
 where T: Sized + Format
 {
-    fn format(& self, formatter: &mut Formatter) void {
+    fn format(& self, formatter: &mut Formatter) () {
         self.value.format(formatter);
     }
 }
 
-fn main(list: List[i32], formatter: &mut Formatter) void {
+fn main(list: List[i32], formatter: &mut Formatter) () {
     list.format(formatter);
 }
 "#,
@@ -785,7 +785,7 @@ fn supports_structural_extension_associated_functions() {
         &root.join("main.nia"),
         r#"
 extend ! {
-    fn nope(self) void {}
+    fn nope(self) () {}
 }
 
 extend i32 {
@@ -1146,9 +1146,9 @@ fn compiler_session_settles_providers_before_single_executable_finalization() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     );
@@ -1377,7 +1377,7 @@ fn std_linux_filesystem_struct_layouts_match_kernel_abi() {
         r#"
 using std::fs;
 
-fn main(dir: &fs::Dir, path: fs::RelativePathView) void {
+fn main(dir: &fs::Dir, path: fs::RelativePathView) () {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 "#,
@@ -1442,11 +1442,11 @@ fn std_dir_paths_reject_unvalidated_path_views() {
         r#"
 using std::fs;
 
-fn scalar(dir: &fs::Dir, path: fs::PathView) void {
+fn scalar(dir: &fs::Dir, path: fs::PathView) () {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 
-fn native(dir: &fs::Dir, path: fs::NativePathView) void {
+fn native(dir: &fs::Dir, path: fs::NativePathView) () {
     _ = dir.nativeMetadata(path, fs::MetadataOptions::init());
 }
 "#,

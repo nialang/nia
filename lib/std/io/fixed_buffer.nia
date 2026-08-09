@@ -34,13 +34,13 @@ extend FixedBufferWriter {
         & self.buffer[0..self.len]
     }
 
-    pub fn writeAll(&mut self, bytes: &[u8]) BufferError!void {
+    pub fn writeAll(&mut self, bytes: &[u8]) BufferError!() {
         if bytes.len() > self.buffer.len() - self.len {
             return BufferError::NoSpace!;
         }
         _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
-        !{}
+        !()
     }
 }
 

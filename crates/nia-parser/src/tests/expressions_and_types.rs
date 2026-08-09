@@ -230,7 +230,7 @@ fn parses_structured_types_and_aggregate_literals() {
         r#"
 struct Header {
     bytes: [_]u8,
-    callback: &fn(i32, ...) void,
+    callback: &fn(i32, ...) (),
 }
 
 fn make() Header {
@@ -502,7 +502,7 @@ fn take(xs: &[i32], ys: &mut [i32]) usize {
 fn parses_slice_pointee_type_and_extend_target() {
     let (module, errors) = parse_module(
         r#"
-fn take(xs: [i32]) void {}
+fn take(xs: [i32]) () {}
 
 extend[T] [T] {
     fn len2(& self) usize {

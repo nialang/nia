@@ -4,7 +4,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     if helper::value() + assetHelper::value() != 12 {
         return process::exit(1)!;
     }
@@ -16,5 +16,5 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.print(&"run={}\n", &[&argument]).exit().?;
     stdout.flush().exit().?;
-    !{}
+    !()
 }

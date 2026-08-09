@@ -6,7 +6,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }",
+        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
     let program = load_program_with_map_and_entry_runtime(
@@ -69,7 +69,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }",
+        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
     let program = load_program_with_map_and_entry_runtime(

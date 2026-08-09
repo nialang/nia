@@ -5,7 +5,7 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     let root = temp_dir("module_dependencies_cache_keys_include_effective_module_map");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), "using dep::Thing; fn main() void {}");
+    let file = sources.set_source(main.clone(), "using dep::Thing; fn main() () {}");
     let mut mapped = ModuleMap::new();
     mapped.insert("dep", SourcePath::new("deps/root.nia"));
     let unmapped = ModuleMap::new();

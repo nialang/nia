@@ -29,7 +29,7 @@ fn sum(pair: Pair) i64 {
 The C ABI is used for explicit external boundaries:
 
 ```nia
-extern fn foreign_log(message: &u8) void;
+extern fn foreign_log(message: &u8) ();
 
 extern struct CPoint {
     x: i32,
@@ -82,7 +82,7 @@ unions, arrays, and slices.
 Scalar means a single direct machine-level value, such as an integer, float,
 pointer, function pointer, or enum backing value.
 
-ZST means zero-sized type. `void` and empty structs are ZSTs. A ZST has a type
+ZST means zero-sized type. `()` and empty structs are ZSTs. A ZST has a type
 and may have values, but it has no runtime storage.
 
 Padding means bytes inserted by the layout algorithm to satisfy alignment.
@@ -143,11 +143,12 @@ char            size 4,  align 4
 i64/u64/f64     size 8,  align 8
 i128/u128       size 16, align 16
 isize/usize     size 8,  align 8
-void            size 0,  align 1
+()              size 0,  align 1
 never           size 0,  align 1
 ```
 
-`void` is a first-class zero-sized value type.
+`()` is the unit type and the zero-element tuple. It is a first-class
+zero-sized value type with exactly one value.
 
 `never` is the never type. It has no values. Its zero-sized layout exists only so
 compiler phases can reason about diverging expressions consistently.
@@ -161,8 +162,8 @@ Pointers are scalar pointer-sized values:
 &mut T          pointer-sized
 ^T              pointer-sized
 ^mut T          pointer-sized
-&void           pointer-sized
-&mut void       pointer-sized
+&opaque         pointer-sized
+&mut opaque     pointer-sized
 ```
 
 For LP64:
@@ -171,24 +172,24 @@ For LP64:
 size 8, align 8
 ```
 
-`&void` is an opaque pointer target. It means that the pointee type has been
-erased. It does not mean that a `void` object can be read or written.
+`&opaque` is an opaque pointer target. It means that the pointee type has been
+erased. It does not mean that an `opaque` object can be read or written.
 
-Dereferencing `&void` is invalid:
+Dereferencing `&opaque` is invalid:
 
 ```nia
-let mut p: &void = &value as &void;
+let mut p: &opaque = &value as &opaque;
 p.* // invalid
 ```
 
-Pointer erasure to `&void` is explicit:
+Pointer erasure to `&opaque` is explicit:
 
 ```nia
-let mut p: &void = &value as &void;
-let mut q: &mut void = &mut value as &mut void;
+let mut p: &opaque = &value as &opaque;
+let mut q: &mut opaque = &mut value as &mut opaque;
 ```
 
-Nia does not perform implicit `&T -> &void` coercions.
+Nia does not perform implicit `&T -> &opaque` coercions.
 
 Volatile pointers `^T` and `^mut T` have the same ABI representation as ordinary
 thin object pointers. Volatility is an access property: loads and stores through
@@ -465,7 +466,7 @@ scalar returns         direct
 pointer returns        direct
 function pointers      direct
 slice returns          direct descriptor
-void returns           no runtime return value
+() returns             no runtime return value
 ZST returns            no runtime return value
 aggregate returns      hidden out pointer
 never returns          no normal return
@@ -511,8 +512,8 @@ generic extern fn               rejected
 extern variadic fn with body    rejected
 bool by value                   rejected
 char by value                   rejected
-void parameter                  rejected
-void return                     allowed
+() parameter                    rejected
+() return                       allowed
 never return                    rejected
 Nia slice by value              rejected
 array by value                  rejected
@@ -730,7 +731,7 @@ Values passed to inline assembly must use their ABI representation. Nia-only
 aggregates should not be passed to inline assembly unless the compiler has a
 defined lowering for that operand class.
 
-Inline assembly outputs cannot have `void`, `never`, or other non-material
+Inline assembly outputs cannot have `()`, `never`, or other non-material
 runtime types.
 
 ## 21. Backend Lowering Contract

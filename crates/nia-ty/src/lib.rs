@@ -256,6 +256,10 @@ pub enum TyKind {
 }
 
 impl TyKind {
+    pub fn is_unit(&self) -> bool {
+        matches!(self, Self::Tuple(elems) if elems.is_empty())
+    }
+
     pub fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
         fn visit_const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(InternedTyId)) {
             for arg in args {
@@ -409,7 +413,6 @@ pub enum PrimitiveTy {
     F64,
     Bool,
     Char,
-    Void,
     Never,
 }
 
@@ -768,7 +771,7 @@ pub trait TypeEquivalence {
 }
 
 impl PrimitiveTy {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 17] = [
         Self::I8,
         Self::I16,
         Self::I32,
@@ -785,7 +788,6 @@ impl PrimitiveTy {
         Self::F64,
         Self::Bool,
         Self::Char,
-        Self::Void,
         Self::Never,
     ];
 
@@ -807,7 +809,6 @@ impl PrimitiveTy {
             "f64" => Self::F64,
             "bool" => Self::Bool,
             "char" => Self::Char,
-            "void" => Self::Void,
             "!" => Self::Never,
             _ => return None,
         })
@@ -831,7 +832,6 @@ impl PrimitiveTy {
             nia_symbol::known::F64 => Self::F64,
             nia_symbol::known::BOOL => Self::Bool,
             nia_symbol::known::CHAR => Self::Char,
-            nia_symbol::known::VOID => Self::Void,
             nia_symbol::known::NEVER => Self::Never,
             _ => return None,
         })
@@ -855,7 +855,6 @@ impl PrimitiveTy {
             Self::F64 => nia_symbol::known::F64,
             Self::Bool => nia_symbol::known::BOOL,
             Self::Char => nia_symbol::known::CHAR,
-            Self::Void => nia_symbol::known::VOID,
             Self::Never => nia_symbol::known::NEVER,
         }
     }
@@ -878,7 +877,6 @@ impl PrimitiveTy {
             Self::F64 => "f64",
             Self::Bool => "bool",
             Self::Char => "char",
-            Self::Void => "void",
             Self::Never => "!",
         }
     }
@@ -891,7 +889,7 @@ impl PrimitiveTy {
     }
 
     pub fn is_vector_element(self) -> bool {
-        !matches!(self, Self::Char | Self::Void | Self::Never)
+        !matches!(self, Self::Char | Self::Never)
     }
 
     pub fn is_integer(self) -> bool {

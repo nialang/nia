@@ -3029,9 +3029,9 @@ impl Analyzer<'_> {
                     .active_execution_frames()
                     .find_map(|frame| frame.return_type);
                 let return_type = return_type.map(|ty| self.substitute_ty_generics(ty));
-                if return_type.is_some_and(|ty| {
-                    !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Void)))
-                }) {
+                if return_type
+                    .is_some_and(|ty| !self.ty_kind(ty).is_some_and(|kind| kind.is_unit()))
+                {
                     self.push_const_function_type_mismatch(stmt.span(), "const return value");
                 }
                 Some(())

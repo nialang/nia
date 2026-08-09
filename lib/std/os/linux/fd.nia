@@ -37,12 +37,12 @@ extend FileDescriptor {
         }
     }
 
-    pub fn close(&self) Errno!void {
+    pub fn close(&self) Errno!() {
         let ret = syscall::syscall1(syscall::close, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !{}
+            !()
         }
     }
 
@@ -60,39 +60,39 @@ extend FileDescriptor {
         }
     }
 
-    pub fn truncate(&self, len: u64) Errno!void {
+    pub fn truncate(&self, len: u64) Errno!() {
         let ret = syscall::syscall2(syscall::ftruncate, self.fd as usize, len as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !{}
+            !()
         }
     }
 
-    pub fn set_permissions(&self, permissions: u32) Errno!void {
+    pub fn set_permissions(&self, permissions: u32) Errno!() {
         let ret = syscall::syscall2(syscall::fchmod, self.fd as usize, permissions as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !{}
+            !()
         }
     }
 
-    pub fn sync(&self) Errno!void {
+    pub fn sync(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fsync, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !{}
+            !()
         }
     }
 
-    pub fn sync_data(&self) Errno!void {
+    pub fn sync_data(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fdatasync, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !{}
+            !()
         }
     }
 
@@ -240,7 +240,7 @@ pub fn open_at_beneath(
     }
 }
 
-pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!void {
+pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() {
     let ret = syscall::syscall3(
         syscall::mkdirat,
         dir.raw() as usize,
@@ -250,7 +250,7 @@ pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!voi
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !{}
+        !()
     }
 }
 
@@ -259,7 +259,7 @@ pub fn create_dir_at_beneath(
     parent: &u8,
     name: &u8,
     permissions: u32,
-) Errno!void {
+) Errno!() {
     let parent_handle = open_at_beneath(
         dir,
         parent,
@@ -275,16 +275,16 @@ pub fn create_dir_at_beneath(
     create_dir_at(parent_handle, name, permissions)
 }
 
-pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!void {
+pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !{}
+        !()
     }
 }
 
-pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!void {
+pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(
         syscall::unlinkat,
         dir.raw() as usize,
@@ -294,7 +294,7 @@ pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!void {
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !{}
+        !()
     }
 }
 
@@ -303,7 +303,7 @@ pub fn delete_at_beneath(
     parent: &u8,
     name: &u8,
     directory: bool,
-) Errno!void {
+) Errno!() {
     let parent_handle = open_at_beneath(
         dir,
         parent,
@@ -328,7 +328,7 @@ pub fn rename_at(
     old_path: &u8,
     new_dir: FileDescriptor,
     new_path: &u8,
-) Errno!void {
+) Errno!() {
     let ret = syscall::syscall4(
         syscall::renameat,
         old_dir.raw() as usize,
@@ -339,7 +339,7 @@ pub fn rename_at(
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !{}
+        !()
     }
 }
 
@@ -350,7 +350,7 @@ pub fn rename_at_beneath(
     new_dir: FileDescriptor,
     new_parent: &u8,
     new_name: &u8,
-) Errno!void {
+) Errno!() {
     let old_parent_handle = open_at_beneath(
         old_dir,
         old_parent,

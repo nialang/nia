@@ -38,7 +38,7 @@ fn grade(score: i32) i32 {
     }
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     _ = init;
 
     // This literal gets its type from the binding annotation.
@@ -65,5 +65,5 @@ pub fn main(init: Init) ExitCode!void {
         &[&point_len2, &other_len2, &score, &total],
     ).exit().?;
 
-    !{}
+    !()
 }

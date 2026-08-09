@@ -51,9 +51,9 @@ using std::io;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     );
@@ -162,9 +162,9 @@ fn query_loader_does_not_warn_for_used_narrow_explicit_import() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     );

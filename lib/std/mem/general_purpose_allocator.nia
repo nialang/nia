@@ -13,9 +13,9 @@ pub enum DeinitStatus: i32 {
 }
 
 extend DeinitStatus {
-    pub fn ok(self) Error!void {
+    pub fn ok(self) Error!() {
         if self == DeinitStatus::Ok {
-            !{}
+            !()
         } else {
             Error::Invalid!
         }
@@ -23,7 +23,7 @@ extend DeinitStatus {
 }
 
 extend Error!DeinitStatus {
-    pub fn ok(self) Error!void {
+    pub fn ok(self) Error!() {
         switch self {
             !status => {
                 status.ok()
@@ -87,7 +87,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    pub fn deinitWithoutLeakCheck(&mut self) Error!void {
+    pub fn deinitWithoutLeakCheck(&mut self) Error!() {
         let small = self.smallPages;
         let large = self.largeAllocations;
         self.smallPages = null;
@@ -269,9 +269,9 @@ extend GeneralPurposeAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) Error!void {
+    pub fn free(&mut self, block: Block) Error!() {
         if block.isEmpty() {
-            return !{};
+            return !();
         }
         switch self.findSmallPage(block) {
             ?page => {
@@ -323,7 +323,7 @@ extend GeneralPurposeAllocator {
         !Block::init(ptr, layout)
     }
 
-    fn freeSmall(&mut self, page: &mut SmallPage, block: Block) Error!void {
+    fn freeSmall(&mut self, page: &mut SmallPage, block: Block) Error!() {
         let mut slot = switch smallPageSlotForPtr(page, block.ptr()) {
             ?value => {
                 value
@@ -348,7 +348,7 @@ extend GeneralPurposeAllocator {
         if page.usedCount == 0 {
             self.releaseEmptySmallPage(page).?;
         }
-        !{}
+        !()
     }
 
     fn allocateSmallPage(&mut self, slotSize: usize) Error!&mut SmallPage {
@@ -422,7 +422,7 @@ extend GeneralPurposeAllocator {
         !page
     }
 
-    fn releaseEmptySmallPage(&mut self, page: &mut SmallPage) Error!void {
+    fn releaseEmptySmallPage(&mut self, page: &mut SmallPage) Error!() {
         let mut current = self.smallPages;
         let mut previous: ?&mut SmallPage = null;
         while true {
@@ -457,7 +457,7 @@ extend GeneralPurposeAllocator {
                 },
             }
         }
-        !{}
+        !()
     }
 
     fn allocLarge(&mut self, layout: Layout) Error!Block {
@@ -510,7 +510,7 @@ extend GeneralPurposeAllocator {
         !Block::init(userAddr as &mut u8, layout)
     }
 
-    fn freeLarge(&mut self, block: Block) Error!void {
+    fn freeLarge(&mut self, block: Block) Error!() {
         let mut current = self.largeAllocations;
         let mut previous: ?&mut LargeHeader = null;
         while true {
@@ -551,7 +551,7 @@ extend GeneralPurposeAllocator {
                 },
             }
         }
-        !{}
+        !()
     }
 
     fn findPageWithFreeSlot(&mut self, slotSize: usize) ?&mut SmallPage {
@@ -615,7 +615,7 @@ extend GeneralPurposeAllocator {
         null
     }
 
-    fn freeDetachedLists(&mut self, small: ?&mut SmallPage, large: ?&mut LargeHeader) Error!void {
+    fn freeDetachedLists(&mut self, small: ?&mut SmallPage, large: ?&mut LargeHeader) Error!() {
         let mut failed = false;
         let mut firstError = Error::Invalid;
 
@@ -671,11 +671,11 @@ extend GeneralPurposeAllocator {
                     if failed {
                         return firstError!;
                     }
-                    return !{};
+                    return !();
                 },
             }
         }
-        !{}
+        !()
     }
 }
 

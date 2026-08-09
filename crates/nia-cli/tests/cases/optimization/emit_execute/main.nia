@@ -20,7 +20,7 @@ fn plus_two(value: i32) i32 {
     value + 2
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut x = answer();
     let mut y = x;

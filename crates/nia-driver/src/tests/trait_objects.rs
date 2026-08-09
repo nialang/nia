@@ -180,9 +180,9 @@ fn trait_object_supertrait_upcast_is_recorded() {
 trait Parent {}
 trait Child : Parent {}
 
-fn accept(parent: & Parent) void {}
+fn accept(parent: & Parent) () {}
 
-fn use_child(child: & Child) void {
+fn use_child(child: & Child) () {
     accept(child)
 }
 "#,
@@ -218,9 +218,9 @@ fn trait_object_non_supertrait_upcast_is_rejected() {
 trait Parent {}
 trait Other {}
 
-fn accept(parent: & Parent) void {}
+fn accept(parent: & Parent) () {}
 
-fn use_other(other: & Other) void {
+fn use_other(other: & Other) () {
     accept(other)
 }
 "#,
@@ -608,7 +608,7 @@ fn trait_object_method_call_wins_over_blanket_extension_methods() {
 trait Other {}
 
 trait Writer[E] {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) E!void;
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) E!();
 }
 
 struct Formatter[E] {
@@ -616,23 +616,23 @@ struct Formatter[E] {
 }
 
 extend[E] Formatter[E] {
-    fn write_all(&mut self, bytes: &[u8]) E!void {
+    fn write_all(&mut self, bytes: &[u8]) E!() {
         self.writer.write_fmt_bytes(bytes)
     }
 
-    fn write_byte(&mut self) E!void {
+    fn write_byte(&mut self) E!() {
         let mut bytes: [1]u8 = [0];
         self.write_all(&bytes[..]).?;
-        !{}
+        !()
     }
 }
 
 extend[W] W : Writer[i32]
 where W: Other
 {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) i32!void {
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) i32!() {
         _ = bytes;
-        !{}
+        !()
     }
 }
 "#,

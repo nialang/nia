@@ -137,7 +137,7 @@ impl<'a> BodyChecker<'a> {
             .as_ref()
             .map(|tail| tail.ty)
             .or_else(|| self.block_terminating_never_ty(block))
-            .unwrap_or_else(|| self.void());
+            .unwrap_or_else(|| self.unit());
         TypedBody {
             span: block.span,
             locals: self.lower_locals(block.span),

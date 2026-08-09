@@ -310,19 +310,19 @@ extend SpawnOptions {
         self.cwd
     }
 
-    pub fn set_stdin(&mut self, behavior: StdIo) void {
+    pub fn set_stdin(&mut self, behavior: StdIo) () {
         self.stdin = behavior;
     }
 
-    pub fn set_stdout(&mut self, behavior: StdIo) void {
+    pub fn set_stdout(&mut self, behavior: StdIo) () {
         self.stdout = behavior;
     }
 
-    pub fn set_stderr(&mut self, behavior: StdIo) void {
+    pub fn set_stderr(&mut self, behavior: StdIo) () {
         self.stderr = behavior;
     }
 
-    pub fn set_cwd(&mut self, path: &u8) void {
+    pub fn set_cwd(&mut self, path: &u8) () {
         self.cwd = ?path;
     }
 }

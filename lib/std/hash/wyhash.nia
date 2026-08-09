@@ -38,7 +38,7 @@ extend Wyhash {
         wyhash(seed, bytes)
     }
 
-    pub fn update(&mut self, bytes: &[u8]) void {
+    pub fn update(&mut self, bytes: &[u8]) () {
         self.total_len += bytes.len();
 
         if bytes.len() <= 48 - self.buf_len {
@@ -105,7 +105,7 @@ extend Wyhash {
         }
     }
 
-    fn small_key(&mut self, bytes: &[u8]) void {
+    fn small_key(&mut self, bytes: &[u8]) () {
         self.a = 0u64;
         self.b = 0u64;
         if bytes.len() >= 4 {
@@ -120,17 +120,17 @@ extend Wyhash {
         }
     }
 
-    fn round(&mut self, bytes: &[u8]) void {
+    fn round(&mut self, bytes: &[u8]) () {
         self.state0 = mix(read8(&bytes[0..]) ^ wyhash_secret1, read8(&bytes[8..]) ^ self.state0);
         self.state1 = mix(read8(&bytes[16..]) ^ wyhash_secret2, read8(&bytes[24..]) ^ self.state1);
         self.state2 = mix(read8(&bytes[32..]) ^ wyhash_secret3, read8(&bytes[40..]) ^ self.state2);
     }
 
-    fn final0(&mut self) void {
+    fn final0(&mut self) () {
         self.state0 ^= self.state1 ^ self.state2;
     }
 
-    fn final1(&mut self, input_lb: &[u8], start_pos: usize) void {
+    fn final1(&mut self, input_lb: &[u8], start_pos: usize) () {
         let input = &input_lb[start_pos..];
         let mut i = 0usize;
         while i + 16 < input.len() {
@@ -153,7 +153,7 @@ extend Wyhash {
 }
 
 extend Wyhash : Hasher {
-    pub fn write(&mut self, bytes: &[u8]) void {
+    pub fn write(&mut self, bytes: &[u8]) () {
         self.update(bytes)
     }
 

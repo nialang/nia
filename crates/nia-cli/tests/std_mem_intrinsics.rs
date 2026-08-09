@@ -16,7 +16,7 @@ fn emit_exe_std_mem_zero_sized_and_empty_slice_edges() {
 using std::mem;
 using std::process;
 
-fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
+fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     switch allocator.allocSlice[i32](0) {
         !items => { if items.len() != 0 {
@@ -28,28 +28,28 @@ fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
                 } },
         error! => { return process::exit(1)!; },
     }
-    !{}
+    !()
 }
 
-fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
+fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
-    switch allocator.allocSlice[void](4) {
+    switch allocator.allocSlice[()](4) {
         !items => { if items.len() != 4 {
                     return process::exit(2)!;
                 }
-                switch allocator.freeSlice[void](items) {
+                switch allocator.freeSlice[()](items) {
                     !ok => { _ = ok; },
                     error! => { return process::exit(3)!; },
                 } },
         error! => { return process::exit(1)!; },
     }
-    !{}
+    !()
 }
 
-fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void {
+fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
-    switch mem::Layout::array[void](8) {
+    switch mem::Layout::array[()](8) {
         !value => { layout = value; },
         error! => { return process::exit(1)!; },
     }
@@ -58,7 +58,7 @@ fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void
         !value => { block = value; },
         error! => { return process::exit(2)!; },
     }
-    let mut items = block.asSlice[void]();
+    let mut items = block.asSlice[()]();
     if items.len() != 0 {
         return process::exit(3)!;
     }
@@ -66,15 +66,15 @@ fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     check_allocator_preserves_empty_slice_len().?;
     check_allocator_preserves_zero_sized_slice_len().?;
     check_block_as_slice_handles_zero_sized_element_type().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -108,7 +108,7 @@ fn emit_exe_memory_intrinsic_builtins() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut ints: [3]i32 = [0, 0, 0];
@@ -150,7 +150,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -183,7 +183,7 @@ fn emit_exe_cross_module_generic_memory_intrinsic_keeps_param_locals() {
     std::fs::write(
         &helper,
         r#"
-pub fn copy_prefix[T](to: &mut [T], from: &[T]) void
+pub fn copy_prefix[T](to: &mut [T], from: &[T]) ()
 where T: Sized
 {
     std::builtin::memcpy(to, from);
@@ -197,7 +197,7 @@ where T: Sized
 using helper;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut dest: [2]u8 = [0; 2];
     let source: [2]u8 = [b'a', b'b'];
@@ -205,7 +205,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if dest[0] != b'a' or dest[1] != b'b' {
         return process::exit(1)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -289,7 +289,7 @@ where T: Sized
 using helper;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut data: [3]i32 = [10, 20, 30];
     let mut total = 0;
@@ -299,7 +299,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if total != 60 {
         return process::exit(1)!;
     }
-    !{}
+    !()
 }
 "#,
     )

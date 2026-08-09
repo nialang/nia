@@ -192,7 +192,7 @@ pub(pkg) fn createDirAtBeneath(
     parent: &u8,
     name: &u8,
     permissions: u32,
-) Error!void {
+) Error!() {
     platform::create_dir_at_beneath(
         dir.platform(),
         parent,
@@ -201,7 +201,7 @@ pub(pkg) fn createDirAtBeneath(
     ).asOsError()
 }
 
-pub(pkg) fn deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: bool) Error!void {
+pub(pkg) fn deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: bool) Error!() {
     platform::delete_at_beneath(dir.platform(), parent, name, directory).asOsError()
 }
 
@@ -212,7 +212,7 @@ pub(pkg) fn renameAtBeneath(
     new_dir: FileHandle,
     new_parent: &u8,
     new_name: &u8,
-) Error!void {
+) Error!() {
     platform::rename_at_beneath(
         old_dir.platform(),
         old_parent,
@@ -236,11 +236,11 @@ pub(pkg) fn mapPages(len: usize, align: usize) Error!&mut u8 {
     platform::map_pages(len, align).asOsError()
 }
 
-pub(pkg) fn unmapPages(ptr: &mut u8, len: usize) Error!void {
+pub(pkg) fn unmapPages(ptr: &mut u8, len: usize) Error!() {
     platform::unmap_pages(ptr, len).asOsError()
 }
 
-pub(pkg) fn random(bytes: &mut [u8]) Error!void {
+pub(pkg) fn random(bytes: &mut [u8]) Error!() {
     platform::random(bytes).asOsError()
 }
 
@@ -271,11 +271,11 @@ pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
     }
 }
 
-pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!void {
+pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
     platform::kill_with(pid.platform(), signal).asOsError()
 }
 
-pub(pkg) fn exit(code: i32) void {
+pub(pkg) fn exit(code: i32) () {
     platform::exit(code);
 }
 
@@ -581,7 +581,7 @@ extend FileHandle {
         self.platform().read_some(bytes).asOsError()
     }
 
-    pub(pkg) fn close(&self) Error!void {
+    pub(pkg) fn close(&self) Error!() {
         self.platform().close().asOsError()
     }
 
@@ -593,19 +593,19 @@ extend FileHandle {
         ).asOsError()
     }
 
-    pub(pkg) fn truncate(&self, len: u64) Error!void {
+    pub(pkg) fn truncate(&self, len: u64) Error!() {
         self.platform().truncate(len).asOsError()
     }
 
-    pub(pkg) fn setPermissions(&self, permissions: u32) Error!void {
+    pub(pkg) fn setPermissions(&self, permissions: u32) Error!() {
         self.platform().set_permissions(permissions).asOsError()
     }
 
-    pub(pkg) fn sync(&self) Error!void {
+    pub(pkg) fn sync(&self) Error!() {
         self.platform().sync().asOsError()
     }
 
-    pub(pkg) fn syncData(&self) Error!void {
+    pub(pkg) fn syncData(&self) Error!() {
         self.platform().sync_data().asOsError()
     }
 
@@ -742,22 +742,22 @@ extend SpawnOptions {
         self.platform
     }
 
-    pub(pkg) fn setStdin(&mut self, behavior: StdIo) Error!void {
+    pub(pkg) fn setStdin(&mut self, behavior: StdIo) Error!() {
         self.platform.set_stdin(behavior.asPlatformStdio().?);
-        !{}
+        !()
     }
 
-    pub(pkg) fn setStdout(&mut self, behavior: StdIo) Error!void {
+    pub(pkg) fn setStdout(&mut self, behavior: StdIo) Error!() {
         self.platform.set_stdout(behavior.asPlatformStdio().?);
-        !{}
+        !()
     }
 
-    pub(pkg) fn setStderr(&mut self, behavior: StdIo) Error!void {
+    pub(pkg) fn setStderr(&mut self, behavior: StdIo) Error!() {
         self.platform.set_stderr(behavior.asPlatformStdio().?);
-        !{}
+        !()
     }
 
-    pub(pkg) fn setCwd(&mut self, path: &u8) void {
+    pub(pkg) fn setCwd(&mut self, path: &u8) () {
         self.platform.set_cwd(path);
     }
 }

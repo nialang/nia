@@ -12,7 +12,7 @@ struct Item {
     state: i32,
 }
 
-fn set(items: &mut [Item], index: usize, state: i32) void {
+fn set(items: &mut [Item], index: usize, state: i32) () {
     items[index].state = state;
 }
 
@@ -142,9 +142,9 @@ fn emits_freestanding_start_entry_as_extern_start_calling_entry_main() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     )
@@ -179,7 +179,7 @@ fn emits_std_file_writer_without_runtime_backend_plumbing() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
@@ -190,7 +190,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (1 as process::ExitCode)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -225,7 +225,7 @@ fn emits_std_buffered_file_writer_flush() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [64]u8 = [0; 64];
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
@@ -246,7 +246,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (2 as process::ExitCode)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )

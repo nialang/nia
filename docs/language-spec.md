@@ -61,13 +61,13 @@ The current user entry contract is intentionally single-shaped:
 ```nia
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 ```
 
-Returning `!{}` means process success. `process::ExitCode` is an open enum
+Returning `!()` means process success. `process::ExitCode` is an open enum
 backed by `i32`; `process::ExitCode::Success` names status `0`, and the
 standard-library constructor for an unnamed status is `process::exit(code)`.
 The language also permits an explicit `code as process::ExitCode` cast because
@@ -79,7 +79,7 @@ boundary. Returning an error payload such as
 ```nia
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::exit(1)!
 }
@@ -91,7 +91,7 @@ Nia distinguishes two execution models:
   facade for the selected runtime. The current default is freestanding startup
   linked without CRT startup; the current target implementation is Linux
   x86_64. The user entry remains the Nia-level
-  `root::main(process::Init) process::ExitCode!void` contract.
+  `root::main(process::Init) process::ExitCode!()` contract.
 - bare/object/IR emission: no startup logic is injected and `main` is not
   required. The compiler
   emits LLVM IR or object files for an external build system, custom entry
@@ -252,7 +252,7 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   written prefix immediately, retaining only the unwritten suffix after a later
   error; a zero-byte write returns `shortWrite` without discarding pending data.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
-  `print` helper returns `debug::Error!void`: `Format(fmt::Error)` preserves
+  `print` helper returns `debug::Error!()`: `Format(fmt::Error)` preserves
   template/presentation failures and `Flush(fs::Error)` preserves the stderr
   flush cause. Executable entry points returning `process::ExitCode!T` may use
   direct `.?` for the standard process-status mapping. Use `std::io` directly
@@ -322,7 +322,7 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
   and is single-threaded/external-synchronization by contract. `deinit` frees
   allocator-owned backing memory and returns `DeinitStatus::Leak` if any
   allocations were still live at shutdown. `DeinitStatus.ok()` maps a clean
-  shutdown to `void` and a leak to `std::mem.Error::Invalid`; the common
+  shutdown to `()` and a leak to `std::mem.Error::Invalid`; the common
   `deinit().ok().?` form checks both deallocation errors and leak status with
   one propagation point. Use `deinitWithoutLeakCheck` only when that cleanup
   is intentionally unchecked. Wrap a GPA later in synchronization primitives
@@ -407,13 +407,15 @@ true
 type
 using
 let mut
-void
+opaque
 where
 ```
 
-Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, `void`, and
-`never` are reserved type names. A standalone `!` is reserved for error-union
-syntax, not logical negation or the never type.
+Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, and `never`,
+plus the `opaque` incomplete pointer target, are reserved type names. `()` is
+the built-in unit type and zero-element tuple; it has no identifier spelling.
+A standalone `!` is reserved for error-union syntax, not logical negation or
+the never type.
 
 ### 3.4 Literals
 
@@ -663,12 +665,24 @@ Other primitive types:
 ```text
 bool
 char
-void
 never
 ```
 
-`void` means the expression or function produces no meaningful value. If a
-function declaration omits its return type, the return type is `void`.
+`()` is the unit type. It has exactly one value, written `()`, and is also the
+zero-element tuple. If a function declaration omits its return type, the return
+type is `()`; `return;` is the corresponding explicit return.
+
+Tuple types are written `(T0, T1, ...)`; a trailing comma distinguishes a
+one-element tuple `(T,)` from grouping. Tuple values and patterns use the same
+syntax. A tuple projection `.N` selects a canonical decimal position label
+(`.0`, `.1`, `.10`); it is a static tuple position, not a general const
+expression. Projection preserves place, assignment, address-of, and mutability
+semantics, and out-of-range positions are diagnosed statically.
+
+`opaque` is an incomplete type accepted only as a direct pointer target. It has
+no values, fields, layout, or dereference operation. `&opaque`, `&mut opaque`,
+`^opaque`, and `^mut opaque` are erased pointer forms used at low-level
+boundaries.
 
 `never` marks expressions that never produce a normal value, such as `return`,
 `break`, `continue`, and calls to functions returning `never`. Never expressions
@@ -721,7 +735,7 @@ fn read_reg(reg: ^u32) u32 {
     reg.*
 }
 
-fn write_reg(reg: ^mut u32, value: u32) void {
+fn write_reg(reg: ^mut u32, value: u32) () {
     reg.* = value;
 }
 ```
@@ -736,8 +750,9 @@ the indexed place is writable.
 
 When the operand is a typed value expression rather than a place, address-of
 materializes a block-scoped temporary object and returns a pointer to that
-temporary. The temporary has the expression's runtime value type. `void` and
-`never` expressions cannot be materialized.
+temporary. The temporary has the expression's runtime value type. `never`
+expressions cannot be materialized; unit expressions may be materialized as
+zero-sized temporaries.
 
 When the pointee type is a trait name, `&Trait[...]` and `&mut Trait[...]`
 denote trait object pointers, not thin object pointers. A trait object is a Nia
@@ -750,7 +765,7 @@ trait Source {
     type Item;
 }
 
-fn consume(source: &Source[Item = i32]) void {}
+fn consume(source: &Source[Item = i32]) () {}
 ```
 
 Trait object syntax uses the same bracket list as trait bounds: positional trait
@@ -1307,7 +1322,7 @@ fn add(a: i32, b: i32) i32 {
 }
 ```
 
-If the return type is omitted, it is `void`:
+If the return type is omitted, it is `()`:
 
 ```nia
 static mut log_total: i32 = 0;
@@ -1443,7 +1458,7 @@ fn name(param: Type, other: Type) ReturnType {
 }
 ```
 
-When a function returns a non-`void` type, the tail expression of its body block
+When a function returns a non-`()` type, the tail expression of its body block
 is the return value:
 
 ```nia
@@ -1499,7 +1514,7 @@ extern static errno: i32;
 extern static mut global_counter: usize;
 ```
 
-Extern functions default to return type `void` when no return type is written.
+Extern functions default to return type `()` when no return type is written.
 Variadic functions are only allowed as body-less `extern fn` declarations.
 
 Nia does not provide `extern { ... }` blocks or explicit ABI strings. All
@@ -2049,7 +2064,7 @@ Blocks are expressions:
 ```
 
 A block with a tail expression has the tail expression type. A block without a
-tail expression has type `void`.
+tail expression has type `()`.
 
 ### 8.2 If
 
@@ -2065,7 +2080,7 @@ let mut result = if score >= 60 {
 
 When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
-`else` may be omitted and the expression type is `void`.
+`else` may be omitted and the expression type is `()`.
 
 An if-pattern expression performs one refutable match with the
 binding/destructuring pattern language:
@@ -2221,7 +2236,7 @@ Normal block exit, `return`, `break`, and `continue` all run already registered
 defers for exited scopes.
 
 The deferred expression is evaluated as an ordinary delayed statement. It must
-have type `void` or `never`. If cleanup returns a non-`void` value, discard it
+have type `()` or `never`. If cleanup returns a non-`()` value, discard it
 explicitly:
 
 ```nia
@@ -2379,13 +2394,13 @@ may dereference `p` for field access or receiver matching. This automatic
 dereference is limited to fields, methods, and receiver matching. It is not a
 general implicit conversion.
 
-Expression statements may not silently discard non-`void` and non-`never` values.
-Discard explicitly with `_`. Discarding a `void` expression is also valid:
+Expression statements may not silently discard non-`()` and non-`never` values.
+Discard explicitly with `_`. Discarding a `()` expression is also valid:
 
 ```nia
-vec.push(2);      // error if push returns non-void
+vec.push(2);      // error if push returns a non-unit value
 _ = vec.push(2);  // allowed
-_ = log("done");  // allowed even if log returns void
+_ = log("done");  // allowed even if log returns ()
 abort();          // allowed if abort returns never
 ```
 
@@ -2502,7 +2517,7 @@ only relaxes alignment, not bounds or initialization.
 
 `std::builtin::memcpy[T](destination, source)` and
 `std::builtin::memmove[T](destination, source)` copy the common slice prefix as
-raw element representation and return `void`. Both require initialized,
+raw element representation and return `()`. Both require initialized,
 readable source elements and writable destination elements. `memcpy` copies
 forward and requires the copied ranges not to overlap in a way that changes a
 later source element; `memmove` selects a safe direction and permits overlap.
@@ -2565,12 +2580,12 @@ rmw op:   Xchg=0, Add=1, Sub=2, And=3, Nand=4, Or=5, Xor=6,
 ```
 
 `std::builtin::atomic_load[T]` takes `&T` or `&mut T` and returns `T`.
-`std::builtin::atomic_store[T]` takes `&mut T` and returns `void`.
+`std::builtin::atomic_store[T]` takes `&mut T` and returns `()`.
 `std::builtin::atomic_rmw[T]` takes `&mut T`, applies an atomic
 read-modify-write operation, and returns the previous value.
 `std::builtin::cmpxchg_strong[T]` and `std::builtin::cmpxchg_weak[T]` return
 `null` on success or `?old_value` on failure. `std::builtin::fence(order)` emits
-an atomic fence and returns `void`.
+an atomic fence and returns `()`.
 
 The current supported atomic value types are bool, integer, enum, and ordinary
 object pointer types whose width does not exceed the target pointer width.
@@ -2585,7 +2600,7 @@ SeqCst.
 
 `std::builtin::asm({...})` is the inline assembly escape hatch for syscalls,
 special registers, port I/O, CPU instructions, and freestanding runtime glue.
-Its argument must be a struct-literal configuration. It returns `void`. The
+Its argument must be a struct-literal configuration. It returns `()`. The
 fields are compiler-consumed metadata, not a runtime struct:
 
 ```nia
@@ -3179,9 +3194,9 @@ matches:
 trait Parent {}
 trait Child : Parent {}
 
-fn accept(parent: & Parent) void {}
+fn accept(parent: & Parent) () {}
 
-fn use_child(child: & Child) void {
+fn use_child(child: & Child) () {
     accept(child)
 }
 ```
@@ -3198,7 +3213,7 @@ fn use_child(
         [Self as FatherA]::Item = i32,
         [Self as FatherB]::Item = usize,
     ],
-) void {}
+) () {}
 ```
 
 ## 12. Modules
@@ -3462,7 +3477,9 @@ Generic function or method instances append an instance suffix:
 
 Type encoding rules:
 
-- primitive types use their names, such as `i32`, `u8`, `bool`, `void`;
+- primitive types use their names, such as `i32`, `u8`, `bool`, `never`;
+- unit uses `unit`; opaque uses `opaque`; tuple types encode as
+  `tuple__len__<arity>__<element encodings>`;
 - `&T` encodes as `ptr_read__<T>`;
 - `&mut T` encodes as `ptr__<T>`;
 - `^T` encodes as `vptr_read__<T>`;
@@ -3725,7 +3742,7 @@ Timing options are accepted before or after the command:
 optimization policy and backend optimization report to stdout. `nia check
 <file.nia> --runtime freestanding` checks with the same startup runtime that
 `emit --exe` injects, including the public
-`root::main(process::Init) process::ExitCode!void` entry contract. Emit commands
+`root::main(process::Init) process::ExitCode!()` entry contract. Emit commands
 write the same report to stderr when
 `--opt-report` is supplied, so stdout remains backend IR or LLVM IR and native
 emit targets remain file-only.
@@ -3811,7 +3828,7 @@ fn score(answer: Pair[i32, i32]) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut v: Vec2 = { x: 3, y: 4 };
@@ -3822,6 +3839,6 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(1)!;
     }
 
-    !{}
+    !()
 }
 ```

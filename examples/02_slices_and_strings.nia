@@ -12,7 +12,7 @@ fn first(values: &[i32]) i32 {
     values[0]
 }
 
-fn write_first(values: &mut [i32], value: i32) void {
+fn write_first(values: &mut [i32], value: i32) () {
     values[0] = value;
 }
 
@@ -29,7 +29,7 @@ fn copy_name(output: &mut [u8]) usize {
     output.copyFrom(&source)
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     _ = init;
 
     let mut values: [4]i32 = [1, 2, 3, 4];
@@ -133,5 +133,5 @@ pub fn main(init: Init) ExitCode!void {
         ],
     ).exit().?;
 
-    !{}
+    !()
 }

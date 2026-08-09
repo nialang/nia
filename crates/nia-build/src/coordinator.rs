@@ -2957,7 +2957,7 @@ mod tests {
                     kind: ActionKind::GeneratedFile {
                         output: LogicalPath::new(LogicalPathRoot::Build, "generated/root.nia")
                             .unwrap(),
-                        contents: b"pub fn generated() void {}\n".to_vec(),
+                        contents: b"pub fn generated() () {}\n".to_vec(),
                     },
                 },
             ],
@@ -3912,7 +3912,7 @@ mod tests {
     fn freestanding_source(body: &str) -> String {
         [
             "using std::process;\n",
-            "pub fn main(init: process::Init) process::ExitCode!void {\n",
+            "pub fn main(init: process::Init) process::ExitCode!() {\n",
             "    _ = init;\n",
             "    ",
             body,
@@ -4191,9 +4191,9 @@ mod tests {
             &invocation,
             concat!(
                 "using std::process;\n",
-                "pub fn main(init: process::Init) process::ExitCode!void {\n",
+                "pub fn main(init: process::Init) process::ExitCode!() {\n",
                 "    _ = init;\n",
-                "    !{}\n",
+                "    !()\n",
                 "}\n",
             ),
         );
@@ -4215,7 +4215,7 @@ mod tests {
     #[test]
     fn compiler_check_cache_does_not_publish_warnings() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, "using std::collections;\nfn main() void {}\n");
+        write_compiler_check_source(&invocation, "using std::collections;\nfn main() () {}\n");
         let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
 
         for report in [
@@ -4282,7 +4282,7 @@ mod tests {
     #[test]
     fn compiler_emit_cache_reports_cold_hit_and_restores_deleted_output() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        write_compiler_check_source(&invocation, &freestanding_source("!()"));
         let plan = compiler_emit_plan(
             &invocation,
             OptimizationMode::O2,
@@ -4310,7 +4310,7 @@ mod tests {
     #[test]
     fn object_set_emit_publishes_driver_object_directory_transactionally() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        write_compiler_check_source(&invocation, &freestanding_source("!()"));
         let plan = object_set_plan(&invocation, "objects/app");
         let output = invocation.build_dir.join("objects/app");
 
@@ -4337,7 +4337,7 @@ mod tests {
     #[test]
     fn static_archive_emit_publishes_driver_archive_transactionally() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        write_compiler_check_source(&invocation, &freestanding_source("!()"));
         let plan = static_archive_plan(&invocation, "lib/libapp.a");
         let output = invocation.build_dir.join("lib/libapp.a");
 
@@ -4360,7 +4360,7 @@ mod tests {
     #[test]
     fn install_artifact_copies_and_replaces_an_executable_transactionally() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        write_compiler_check_source(&invocation, &freestanding_source("!()"));
         let plan = install_executable_plan(&invocation);
         let source = invocation.build_dir.join("bin/app");
         let destination = invocation.build_dir.join("install/custom-app");
@@ -4385,7 +4385,7 @@ mod tests {
     #[test]
     fn compiler_emit_cache_classifies_source_option_output_and_artifact_changes() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        write_compiler_check_source(&invocation, &freestanding_source("!()"));
         execute_build_plan(
             &compiler_emit_plan(
                 &invocation,
@@ -4399,7 +4399,7 @@ mod tests {
 
         write_compiler_check_source(
             &invocation,
-            &freestanding_source("let value = 1; _ = value; !{}"),
+            &freestanding_source("let value = 1; _ = value; !()"),
         );
         let changed_source = execute_build_plan(
             &compiler_emit_plan(
@@ -4475,8 +4475,8 @@ mod tests {
         let invocation = test_invocation();
         let stable_path = invocation.package_root.join("src/stable.nia");
         fs::create_dir_all(stable_path.parent().unwrap()).unwrap();
-        fs::write(&stable_path, freestanding_source("!{}")).unwrap();
-        let baseline = mixed_generated_source_emit_plan(&invocation, "!{}", 1);
+        fs::write(&stable_path, freestanding_source("!()")).unwrap();
+        let baseline = mixed_generated_source_emit_plan(&invocation, "!()", 1);
 
         execute_build_plan(&baseline, &invocation).unwrap();
         let warm = execute_build_plan(&baseline, &invocation).unwrap();
@@ -4490,7 +4490,7 @@ mod tests {
         }
 
         let changed_root =
-            mixed_generated_source_emit_plan(&invocation, "let value = 1; _ = value; !{}", 1);
+            mixed_generated_source_emit_plan(&invocation, "let value = 1; _ = value; !()", 1);
         let root_report = execute_build_plan(&changed_root, &invocation).unwrap();
         assert_eq!(
             cache_outcome(&root_report, "generate-root"),
@@ -4514,7 +4514,7 @@ mod tests {
         );
 
         let changed_import =
-            mixed_generated_source_emit_plan(&invocation, "let value = 1; _ = value; !{}", 2);
+            mixed_generated_source_emit_plan(&invocation, "let value = 1; _ = value; !()", 2);
         let import_report = execute_build_plan(&changed_import, &invocation).unwrap();
         assert_eq!(
             cache_outcome(&import_report, "generate-root"),
@@ -4539,7 +4539,7 @@ mod tests {
 
         fs::write(
             stable_path,
-            freestanding_source("let value = 2; _ = value; !{}"),
+            freestanding_source("let value = 2; _ = value; !()"),
         )
         .unwrap();
         let source_report = execute_build_plan(&changed_import, &invocation).unwrap();
@@ -4566,7 +4566,7 @@ mod tests {
     #[test]
     fn compiler_emit_cache_retires_corrupt_records_and_driver_references() {
         let invocation = test_invocation();
-        write_compiler_check_source(&invocation, &freestanding_source("!{}"));
+        write_compiler_check_source(&invocation, &freestanding_source("!()"));
         let plan = compiler_emit_plan(
             &invocation,
             OptimizationMode::O2,
@@ -4620,7 +4620,7 @@ mod tests {
     #[test]
     fn compiler_emit_cache_reuses_relocated_dynamic_source_closure() {
         let first = test_invocation();
-        write_compiler_check_source(&first, &freestanding_source("!{}"));
+        write_compiler_check_source(&first, &freestanding_source("!()"));
         execute_build_plan(
             &compiler_emit_plan(
                 &first,
@@ -4634,7 +4634,7 @@ mod tests {
 
         let mut relocated = test_invocation();
         relocated.cache_dir = first.cache_dir.clone();
-        write_compiler_check_source(&relocated, &freestanding_source("!{}"));
+        write_compiler_check_source(&relocated, &freestanding_source("!()"));
         let report = execute_build_plan(
             &compiler_emit_plan(
                 &relocated,
@@ -4658,7 +4658,7 @@ mod tests {
         let invocation = test_invocation();
         write_compiler_check_source(
             &invocation,
-            &format!("using std::build;\n{}", freestanding_source("!{}")),
+            &format!("using std::build;\n{}", freestanding_source("!()")),
         );
         let plan = compiler_emit_plan(
             &invocation,

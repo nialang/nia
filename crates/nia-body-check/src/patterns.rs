@@ -73,7 +73,7 @@ impl<'a> BodyChecker<'a> {
         }
 
         self.check_pattern_switch_exhaustive(switch.target.span, target_ty, &coverage);
-        result_ty.unwrap_or_else(|| self.void())
+        result_ty.unwrap_or_else(|| self.unit())
     }
 
     pub(crate) fn check_if_pattern_expr(
@@ -104,16 +104,16 @@ impl<'a> BodyChecker<'a> {
 
         let Some(else_branch) = &if_pattern.else_branch else {
             if self.pattern_coverage_covers_type(target_ty, &coverage) {
-                return result_ty.unwrap_or_else(|| self.void());
+                return result_ty.unwrap_or_else(|| self.unit());
             }
-            if expected.is_some_and(|expected| !self.is_void(expected)) {
+            if expected.is_some_and(|expected| !self.is_unit(expected)) {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     if_pattern.target.span,
                     "non-exhaustive if pattern requires an `else` branch",
                 ));
             }
-            return self.void();
+            return self.unit();
         };
         let else_ty = self.check_expr_with_expected(else_branch, result_ty);
         if let Some(expected) = result_ty {
@@ -907,7 +907,7 @@ impl<'a> BodyChecker<'a> {
                 ) {
                     self.never()
                 } else {
-                    self.void()
+                    self.unit()
                 }
             }
             nia_ast::SwitchArmBody::Block(block) => self.check_block_with_expected(block, expected),

@@ -14,7 +14,7 @@ fn emit_exe_reports_private_entry_main_called_by_freestanding_start() {
         r#"
 using std::process;
 
-fn main(init: process::Init) process::ExitCode!void {
+fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::exit(7)!
 }
@@ -62,7 +62,7 @@ pub module builtin;
 pub type AsmConfig;
 
 @[builtin("asm")]
-pub fn asm(config: AsmConfig) void;
+pub fn asm(config: AsmConfig) ();
 "#,
     )
     .expect("write custom std builtin");
@@ -98,7 +98,7 @@ pub(pkg) module x86_64;
         r#"
 using entry;
 
-fn syscall_exit(code: i32) void {
+fn syscall_exit(code: i32) () {
     std::builtin::asm({
         code:
             b\\syscall
@@ -113,7 +113,7 @@ fn syscall_exit(code: i32) void {
 }
 
 @[naked]
-pub extern fn _start() void {
+pub extern fn _start() () {
     std::builtin::asm({
         code:
             b\\call custom_start
@@ -125,7 +125,7 @@ pub extern fn _start() void {
     loop {}
 }
 
-extern fn custom_start() void {
+extern fn custom_start() () {
     syscall_exit(entry::mymain());
     loop {}
 }
@@ -173,7 +173,7 @@ fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::exit(9)!
 }
@@ -235,7 +235,7 @@ fn emit_exe_can_emit_optimization_report_to_stderr() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::exit(5)!
 }

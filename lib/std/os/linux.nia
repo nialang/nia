@@ -94,7 +94,7 @@ pub fn create_dir_at_beneath(
     parent: &u8,
     name: &u8,
     permissions: u32,
-) Errno!void {
+) Errno!() {
     fd::create_dir_at_beneath(dir, parent, name, permissions)
 }
 
@@ -103,7 +103,7 @@ pub fn delete_at_beneath(
     parent: &u8,
     name: &u8,
     directory: bool,
-) Errno!void {
+) Errno!() {
     fd::delete_at_beneath(dir, parent, name, directory)
 }
 
@@ -114,7 +114,7 @@ pub fn rename_at_beneath(
     new_dir: FileDescriptor,
     new_parent: &u8,
     new_name: &u8,
-) Errno!void {
+) Errno!() {
     fd::rename_at_beneath(
         old_dir,
         old_parent,
@@ -141,11 +141,11 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     memory::map_pages(len, align)
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!void {
+pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!() {
     memory::unmap_pages(ptr, len)
 }
 
-pub fn random(bytes: &mut [u8]) Errno!void {
+pub fn random(bytes: &mut [u8]) Errno!() {
     random_impl::random(bytes)
 }
 
@@ -165,14 +165,14 @@ pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
     process::try_wait(pid)
 }
 
-pub fn kill(pid: ProcessId) Errno!void {
+pub fn kill(pid: ProcessId) Errno!() {
     process::kill_with(pid, types::sigterm)
 }
 
-pub fn kill_with(pid: ProcessId, signal: i32) Errno!void {
+pub fn kill_with(pid: ProcessId, signal: i32) Errno!() {
     process::kill_with(pid, signal)
 }
 
-pub fn exit(code: i32) void {
+pub fn exit(code: i32) () {
     process::exit(code);
 }

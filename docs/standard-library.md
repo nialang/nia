@@ -355,7 +355,7 @@ which belongs in this allocation-free baseline.
 
 Mutable slices expose `copyFrom(source) -> usize`. It copies the common prefix,
 handles overlapping source and destination ranges, and returns the number of
-elements copied. Nia rejects an implicitly discarded non-`void` result, so a
+elements copied. Nia rejects an implicitly discarded non-`()` result, so a
 caller either uses the count or writes an explicit `_ =` where surrounding
 bounds already prove an exact copy. The operation is a shallow value copy; it
 does not invoke a cloning or cleanup protocol for element-owned resources.

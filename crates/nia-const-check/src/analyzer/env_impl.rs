@@ -1101,7 +1101,7 @@ fn const_union_scalar_type(primitive: PrimitiveTy, pointer_width: u32) -> Option
         PrimitiveTy::F64 => Some(ConstScalarType::Float64),
         PrimitiveTy::Bool => Some(ConstScalarType::Bool),
         PrimitiveTy::Char => Some(ConstScalarType::Char),
-        PrimitiveTy::Void | PrimitiveTy::Never => None,
+        PrimitiveTy::Never => None,
         primitive => primitive_integer_layout(primitive, pointer_width)
             .map(|(bits, signed)| ConstScalarType::Integer { bits, signed }),
     }

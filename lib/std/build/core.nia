@@ -117,7 +117,7 @@ extend BuildPaths {
         !paths
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.toolchainResourceRoot.deinit(allocator).asBuildError(Operation::Release, Subject::ToolchainResourceRoot));
         rememberCleanupError(&mut firstError, self.toolchainExecutable.deinit(allocator).asBuildError(Operation::Release, Subject::ToolchainExecutable));
@@ -207,7 +207,7 @@ extend Build {
         }
     }
 
-    pub fn deinit(&mut self) Error!void {
+    pub fn deinit(&mut self) Error!() {
         let mut firstError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
@@ -676,7 +676,7 @@ extend Build {
         !result
     }
 
-    pub fn dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
+    pub fn dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!() {
         self.validateStepHandle(step).?;
         self.validateStepHandle(dependency).?;
         if step.index() == dependency.index() {
@@ -687,7 +687,7 @@ extend Build {
         }
         for &edge in self.dependencies.iter() {
             if edge.step.index() == step.index() and edge.dependency.index() == dependency.index() {
-                return !{};
+                return !();
             }
         }
         self.dependencies.push(
@@ -695,14 +695,14 @@ extend Build {
             StepDependency::init(step, dependency),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
         self.planValidated = false;
-        !{}
+        !()
     }
 
-    pub fn setDefaultStep(&mut self, step: StepHandle) Error!void {
+    pub fn setDefaultStep(&mut self, step: StepHandle) Error!() {
         self.validateStepHandle(step).?;
         self.defaultStep = ?step;
         self.planValidated = false;
-        !{}
+        !()
     }
 
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
@@ -976,9 +976,9 @@ extend Build {
         }
     }
 
-    pub fn validatePlan(&mut self) Error!void {
+    pub fn validatePlan(&mut self) Error!() {
         if self.planValidated {
-            return !{};
+            return !();
         }
         self.selectedStep = null;
         switch self.requestedStep() {
@@ -1009,10 +1009,10 @@ extend Build {
         self.ensureGeneratedModuleDependencies().?;
         self.validateDependencyGraph().?;
         self.planValidated = true;
-        !{}
+        !()
     }
 
-    fn ensureGeneratedModuleDependencies(&mut self) Error!void {
+    fn ensureGeneratedModuleDependencies(&mut self) Error!() {
         let mut missingCount: usize = 0;
         let mut index: usize = 0;
         while index < self.steps.len() {
@@ -1028,7 +1028,7 @@ extend Build {
             self.addGeneratedDependenciesForStep(index).?;
             index += 1;
         }
-        !{}
+        !()
     }
 
     fn compilerModuleIndexForStep(&self, index: usize) ?usize {
@@ -1085,10 +1085,10 @@ extend Build {
         !count
     }
 
-    fn addGeneratedDependenciesForStep(&mut self, index: usize) Error!void {
+    fn addGeneratedDependenciesForStep(&mut self, index: usize) Error!() {
         let moduleIndex = switch self.compilerModuleIndexForStep(index) {
             ?moduleIndex => moduleIndex,
-            null => return !{},
+            null => return !(),
         };
         let moduleRecord = self.modules.asSlice()[moduleIndex];
         if moduleRecord.sourceRoot == ModuleSourceRoot::Build {
@@ -1112,7 +1112,7 @@ extend Build {
             }
             importIndex += 1;
         }
-        !{}
+        !()
     }
 
     fn requireGeneratedSourceProducer(
@@ -1178,7 +1178,7 @@ extend Build {
         found
     }
 
-    fn validateDependencyGraph(&mut self) Error!void {
+    fn validateDependencyGraph(&mut self) Error!() {
         let mut indegree = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
@@ -1236,10 +1236,10 @@ extend Build {
                 subject: Subject::Dependencies,
             }!;
         }
-        !{}
+        !()
     }
 
-    pub fn reportError(&mut self, error: Error) Error!void {
+    pub fn reportError(&mut self, error: Error) Error!() {
         let mut buffer: [1024]u8 = [_]u8[0; 1024];
         let mut stderr = io::FileWriter::stderr(&mut buffer);
         stderr.print(
@@ -1330,7 +1330,7 @@ extend Build {
         null
     }
 
-    fn rollbackLastStep(&mut self) Error!void {
+    fn rollbackLastStep(&mut self) Error!() {
         switch self.steps.pop() {
             ?step => {
                 let mut owned = step;
@@ -1343,37 +1343,37 @@ extend Build {
         }
     }
 
-    fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!void {
+    fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!() {
         if handle.ownerId() != self.ownerId or handle.index() >= self.executables.len() {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Executable(handle.index()),
             }!;
         }
-        !{}
+        !()
     }
 
-    fn validateObjectHandle(&self, handle: ObjectHandle) Error!void {
+    fn validateObjectHandle(&self, handle: ObjectHandle) Error!() {
         if handle.ownerId() != self.ownerId or handle.index() >= self.objects.len() {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Object(handle.index()),
             }!;
         }
-        !{}
+        !()
     }
 
-    fn validateStaticArchiveHandle(&self, handle: StaticArchiveHandle) Error!void {
+    fn validateStaticArchiveHandle(&self, handle: StaticArchiveHandle) Error!() {
         if handle.ownerId() != self.ownerId or handle.index() >= self.staticArchives.len() {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::StaticArchive(handle.index()),
             }!;
         }
-        !{}
+        !()
     }
 
-    fn validatePackageHandle(&self, handle: PackageHandle) Error!void {
+    fn validatePackageHandle(&self, handle: PackageHandle) Error!() {
         if handle.ownerId != self.ownerId
             or handle.index > self.packages.len()
         {
@@ -1382,30 +1382,30 @@ extend Build {
                 subject: Subject::Packages,
             }!;
         }
-        !{}
+        !()
     }
 
-    fn validateModuleHandle(&self, handle: ModuleHandle) Error!void {
+    fn validateModuleHandle(&self, handle: ModuleHandle) Error!() {
         if handle.ownerId() != self.ownerId or handle.index() >= self.modules.len() {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Module(handle.index()),
             }!;
         }
-        !{}
+        !()
     }
 
-    fn validateStepHandle(&self, handle: StepHandle) Error!void {
+    fn validateStepHandle(&self, handle: StepHandle) Error!() {
         if handle.ownerId() != self.ownerId or handle.index() >= self.steps.len() {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(handle.index()),
             }!;
         }
-        !{}
+        !()
     }
 
-    fn reportUnknownStep(&mut self, step: &[char]) Error!void {
+    fn reportUnknownStep(&mut self, step: &[char]) Error!() {
         let mut buffer: [256]u8 = [_]u8[0; 256];
         let mut stderr = io::FileWriter::stderr(&mut buffer);
         stderr.print(&"unknown build step `{}`\n", &[step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
@@ -1520,7 +1520,7 @@ extend UncacheableStep {
         !{ description: owned }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         self.description.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
     }
 }
@@ -1546,7 +1546,7 @@ extend GeneratedFileStep {
         !generated
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.contents.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)));
         rememberCleanupError(&mut firstError, self.output.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)));
@@ -1605,7 +1605,7 @@ extend InstallExecutableStep {
         }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         self.destination.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
     }
 }
@@ -1627,7 +1627,7 @@ extend InstallStaticArchiveStep {
         }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         self.destination.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
     }
 }
@@ -1671,7 +1671,7 @@ extend RunExecutableStep {
         !run
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
@@ -1878,12 +1878,12 @@ extend OwnedCommandArgument {
         !{ kind: argument.kind, payload: { value: value }, package: argument.package }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         if self.kind == CommandArgumentKind::ArtifactInput
             or self.kind == CommandArgumentKind::ObjectInput
             or self.kind == CommandArgumentKind::StaticArchiveInput
         {
-            return !{};
+            return !();
         }
         self.payload.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
     }
@@ -1911,7 +1911,7 @@ extend OwnedCommandEnvironmentInput {
         !{ name: name, value: value }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(
             &mut firstError,
@@ -1992,7 +1992,7 @@ extend ExternalCommandStep {
         !command
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
         let mut environmentIndex = self.environment.len();
         while environmentIndex != 0 {
@@ -2047,7 +2047,7 @@ extend Step {
         }
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         if self.kind == StepKind::Uncacheable {
             rememberCleanupError(&mut firstError, self.payload.uncacheable.deinit(allocator, self.index));
@@ -2072,7 +2072,7 @@ extend Step {
     }
 }
 
-fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!void {
+fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
     switch arguments {
         ?values => {
             for &value in values.iter() {
@@ -2086,10 +2086,10 @@ fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!void {
         },
         null => {},
     }
-    !{}
+    !()
 }
 
-fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!void {
+fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!() {
     if options.program.len() == 0
         or runArgumentContainsNul(options.program)
         or not isValidPackagePath(options.workingDirectory.text(), true)
@@ -2180,10 +2180,10 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
     if options.cachePolicy == CommandCachePolicy::DeclaredInputs and not hasOutput {
         return invalidStep(index);
     }
-    !{}
+    !()
 }
 
-fn invalidStep(index: usize) Error!void {
+fn invalidStep(index: usize) Error!() {
     Error::Invalid {
         operation: Operation::Validate,
         subject: Subject::Step(index),
@@ -2330,7 +2330,7 @@ extend Package {
         !package
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.root.deinit(allocator).asBuildError(Operation::Release, Subject::Package(self.index)));
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Package(self.index)));
@@ -2369,7 +2369,7 @@ extend Module {
         !moduleRecord
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         let mut index = self.imports.len();
         while index != 0 {
@@ -2443,7 +2443,7 @@ extend OwnedModuleImport {
         !owned
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.path.deinit(allocator).asBuildError(Operation::Release, Subject::ModuleImport(self.index)));
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::ModuleImport(self.index)));
@@ -2491,7 +2491,7 @@ extend ExecutableTarget {
         !target
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.staticArchives.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
         rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
@@ -2524,7 +2524,7 @@ extend ObjectTarget {
         !target
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::Object(self.index)));
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Object(self.index)));
@@ -2556,7 +2556,7 @@ extend StaticArchiveTarget {
         !target
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::StaticArchive(self.index)));
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::StaticArchive(self.index)));
@@ -2665,7 +2665,7 @@ extend TargetStorage {
         )
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!void {
+    fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError(Operation::Release, subject));
         rememberCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError(Operation::Release, subject));
@@ -2859,7 +2859,7 @@ fn isValidBuildPath(text: &[char]) bool {
     true
 }
 
-fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
+fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
     switch imports {
         ?items => {
             let mut index: usize = 0;
@@ -2893,7 +2893,7 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!void {
         },
         null => {},
     }
-    !{}
+    !()
 }
 
 fn cloneModuleImports(
@@ -2932,7 +2932,7 @@ fn cloneModuleImports(
 fn deinitModuleImports(
     imports: &mut collections::ArrayList[OwnedModuleImport],
     allocator: &mut mem::Allocator,
-) Error!void {
+) Error!() {
     let mut firstError: ?Error = null;
     let mut index = imports.len();
     while index != 0 {
@@ -2964,7 +2964,7 @@ fn isValidModuleImportName(name: &[char]) bool {
     true
 }
 
-fn rememberCleanupError(firstError: &mut ?Error, result: Error!void) void {
+fn rememberCleanupError(firstError: &mut ?Error, result: Error!()) () {
     switch result {
         !ok => {
             _ = ok;
@@ -2977,10 +2977,10 @@ fn rememberCleanupError(firstError: &mut ?Error, result: Error!void) void {
     }
 }
 
-fn cleanupResult(firstError: ?Error) Error!void {
+fn cleanupResult(firstError: ?Error) Error!() {
     if firstError is ?err {
         err!
     } else {
-        !{}
+        !()
     }
 }

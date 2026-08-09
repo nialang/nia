@@ -6,7 +6,7 @@ using types::{Block, Error, Layout};
 pub trait Allocator {
     fn alloc(&mut self, layout: Layout) Error!Block;
 
-    fn free(&mut self, block: Block) Error!void;
+    fn free(&mut self, block: Block) Error!();
 
     fn resize(&mut self, block: Block, newLayout: Layout) bool {
         _ = self;
@@ -73,7 +73,7 @@ extend Allocator {
         }
     }
 
-    pub fn freeSlice[T](&mut self, slice: &mut [T]) Error!void
+    pub fn freeSlice[T](&mut self, slice: &mut [T]) Error!()
     where T: Sized
     {
         let layout = Layout::array[T](slice.len()).?;
@@ -89,7 +89,7 @@ where T: Sized
 }
 
 extend Block {
-    fn copyPrefixTo(&self, to: Block) void {
+    fn copyPrefixTo(&self, to: Block) () {
         let mut count = self.size();
         if count > to.size() {
             count = to.size();

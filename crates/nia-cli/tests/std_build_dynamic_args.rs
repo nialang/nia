@@ -14,9 +14,9 @@ fn build_accepts_more_than_legacy_import_and_argv_limits() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     )
@@ -30,7 +30,7 @@ using std::build;
 using std::fs;
 using std::string;
 
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     let imports = [
 "#,
     );

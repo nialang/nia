@@ -65,10 +65,10 @@ extend PageAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) types::Error!void {
+    pub fn free(&mut self, block: Block) types::Error!() {
         _ = self;
         if block.layout().isEmpty() {
-            !{}
+            !()
         } else {
             os::unmapPages(block.ptr(), block.size()).asPageAllocatorError()
         }

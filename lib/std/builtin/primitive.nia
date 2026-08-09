@@ -48,9 +48,6 @@ pub type bool;
 @[builtin("char")]
 pub type char;
 
-@[builtin("void")]
-pub type void;
-
 @[builtin("never")]
 pub type never;
 

@@ -60,7 +60,7 @@ extend Build {
         }
     }
 
-    pub fn step(&mut self, name: &[char], run: types::StepFn) void {
+    pub fn step(&mut self, name: &[char], run: types::StepFn) () {
         self.registered = types::Step::init(name, run);
     }
 

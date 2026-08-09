@@ -92,7 +92,7 @@ pub fn primitive_layout(primitive: PrimitiveTy, target: TargetDataLayout) -> Typ
         PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::F64 => (8, 8),
         PrimitiveTy::I128 | PrimitiveTy::U128 => (16, 16),
         PrimitiveTy::Isize | PrimitiveTy::Usize => (target.pointer_size, target.pointer_align),
-        PrimitiveTy::Void | PrimitiveTy::Never => (0, 1),
+        PrimitiveTy::Never => (0, 1),
     };
     TypeLayout { size, align }
 }

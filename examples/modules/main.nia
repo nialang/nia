@@ -14,7 +14,7 @@ using entry::facade as api;
 using api::{Point, add as plus, Color::Green};
 using process::{Init, ExitCode, exit};
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     _ = init;
 
     let mut point: Point = { x: 3, y: 4 };
@@ -33,5 +33,5 @@ pub fn main(init: Init) ExitCode!void {
         &[&sum, &len2, &color, &diff],
     ).exit().?;
 
-    !{}
+    !()
 }

@@ -458,7 +458,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn primitive_layout(&self, primitive: PrimitiveTy) -> Option<TypeLayout> {
         Some(match primitive {
-            PrimitiveTy::Void | PrimitiveTy::Never => TypeLayout { size: 0, align: 1 },
+            PrimitiveTy::Never => TypeLayout { size: 0, align: 1 },
             PrimitiveTy::Bool | PrimitiveTy::I8 | PrimitiveTy::U8 => {
                 TypeLayout { size: 1, align: 1 }
             }
@@ -498,7 +498,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             PrimitiveTy::I128 | PrimitiveTy::U128 => Ok(self.context.i128_type()),
             PrimitiveTy::Bool => Ok(self.context.bool_type()),
-            PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Void | PrimitiveTy::Never => {
+            PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => {
                 Err(self.error(span, "expected integer primitive type"))
             }
         }

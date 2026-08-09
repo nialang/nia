@@ -5,12 +5,12 @@ using std::mem;
 using std::process;
 using process::{Init, ExitCode};
 
-fn fillScores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!void {
+fn fillScores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!() {
     // allocator is already a handle. Pass it on directly.
     list.push(allocator, 8).?;
     list.push(allocator, 13).?;
     list.push(allocator, 21).?;
-    !{}
+    !()
 }
 
 fn sum(values: &[i32]) i32 {
@@ -21,7 +21,7 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-fn run(init: Init) ExitCode!void {
+fn run(init: Init) ExitCode!() {
     _ = init;
 
     let mut page = mem::PageAllocator::init();
@@ -65,10 +65,10 @@ fn run(init: Init) ExitCode!void {
         ],
     ).exit().?;
 
-    !{}
+    !()
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     run(init).?;
-    !{}
+    !()
 }

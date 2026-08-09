@@ -22,7 +22,7 @@ extend ArenaAllocator {
         { child: child, usedList: null, freeList: null }
     }
 
-    pub fn deinit(&mut self) Error!void {
+    pub fn deinit(&mut self) Error!() {
         let used = self.usedList;
         let free = self.freeList;
         self.usedList = null;
@@ -30,9 +30,9 @@ extend ArenaAllocator {
         self.freeDetachedLists(used, free)
     }
 
-    pub fn reset(&mut self) Error!void {
+    pub fn reset(&mut self) Error!() {
         self.moveUsedToFreeList();
-        !{}
+        !()
     }
 
     pub fn capacity(&self) usize {
@@ -157,9 +157,9 @@ extend ArenaAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) Error!void {
+    pub fn free(&mut self, block: Block) Error!() {
         if block.isEmpty() {
-            return !{};
+            return !();
         }
         let mut first = switch self.usedList {
             ?chunk => {
@@ -175,7 +175,7 @@ extend ArenaAllocator : Allocator {
         if chunkOwnsBlock(first, block) and isLastAllocation(first, block) {
             first.endIndex -= block.size();
         }
-        !{}
+        !()
     }
 }
 
@@ -358,7 +358,7 @@ extend ArenaAllocator {
         false
     }
 
-    fn moveUsedToFreeList(&mut self) void {
+    fn moveUsedToFreeList(&mut self) () {
         let mut current = self.usedList;
         self.usedList = null;
         while true {
@@ -377,7 +377,7 @@ extend ArenaAllocator {
         }
     }
 
-    fn freeDetachedLists(&mut self, first: ?&mut ArenaChunk, second: ?&mut ArenaChunk) Error!void {
+    fn freeDetachedLists(&mut self, first: ?&mut ArenaChunk, second: ?&mut ArenaChunk) Error!() {
         let mut failed = false;
         let mut firstError = Error::Invalid;
 
@@ -406,11 +406,11 @@ extend ArenaAllocator {
         if failed {
             firstError!
         } else {
-            !{}
+            !()
         }
     }
 
-    fn freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!void {
+    fn freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!() {
         let mut current = first;
         let mut failed = false;
         let mut firstError = Error::Invalid;
@@ -440,11 +440,11 @@ extend ArenaAllocator {
                     if failed {
                         return firstError!;
                     }
-                    return !{};
+                    return !();
                 },
             }
         }
-        !{}
+        !()
     }
 
     fn listCapacity(&self, first: ?&mut ArenaChunk) usize {

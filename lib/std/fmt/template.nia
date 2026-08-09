@@ -12,7 +12,7 @@ pub fn print_unchecked[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
-) core::Error!void
+) core::Error!()
 where W: io::Writer
 {
     print_template(writer, template, args, false)
@@ -241,7 +241,7 @@ fn print_template[W](
     template: &[char],
     args: &[&core::Format],
     checked_args: bool,
-) core::Error!void
+) core::Error!()
 where W: io::Writer
 {
     let mut formatter = core::Formatter::init(writer);
@@ -292,14 +292,14 @@ where W: io::Writer
     if checked_args and arg_index != args.len() {
         return core::Error::ExtraArgument!;
     }
-    !{}
+    !()
 }
 
 pub fn print_checked[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
-) core::Error!void
+) core::Error!()
 where W: io::Writer
 {
     print_template(writer, template, args, true)
@@ -312,7 +312,7 @@ where W: io::Writer
         &mut self,
         template: &[char],
         args: &[&core::Format],
-    ) core::Error!void {
+    ) core::Error!() {
         print_checked(self, template, args)
     }
 }

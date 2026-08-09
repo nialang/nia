@@ -1390,7 +1390,6 @@ fn primitive_for_symbol(name: SymbolId) -> Option<PrimitiveTy> {
         known::F64 => PrimitiveTy::F64,
         known::BOOL => PrimitiveTy::Bool,
         known::CHAR => PrimitiveTy::Char,
-        known::VOID => PrimitiveTy::Void,
         known::NEVER => PrimitiveTy::Never,
         _ => return None,
     })

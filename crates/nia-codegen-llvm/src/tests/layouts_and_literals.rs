@@ -367,7 +367,7 @@ struct Pair {
     b: i32,
 }
 
-fn cleanup(value: i32) void {
+fn cleanup(value: i32) () {
     _ = log(value);
 }
 
@@ -469,7 +469,7 @@ struct Pair {
     b: i32,
 }
 
-fn cleanup(value: i32) void {
+fn cleanup(value: i32) () {
     _ = log(value);
 }
 

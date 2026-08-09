@@ -207,7 +207,7 @@ const importedGenericConstOnlyValue: u32 = helper::readPointer[u32](
     helper::passPointer[u32](helper::constOnlyPointerSlot),
 );
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let runtimeWidth = Width::fromValue(14);
     let runtimeReferencedScore = & referencedScore;
@@ -334,5 +334,5 @@ pub fn main(init: process::Init) process::ExitCode!void {
         or runtimeImportedGenericPointer.pointer == &helper::globalPointerValue {
         return process::exit(37)!;
     }
-    !{}
+    !()
 }

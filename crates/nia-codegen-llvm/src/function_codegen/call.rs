@@ -152,7 +152,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             AbiReturn::Void | AbiReturn::Never => {
                 let _ = self.emit_call_raw_with_out(expr, callee, args, None)?;
-                Err(self.error(expr.span, "void call cannot be used as a value"))
+                Err(self.error(expr.span, "unit call cannot be used as a value"))
             }
         }
     }

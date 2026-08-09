@@ -1171,7 +1171,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => 32,
             PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::Isize | PrimitiveTy::Usize => 64,
             PrimitiveTy::I128 | PrimitiveTy::U128 => 128,
-            PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Void | PrimitiveTy::Never => {
+            PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => {
                 return Err(self.error(span, "expected integer type"));
             }
         })
@@ -1193,7 +1193,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             PrimitiveTy::I128 | PrimitiveTy::U128 => Ok(self.module.context.i128_type()),
             PrimitiveTy::Bool => Ok(self.module.context.bool_type()),
-            PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Void | PrimitiveTy::Never => {
+            PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => {
                 Err(self.error(span, "expected integer primitive type"))
             }
         }
@@ -1222,11 +1222,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         )
     }
 
-    fn is_void(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.module.ty_kind(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Void))
-        )
+    fn is_unit(&self, ty: InternedTyId) -> bool {
+        self.module.ty_kind(ty).is_some_and(TyKind::is_unit)
     }
 
     fn is_never(&self, ty: InternedTyId) -> bool {

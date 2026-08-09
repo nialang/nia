@@ -45,7 +45,7 @@ extend PlanEncoder {
         }
     }
 
-    fn deinit(&mut self) Error!void {
+    fn deinit(&mut self) Error!() {
         self.bytes.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan)
     }
 
@@ -53,21 +53,21 @@ extend PlanEncoder {
         self.bytes.asSlice()
     }
 
-    fn writeBytes(&mut self, value: &[u8]) Error!void {
+    fn writeBytes(&mut self, value: &[u8]) Error!() {
         if value.len() > maxPlanBytes - self.bytes.len() {
             return invalidPlan();
         }
         self.bytes.appendSlice(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
     }
 
-    fn writeU8(&mut self, value: u8) Error!void {
+    fn writeU8(&mut self, value: u8) Error!() {
         if self.bytes.len() == maxPlanBytes {
             return invalidPlan();
         }
         self.bytes.push(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
     }
 
-    fn writeU32(&mut self, value: u32) Error!void {
+    fn writeU32(&mut self, value: u32) Error!() {
         let encoded: [4]u8 = [
             value as u8,
             (value >> 8) as u8,
@@ -77,27 +77,27 @@ extend PlanEncoder {
         self.writeBytes(&encoded)
     }
 
-    fn writeCount(&mut self, value: usize) Error!void {
+    fn writeCount(&mut self, value: usize) Error!() {
         if value > maxItems {
             return invalidPlan();
         }
         self.writeU32(value as u32)
     }
 
-    fn writeString(&mut self, value: &[char]) Error!void {
+    fn writeString(&mut self, value: &[char]) Error!() {
         let byteLen = utf8Length(value).?;
         self.writeU32(byteLen as u32).?;
         for &ch in value.iter() {
             self.writeBytes(ch.encodeUtf8().bytes()).?;
         }
-        !{}
+        !()
     }
 
-    fn writeRootPackage(&mut self) Error!void {
+    fn writeRootPackage(&mut self) Error!() {
         self.writeString(&"root")
     }
 
-    fn writePackageKey(&mut self, package: PackageHandle, packages: &[types::Package]) Error!void {
+    fn writePackageKey(&mut self, package: PackageHandle, packages: &[types::Package]) Error!() {
         if packageIndex(package) == 0 {
             return self.writeRootPackage();
         }
@@ -108,42 +108,42 @@ extend PlanEncoder {
         self.writeString(packages[index].name.text())
     }
 
-    fn writeNodeKey(&mut self, package: PackageHandle, name: &[char], packages: &[types::Package]) Error!void {
+    fn writeNodeKey(&mut self, package: PackageHandle, name: &[char], packages: &[types::Package]) Error!() {
         self.writePackageKey(package, packages).?;
         self.writeString(name)
     }
 
-    fn writePackagePath(&mut self, package: PackageHandle, path: fs::PathView, packages: &[types::Package]) Error!void {
+    fn writePackagePath(&mut self, package: PackageHandle, path: fs::PathView, packages: &[types::Package]) Error!() {
         self.writeU8(0).?;
         self.writePackageKey(package, packages).?;
         self.writeLogicalPathText(path.text())
     }
 
-    fn writeBuildPath(&mut self, path: &[char]) Error!void {
+    fn writeBuildPath(&mut self, path: &[char]) Error!() {
         self.writeU8(1).?;
         self.writeLogicalPathText(path)
     }
 
-    fn writeArtifactPath(&mut self, name: &[char], packages: &[types::Package]) Error!void {
+    fn writeArtifactPath(&mut self, name: &[char], packages: &[types::Package]) Error!() {
         self.writeU8(4).?;
         self.writeNodeKey(PackageHandle::init(0, 0), name, packages).?;
         self.writeString(&"")
     }
 
-    fn writePackageRootPath(&mut self, packages: &[types::Package]) Error!void {
+    fn writePackageRootPath(&mut self, packages: &[types::Package]) Error!() {
         self.writeU8(0).?;
         self.writePackageKey(PackageHandle::init(0, 0), packages).?;
         self.writeString(&"")
     }
 
-    fn writeLogicalPathText(&mut self, path: &[char]) Error!void {
+    fn writeLogicalPathText(&mut self, path: &[char]) Error!() {
         if not isValidLogicalPath(path) {
             return invalidPlan();
         }
         self.writeString(path)
     }
 
-    fn writeTarget(&mut self, target: TargetView) Error!void {
+    fn writeTarget(&mut self, target: TargetView) Error!() {
         if target.arch().len() == 0
             or target.os().len() == 0
             or containsNul(target.arch())
@@ -171,7 +171,7 @@ extend PlanEncoder {
         self.writeU32(target.pointerWidth())
     }
 
-    fn writeOptimization(&mut self, optimization: OptimizationMode) Error!void {
+    fn writeOptimization(&mut self, optimization: OptimizationMode) Error!() {
         self.writeU8(switch optimization {
             OptimizationMode::O0 => 0,
             OptimizationMode::O1 => 1,
@@ -183,7 +183,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!void {
+    fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
         self.writeU8(switch resourceClass {
             ActionResourceClass::Conservative => 0,
             ActionResourceClass::Cpu => 1,
@@ -192,7 +192,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeCommandEnvironmentPolicy(&mut self, policy: CommandEnvironmentPolicy) Error!void {
+    fn writeCommandEnvironmentPolicy(&mut self, policy: CommandEnvironmentPolicy) Error!() {
         self.writeU8(switch policy {
             CommandEnvironmentPolicy::Inherit => 0,
             CommandEnvironmentPolicy::Clear => 1,
@@ -200,7 +200,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeCommandCachePolicy(&mut self, policy: CommandCachePolicy) Error!void {
+    fn writeCommandCachePolicy(&mut self, policy: CommandCachePolicy) Error!() {
         self.writeU8(switch policy {
             CommandCachePolicy::Uncacheable => 0,
             CommandCachePolicy::DeclaredInputs => 1,
@@ -208,7 +208,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!void {
+    fn writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!() {
         self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
         switch moduleRecord.sourceRoot {
             ModuleSourceRoot::Package => self.writePackagePath(moduleRecord.package, moduleRecord.rootSource.view(), packages).?,
@@ -225,10 +225,10 @@ extend PlanEncoder {
                 _ => return invalidPlan(),
             }
         }
-        !{}
+        !()
     }
 
-    fn writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module], packages: &[types::Package]) Error!void {
+    fn writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module], packages: &[types::Package]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
         self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
         self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
@@ -237,7 +237,7 @@ extend PlanEncoder {
         self.writeU8(1)
     }
 
-    fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module], packages: &[types::Package]) Error!void {
+    fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module], packages: &[types::Package]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
         self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
         self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
@@ -246,7 +246,7 @@ extend PlanEncoder {
         self.writeU8(0)
     }
 
-    fn writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module], packages: &[types::Package]) Error!void {
+    fn writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module], packages: &[types::Package]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
         self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
         self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
@@ -265,7 +265,7 @@ extend PlanEncoder {
         hostTarget: TargetView,
         artifactTarget: TargetView,
         packages: &[types::Package],
-    ) Error!void {
+    ) Error!() {
         self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
         switch step.kind {
             StepKind::Aggregate => self.writeU8(4),
@@ -297,7 +297,7 @@ extend PlanEncoder {
                     let archiveTarget = staticArchives[archive.index];
                     self.writeNodeKey(PackageHandle::init(0, 0), archiveTarget.name.text(), packages).?;
                 }
-                !{}
+                !()
             },
             StepKind::EmitObject => {
                 let target = objects[step.payload.object.target.index];
@@ -458,13 +458,13 @@ extend PlanEncoder {
                         self.writeBuildPath(argument.payload.value.text()).?;
                     }
                 }
-                !{}
+                !()
             },
             _ => invalidPlan(),
         }
     }
 
-    fn writeStep(&mut self, build: &Build, step: Step, packages: &[types::Package]) Error!void {
+    fn writeStep(&mut self, build: &Build, step: Step, packages: &[types::Package]) Error!() {
         self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
         self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
         let mut dependencyCount: usize = 0;
@@ -480,10 +480,10 @@ extend PlanEncoder {
                 self.writeNodeKey(PackageHandle::init(0, 0), dependency.name.text(), packages).?;
             }
         }
-        !{}
+        !()
     }
 
-    fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle, packages: &[types::Package]) Error!void {
+    fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle, packages: &[types::Package]) Error!() {
         switch handle {
             ?step => {
                 self.writeU8(1).?;
@@ -493,7 +493,7 @@ extend PlanEncoder {
         }
     }
 
-    fn writeBuild(&mut self, build: &Build) Error!void {
+    fn writeBuild(&mut self, build: &Build) Error!() {
         self.writeBytes(&b"NIA-PLN\0"[..]).?;
         self.writeU32(build.planSchemaVersion).?;
         self.writeRootPackage().?;
@@ -555,7 +555,7 @@ fn targetForRole(
 }
 
 extend Build {
-    pub fn writePlanDraft(&mut self, path: fs::PathView) Error!void {
+    pub fn writePlanDraft(&mut self, path: fs::PathView) Error!() {
         self.validatePlan().?;
         let mut encoder = PlanEncoder::init(self.allocator);
         defer encoder.deinit().?;
@@ -573,7 +573,7 @@ extend Build {
         file.sync().asBuildError(Operation::Publish, Subject::BuildPlan).?;
         file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
         fileOpen = false;
-        !{}
+        !()
     }
 }
 

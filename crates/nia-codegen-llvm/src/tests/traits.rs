@@ -823,16 +823,16 @@ trait Writer {
 
     fn write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!void {
+    fn write_all(&mut self, bytes: &[u8]) Error!() {
         _ = self.write(bytes).?;
-        !{}
+        !()
     }
 }
 
 trait FormatWriter {
     type Error;
 
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void;
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!();
 }
 
 extend[W] W : FormatWriter
@@ -840,7 +840,7 @@ where W: Writer
 {
     type Error = [W as Writer]::Error;
 
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void {
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!() {
         self.write_all(bytes)
     }
 }
@@ -863,7 +863,7 @@ extend Sink : Writer {
     }
 }
 
-fn use_format[W](writer: &mut W, bytes: &[u8]) [W as FormatWriter]::Error!void
+fn use_format[W](writer: &mut W, bytes: &[u8]) [W as FormatWriter]::Error!()
 where W: FormatWriter
 {
     writer.write_fmt_bytes(bytes)

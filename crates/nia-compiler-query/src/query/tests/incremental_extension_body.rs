@@ -113,7 +113,7 @@ fn trait_signature_subset_resolves_local_extend_target_types() {
         r#"
 trait Writer {
 type Error;
-fn write(&mut self) Error!void;
+fn write(&mut self) Error!();
 }
 
 enum WriteError: i32 {
@@ -126,8 +126,8 @@ struct Sink {}
 extend Sink : Writer {
 type Error = WriteError;
 
-fn write(&mut self) Error!void {
-    !{}
+fn write(&mut self) Error!() {
+    !()
 }
 }
 "#,

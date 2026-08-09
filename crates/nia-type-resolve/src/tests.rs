@@ -64,7 +64,7 @@ fn resolves_trait_associated_type_shorthand_in_trait_scope() {
 trait Writer {
 type Error;
 
-fn write(& self) Error!void;
+fn write(& self) Error!();
 }
 "#,
     );
@@ -184,9 +184,9 @@ fn resolves_types_from_active_item_tree_only() {
     let (module, errors) = parse_module_with_symbols(
         r#"
 @[if false]
-fn skipped(value: MissingType) void {}
+fn skipped(value: MissingType) () {}
 @[if true]
-fn selected(value: i32) void {}
+fn selected(value: i32) () {}
 "#,
         symbols.clone(),
     );

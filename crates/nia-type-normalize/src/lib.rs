@@ -912,7 +912,7 @@ type B = A;
         let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
-fn take(xs: [2 + 3]u8) void {}
+fn take(xs: [2 + 3]u8) () {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

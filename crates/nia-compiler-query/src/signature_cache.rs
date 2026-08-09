@@ -41,9 +41,9 @@ use crate::{
 
 mod storage;
 
-const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR002";
-const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL002";
-const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI007";
+const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR003";
+const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL003";
+const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI008";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
@@ -2580,7 +2580,6 @@ fn primitive_tag(value: PrimitiveTy) -> u8 {
         PrimitiveTy::F64 => 13,
         PrimitiveTy::Bool => 14,
         PrimitiveTy::Char => 15,
-        PrimitiveTy::Void => 16,
         PrimitiveTy::Never => 17,
     }
 }
@@ -2603,7 +2602,6 @@ fn read_primitive(cursor: &mut Cursor<&[u8]>) -> Option<PrimitiveTy> {
         13 => PrimitiveTy::F64,
         14 => PrimitiveTy::Bool,
         15 => PrimitiveTy::Char,
-        16 => PrimitiveTy::Void,
         17 => PrimitiveTy::Never,
         _ => return None,
     })

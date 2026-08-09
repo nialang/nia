@@ -246,7 +246,7 @@ fn appendArgument(
     bytes: &mut collections::ArrayList[u8],
     argument: &[char],
     argumentIndex: usize,
-) Error!void {
+) Error!() {
     let mut owned = switch cstring::CString::fromText(allocator, argument) {
         !value => value,
         cause! => switch cause {
@@ -256,14 +256,14 @@ fn appendArgument(
     };
     defer owned.deinit(allocator).asProcessAllocationError().?;
     bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
-    !{}
+    !()
 }
 
 fn appendPath(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     path: fs::PathView,
-) Error!void {
+) Error!() {
     let mut owned = switch cstring::CString::fromText(allocator, path.text()) {
         !value => value,
         cstring::CStringBuildError::ContainsNul! => return Error::Path(fs::PathError::ContainsNul)!,
@@ -271,10 +271,10 @@ fn appendPath(
     };
     defer owned.deinit(allocator).asProcessAllocationError().?;
     bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
-    !{}
+    !()
 }
 
-fn validateEnvironment(entries: &[EnvEntry]) Error!void {
+fn validateEnvironment(entries: &[EnvEntry]) Error!() {
     let mut index: usize = 0;
     for &entry in entries {
         if entry.name().isEmpty() {
@@ -305,14 +305,14 @@ fn validateEnvironment(entries: &[EnvEntry]) Error!void {
         }
         index += 1;
     }
-    !{}
+    !()
 }
 
 fn appendEnvironmentEntry(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     entry: EnvEntry,
-) Error!void {
+) Error!() {
     let mut byteLen: usize = 1;
     for &ch in entry.name() {
         byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
@@ -339,14 +339,14 @@ fn appendEnvironmentEntry(
         bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
     }
     bytes.appendAssumeCapacity(0);
-    !{}
+    !()
 }
 
 fn appendCStringPointers(
     allocator: &mut mem::Allocator,
     bytes: &[u8],
     pointers: &mut collections::ArrayList[&u8],
-) Error!void {
+) Error!() {
     // Callers finish a non-empty arena of adjacent NUL-terminated strings
     // before taking any pointers into it.
     let mut start: usize = 0;
@@ -358,7 +358,7 @@ fn appendCStringPointers(
         start += 1;
     }
     pointers.push(allocator, 0usize as &u8).asProcessAllocationError().?;
-    !{}
+    !()
 }
 
 fn commandSpawnError(cause: os::SpawnError) Error {

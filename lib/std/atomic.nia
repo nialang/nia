@@ -50,19 +50,19 @@ where T: Sized
         std::builtin::atomic_load[T](&self.value, SeqCst)
     }
 
-    pub fn store_unordered(&mut self, value: T) void {
+    pub fn store_unordered(&mut self, value: T) () {
         std::builtin::atomic_store[T](&mut self.value, value, Unordered)
     }
 
-    pub fn store_monotonic(&mut self, value: T) void {
+    pub fn store_monotonic(&mut self, value: T) () {
         std::builtin::atomic_store[T](&mut self.value, value, Monotonic)
     }
 
-    pub fn store_release(&mut self, value: T) void {
+    pub fn store_release(&mut self, value: T) () {
         std::builtin::atomic_store[T](&mut self.value, value, Release)
     }
 
-    pub fn store_seq_cst(&mut self, value: T) void {
+    pub fn store_seq_cst(&mut self, value: T) () {
         std::builtin::atomic_store[T](&mut self.value, value, SeqCst)
     }
 
@@ -327,18 +327,18 @@ where T: Sized
     }
 }
 
-pub fn fence_acquire() void {
+pub fn fence_acquire() () {
     std::builtin::fence(Acquire)
 }
 
-pub fn fence_release() void {
+pub fn fence_release() () {
     std::builtin::fence(Release)
 }
 
-pub fn fence_acq_rel() void {
+pub fn fence_acq_rel() () {
     std::builtin::fence(AcqRel)
 }
 
-pub fn fence_seq_cst() void {
+pub fn fence_seq_cst() () {
     std::builtin::fence(SeqCst)
 }

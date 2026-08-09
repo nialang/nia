@@ -16,7 +16,7 @@ fn emit_exe_can_write_stdout_through_std_io() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
@@ -40,7 +40,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(4)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -77,7 +77,7 @@ using std::io;
 using std::fmt;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [128]u8 = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     switch stdout.print(&"A¢€😀, {}\n", &[&'λ']) {
@@ -88,7 +88,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(2)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -125,7 +125,7 @@ using std::io;
 using std::fmt;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
@@ -159,7 +159,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] or copied[5] != expected[5] or copied[6] != expected[6] {
         return process::exit(4)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -199,7 +199,7 @@ using std::mem;
 using std::process;
 using std::slice;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut raw: [256]u8 = [_]u8[0; 256];
     let mut stdout = io::FileWriter::stdout(&mut raw);
 
@@ -240,7 +240,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &neg,
     ]).exit().?;
     stdout.flush().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -281,7 +281,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut raw: [256]u8 = [_]u8[0; 256];
     let mut stdout = io::FileWriter::stdout(&mut raw);
     let value: i32 = 7;
@@ -329,7 +329,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &precision,
     ]).exit().?;
     stdout.flush().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -369,7 +369,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut raw: [128]u8 = [_]u8[0; 128];
     let mut stdout = io::FileWriter::stdout(&mut raw);
     let bytes: &[u8] = &b"nia";
@@ -380,7 +380,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         bytes,
     ]).exit().?;
     stdout.flush().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -434,7 +434,7 @@ fn eq_bytes(left: &[u8], right: &[u8]) bool {
     true
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut value = 1234i32;
     let ptr = &value;
@@ -489,7 +489,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         pointer_index += 1usize;
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -525,7 +525,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-fn expect_error(result: fmt::Error!void, expected: fmt::Error) bool {
+fn expect_error(result: fmt::Error!(), expected: fmt::Error) bool {
     switch result {
         !ok => { _ = ok;
                 false },
@@ -533,7 +533,7 @@ fn expect_error(result: fmt::Error!void, expected: fmt::Error) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [32]u8 = [0; 32];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
@@ -627,7 +627,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_error(writer.print(&"{:.{}}", &[&flag, &bad_width]), fmt::Error::InvalidTemplate) {
         return process::exit(27)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -664,7 +664,7 @@ using std::fmt;
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     switch debug::print(&"{", &[]) {
         !ok => {
@@ -696,7 +696,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if (debug::Error::Flush(fs::Error::BadFd).asExitCode() as i32) != 9 {
         return process::exit(6)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -789,7 +789,7 @@ fn expect_u8(result: parse::Error!u8, expected: u8) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     if not expect_i32((&"-2147483648").parse[i32](), i32::MIN) {
@@ -932,7 +932,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_error_u8((&invalidBytes).parse[u8](), parse::Error::InvalidDigit) {
         return process::exit(40)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -967,7 +967,7 @@ fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut discard = io::DiscardingWriter::init();
     switch discard.writeAll(&b"abcdef") {
@@ -1002,7 +1002,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if n != 0 {
         return process::exit(7)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1037,7 +1037,7 @@ fn emit_exe_can_use_std_io_buffered_writer() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [16]u8 = [0; 16];
     let mut backing = io::FixedBufferWriter::init(&mut storage[..]);
@@ -1088,7 +1088,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
         index += 1usize;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1157,7 +1157,7 @@ extend PartialWriter : io::Writer {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [16]u8 = [0; 16];
     let mut backing = PartialWriter::init(&mut storage[..]);
@@ -1216,7 +1216,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
         index += 1usize;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1315,7 +1315,7 @@ extend ZeroWriter : io::Writer {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [16]u8 = [0; 16];
     let mut backing = RetryWriter::init(&mut storage[..]);
@@ -1362,7 +1362,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if stalled.len() != 2usize or not stalled.buffered().equals(&b"xy") or zero.attempts != 1usize {
         return process::exit(10)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1396,7 +1396,7 @@ fn emit_exe_can_use_std_io_buffered_reader() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut source = io::FixedBufferReader::init(&b"abcdefghij");
     let mut buffer_storage: [4]u8 = [0; 4];
@@ -1458,7 +1458,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if n != 0 {
         return process::exit(13)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1519,7 +1519,7 @@ extend PartialReader : io::Reader {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut source = PartialReader::init(&b"abcdef");
     let mut bytes: [6]u8 = [0; 6];
@@ -1543,7 +1543,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 return process::exit(3)!; },
         error! => { },
     }
-    !{}
+    !()
 }
 "#,
     )

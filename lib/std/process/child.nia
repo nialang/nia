@@ -54,47 +54,47 @@ extend Child {
         pipe
     }
 
-    pub fn closeStdin(&mut self) Error!void {
+    pub fn closeStdin(&mut self) Error!() {
         switch self.takeStdin() {
             ?pipe => {
                 let mut owned = pipe;
                 owned.close().asProcessCloseError(StdStream::Stdin)
             },
             null => {
-                !{}
+                !()
             },
         }
     }
 
-    pub fn closeStdout(&mut self) Error!void {
+    pub fn closeStdout(&mut self) Error!() {
         switch self.takeStdout() {
             ?pipe => {
                 let mut owned = pipe;
                 owned.close().asProcessCloseError(StdStream::Stdout)
             },
             null => {
-                !{}
+                !()
             },
         }
     }
 
-    pub fn closeStderr(&mut self) Error!void {
+    pub fn closeStderr(&mut self) Error!() {
         switch self.takeStderr() {
             ?pipe => {
                 let mut owned = pipe;
                 owned.close().asProcessCloseError(StdStream::Stderr)
             },
             null => {
-                !{}
+                !()
             },
         }
     }
 
-    pub fn closePipes(&mut self) Error!void {
+    pub fn closePipes(&mut self) Error!() {
         self.closeStdin().?;
         self.closeStdout().?;
         self.closeStderr().?;
-        !{}
+        !()
     }
 
     fn waitStatus(&mut self) Error!os::WaitStatus {

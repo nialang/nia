@@ -52,7 +52,7 @@ fn public_surface_facts_rebase_without_revision_or_module_handles() {
 pub using entry::dep::{Thing, Choice::*};
 pub struct Local[T] { value: T }
 pub enum Choice { First, Second }
-pub fn make() void {}
+pub fn make() () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");

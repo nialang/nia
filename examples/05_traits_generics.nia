@@ -39,7 +39,7 @@ where T: Measured
     value.measure()
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     _ = init;
 
     let mut left: Count = { value: 20 };
@@ -55,5 +55,5 @@ pub fn main(init: Init) ExitCode!void {
 
     debug::print(&"traits total={}\n", &[&measured]).exit().?;
 
-    !{}
+    !()
 }

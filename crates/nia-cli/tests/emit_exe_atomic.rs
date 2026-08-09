@@ -17,7 +17,7 @@ using std;
 using std::atomic;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut value = std::Atomic[usize]::init(1usize);
     let old = value.fetch_add_monotonic(2usize);
@@ -46,7 +46,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         null => { return process::exit(7)!; },
     }
     atomic::fence_seq_cst();
-    !{}
+    !()
 }
 "#,
     )

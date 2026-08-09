@@ -9,7 +9,7 @@ fn query_loader_loads_facade_reexport_sources_by_used_name() {
         r#"
 using std::collections;
 
-fn main(values: collections::ArrayList[i32]) void {
+fn main(values: collections::ArrayList[i32]) () {
 _ = values;
 }
 "#,
@@ -67,7 +67,7 @@ fn query_loader_loads_reexported_std_type_module_dependencies() {
         r#"
 using std::CStringView;
 
-fn main() void {
+fn main() () {
 _ = CStringView::fromPtrUnchecked(&0u8);
 }
 "#,

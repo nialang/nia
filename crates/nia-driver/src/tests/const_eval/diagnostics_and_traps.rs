@@ -1632,7 +1632,7 @@ fn trap_builtin_must_be_called() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() void {
+fn main() () {
     std::builtin::trap;
 }
 "#,
@@ -1655,11 +1655,11 @@ fn trap_builtin_rejects_arguments() {
     write(
         &root.join("main.nia"),
         r#"
-fn value_arg() void {
+fn value_arg() () {
     std::builtin::trap(1);
 }
 
-fn type_arg() void {
+fn type_arg() () {
     std::builtin::trap[usize]();
 }
 "#,
@@ -1695,7 +1695,7 @@ fn runtimeOnly() usize {
     1
 }
 
-const fn invalidConstructors() void {
+const fn invalidConstructors() () {
     let optional: ?usize = ?true;
     let success: usize!usize = !false;
     let failure: usize!usize = true!;

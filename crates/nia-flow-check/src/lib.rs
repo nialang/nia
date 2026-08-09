@@ -8,7 +8,7 @@ use nia_ids::{DefId, GlobalDefId, ModuleId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_symbol::SymbolId;
-use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+use nia_ty::{TyKind, TypeStore};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -259,7 +259,7 @@ impl FlowChecker<'_> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 body.span,
-                "non-void function does not return on all reachable paths",
+                "non-unit function does not return on all reachable paths",
             ));
         }
     }
@@ -268,10 +268,10 @@ impl FlowChecker<'_> {
         let Some((_, signature)) = self.signature_for_function(function) else {
             return false;
         };
-        !matches!(
-            self.type_store.get(signature.return_type),
-            Some(TyKind::Primitive(PrimitiveTy::Void))
-        )
+        !self
+            .type_store
+            .get(signature.return_type)
+            .is_some_and(TyKind::is_unit)
     }
 
     fn signature_for_function(

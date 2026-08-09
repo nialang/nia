@@ -253,7 +253,7 @@ struct Item {
 state: i32,
 }
 
-fn set(items: &mut [Item], index: usize, state: i32) void {
+fn set(items: &mut [Item], index: usize, state: i32) () {
 items[index].state = state;
 }
 

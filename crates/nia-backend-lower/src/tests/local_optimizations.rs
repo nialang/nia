@@ -540,12 +540,12 @@ fn main() i32 {
 fn o1_preserves_effects_from_zst_local_runtime_ops() {
     let source = r#"
 struct Wrap {
-    value: void,
+    value: (),
 }
 
 extern fn log(value: i32);
 
-fn effect(value: i32) void {
+fn effect(value: i32) () {
     log(value);
 }
 

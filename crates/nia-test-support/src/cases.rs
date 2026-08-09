@@ -216,7 +216,7 @@ mod tests {
         let destination = root.join("destination");
         fs::create_dir_all(source.join("nested/.nia-cache")).expect("create nested cache state");
         fs::create_dir_all(source.join(".nia-build")).expect("create build state");
-        fs::write(source.join("nested/input.nia"), b"fn main() void {}")
+        fs::write(source.join("nested/input.nia"), b"fn main() () {}")
             .expect("write ordinary fixture input");
         fs::write(source.join(".fixture-config"), b"kept").expect("write ordinary fixture dotfile");
         fs::write(source.join("nested/.nia-cache/stale"), b"cache")

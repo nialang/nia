@@ -591,7 +591,6 @@ fn builtin_type_anchor_primitive(anchor: BuiltinTypeAnchor) -> PrimitiveTy {
         BuiltinTypeAnchor::F64 => PrimitiveTy::F64,
         BuiltinTypeAnchor::Bool => PrimitiveTy::Bool,
         BuiltinTypeAnchor::Char => PrimitiveTy::Char,
-        BuiltinTypeAnchor::Void => PrimitiveTy::Void,
         BuiltinTypeAnchor::Never => PrimitiveTy::Never,
     }
 }

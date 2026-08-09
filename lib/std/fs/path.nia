@@ -105,7 +105,7 @@ extend PathBuf {
         !PathBuf::fromString(text)
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.text.deinit(allocator)
     }
 
@@ -125,19 +125,19 @@ extend PathBuf {
         self.text.isEmpty()
     }
 
-    pub fn clear(&mut self) void {
+    pub fn clear(&mut self) () {
         self.text.clear()
     }
 
-    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!void {
+    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!() {
         self.text.append(allocator, text)
     }
 
-    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!void {
+    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!() {
         self.text.push(allocator, ch)
     }
 
-    pub fn joinComponent(&mut self, allocator: &mut mem::Allocator, component: &[char]) mem::Error!void {
+    pub fn joinComponent(&mut self, allocator: &mut mem::Allocator, component: &[char]) mem::Error!() {
         appendComponentToString(allocator, component, &mut self.text)
     }
 
@@ -150,9 +150,9 @@ fn appendComponentToString(
     allocator: &mut mem::Allocator,
     component: &[char],
     out: &mut string::String,
-) mem::Error!void {
+) mem::Error!() {
     if component.len() == 0 {
-        return !{};
+        return !();
     }
     if out.isEmpty() {
         out.append(allocator, component)
@@ -259,7 +259,7 @@ extend RelativeNativePathView {
     }
 }
 
-fn validateRelativeText(text: &[char]) PathError!void {
+fn validateRelativeText(text: &[char]) PathError!() {
     if text.len() != 0 and text[0] == '/' {
         return PathError::Absolute!;
     }
@@ -283,10 +283,10 @@ fn validateRelativeText(text: &[char]) PathError!void {
     {
         return PathError::ParentTraversal!;
     }
-    !{}
+    !()
 }
 
-fn validateRelativeBytes(bytes: &[u8]) PathError!void {
+fn validateRelativeBytes(bytes: &[u8]) PathError!() {
     if bytes.len() != 0 and bytes[0] == b'/' {
         return PathError::Absolute!;
     }
@@ -310,5 +310,5 @@ fn validateRelativeBytes(bytes: &[u8]) PathError!void {
     {
         return PathError::ParentTraversal!;
     }
-    !{}
+    !()
 }

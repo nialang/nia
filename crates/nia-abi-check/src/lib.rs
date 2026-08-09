@@ -464,7 +464,7 @@ struct Empty {}
 extern struct BadExtern { flag: bool }
 extern struct ExternEmpty {}
 
-extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &fn(i32, ...) never, ...);
+extern fn bad(flag: bool, ch: char, nothing: (), color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &fn(i32, ...) never, ...);
 extern fn bad_never_return() never;
 extern fn bad_variadic_definition(fmt: &u8, ...) {
 }
@@ -496,7 +496,6 @@ extern fn bad_union(bits: Bits);
         for expected in [
             "`bool`",
             "`char`",
-            "`void`",
             "`never`",
             "enum directly",
             "array by value",

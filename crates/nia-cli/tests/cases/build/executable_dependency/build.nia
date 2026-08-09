@@ -1,6 +1,6 @@
 using std::build;
 using std::fs;
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     static srcMain = "src/main.nia";
     static appName = "app";
     static emitName = "emit-app";
@@ -10,5 +10,5 @@ pub fn build(b: &mut build::Build) build::Error!void {
     let emit = b.addEmitExecutableStep(&emitName, app).?;
     let verifyStep = b.addAggregateStep(&verifyName).?;
     b.dependOn(verifyStep, emit).?;
-    !{}
+    !()
 }

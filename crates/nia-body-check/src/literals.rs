@@ -208,7 +208,6 @@ pub(super) fn integer_range(primitive: PrimitiveTy) -> Option<(i128, i128)> {
         | PrimitiveTy::F64
         | PrimitiveTy::Bool
         | PrimitiveTy::Char
-        | PrimitiveTy::Void
         | PrimitiveTy::Never => return None,
     })
 }

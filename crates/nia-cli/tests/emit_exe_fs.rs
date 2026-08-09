@@ -21,7 +21,7 @@ using std::io;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
     let mut path = fs::PathBuf::fromView(&mut page, fs::PathView::init(&"subdir")).exit().?;
     defer path.deinit(&mut page).exit().?;
@@ -41,7 +41,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     writer.writeAll(&b"joined").exit().?;
     writer.flush().exit().?;
     file.close().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -82,7 +82,7 @@ fn emit_exe_std_fs_getcwd_returns_path_slice() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut buffer: [4096]u8 = [0; 4096];
     let cwd = switch fs::getCwd(&mut buffer[..]) {
@@ -102,7 +102,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if cwd[cwd.len() - 1usize] == 0u8 {
         return process::exit(4)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -140,7 +140,7 @@ fn emit_exe_std_fs_native_paths_preserve_non_utf8_bytes() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let missingTerminator: [1]u8 = [b'x'];
     switch fs::NativePathView::fromBytes(&missingTerminator[..]) {
@@ -168,7 +168,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let relative = native.relative().exit().?;
     let mut file = cwd.createNativeFile(relative, fs::CreateOptions::init()).exit().?;
     file.close().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -209,7 +209,7 @@ fn emit_exe_std_fs_relative_paths_enforce_lexical_roots() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     switch fs::RelativePathView::fromText(&"/absolute") {
         !path => { _ = path; return process::exit(1)!; },
@@ -273,7 +273,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let child = fs::RelativePathView::fromText(&"nested/inside.txt").exit().?;
     let mut file = cwd.createFile(child, fs::CreateOptions::init()).exit().?;
     file.close().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -314,7 +314,7 @@ using std::fs;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let allocator: &mut mem::Allocator = &mut page;
@@ -359,7 +359,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         fs::CreateOptions::init(),
     ).exit().?;
     file.close().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -408,7 +408,7 @@ fn emit_exe_std_fs_dir_rejects_symlink_escape_without_side_effects() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
@@ -455,7 +455,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(2)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -511,14 +511,14 @@ fn emit_exe_std_fs_dir_allows_symlink_that_resolves_inside_root() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
     let path = fs::RelativePathView::fromText(&"alias.txt").exit().?;
     let mut file = cwd.openFile(path, fs::OpenOptions::readOnly()).exit().?;
     file.close().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -560,7 +560,7 @@ fn emit_exe_std_fs_rename_to_resolves_both_directory_roots() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
@@ -579,7 +579,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &destination,
         fs::RelativePathView::fromText(&"moved.txt").exit().?,
     ).exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -628,7 +628,7 @@ fn emit_exe_std_fs_open_dir_no_follow_rejects_final_symlink() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
@@ -637,7 +637,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !dir => { return process::exit(1)!; },
         error! => { _ = error; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -677,7 +677,7 @@ using std::fs;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut path = fs::RelativePathView::fromText(&"data.txt").exit().?;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
@@ -768,7 +768,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
         index += 1usize;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -811,7 +811,7 @@ using std::fs;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file: fs::File;
     switch fs::File::create(path, fs::CreateOptions::readWrite()) {
@@ -885,7 +885,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }
         index += 1usize;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -927,7 +927,7 @@ using std::fs;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut file = switch fs::File::create(fs::PathView::init(&"data.txt"), fs::CreateOptions::init()) {
         !value => {
             value
@@ -978,7 +978,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             }
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1014,7 +1014,7 @@ fn emit_exe_std_fs_dir_close_marks_handle_closed() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = switch fs::Dir::cwd() {
         !value => {
@@ -1066,7 +1066,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }! => {},
         error! => { _ = error; return process::exit(8)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1104,7 +1104,7 @@ using std::fs;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file: fs::File;
     switch fs::File::create(path, fs::CreateOptions::readWrite()) {
@@ -1250,7 +1250,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(19)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1289,7 +1289,7 @@ using std::fs;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut path = fs::PathView::init(&"data.txt");
     let mut file: fs::File;
     switch fs::File::create(path, fs::CreateOptions::readWrite()) {
@@ -1398,7 +1398,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(14)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1436,13 +1436,13 @@ fn emit_exe_std_fs_file_set_permissions() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut path = fs::PathView::init(&"data.txt");
     let mut file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
     defer file.close().exit().?;
     file.setPermissions(0o755).exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -1491,7 +1491,7 @@ using std::fs;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut path = fs::RelativePathView::fromText(&"nia-λ.txt").exit().?;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
@@ -1545,7 +1545,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(4)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1586,7 +1586,7 @@ using std::process;
 using std::string;
 using std::unicode;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
 
@@ -1653,7 +1653,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     {
         return process::exit(13)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1691,7 +1691,7 @@ fn emit_exe_std_fs_reports_invalid_and_missing_paths() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut path = fs::RelativePathView::fromText(&"bad\0path").exit().?;
     let mut cwd: fs::Dir;
@@ -1735,7 +1735,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         }! => {},
         err! => { _ = err; return process::exit(4)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1773,7 +1773,7 @@ fn emit_exe_std_fs_can_delete_files() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
@@ -1834,7 +1834,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => {
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -1875,7 +1875,7 @@ fn emit_exe_std_fs_can_create_rename_and_delete_dirs() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
@@ -1994,7 +1994,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => {
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -2035,7 +2035,7 @@ fn emit_exe_std_fs_can_open_dirs_as_capabilities() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
@@ -2142,7 +2142,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(10)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -2185,7 +2185,7 @@ fn bytes_equal(left: &[u8], right: &[u8]) bool {
     left.equals(right)
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd: fs::Dir;
     switch fs::Dir::cwd() {
@@ -2335,7 +2335,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::exit(17)!;
         },
     }
-    !{}
+    !()
 }
 "#,
     )

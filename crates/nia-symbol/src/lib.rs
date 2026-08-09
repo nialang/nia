@@ -117,7 +117,6 @@ pub mod known {
 
     known_symbol!(BOOL, "bool");
     known_symbol!(CHAR, "char");
-    known_symbol!(VOID, "void");
     known_symbol!(NEVER, "never");
 
     known_symbol!(OUTPUT, "Output");
@@ -278,7 +277,6 @@ pub mod known {
         (X86_64, "x86_64"),
         (BOOL, "bool"),
         (CHAR, "char"),
-        (VOID, "void"),
         (NEVER, "never"),
         (OUTPUT, "Output"),
         (TARGET, "Target"),
@@ -607,7 +605,6 @@ impl ToSymbolId for nia_ids::BuiltinTypeAnchor {
             Self::F64 => known::F64,
             Self::Bool => known::BOOL,
             Self::Char => known::CHAR,
-            Self::Void => known::VOID,
             Self::Never => known::NEVER,
         }
     }

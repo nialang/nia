@@ -33,7 +33,7 @@ fn sumMutBorrowed(values: &mut std::ArrayList[i32]) i32 {
     total
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -333,7 +333,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(26)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -369,7 +369,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -414,7 +414,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(8)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -450,7 +450,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut sourcePage = mem::PageAllocator::init();
     let mut sourceGpa = mem::GeneralPurposeAllocator::init(&mut sourcePage);
@@ -519,7 +519,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     cloned.deinit(sourceAllocator).exit().?;
     adopted.deinit(targetAllocator).exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -557,7 +557,7 @@ using std::process;
 
 struct Marker {}
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -600,7 +600,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(8)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -636,7 +636,7 @@ using std;
 using std::mem;
 using std::process;
 
-fn expectInvalid(result: mem::Error!void) process::ExitCode!void {
+fn expectInvalid(result: mem::Error!()) process::ExitCode!() {
     switch result {
         !ok => { _ = ok;
                 return process::exit(90)!; },
@@ -644,10 +644,10 @@ fn expectInvalid(result: mem::Error!void) process::ExitCode!void {
                     return process::exit(91)!;
                 } },
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -720,7 +720,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(10)!;
     }
 
-    !{}
+    !()
 }
 "#,
     )

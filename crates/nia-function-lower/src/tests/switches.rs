@@ -214,7 +214,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let void_ty = append.intern(TyKind::Primitive(PrimitiveTy::Void));
+    let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
     let bool_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
     let optional_ty = append.intern(TyKind::Optional { elem: i32_ty });
     let target_local = LocalId(0);
@@ -242,7 +242,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
             span,
             kind: TypedStmtKind::Expr(TypedExpr {
                 span,
-                ty: void_ty,
+                ty: unit_ty,
                 kind: TypedExprKind::Switch(Box::new(TypedSwitch {
                     target: TypedExpr {
                         span,
@@ -264,7 +264,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
                                     },
                                 })),
                             }],
-                            body: TypedSwitchArmBody::Block(Box::new(empty_body(void_ty))),
+                            body: TypedSwitchArmBody::Block(Box::new(empty_body(unit_ty))),
                             span,
                         },
                         nia_body_ir::TypedSwitchArm {
@@ -273,7 +273,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
                                 span,
                                 kind: TypedPatternKind::OptionalNull,
                             }],
-                            body: TypedSwitchArmBody::Block(Box::new(empty_body(void_ty))),
+                            body: TypedSwitchArmBody::Block(Box::new(empty_body(unit_ty))),
                             span,
                         },
                     ],
@@ -281,7 +281,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
             }),
         }],
         tail: None,
-        ty: void_ty,
+        ty: unit_ty,
     };
 
     let function_body = lower_function_body(
@@ -320,7 +320,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let void_ty = append.intern(TyKind::Primitive(PrimitiveTy::Void));
+    let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
     let error_ty = append.intern(TyKind::ErrorUnion {
         error: i32_ty,
         value: i32_ty,
@@ -350,7 +350,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
             span,
             kind: TypedStmtKind::Expr(TypedExpr {
                 span,
-                ty: void_ty,
+                ty: unit_ty,
                 kind: TypedExprKind::IfPattern(Box::new(TypedIfPattern {
                     target: TypedExpr {
                         span,
@@ -370,13 +370,13 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
                             },
                         })),
                     },
-                    then_branch: empty_body(void_ty),
+                    then_branch: empty_body(unit_ty),
                     else_branch: None,
                 })),
             }),
         }],
         tail: None,
-        ty: void_ty,
+        ty: unit_ty,
     };
 
     let function_body = lower_function_body(

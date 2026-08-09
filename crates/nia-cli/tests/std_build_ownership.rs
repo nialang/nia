@@ -39,15 +39,15 @@ extend FaultAllocator {
         }
     }
 
-    fn failAfter(&mut self, successfulAllocations: usize) void {
+    fn failAfter(&mut self, successfulAllocations: usize) () {
         self.failAt = self.allocationAttempts + successfulAllocations + 1usize;
     }
 
-    fn disableFailure(&mut self) void {
+    fn disableFailure(&mut self) () {
         self.failAt = 0usize;
     }
 
-    fn failNextFree(&mut self) void {
+    fn failNextFree(&mut self) () {
         self.failFree = true;
     }
 }
@@ -67,7 +67,7 @@ extend FaultAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!void {
+    fn free(&mut self, block: mem::Block) mem::Error!() {
         self.backing.free(block).?;
         if not block.isEmpty() {
             if self.activeAllocations == 0usize {
@@ -79,7 +79,7 @@ extend FaultAllocator : mem::Allocator {
                 return mem::Error::Invalid!;
             }
         }
-        !{}
+        !()
     }
 }
 
@@ -219,15 +219,15 @@ fn isPlanEncodingOom(error: build::Error) bool {
     }
 }
 
-fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!void {
+fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!() {
     let mut buffer: [512]u8 = [_]u8[0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
     stderr.print(&"unexpected build error: {}\n", &[&error]).exit().?;
     stderr.flush().exit().?;
-    !{}
+    !()
 }
 
-fn checkInitRollback(init: process::Init) process::ExitCode!void {
+fn checkInitRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
     let pathText: [64]char = [_]char['p'; 64];
@@ -260,10 +260,10 @@ fn checkInitRollback(init: process::Init) process::ExitCode!void {
     if allocator.activeAllocations != 0usize {
         return process::exit(3)!;
     }
-    !{}
+    !()
 }
 
-fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!void {
+fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(successfulAllocations);
     let pathText: [64]char = [_]char['p'; 64];
@@ -297,10 +297,10 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     if allocator.activeAllocations != 0usize {
         return process::exit(16)!;
     }
-    !{}
+    !()
 }
 
-fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void {
+fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
     allocator.failNextFree();
@@ -335,10 +335,10 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!void 
     if allocator.activeAllocations != 0usize {
         return process::exit(13)!;
     }
-    !{}
+    !()
 }
 
-fn checkRecordRollback(init: process::Init) process::ExitCode!void {
+fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
@@ -507,10 +507,10 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!void {
     if allocator.activeAllocations != 0usize {
         return process::exit(10)!;
     }
-    !{}
+    !()
 }
 
-fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
+fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
@@ -582,17 +582,17 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!void {
     if allocator.activeAllocations != 0usize {
         return process::exit(20)!;
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
     checkTargetInitRollback(init, 7usize).?;
     checkTargetInitRollback(init, 13usize).?;
     checkCleanupFailureOverridesExit(init).?;
     checkRecordRollback(init).?;
     checkArgAssemblyRollback(init).?;
-    !{}
+    !()
 }
 "#,
     )

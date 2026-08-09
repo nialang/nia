@@ -12,7 +12,7 @@ pub const fn error(message: &[char]) never;
 
 // Embeds a file at const.
 @[builtin("embed")]
-pub const fn embed(path: &[char]) void;
+pub const fn embed(path: &[char]) ();
 
 // Compiler-checked inline assembly configuration.
 @[builtin("AsmConfig")]
@@ -20,4 +20,4 @@ pub type AsmConfig;
 
 // Emits target inline assembly from a compiler-checked configuration literal.
 @[builtin("asm")]
-pub fn asm(config: AsmConfig) void;
+pub fn asm(config: AsmConfig) ();

@@ -36,7 +36,7 @@ fn sum(xs: &[i32]) i32 {
     total
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut point: Point = { x: 3, y: 4 };
@@ -48,7 +48,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(1)!;
     }
 
-    !{}
+    !()
 }
 ```
 
@@ -262,7 +262,7 @@ syntax and standard-library idioms. They cover real Nia executables, arrays and
 slices, structs and enums, control flow, standard-library I/O, collections,
 generics, traits, error handling, and multi-file imports. They use the current
 executable entry contract:
-`pub fn main(process::Init) process::ExitCode!void`. They print visible results
+`pub fn main(process::Init) process::ExitCode!()`. They print visible results
 with the fallible `std::debug::print(...).exit().?` boundary, and
 `03_stdout.nia` shows explicit stdout output through `std::io` and `std::fmt`.
 

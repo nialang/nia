@@ -33,7 +33,7 @@ fn checked_pair(values: &[i32]) i32!i32 {
     !(left + right)
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     _ = init;
 
     let mut values: [3]i32 = [10, 20, 32];
@@ -55,5 +55,5 @@ pub fn main(init: Init) ExitCode!void {
 
     debug::print(&"optional/error pair_sum={} missing=error\n", &[&pair_sum]).exit().?;
 
-    !{}
+    !()
 }

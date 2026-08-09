@@ -862,7 +862,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(value) = value else {
-            if self.is_void(self.function.return_type) {
+            if self.is_unit(self.function.return_type) {
                 self.emit_function_tail_defers(body, block, span, outer_blocks)?;
                 if self.current_block_has_terminator() {
                     return Ok(());

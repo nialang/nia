@@ -38,7 +38,7 @@ impl<'a> BodyChecker<'a> {
         } else if self.block_ends_with_never_stmt(block) {
             self.never()
         } else {
-            self.void()
+            self.unit()
         }
     }
 
@@ -83,7 +83,7 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Expr(expr) => {
                 let expr_ty = self.check_expr(expr);
-                if !self.is_void(expr_ty) && !self.is_never(expr_ty) {
+                if !self.is_unit(expr_ty) && !self.is_never(expr_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
@@ -93,7 +93,7 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Defer(expr) => {
                 let expr_ty = self.check_expr(expr);
-                if !self.is_void(expr_ty) && !self.is_never(expr_ty) {
+                if !self.is_unit(expr_ty) && !self.is_never(expr_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
@@ -104,7 +104,7 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Return(value) => {
                 let value_ty = match value {
                     Some(value) => self.check_expr_with_expected(value, Some(self.current_return)),
-                    None => self.void(),
+                    None => self.unit(),
                 };
                 if let Some(value) = value {
                     self.expect_expr_type(value, self.current_return, value_ty, "return");

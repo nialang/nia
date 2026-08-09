@@ -1,10 +1,10 @@
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     static srcMain = "src/main.nia";
     static appName = "../bad";
     let rootModule = b.addModule(build::ModuleOptions::init(&"main", fs::PathView::init(&srcMain))).?;
     _ = b.addExecutable(build::ExecutableOptions::init(&appName, rootModule)).?;
-    !{}
+    !()
 }

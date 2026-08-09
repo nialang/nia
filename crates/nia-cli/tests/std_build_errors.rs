@@ -47,7 +47,7 @@ fn initBuild(
     )
 }
 
-fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!void {
+fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!() {
     let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", source)).?;
     let executable = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).?;
     let check = api.addCheckExecutableStep(&"check", executable).?;
@@ -57,7 +57,7 @@ fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!void {
 fn checkConfigurationDoesNotExecuteCompiler(
     init: process::Init,
     allocator: &mut mem::Allocator,
-) process::ExitCode!void {
+) process::ExitCode!() {
     let mut api = initBuild(
         init,
         allocator,
@@ -66,13 +66,13 @@ fn checkConfigurationDoesNotExecuteCompiler(
     defer api.deinit().exit().?;
     addCheck(&mut api, fs::PathView::init(&"main.nia")).exit().?;
     api.validatePlan().exit().?;
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     checkConfigurationDoesNotExecuteCompiler(init, &mut pageAllocator).?;
-    !{}
+    !()
 }
 "#,
     )
@@ -122,7 +122,7 @@ fn buildError(cause: process::Error) build::Error {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let spawn = buildError(process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)));
     if (spawn.asExitCode() as i32) != 2 {
         return process::exit(1)!;
@@ -146,7 +146,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     stdout.print(&"{}\n{}\n{}\n", &[&spawn, &close, &environment]).exit().?;
     stdout.flush().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -193,28 +193,28 @@ using std::io;
 using std::mem;
 using std::process;
 
-fn allocationFailure() fs::OperationError!void {
+fn allocationFailure() fs::OperationError!() {
     fs::OperationError::Allocation {
         operation: fs::Operation::CreateFile,
         cause: mem::Error::OutOfMemory,
     }!
 }
 
-fn pathFailure() fs::OperationError!void {
+fn pathFailure() fs::OperationError!() {
     fs::OperationError::Path {
         operation: fs::Operation::OpenFile,
         cause: fs::PathError::ContainsNul,
     }!
 }
 
-fn systemFailure() fs::OperationError!void {
+fn systemFailure() fs::OperationError!() {
     fs::OperationError::System {
         operation: fs::Operation::OpenFile,
         cause: fs::Error::NotFound,
     }!
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let allocation = switch allocationFailure().asBuildError(
         build::ErrorOperation::Publish,
@@ -248,7 +248,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     stdout.print(&"{}\n{}\n{}\n", &[&allocation, &path, &system]).exit().?;
     stdout.flush().exit().?;
-    !{}
+    !()
 }
 "#,
     )

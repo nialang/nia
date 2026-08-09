@@ -5,7 +5,7 @@ using pkg::string as stringPackage;
 extend[H] stringPackage::String : hashPackage::Hash[H]
 where H: hashPackage::Hasher
 {
-    fn hash(&self, hasher: &mut H) void {
+    fn hash(&self, hasher: &mut H) () {
         self.text().hash(hasher)
     }
 }

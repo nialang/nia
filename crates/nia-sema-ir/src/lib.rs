@@ -282,7 +282,6 @@ fn primitive_int_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(In
         | PrimitiveTy::F64
         | PrimitiveTy::Bool
         | PrimitiveTy::Char
-        | PrimitiveTy::Void
         | PrimitiveTy::Never => None,
     }
 }

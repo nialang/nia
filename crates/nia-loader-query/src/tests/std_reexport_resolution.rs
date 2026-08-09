@@ -4,7 +4,7 @@ use super::*;
 fn query_loader_resolves_std_root_reexport_import_shallowly() {
     let root = temp_dir("query_loader_resolves_std_root_reexport_import_shallowly");
     let main_path = root.join("main.nia");
-    write(&main_path, "using std::CStringView; fn main() void {}");
+    write(&main_path, "using std::CStringView; fn main() () {}");
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
@@ -18,7 +18,7 @@ fn query_loader_resolves_std_root_reexport_import_shallowly() {
 fn query_loader_resolves_std_single_value_reexport_import_shallowly() {
     let root = temp_dir("query_loader_resolves_std_single_value_reexport_import_shallowly");
     let main_path = root.join("main.nia");
-    write(&main_path, "using std::CStringView; fn main() void {}");
+    write(&main_path, "using std::CStringView; fn main() () {}");
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
@@ -34,7 +34,7 @@ fn query_loader_resolves_std_qualified_root_reexport_shallowly() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        r#"fn main() void { switch std::CStringView::fromBytes(b"nia\0") {
+        r#"fn main() () { switch std::CStringView::fromBytes(b"nia\0") {
     !text => { _ = text; },
     error! => {},
 } }"#,
