@@ -229,7 +229,7 @@ or raw compiler command bridge remains. This is still an experimental API, not
 a compatibility promise, and the build-host standard-library surface remains
 under API and layering review.
 
-The bounded Phase A build baseline can be run explicitly after building a
+The representative build baseline can be run explicitly after building a
 release compiler:
 
 ```sh
@@ -276,13 +276,11 @@ with the fallible `std::debug::print(...).exit().?` boundary, and
 - [docs/codebase-index.md](docs/codebase-index.md): maintainer index for crate
   ownership, build/std entry points, tests, and common change paths.
 - [docs/build-system.md](docs/build-system.md): build ownership, plan/action
-  contracts, current-case migration, and resource discipline.
+  contracts, acceptance evidence, and resource discipline.
 - [docs/standard-library.md](docs/standard-library.md): std layering,
   build-host dependency audit, and API maturity rules.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
   discipline, acceptance rules, and roadmap-retirement policy.
-- [build-std-roadmap.md](build-std-roadmap.md): active build-system,
-  toolchain-layout, and standard-library architecture roadmap.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
 - [docs/project-conventions.md](docs/project-conventions.md): maintenance rules

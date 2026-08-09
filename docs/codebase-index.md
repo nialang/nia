@@ -116,6 +116,6 @@ Clippy, and `cargo test --workspace`; focused owners should run first.
 | Toolchain layout | `nia-toolchain` | CLI, Driver, loader, cache domains, relocation tests |
 
 For architectural work, read `project-conventions.md`,
-`compiler-maintenance.md`, and the active `build-std-roadmap.md` before editing.
-One owner must remain responsible for each identity, diagnostic, cache product,
-and execution policy.
+`compiler-maintenance.md`, `build-system.md`, and `standard-library.md` before
+editing. One owner must remain responsible for each identity, diagnostic, cache
+product, and execution policy.

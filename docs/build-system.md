@@ -1,13 +1,13 @@
 # Nia Build System Architecture
 
-Status: Phases A-G complete; Phase H migration and hardening in progress
+Status: implemented architecture and maintenance reference
 
 The Rust-side `BuildInvocation` is resolved bootstrap state: package and
 toolchain paths, requested step, runner locations, and timing options. It is not
 the graph protocol and no longer uses the `BuildPlan` name.
 
-This document owns the durable build-system boundary. The active migration and
-acceptance sequence remains in `../build-std-roadmap.md`.
+This document owns the durable build-system boundary, maintenance rules, and
+acceptance evidence.
 
 ## 1. Product Boundary
 
@@ -46,17 +46,17 @@ status without buffering unbounded output.
 
 ## 2. Current Owners
 
-| Concern | Current owner | Migration disposition |
+| Concern | Current owner | Current contract |
 | --- | --- | --- |
 | CLI parsing and outer timing session | `crates/nia-cli/src/main.rs` | retain CLI ownership; pass typed layout/configuration |
 | Package discovery and runner compilation | `crates/nia-build/src/lib.rs` | retain invocation ownership with isolated transient paths |
 | Build graph declaration | `lib/std/build/core.nia` and `plan.nia` | retain builder ownership and codec; execution is physically absent |
-| Build API records and handles | `lib/std/build/types.nia` | replace index-only callback records with plan-owned typed values |
-| Build-script error conversion | `lib/std/build/error.nia` | structured operation/subject/cause errors implemented; add package/action identity at frozen-plan handoff |
-| Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; delete compile-time checkout lookup |
+| Build API records and handles | `lib/std/build/types.nia` | plan-owned typed values and owner-checked handles |
+| Build-script error conversion | `lib/std/build/error.nia` | structured operation/subject/cause errors; coordinator diagnostics add package/action identity |
+| Source/module loading and default std lookup | `nia-loader-query` | consume explicit `ToolchainLayout`; no compile-time checkout lookup |
 | Compiler actions and compiler cache | `nia-driver` and compiler query/codegen crates | remain compiler-owned typed actions/work products |
 | Link execution and link-result reuse | `nia-linker` and `nia-driver` | remain linker/Driver-owned; build references declared artifacts |
-| Build-action cache | `nia-build` | generated-file and zero-diagnostic compiler check/emit slices implemented; external commands remain gated on complete input closure and restorable multi-output identity |
+| Build-action cache | `nia-build` | cacheable generated-file, compiler check/emit, and external-command actions require complete declared inputs and restorable output identity |
 | End-to-end build contracts | `crates/nia-cli/tests/build_cases.rs` | remain resource-accounted integration evidence |
 | Build performance evidence | `tools/build_baseline.py` and `benchmarks/build/representative` | observational only; never cache truth |
 
@@ -738,12 +738,17 @@ Rust stable identity and installs Ubuntu packages matching the current
 Fedora-derived LLVM identity. It runs formatting, strict all-feature Clippy,
 workspace checks and tests, executes the configured multi-artifact and
 copied-toolchain relocation suites, then runs one resource-accounted release
-baseline containing clean,
-warm, source-edit, module-map-edit, corrupt-cache, recovered-warm, and
-failed-action states. The workflow
-publishes the machine-readable baseline as an artifact. A local run or a static
-workflow test proves only configuration; Phase H cannot claim hosted acceptance
-until a successful GitHub run supplies the external evidence.
+baseline containing clean, warm, source-edit, module-map-edit, corrupt-cache,
+recovered-warm, and failed-action states. The workflow publishes the
+machine-readable baseline as an artifact.
+
+GitHub Actions run `31293514228` completed this hosted matrix for exact commit
+`c70f3971a70345a2fa72a934bbaa7004272039db`. It passed the build/std integration
+suites, workspace gates, release compiler build, copied-toolchain relocation,
+and the complete seven-state baseline, then published artifact
+`nia-build-std-evidence`. Local runs remain useful reproduction evidence, but
+this hosted run is the external acceptance record for the completed build/std
+architecture project.
 
 ## 7. Proposal Decision Gates
 

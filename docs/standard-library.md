@@ -1,6 +1,6 @@
 # Nia Standard Library Architecture
 
-Status: Phase F build execution complete; standard-library reconstruction in progress
+Status: build-host reconstruction complete; standard-library APIs remain experimental
 
 The current standard library demonstrates usable capabilities, but most of its
 public APIs predate a deliberate stability review. Existing code is therefore
@@ -63,7 +63,7 @@ providers.
 | `io` | stdout/stderr/files | blocking file/standard-stream adapters hide raw handles and require only caller storage; Reader/Writer naming, child-pipe errors, and retry-safe partial buffered writes are reviewed | retain direct blocking adapters, generic buffering, precise errors, and explicit flush ownership |
 | `process` args/env/command | runner context and compiler subprocess | typed commands, environments, child-pipe roles, lifecycle, process-owned identity, and structured spawn/system causes accepted | retire from BuildPlan boundary; retain the typed service facade and keep `spawnRaw` as the explicit low-level boundary |
 | `os` Linux provider | path capacity, descriptors, randomness, process and I/O providers | the root module, operations, errors, handles, and process identity are package-private | keep provider private; expose host capabilities only through typed service facades |
-| `build` | graph declaration and immutable-plan encoding | owner-checked typed handles, retained text/path values, contextual errors, no action executor | retain the reviewed builder/plan boundary; continue Phase H hardening |
+| `build` | graph declaration and immutable-plan encoding | owner-checked typed handles, retained text/path values, contextual errors, no action executor | retain the reviewed builder/plan boundary and its maintained acceptance matrix |
 
 Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
@@ -74,11 +74,11 @@ declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
 conceptually require. This is not a claim that loader demand executes every
 module and is not a module-count optimization target. It exists to expose
-forbidden conceptual layer edges. Phase C performance and isolation decisions
-use the loader's observed semantic, body, and backend closures instead.
+forbidden conceptual layer edges. Performance and isolation decisions use the
+loader's observed semantic, body, and backend closures instead.
 
-The Phase D builder-owner identity adds the reviewed `atomic` facade to this
-source closure. It supplies a process-local monotonic owner id for live handles;
+The builder-owner identity adds the reviewed `atomic` facade to this source
+closure. It supplies a process-local monotonic owner id for live handles;
 it is neither stable plan identity nor evidence that ordinary collection users
 execute atomic or build code.
 
@@ -778,15 +778,16 @@ disagree about which paths a tool receives.
 
 Language proposals that affect error propagation, ownership/borrowing,
 comptime, reflection, module/resource loading, or host capabilities may change
-the right std shape. They should be summarized during Phase A and attached to
-the affected matrix rows. Decided semantics become dependencies; undecided
-semantics block only stabilization of the affected API, not unrelated telemetry,
-relocation, or conformance work.
+the right std shape. Record them in a bounded design document and attach their
+decisions to the affected matrix rows. Decided semantics become dependencies;
+undecided semantics block only stabilization of the affected API, not unrelated
+telemetry, relocation, or conformance work.
 
 ## 8. Conformance Boundary
 
-Phase C maintains direct fixtures for the exact allocation, collection, string,
-Unicode, path, fs, I/O, process, and formatting operations needed by build.
+The maintained conformance suite has direct fixtures for the exact allocation,
+collection, string, Unicode, path, fs, I/O, process, and formatting operations
+needed by build.
 Tests cover success, invalid input, unavailable resources, partial I/O/process
 failure, allocation failure, rollback, and cleanup. Full compiler/build
 executions remain in the resource-accounted integration harness; small library

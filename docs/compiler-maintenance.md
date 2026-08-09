@@ -165,9 +165,9 @@ snapshot partial movement. Once the delivery batch passes its relevant gates,
 commit it with a descriptive `feat: ...` subject before reporting or handing off
 the work, and do not carry it into an unrelated batch. Do not mix unrelated
 cleanup into the commit merely because a broad validation command exposed it.
-Temporary execution progress belongs in the active roadmap; durable ownership,
-validation, and maintenance lessons must be moved into the relevant stable
-document as part of the batch that establishes them.
+Temporary execution progress belongs in its bounded project roadmap; durable
+ownership, validation, and maintenance lessons must be moved into the relevant
+stable document as part of the batch that establishes them.
 
 ## 7. Boundary And Test Reviews
 
@@ -200,16 +200,12 @@ surface, migration boundary, tests, and performance evidence. Do not append
 build or standard-library feature work to an already closed compiler roadmap or
 reuse compiler completion percentages to describe it.
 
-The active project is defined by
-[build-std-roadmap.md](../build-std-roadmap.md). It starts with relocatable
-toolchain/std identity and a bounded build-host std foundation before replacing
-the experimental build executor.
-
 Durable ownership and API decisions live in [build-system.md](build-system.md)
-and [standard-library.md](standard-library.md). In particular, current std APIs
-are not retained merely because they made the bootstrap run, and full build
-sessions remain resource-accounted integration work rather than ordinary unit
-tests.
+and [standard-library.md](standard-library.md). These documents describe the
+completed build/std ownership boundaries and maintained acceptance suites. In
+particular, current std APIs are not retained merely because they made the
+bootstrap run, and full build sessions remain resource-accounted integration
+work rather than ordinary unit tests.
 
 Any compiler changes required by that work still follow this maintenance
 contract. Ordinary build or standard-library errors must continue through the
