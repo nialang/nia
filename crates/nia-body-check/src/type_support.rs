@@ -29,6 +29,43 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn tuple_field_type(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        index: usize,
+    ) -> InternedTyId {
+        match self
+            .interner
+            .get(self.normalization.normalize(lhs_ty))
+            .cloned()
+        {
+            Some(TyKind::Tuple(elems)) => elems.get(index).copied().unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "tuple field index {index} is out of bounds for tuple of arity {}",
+                        elems.len()
+                    ),
+                ));
+                self.error()
+            }),
+            Some(TyKind::Error) => self.error(),
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "cannot project tuple field .{index} from {}",
+                        self.ty_name(lhs_ty)
+                    ),
+                ));
+                self.error()
+            }
+        }
+    }
+
     pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_or_unresolved(self.symbols, symbol)
     }

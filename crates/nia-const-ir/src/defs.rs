@@ -894,6 +894,10 @@ pub enum ResolvedConstExprKind {
         range: ResolvedConstSliceRange,
     },
     Tuple(Vec<ResolvedConstExpr>),
+    TupleField {
+        lhs: Box<ResolvedConstExpr>,
+        index: usize,
+    },
     ArrayLiteral {
         ty: Option<InternedTyId>,
         elems: ResolvedConstArrayElements,
@@ -1404,6 +1408,10 @@ pub enum EarlyConstExprKind {
         range: EarlyConstSliceRange,
     },
     Tuple(Vec<EarlyConstExpr>),
+    TupleField {
+        lhs: Box<EarlyConstExpr>,
+        index: usize,
+    },
     ArrayLiteral {
         ty: Option<InternedTyId>,
         elems: EarlyConstArrayElements,

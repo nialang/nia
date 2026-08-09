@@ -68,6 +68,7 @@ impl FunctionLowerer<'_> {
                 .iter()
                 .map(|elem| match elem {
                     PlaceElem::Field(field) => FunctionPlaceElem::Field(*field),
+                    PlaceElem::TupleField(index) => FunctionPlaceElem::TupleField(*index),
                     PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
                         self.lower_value_expr(index, scope, current, ops, blocks),
                     )),
@@ -116,6 +117,13 @@ impl FunctionLowerer<'_> {
                 place.span = expr.span;
                 place.ty = expr.ty;
                 place.elems.push(FunctionPlaceElem::Field(*field));
+                place
+            }
+            TypedExprKind::TupleField { lhs, index } => {
+                let mut place = self.lower_expr_place(lhs, scope, current, ops, blocks);
+                place.span = expr.span;
+                place.ty = expr.ty;
+                place.elems.push(FunctionPlaceElem::TupleField(*index));
                 place
             }
             TypedExprKind::Index { lhs, index } => {
@@ -937,7 +945,9 @@ impl FunctionLowerer<'_> {
                         visit_expr(arg, max_id);
                     }
                 }
-                TypedExprKind::Field { lhs, .. } => visit_expr(lhs, max_id),
+                TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
+                    visit_expr(lhs, max_id)
+                }
                 TypedExprKind::Slice { lhs, range, .. } => {
                     visit_expr(lhs, max_id);
                     if let Some(start) = &range.start {

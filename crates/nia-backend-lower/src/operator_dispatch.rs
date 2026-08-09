@@ -870,6 +870,7 @@ impl<'a> ModuleLowerer<'a> {
                 .into_iter()
                 .map(|elem| match elem {
                     FunctionPlaceElem::Field(field) => FunctionPlaceElem::Field(field),
+                    FunctionPlaceElem::TupleField(index) => FunctionPlaceElem::TupleField(index),
                     FunctionPlaceElem::Index(expr) => FunctionPlaceElem::Index(Box::new(
                         self.resolve_builtin_operator_calls_in_expr(*expr),
                     )),

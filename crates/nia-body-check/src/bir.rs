@@ -777,6 +777,10 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Field { lhs, name } => self
                 .lower_field_access_expr(lhs, name)
                 .unwrap_or(TypedExprKind::Error),
+            ExprKind::TupleField { lhs, index } => TypedExprKind::TupleField {
+                lhs: Box::new(self.lower_expr(lhs)),
+                index: *index,
+            },
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, ty),
             },
@@ -3088,6 +3092,11 @@ impl<'a> BodyChecker<'a> {
                     .map(PlaceElem::Field)
                     .unwrap_or(PlaceElem::Error);
                 elems.push(field);
+                base
+            }
+            ExprKind::TupleField { lhs, index } => {
+                let base = self.lower_place_inner(lhs, elems, mutable);
+                elems.push(PlaceElem::TupleField(*index));
                 base
             }
             ExprKind::Index { lhs, index } => {

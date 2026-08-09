@@ -312,6 +312,10 @@ pub enum TypedExprKind {
         lhs: Box<TypedExpr>,
         field: GlobalDefId,
     },
+    TupleField {
+        lhs: Box<TypedExpr>,
+        index: usize,
+    },
     Index {
         lhs: Box<TypedExpr>,
         index: Box<TypedExpr>,
@@ -607,6 +611,7 @@ pub enum PlaceBase {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaceElem {
     Field(GlobalDefId),
+    TupleField(usize),
     Index(Box<TypedExpr>),
     Error,
 }

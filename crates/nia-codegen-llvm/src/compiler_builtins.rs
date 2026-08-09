@@ -352,7 +352,9 @@ impl CompilerBuiltinCollector {
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Index(expr) => self.collect_expr(index, expr),
-                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
+                FunctionPlaceElem::Field(_)
+                | FunctionPlaceElem::TupleField(_)
+                | FunctionPlaceElem::Error => {}
             }
         }
     }

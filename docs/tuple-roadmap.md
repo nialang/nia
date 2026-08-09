@@ -67,6 +67,9 @@ pair.0 = 10;
 - Tuple projection uses decimal fields `.0`, `.1`, and so on, checked against
   the tuple arity. Projection preserves ordinary place, mutability, borrow, and
   assignment behavior.
+- Projection fields are canonical decimal position labels, not value or `const`
+  expressions. Leading zeroes, radix prefixes, separators, and integer suffixes
+  are rejected so every tuple position has one source spelling.
 - Tuple patterns recurse through the existing pattern system in `let`, `for`,
   `if ... is`, and `switch`. Pattern arity must equal tuple arity.
 - `let mut (x, y)` recursively marks all bindings mutable. `let (mut x, y)` is

@@ -531,6 +531,13 @@ impl Analyzer<'_> {
                     self.current_runtime_tuple_type(elem_types),
                 ))
             }
+            ResolvedConstExprKind::TupleField { lhs, index } => {
+                let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
+                let Some(TyKind::Tuple(elems)) = self.ty_kind(lhs_ty) else {
+                    return None;
+                };
+                Some(ConstValueType::Runtime(*elems.get(*index)?))
+            }
             ResolvedConstExprKind::ArrayLiteral {
                 ty: Some(ty),
                 elems,

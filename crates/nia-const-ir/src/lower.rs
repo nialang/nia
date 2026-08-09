@@ -375,6 +375,10 @@ fn lower_expr_internal(
                 .map(|elem| lower_expr_internal(elem, context))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
+        nia_ast::ExprKind::TupleField { lhs, index } => EarlyConstExprKind::TupleField {
+            lhs: Box::new(lower_expr_internal(lhs, context)?),
+            index: *index,
+        },
         nia_ast::ExprKind::ArrayLiteral { elems } => EarlyConstExprKind::ArrayLiteral {
             ty: None,
             elems: lower_array_elements_with_context(elems, context)?,
@@ -1198,6 +1202,10 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                 .map(resolve_expr)
                 .collect::<Result<Vec<_>, _>>()?,
         ),
+        EarlyConstExprKind::TupleField { lhs, index } => ResolvedConstExprKind::TupleField {
+            lhs: Box::new(resolve_expr(*lhs)?),
+            index,
+        },
         EarlyConstExprKind::ArrayLiteral { ty, elems } => ResolvedConstExprKind::ArrayLiteral {
             ty,
             elems: resolve_const_array_elements(elems)?,

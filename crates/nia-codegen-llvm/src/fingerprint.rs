@@ -1387,6 +1387,10 @@ impl<'a> Encoder<'a> {
                     self.expr(expr);
                 }
                 FunctionPlaceElem::Error => self.tag(2),
+                FunctionPlaceElem::TupleField(index) => {
+                    self.tag(3);
+                    self.usize(*index);
+                }
             }
         }
     }

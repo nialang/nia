@@ -432,6 +432,7 @@ fn function_place_contains_builtin_eq(place: &nia_function_ir::FunctionPlace) ->
                 function_expr_contains_builtin_eq(expr)
             }
             nia_function_ir::FunctionPlaceElem::Field(_)
+            | nia_function_ir::FunctionPlaceElem::TupleField(_)
             | nia_function_ir::FunctionPlaceElem::Error => false,
         })
 }

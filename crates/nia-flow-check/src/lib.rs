@@ -551,6 +551,12 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
+            ExprKind::TupleField { lhs, .. } => {
+                self.check_expr_flow(lhs);
+                Flow {
+                    falls_through: true,
+                }
+            }
             ExprKind::Index { lhs, index } => {
                 self.check_expr_flow(lhs);
                 match index {

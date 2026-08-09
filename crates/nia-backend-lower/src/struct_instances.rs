@@ -643,7 +643,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
                 FunctionPlaceElem::Error => {
                     crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
                 }
@@ -1303,7 +1303,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
                 FunctionPlaceElem::Error => {
                     crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
                 }

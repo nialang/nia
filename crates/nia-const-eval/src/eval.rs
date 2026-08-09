@@ -266,6 +266,19 @@ fn eval_resolved_const_expr_flow(
             }
             ConstValue::Tuple(values)
         }
+        ResolvedConstExprKind::TupleField { lhs, index } => {
+            let value = eval_resolved_value_or_return_flow!(lhs, env);
+            let ConstValue::Tuple(elems) = value else {
+                return Err(ConstError {
+                    span,
+                    message: "const tuple projection requires a tuple value".to_string(),
+                });
+            };
+            elems.get(*index).cloned().ok_or_else(|| ConstError {
+                span,
+                message: format!("const tuple field index {index} is out of bounds"),
+            })?
+        }
         ResolvedConstExprKind::ArrayLiteral { elems, .. } => {
             return eval_resolved_array_literal_flow(elems, env);
         }
@@ -576,6 +589,19 @@ fn eval_const_expr_flow(
                 values.push(eval_value_or_return_flow!(elem, env));
             }
             ConstValue::Tuple(values)
+        }
+        EarlyConstExprKind::TupleField { lhs, index } => {
+            let value = eval_value_or_return_flow!(lhs, env);
+            let ConstValue::Tuple(elems) = value else {
+                return Err(ConstError {
+                    span: expr.span,
+                    message: "const tuple projection requires a tuple value".to_string(),
+                });
+            };
+            elems.get(*index).cloned().ok_or_else(|| ConstError {
+                span: expr.span,
+                message: format!("const tuple field index {index} is out of bounds"),
+            })?
         }
         EarlyConstExprKind::ArrayLiteral { elems, .. } => {
             return eval_array_literal_flow(elems, env);

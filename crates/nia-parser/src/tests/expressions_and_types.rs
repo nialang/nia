@@ -64,6 +64,70 @@ fn values(unit: (), single: (i32,), pair: (i32, bool), grouped: (i32)) () {
 }
 
 #[test]
+fn parses_tuple_projections_separately_from_named_fields() {
+    let (module, errors) = parse_module(
+        r#"
+struct Pair {
+    left: (i32, bool),
+}
+
+fn project(pair: Pair) bool {
+    let first = (1, true).0;
+    pair.left.0.1
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(first) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        first.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::TupleField { index: 0, .. })
+    ));
+
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::TupleField { lhs, index: 1 } = &tail.kind else {
+        panic!("expected outer tuple projection");
+    };
+    let ExprKind::TupleField { lhs, index: 0 } = &lhs.kind else {
+        panic!("expected nested tuple projection");
+    };
+    assert!(matches!(lhs.kind, ExprKind::Field { .. }));
+}
+
+#[test]
+fn rejects_non_canonical_tuple_projection_fields() {
+    for (field, expected) in [
+        ("0x1", "tuple field must be a decimal integer"),
+        ("1_0", "tuple field must be a decimal integer"),
+        ("01", "tuple field must not contain leading zeroes"),
+        (
+            "99999999999999999999999999999999999999999999999999",
+            "tuple field index is too large",
+        ),
+    ] {
+        let source = format!(
+            r#"
+fn project(pair: (i32, bool)) i32 {{
+    pair.{field}
+}}
+"#
+        );
+        let (_, errors) = parse_module(&source);
+        assert!(
+            errors.iter().any(|error| error.message.contains(expected)),
+            "missing `{expected}` for `.{field}` in {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn parses_opaque_only_as_a_distinct_type_syntax() {
     let (module, errors) = parse_module(
         r#"

@@ -649,7 +649,7 @@ impl BackendValidator<'_> {
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Index(expr) => self.validate_expr(expr),
-                FunctionPlaceElem::Field(_) => {
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {
                     if self.place_base_ty(place).is_some() {
                         self.validate_place_path(place);
                     }
@@ -680,6 +680,25 @@ impl BackendValidator<'_> {
                         "backend IR place references missing field",
                     ) {
                         current_ty = field_ty;
+                    }
+                }
+                FunctionPlaceElem::TupleField(index) => {
+                    let Some(TyKind::Tuple(elems)) = self.ty_kind(current_ty) else {
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            nia_diagnostic::codes::INVALID_BACKEND_IR,
+                            place.span,
+                            "backend IR tuple place projection target is not a tuple",
+                        ));
+                        continue;
+                    };
+                    if let Some(elem) = elems.get(*index) {
+                        current_ty = *elem;
+                    } else {
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            nia_diagnostic::codes::INVALID_BACKEND_IR,
+                            place.span,
+                            "backend IR tuple place projection is out of bounds",
+                        ));
                     }
                 }
                 FunctionPlaceElem::Index(expr) => {

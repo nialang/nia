@@ -681,6 +681,7 @@ pub enum FunctionPlaceBase {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionPlaceElem {
     Field(nia_ids::GlobalDefId),
+    TupleField(usize),
     Index(Box<FunctionExpr>),
     Error,
 }

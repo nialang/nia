@@ -549,7 +549,9 @@ impl LocalDefinitionAllocator {
                     self.allocate_expr(arg);
                 }
             }
-            ExprKind::Qualified { lhs, .. } | ExprKind::Field { lhs, .. } => {
+            ExprKind::Qualified { lhs, .. }
+            | ExprKind::Field { lhs, .. }
+            | ExprKind::TupleField { lhs, .. } => {
                 self.allocate_expr(lhs);
             }
             ExprKind::Index { lhs, index } => {
@@ -1105,6 +1107,7 @@ impl<'a> LocalResolver<'a> {
             }
             ExprKind::Qualified { lhs, .. } => self.resolve_type_qualified_lhs(lhs),
             ExprKind::Field { lhs, .. } => self.resolve_field_lhs(lhs),
+            ExprKind::TupleField { lhs, .. } => self.resolve_expr(lhs),
             ExprKind::Index { lhs, index } => {
                 self.resolve_expr(lhs);
                 match index {

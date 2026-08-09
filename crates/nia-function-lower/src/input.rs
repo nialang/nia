@@ -239,7 +239,9 @@ impl BodyInputValidator {
                 }
                 Ok(())
             }
-            TypedExprKind::Field { lhs, .. } => self.validate_value_expr(lhs),
+            TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
+                self.validate_value_expr(lhs)
+            }
             TypedExprKind::EnumVariant { fields, .. } => {
                 for field in fields {
                     self.validate_value_expr(field)?;
@@ -424,7 +426,7 @@ impl BodyInputValidator {
                             .to_string(),
                     });
                 }
-                PlaceElem::Field(_) => {}
+                PlaceElem::Field(_) | PlaceElem::TupleField(_) => {}
             }
         }
         Ok(())
