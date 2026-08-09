@@ -18,14 +18,21 @@ class PerformanceWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("--allow-machine-mismatch", self.workflow)
 
-    def test_downloads_only_successful_main_runs(self):
+    def test_downloads_latest_completed_main_candidate(self):
         self.assertIn("--branch main", self.workflow)
-        self.assertIn("--status success", self.workflow)
-        self.assertIn("--name nia-perf-baseline", self.workflow)
+        self.assertIn("--status completed", self.workflow)
+        self.assertIn('--name "${artifact_name}"', self.workflow)
+        self.assertIn("nia-perf-baseline nia-perf-candidate", self.workflow)
+        self.assertIn('test -f "${destination}/baseline.json"', self.workflow)
         self.assertIn("steps.main_baseline.outputs.available", self.workflow)
 
-    def test_promotes_only_successful_main_baselines(self):
-        self.assertIn("if: success() && github.ref == 'refs/heads/main'", self.workflow)
+    def test_rolls_forward_every_collected_main_baseline(self):
+        self.assertIn('echo "candidate_available=true"', self.workflow)
+        self.assertIn(
+            "if: always() && github.ref == 'refs/heads/main' && "
+            "steps.prepare.outputs.candidate_available == 'true'",
+            self.workflow,
+        )
         self.assertIn("retention-days: 90", self.workflow)
         self.assertIn("name: nia-perf-candidate", self.workflow)
         self.assertIn("retention-days: 14", self.workflow)
@@ -48,6 +55,7 @@ class PerformanceWorkflowTests(unittest.TestCase):
 
     def test_publishes_baseline_provenance_in_step_summary(self):
         self.assertIn("BASELINE_RUN_ID", self.workflow)
+        self.assertIn("BASELINE_ARTIFACT_NAME", self.workflow)
         self.assertIn("steps.main_baseline.outputs.run_id", self.workflow)
         self.assertNotIn("outputs.run-", self.workflow)
         self.assertIn("GITHUB_STEP_SUMMARY", self.workflow)

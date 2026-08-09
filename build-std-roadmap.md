@@ -4706,3 +4706,15 @@ without assuming `candidate.json` exists, preventing cleanup from masking the
 original failure. Managed workflows move from Node 20 action releases to the
 current official checkout v7, cache v6, and artifact v7 runtimes; structural
 tests lock the invocation, failure-evidence, and action-version contracts.
+
+Phase H progress (2026-08-09, rolling performance baseline): the repaired
+performance run `31293514265` collected all workloads successfully, then exposed
+that baseline discovery was still pinned to the sole successful run
+`30428417714` at `9933768a`. Eleven later main runs had failed while roughly 459
+compiler, std, benchmark, and tooling files changed, so every subsequent run
+continued comparing against the same obsolete sample. Managed discovery now
+searches completed main runs and accepts only artifacts containing a complete
+`baseline.json`; every collected main candidate is retained as the next rolling
+baseline even when its own comparison correctly leaves that run failed. Pull
+requests therefore compare with current main, while collection failures remain
+short-lived diagnostic candidates and cannot enter the trend.

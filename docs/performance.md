@@ -158,23 +158,30 @@ job. It follows the newest Rust stable release, reports the resolved toolchain
 identity, and installs the current Fedora-derived LLVM 22 identity on
 `ubuntu-24.04`. It runs every workload three times with
 the controlled `github-hosted-ubuntu-24.04-x64` runner class, and downloads the
-most recent successful main-branch `nia-perf-baseline` artifact. The candidate
-must pass the same broad comparator guards before the workflow succeeds.
+most recent completed main-branch artifact that contains a fully collected
+`baseline.json`. The candidate must pass the same broad comparator guards before
+the workflow succeeds.
 
-Successful main-branch and scheduled runs upload `baseline.json`, the comparison
-report when one exists, and run/revision identity with 90-day retention. Later
-runs only search successful main workflow runs, so a failed regression candidate
-cannot become the next baseline. Pull-request and failed-main candidates are
-stored separately for 14 days for diagnosis. A failed collection retains its
-combined candidate log plus run/revision identity even when no baseline JSON was
-completed. The first main run is an explicit bootstrap because no earlier
+Every fully collected main-branch or scheduled candidate becomes the rolling
+`nia-perf-baseline`, with its comparison report and run/revision identity retained
+for 90 days. The current run remains failed when a guard fires, but its already
+landed main revision becomes the comparison point for the next push. This keeps
+pull requests relative to current main and prevents one accepted regression or
+changed workload from pinning all future comparisons to an arbitrarily old
+revision. Discovery also accepts the legacy `nia-perf-candidate` name so the
+first run after this policy change can recover the newest complete sample.
+
+Pull-request candidates and main runs that fail before completing
+`candidate.json` are stored separately for 14 days for diagnosis. A failed
+collection retains its combined candidate log plus run/revision identity. The
+first main run is an explicit bootstrap only when no earlier fully collected
 controlled artifact exists; after that, every available baseline is compared.
 This stores main-branch trends without committing machine-specific numbers to
 the source tree or treating a developer sample as a project-wide absolute
 threshold.
 Each run also publishes an Actions step summary containing the candidate
-revision, controlled runner class, selected main baseline run, and comparison
-result when a prior artifact was available.
+revision, controlled runner class, selected main baseline run and artifact name,
+and comparison result when a prior artifact was available.
 
 Performance evidence is interpreted under the end-to-end acceptance and failed
 experiment rules in [compiler-maintenance.md](compiler-maintenance.md).
