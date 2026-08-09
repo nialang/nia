@@ -151,7 +151,9 @@ result is itself machine-readable JSON.
 ## Managed CI Trend
 
 `.github/workflows/performance.yml` defines the managed Linux LLVM performance
-job. It installs LLVM 22 on `ubuntu-24.04`, runs every workload three times with
+job. It follows the newest Rust stable release, reports the resolved toolchain
+identity, and installs the current Fedora-derived LLVM 22 identity on
+`ubuntu-24.04`. It runs every workload three times with
 the controlled `github-hosted-ubuntu-24.04-x64` runner class, and downloads the
 most recent successful main-branch `nia-perf-baseline` artifact. The candidate
 must pass the same broad comparator guards before the workflow succeeds.

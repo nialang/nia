@@ -37,10 +37,17 @@ diagnostic, incremental, and evidence rules in
 Before submitting compiler changes, run:
 
 ```sh
+rustup toolchain install stable --component clippy --component rustfmt
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
+
+The repository intentionally follows the newest Rust stable toolchain rather
+than pinning a release or promising an MSRV. Update stable before interpreting
+local broad-gate results; new compiler and Clippy diagnostics are maintenance
+work to fix at their source, not lints to suppress. The managed workflows print
+the complete Rust, Cargo, Clippy, and rustfmt identity used for each run.
 
 Libtest keeps its normal platform-selected concurrency. Independently
 schedulable tests that create a complete compiler, LLVM, or build session share

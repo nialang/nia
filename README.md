@@ -74,6 +74,12 @@ Nia is a Rust workspace. It currently builds against LLVM through
 `llvm-sys = 221.0.1`, so a compatible LLVM 22.1 installation with
 `llvm-config` on `PATH` is required.
 
+Development follows the newest Rust stable release and the default LLVM release
+in the newest stable Fedora environment; these are moving maintainer baselines,
+not minimum-version promises. Update Rust stable before running the repository's
+strict validation commands. Hosted Ubuntu workflows install the matching LLVM
+release explicitly.
+
 Build the compiler with:
 
 ```sh
