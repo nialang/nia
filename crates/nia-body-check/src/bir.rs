@@ -11,7 +11,7 @@ use nia_body_ir::{
     TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
     TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
     TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedUnionRelocation, TypedWhile,
+    TypedTryErrorConversion, TypedUnionRelocation, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -955,9 +955,35 @@ impl<'a> BodyChecker<'a> {
                     expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
                 }
             }
-            ExprKind::Try { expr: inner } => TypedExprKind::Try {
-                expr: Box::new(self.lower_expr_with_checked_ty(inner)),
-            },
+            ExprKind::Try { expr: inner } => {
+                let error_conversion = match self.resolved_call(expr) {
+                    Some(ResolvedCall::TraitMethod {
+                        trait_id,
+                        method_id,
+                        method_name,
+                        self_ty,
+                        trait_args,
+                        receiver_kind,
+                        ..
+                    }) => trait_args
+                        .first()
+                        .copied()
+                        .map(|target_ty| TypedTryErrorConversion {
+                            trait_id,
+                            method_id,
+                            method_name,
+                            source_ty: self_ty,
+                            target_ty,
+                            trait_args,
+                            receiver_kind,
+                        }),
+                    _ => None,
+                };
+                TypedExprKind::Try {
+                    expr: Box::new(self.lower_expr_with_checked_ty(inner)),
+                    error_conversion,
+                }
+            }
             ExprKind::Binary { lhs, op, rhs }
                 if let Some(trait_id) = BuiltinOperatorOp::Binary(*op).trait_id() =>
             {

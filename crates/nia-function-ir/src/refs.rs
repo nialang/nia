@@ -181,8 +181,15 @@ fn collect_function_refs_from_terminator(
                 collect_function_refs_from_expr(&arm.pattern, types, refs);
             }
         }
-        FunctionTerminator::Try { value, .. } => {
-            collect_function_refs_from_expr(value, types, refs)
+        FunctionTerminator::Try {
+            value,
+            error_conversion,
+            ..
+        } => {
+            collect_function_refs_from_expr(value, types, refs);
+            if let Some(conversion) = error_conversion {
+                collect_function_refs_from_expr(conversion, types, refs);
+            }
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(expr) => {

@@ -17,6 +17,7 @@ struct TryTerminatorInput<'b, 'ctx> {
     span: Span,
     value: &'b FunctionExpr,
     kind: FunctionTryKind,
+    error_conversion: Option<&'b FunctionExpr>,
     success_local: nia_ids::LocalId,
     success_target: FunctionBlockId,
     llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
@@ -29,6 +30,7 @@ struct TryFailureReturn<'b, 'ctx> {
     aggregate: nia_llvm::values::StructValue<'ctx>,
     aggregate_ty: nia_ids::InternedTyId,
     kind: FunctionTryKind,
+    error_conversion: Option<&'b FunctionExpr>,
     outer_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
 }
 
@@ -38,6 +40,7 @@ struct DeferTryTerminatorInput<'b, 'ctx> {
     span: Span,
     value: &'b FunctionExpr,
     kind: FunctionTryKind,
+    error_conversion: Option<&'b FunctionExpr>,
     success_local: nia_ids::LocalId,
     success_target: FunctionBlockId,
     llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
@@ -268,6 +271,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionTerminator::Try {
                 value,
                 kind,
+                error_conversion,
                 success_local,
                 success_target,
                 span,
@@ -277,6 +281,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 span: *span,
                 value,
                 kind: *kind,
+                error_conversion: error_conversion.as_ref(),
                 success_local: *success_local,
                 success_target: *success_target,
                 llvm_blocks,
@@ -386,6 +391,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionTerminator::Try {
                 value,
                 kind,
+                error_conversion,
                 success_local,
                 success_target,
                 span,
@@ -395,6 +401,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 span: *span,
                 value,
                 kind: *kind,
+                error_conversion: error_conversion.as_ref(),
                 success_local: *success_local,
                 success_target: *success_target,
                 llvm_blocks,
@@ -431,6 +438,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             span,
             value,
             kind,
+            error_conversion,
             success_local,
             success_target,
             llvm_blocks,
@@ -467,11 +475,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to build deferred propagation branch"))?;
 
         self.builder.position_at_end(failure_block);
+        let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(
+            span,
+            aggregate,
+            value.ty,
+            kind,
+            error_conversion,
+        )?;
         self.emit_defer_function_tail_defers(body, block, span, outer_blocks)?;
         if self.current_block_has_terminator() {
             return Ok(());
         }
-        self.emit_try_failure_return_payload(span, aggregate, value.ty, kind)?;
+        let return_value = self
+            .builder
+            .build_load(return_llvm_ty, return_ptr, "try.return.value")
+            .map_err(|_| self.error(span, "failed to load propagation return"))?;
+        self.emit_return_value(span, return_value)?;
 
         self.builder.position_at_end(success_block);
         if !self.is_zero_sized_local(success_local) {
@@ -504,6 +523,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             span,
             value,
             kind,
+            error_conversion,
             success_local,
             success_target,
             llvm_blocks,
@@ -545,6 +565,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             aggregate,
             aggregate_ty: value.ty,
             kind,
+            error_conversion,
             outer_blocks: llvm_blocks,
         })?;
 
@@ -580,10 +601,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             aggregate,
             aggregate_ty,
             kind,
+            error_conversion,
             outer_blocks,
         } = failure;
-        let (return_llvm_ty, return_ptr) =
-            self.emit_try_failure_return_storage(span, aggregate, aggregate_ty, kind)?;
+        let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(
+            span,
+            aggregate,
+            aggregate_ty,
+            kind,
+            error_conversion,
+        )?;
         self.emit_function_tail_defers(body, block, span, outer_blocks)?;
         if self.current_block_has_terminator() {
             return Ok(());
@@ -629,28 +656,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "tagged union value is not a struct"))
     }
 
-    fn emit_try_failure_return_payload(
-        &mut self,
-        span: Span,
-        aggregate: nia_llvm::values::StructValue<'ctx>,
-        aggregate_ty: nia_ids::InternedTyId,
-        kind: FunctionTryKind,
-    ) -> Result<(), Diagnostic> {
-        let (return_llvm_ty, return_ptr) =
-            self.emit_try_failure_return_storage(span, aggregate, aggregate_ty, kind)?;
-        let value = self
-            .builder
-            .build_load(return_llvm_ty, return_ptr, "try.return.value")
-            .map_err(|_| self.error(span, "failed to load propagation return"))?;
-        self.emit_return_value(span, value)
-    }
-
     fn emit_try_failure_return_storage(
         &mut self,
         span: Span,
         aggregate: nia_llvm::values::StructValue<'ctx>,
         aggregate_ty: nia_ids::InternedTyId,
         kind: FunctionTryKind,
+        error_conversion: Option<&FunctionExpr>,
     ) -> Result<
         (
             nia_llvm::types::BasicTypeEnum<'ctx>,
@@ -679,6 +691,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 )?;
             }
             FunctionTryKind::ErrorUnion => {
+                let converted_payload = if let Some(conversion) = error_conversion {
+                    if self.is_zero_sized(conversion.ty) {
+                        self.emit_effect_expr(conversion)?;
+                        None
+                    } else {
+                        Some(self.emit_expr(conversion)?)
+                    }
+                } else {
+                    None
+                };
                 let tag_ptr = self
                     .builder
                     .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.return.tag")
@@ -700,12 +722,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .map_err(|_| {
                             self.error(span, "failed to build propagation return payload")
                         })?;
-                    let payload = self.load_tagged_union_payload_from_value(
-                        span,
-                        aggregate.into(),
-                        aggregate_ty,
-                        payload_ty,
-                    )?;
+                    let payload = match converted_payload {
+                        Some(payload) => payload,
+                        None => self.load_tagged_union_payload_from_value(
+                            span,
+                            aggregate.into(),
+                            aggregate_ty,
+                            payload_ty,
+                        )?,
+                    };
                     self.builder
                         .build_store(payload_ptr, payload)
                         .map_err(|_| {

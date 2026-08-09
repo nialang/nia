@@ -113,7 +113,7 @@ impl<'a> BodyChecker<'a> {
         });
     }
 
-    fn definition_name(&self, def_id: GlobalDefId) -> Option<SymbolId> {
+    pub(crate) fn definition_name(&self, def_id: GlobalDefId) -> Option<SymbolId> {
         if def_id.module_id == self.defs.module_id {
             return self.defs.defs.get(def_id.def_id).map(|def| def.name);
         }

@@ -261,10 +261,14 @@ impl<'a> FunctionIrValidator<'a> {
             }
             FunctionTerminator::Try {
                 value,
+                error_conversion,
                 success_local,
                 ..
             } => {
                 self.validate_value_expr(value)?;
+                if let Some(conversion) = error_conversion {
+                    self.validate_value_expr(conversion)?;
+                }
                 self.require_local(*success_local, value.span, "try success local")?;
             }
             FunctionTerminator::Loop { header, .. } => self.validate_for_header(header)?,
@@ -314,10 +318,14 @@ impl<'a> FunctionIrValidator<'a> {
             }
             FunctionTerminator::Try {
                 value,
+                error_conversion,
                 success_local,
                 ..
             } => {
                 self.validate_value_expr(value)?;
+                if let Some(conversion) = error_conversion {
+                    self.validate_value_expr(conversion)?;
+                }
                 self.require_local(*success_local, value.span, "try success local")?;
             }
             FunctionTerminator::Loop { header, .. } => self.validate_for_header(header)?,

@@ -111,8 +111,15 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_trait_object_vtables_from_expr(&arm.pattern, out, seen);
                 }
             }
-            FunctionTerminator::Try { value, .. } => {
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
                 self.collect_trait_object_vtables_from_expr(value, out, seen);
+                if let Some(conversion) = error_conversion {
+                    self.collect_trait_object_vtables_from_expr(conversion, out, seen);
+                }
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(cond) => {

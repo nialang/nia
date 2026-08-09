@@ -156,6 +156,7 @@ pub mod known {
     known_symbol!(LEN_TYPE, "Len");
     known_symbol!(ITERABLE_TRAIT, "Iterable");
     known_symbol!(ITERATOR_TRAIT, "Iterator");
+    known_symbol!(INTO_ERROR_TRAIT, "IntoError");
     known_symbol!(SIMD_TRAIT, "Simd");
     known_symbol!(SIMD_MASK_TRAIT, "SimdMask");
 
@@ -190,6 +191,7 @@ pub mod known {
     known_symbol!(END, "end");
     known_symbol!(ITER_METHOD, "iter");
     known_symbol!(NEXT, "next");
+    known_symbol!(INTO_ERROR, "into_error");
     known_symbol!(MIN, "MIN");
     known_symbol!(MAX, "MAX");
 
@@ -313,6 +315,7 @@ pub mod known {
         (LEN_TYPE, "Len"),
         (ITERABLE_TRAIT, "Iterable"),
         (ITERATOR_TRAIT, "Iterator"),
+        (INTO_ERROR_TRAIT, "IntoError"),
         (SIMD_TRAIT, "Simd"),
         (SIMD_MASK_TRAIT, "SimdMask"),
         (ADD, "add"),
@@ -346,6 +349,7 @@ pub mod known {
         (END, "end"),
         (ITER_METHOD, "iter"),
         (NEXT, "next"),
+        (INTO_ERROR, "into_error"),
         (MIN, "MIN"),
         (MAX, "MAX"),
         (ERROR, "error"),

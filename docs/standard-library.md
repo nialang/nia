@@ -136,8 +136,8 @@ than preserving bootstrap-era explicitness:
 - numeric process failure statuses are constructed with `process::exit(code)`;
   direct casts to `process::ExitCode` are confined to that conversion boundary
   and explicit enum-cast conformance tests;
-- `.exit().?` is used when a reviewed std error mapping is being propagated
-  through an executable entry;
+- direct `.?` is used when a reviewed `IntoError` mapping is being propagated;
+  `.exit()` remains available when the converted error union is itself needed;
 - a numeric literal suffix is omitted when a parameter, return type, field,
   place, operator, or peer expression already supplies its type;
 - suffixes remain when they define ABI or layout width, serialization or bit
@@ -428,7 +428,8 @@ Its `debug::Error::Format` payload preserves checked-template and presentation
 failures from `fmt`, while `debug::Error::Flush` preserves the concrete
 filesystem cause from the final stderr flush. The standard process conversion
 maps either payload through its native cause, so maintained executable examples
-use `debug::print(...).exit().?`. Applications needing a different buffering or
+can propagate `debug::print(...).?` directly from an `ExitCode!T` entry point.
+Applications needing a different buffering or
 recovery policy use `io::FileWriter` directly.
 
 `unicode::Utf8View` is the nominal borrowed validated UTF-8 role. `fromBytes`

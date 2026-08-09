@@ -96,7 +96,17 @@ where
             FunctionForHeader::Condition(cond) => rewrite_expr(cond),
             FunctionForHeader::Infinite => false,
         },
-        FunctionTerminator::Try { value, .. } => rewrite_expr(value),
+        FunctionTerminator::Try {
+            value,
+            error_conversion,
+            ..
+        } => {
+            let mut changed = rewrite_expr(value);
+            if let Some(conversion) = error_conversion {
+                changed |= rewrite_expr(conversion);
+            }
+            changed
+        }
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             value.as_mut().is_some_and(rewrite_expr)
         }

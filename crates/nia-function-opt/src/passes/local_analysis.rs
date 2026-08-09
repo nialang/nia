@@ -68,10 +68,14 @@ impl<'a> LocalUseCollector<'a> {
             }
             FunctionTerminator::Try {
                 value,
+                error_conversion,
                 success_local,
                 ..
             } => {
                 self.collect_expr(value);
+                if let Some(conversion) = error_conversion {
+                    self.collect_expr(conversion);
+                }
                 if matches!(self.kind, LocalUseKind::Referenced) {
                     self.locals.insert(*success_local);
                 }

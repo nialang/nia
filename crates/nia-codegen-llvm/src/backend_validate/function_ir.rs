@@ -89,8 +89,15 @@ impl BackendValidator<'_> {
                     self.validate_expr(&arm.pattern);
                 }
             }
-            FunctionTerminator::Try { value, .. } => {
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
                 self.validate_expr(value);
+                if let Some(conversion) = error_conversion {
+                    self.validate_expr(conversion);
+                }
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 nia_function_ir::FunctionForHeader::Infinite => {}

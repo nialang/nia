@@ -266,8 +266,19 @@ impl<'a> ModuleLowerer<'a> {
                     );
                 }
             }
-            FunctionTerminator::Try { value, .. } => {
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
                 self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                if let Some(conversion) = error_conversion {
+                    self.inline_leaf_calls_in_expr(
+                        conversion,
+                        function_candidates,
+                        instance_candidates,
+                    );
+                }
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(expr) => {

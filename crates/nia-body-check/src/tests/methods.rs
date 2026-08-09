@@ -555,7 +555,7 @@ fn typed_expr_has_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
         | nia_body_ir::TypedExprKind::OptionalSome { expr }
         | nia_body_ir::TypedExprKind::ErrorOk { expr }
         | nia_body_ir::TypedExprKind::ErrorErr { expr }
-        | nia_body_ir::TypedExprKind::Try { expr }
+        | nia_body_ir::TypedExprKind::Try { expr, .. }
         | nia_body_ir::TypedExprKind::Discard(expr)
         | nia_body_ir::TypedExprKind::Cast { expr, .. } => typed_expr_has_error_expr(expr),
         nia_body_ir::TypedExprKind::Binary { lhs, rhs, .. } => {

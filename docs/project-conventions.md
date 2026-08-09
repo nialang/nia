@@ -49,10 +49,13 @@ serialization, hashes and bit operations, overflow boundaries, mixed-width
 arithmetic, otherwise unconstrained literals, and tests specifically about
 literal typing or casts.
 
-Executable fixtures return numeric failures with `process::exit(code)!` and map
-reviewed error unions with `.exit().?`. A direct `as process::ExitCode` is for
-the implementation of that conversion or a test explicitly exercising an enum
-cast, not ordinary control flow.
+Executable fixtures return numeric failures with `process::exit(code)!` and use
+direct `.?` propagation when the source error has a reviewed
+`IntoError[process::ExitCode]` implementation. Explicit `.exit()` remains for
+code that needs the converted error union as a value rather than immediately
+propagating it. A direct `as process::ExitCode` is for the implementation of
+that conversion or a test explicitly exercising an enum cast, not ordinary
+control flow.
 
 Write aggregate type information once in ordinary code. Prefer a left-hand
 annotation for a named value whose type is part of its local contract:

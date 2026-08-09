@@ -182,7 +182,7 @@ impl FunctionLowerer<'_> {
             TypedExprKind::ErrorErr { expr: inner } => FunctionExprKind::ErrorErr {
                 expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
             },
-            TypedExprKind::Try { expr: inner } => {
+            TypedExprKind::Try { expr: inner, .. } => {
                 return self.lower_try_expr(expr, inner, scope, current, ops, blocks);
             }
             TypedExprKind::Binary { lhs, op, rhs } => FunctionExprKind::Binary {
@@ -302,7 +302,50 @@ impl FunctionLowerer<'_> {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionExpr {
-        let value = self.lower_value_expr(inner, scope, current, ops, blocks);
+        let TypedExprKind::Try {
+            error_conversion, ..
+        } = &expr.kind
+        else {
+            unreachable!("try lowering requires a try expression")
+        };
+        let mut value = self.lower_value_expr(inner, scope, current, ops, blocks);
+        let error_conversion = error_conversion.as_ref().map(|conversion| {
+            let input_local = self.alloc_temp_local(inner.span, inner.ty);
+            ops.push(FunctionOp::StoreLocal {
+                local_id: input_local,
+                value: value.clone(),
+                span: inner.span,
+            });
+            value = FunctionExpr {
+                span: inner.span,
+                ty: inner.ty,
+                kind: FunctionExprKind::Local(input_local),
+            };
+            let receiver = FunctionExpr {
+                span: expr.span,
+                ty: conversion.source_ty,
+                kind: FunctionExprKind::TaggedUnionPayload {
+                    expr: Box::new(value.clone()),
+                },
+            };
+            FunctionExpr {
+                span: expr.span,
+                ty: conversion.target_ty,
+                kind: FunctionExprKind::Call {
+                    callee: FunctionCallee::TraitMethod {
+                        trait_id: conversion.trait_id,
+                        method_id: conversion.method_id,
+                        method_name: conversion.method_name,
+                        self_ty: conversion.source_ty,
+                        trait_args: conversion.trait_args.clone(),
+                        args: Vec::new(),
+                        receiver_kind: conversion.receiver_kind,
+                        receiver: Box::new(receiver),
+                    },
+                    args: Vec::new(),
+                },
+            }
+        });
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let success_target = self.alloc_block();
         let kind = self.try_kind(inner.ty).unwrap_or(FunctionTryKind::Optional);
@@ -315,6 +358,7 @@ impl FunctionLowerer<'_> {
             FunctionTerminator::Try {
                 value,
                 kind,
+                error_conversion,
                 success_local: local,
                 success_target,
                 span: expr.span,

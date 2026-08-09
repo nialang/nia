@@ -97,8 +97,16 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 changed
             }
-            FunctionTerminator::Try { value, .. } => {
-                self.devirtualize_direct_trait_calls_in_expr(value)
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
+                let mut changed = self.devirtualize_direct_trait_calls_in_expr(value);
+                if let Some(conversion) = error_conversion {
+                    changed |= self.devirtualize_direct_trait_calls_in_expr(conversion);
+                }
+                changed
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(cond) => {

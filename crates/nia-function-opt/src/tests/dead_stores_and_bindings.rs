@@ -81,6 +81,7 @@ fn preserves_try_success_locals_as_referenced_bindings() {
                     kind: FunctionExprKind::Local(LocalId(1)),
                 },
                 kind: FunctionTryKind::ErrorUnion,
+                error_conversion: None,
                 success_local: LocalId(0),
                 success_target: FunctionBlockId(1),
                 span,

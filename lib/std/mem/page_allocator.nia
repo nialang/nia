@@ -20,7 +20,7 @@ extend PageAllocator : Allocator {
         if layout.isEmpty() {
             !Block::empty(layout)
         } else {
-            let ptr = os::mapPages(layout.size(), layout.align()).asPageAllocatorError().?;
+            let ptr = os::mapPages(layout.size(), layout.align()).?;
             !Block::init(ptr, layout)
         }
     }

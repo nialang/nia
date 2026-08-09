@@ -109,7 +109,16 @@ impl CompilerBuiltinCollector {
                     self.collect_expr(index, &arm.pattern);
                 }
             }
-            FunctionTerminator::Try { value, .. } => self.collect_expr(index, value),
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
+                self.collect_expr(index, value);
+                if let Some(conversion) = error_conversion {
+                    self.collect_expr(index, conversion);
+                }
+            }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Infinite => {}
                 FunctionForHeader::Condition(expr) => self.collect_expr(index, expr),
