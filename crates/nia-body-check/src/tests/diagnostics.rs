@@ -80,3 +80,20 @@ fn main(value: (), ptr: &u8) () {
         checked.diagnostics
     );
 }
+
+#[test]
+fn reports_closure_type_check_boundary_without_panicking() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) () {
+    let callback = [base](value: i32) i32 { base + value };
+    ()
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("closure expressions are not type-checked yet")
+    }));
+}

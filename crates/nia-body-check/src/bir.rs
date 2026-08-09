@@ -699,6 +699,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Tuple(elems) => {
                 TypedExprKind::Tuple(elems.iter().map(|elem| self.lower_expr(elem)).collect())
             }
+            ExprKind::Closure { .. } => TypedExprKind::Error,
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_const_use(expr) {

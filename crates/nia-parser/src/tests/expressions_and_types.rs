@@ -102,6 +102,73 @@ fn project(pair: Pair) bool {
 }
 
 #[test]
+fn parses_explicit_capture_closures() {
+    let (module, errors) = parse_module(
+        r#"
+fn make(base: i32) () {
+    let add = [base, offset = 2](value: i32) i32 {
+        base + offset + value
+    };
+    let stateless = [](value: i32) i32 { value };
+    ()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure {
+        captures,
+        params,
+        return_type,
+        body: closure_body,
+    } = &binding.value.as_ref().expect("expected closure value").kind
+    else {
+        panic!("expected closure expression");
+    };
+    assert_eq!(captures.len(), 2);
+    assert_eq!(params.len(), 1);
+    assert!(return_type.is_some());
+    assert!(closure_body.tail.is_some());
+
+    let StmtKind::Binding(stateless_binding) = &body.stmts[1].kind else {
+        panic!("expected stateless closure binding");
+    };
+    let ExprKind::Closure { captures, .. } = &stateless_binding
+        .value
+        .as_ref()
+        .expect("expected closure value")
+        .kind
+    else {
+        panic!("expected closure expression");
+    };
+    assert!(captures.is_empty());
+}
+
+#[test]
+fn rejects_variadic_closures() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() () {
+    let callback = [](value: i32, ...) i32 { value };
+    ()
+}
+"#,
+    );
+    assert!(errors.iter().any(|error| {
+        error
+            .message
+            .contains("closures cannot use variadic parameters")
+    }));
+}
+
+#[test]
 fn rejects_non_canonical_tuple_projection_fields() {
     for (field, expected) in [
         ("0x1", "tuple field must be a decimal integer"),

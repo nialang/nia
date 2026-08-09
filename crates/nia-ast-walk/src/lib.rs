@@ -323,6 +323,25 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(elem);
             }
         }
+        ExprKind::Closure {
+            captures,
+            params,
+            return_type,
+            body,
+        } => {
+            for capture in captures {
+                visitor.visit_expr(&capture.value);
+            }
+            for param in params {
+                if let Some(ty) = &param.ty {
+                    visitor.visit_type(ty);
+                }
+            }
+            if let Some(return_type) = return_type {
+                visitor.visit_type(return_type);
+            }
+            visitor.visit_block(body);
+        }
         ExprKind::ArrayLiteral { elems } => match elems {
             ArrayElements::List(elems) => {
                 for elem in elems {

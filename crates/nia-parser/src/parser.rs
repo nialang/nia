@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
-    BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
+    BindingItem, BindingStmt, Block, BracketArg, ClosureCapture, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, EnumVariantPatternFields,
     EnumVariantPayload, Expr, ExprKind, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt,
     FunctionItem, GenericParam, IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind,

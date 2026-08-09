@@ -230,6 +230,18 @@ pub enum ExprKind {
         args: Vec<BracketArg>,
     },
     Tuple(Vec<Expr>),
+    /// Anonymous closure value with explicit captures.
+    ///
+    /// The capture expressions are evaluated at the closure site and their
+    /// names are visible only in the closure body. The concrete state type is
+    /// intentionally anonymous; dynamic callable views are a later semantic
+    /// coercion rather than a second source spelling.
+    Closure {
+        captures: Vec<ClosureCapture>,
+        params: Vec<crate::Param>,
+        return_type: Option<TypeRef>,
+        body: Block,
+    },
     ArrayLiteral {
         elems: ArrayElements,
     },
@@ -314,6 +326,14 @@ pub struct BracketArg {
     pub span: Span,
     pub expr: Option<Expr>,
     pub ty: Option<TypeRef>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClosureCapture {
+    pub name: SymbolId,
+    pub value: Expr,
+    pub span: Span,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -85,6 +85,12 @@ impl AssociatedConstProjectionUseCollector<'_> {
                     self.visit_expr(elem);
                 }
             }
+            nia_ast::ExprKind::Closure { captures, body, .. } => {
+                for capture in captures {
+                    self.visit_expr(&capture.value);
+                }
+                self.visit_block(body);
+            }
             nia_ast::ExprKind::StructLiteral { fields }
             | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {

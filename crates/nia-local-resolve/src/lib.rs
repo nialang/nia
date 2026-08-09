@@ -519,6 +519,35 @@ impl LocalDefinitionAllocator {
                     self.allocate_expr(elem);
                 }
             }
+            ExprKind::Closure {
+                captures,
+                params,
+                body,
+                ..
+            } => {
+                for capture in captures {
+                    self.allocate_expr(&capture.value);
+                    self.allocate_definition(
+                        &capture.name,
+                        LocalKind::ImmutableBinding,
+                        capture.span,
+                        capture.node_key.clone(),
+                    );
+                }
+                for param in params {
+                    if param.receiver.is_some() {
+                        self.allocate_receiver(param.span, param.node_key.clone());
+                    } else if let Some(name) = &param.name {
+                        self.allocate_definition(
+                            name,
+                            LocalKind::Param,
+                            param.span,
+                            param.node_key.clone(),
+                        );
+                    }
+                }
+                self.allocate_block(body);
+            }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 self.allocate_array_elements(elems);
             }
@@ -1064,6 +1093,50 @@ impl<'a> LocalResolver<'a> {
                 for elem in elems {
                     self.resolve_expr(elem);
                 }
+            }
+            ExprKind::Closure {
+                captures,
+                params,
+                return_type,
+                body,
+            } => {
+                for capture in captures {
+                    self.resolve_expr(&capture.value);
+                }
+                self.push_scope();
+                for capture in captures {
+                    self.define(
+                        &capture.name,
+                        LocalKind::ImmutableBinding,
+                        capture.span,
+                        capture.node_key.clone(),
+                        "duplicate closure capture",
+                    );
+                }
+                let self_stack_len = self.self_locals.len();
+                for param in params {
+                    if let Some(ty) = &param.ty {
+                        self.resolve_type(ty);
+                    }
+                    if param.receiver.is_some() {
+                        let local = self.define_receiver(param.span, param.node_key.clone());
+                        self.self_locals.push(local);
+                    } else if let Some(name) = &param.name {
+                        self.define(
+                            name,
+                            LocalKind::Param,
+                            param.span,
+                            param.node_key.clone(),
+                            "duplicate closure parameter name",
+                        );
+                    }
+                }
+                if let Some(return_type) = return_type {
+                    self.resolve_type(return_type);
+                }
+                self.resolve_block(body);
+                self.self_locals.truncate(self_stack_len);
+                self.pop_scope();
             }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 match elems {
