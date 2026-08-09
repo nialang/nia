@@ -550,4 +550,45 @@ extern fn consume(header: Header);
         let checked = check_module_abi(&defs, &type_store, &signatures);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
+
+    #[test]
+    fn allows_unit_returns_and_rejects_tuple_values_at_c_boundaries() {
+        let (module, errors) = parse_module(
+            r#"
+extern fn effect();
+extern fn bad_param(value: (i32, bool));
+extern fn bad_return() (i32, bool);
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
+        let checked = check_module_abi(&defs, &type_store, &signatures);
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.summary.contains("cannot use tuple by value"))
+                .count(),
+            2,
+            "{:?}",
+            checked.diagnostics
+        );
+    }
 }

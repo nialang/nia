@@ -1008,6 +1008,24 @@ mod tests {
     }
 
     #[test]
+    fn tuple_identity_preserves_arity_and_element_order() {
+        let store = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let unit = append.intern(TyKind::Tuple(Vec::new()));
+        let singleton = append.intern(TyKind::Tuple(vec![i32_ty]));
+        let pair = append.intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
+        let reversed = append.intern(TyKind::Tuple(vec![bool_ty, i32_ty]));
+
+        assert!(store.get(unit).is_some_and(TyKind::is_unit));
+        assert_ne!(singleton, i32_ty);
+        assert_ne!(pair, reversed);
+        assert_eq!(store.get(singleton), Some(&TyKind::Tuple(vec![i32_ty])));
+    }
+
+    #[test]
     fn primitive_ids_resolve_to_canonical_kinds() {
         let store = TypeStore::new();
         let module_id = nia_ids::ModuleIdAllocator::new().allocate();

@@ -805,6 +805,39 @@ mod tests {
     }
 
     #[test]
+    fn tuple_mangling_preserves_unit_arity_and_element_order() {
+        let type_store = TypeStore::new();
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let append = type_store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let unit = append.intern(TyKind::Tuple(Vec::new()));
+        let pair = append.intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
+        let reversed = append.intern(TyKind::Tuple(vec![bool_ty, i32_ty]));
+        let resolvers = || {
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                |_| "item".into(),
+                |_| None,
+            )
+        };
+
+        assert_eq!(
+            mangle_type_with(&type_store, unit, resolvers()),
+            "tuple__len__0__"
+        );
+        assert_eq!(
+            mangle_type_with(&type_store, pair, resolvers()),
+            "tuple__len__2__i32__bool"
+        );
+        assert_eq!(
+            mangle_type_with(&type_store, reversed, resolvers()),
+            "tuple__len__2__bool__i32"
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "Nia ICE: cannot mangle type")]
     fn rejects_missing_type_id_instead_of_mangling_fallback_symbol() {
         let type_store = TypeStore::new();

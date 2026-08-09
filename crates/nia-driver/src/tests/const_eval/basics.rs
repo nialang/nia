@@ -244,6 +244,33 @@ fn main() i32 {
 }
 
 #[test]
+fn const_tuple_patterns_drive_array_lengths() {
+    let root = temp_dir("const_tuple_patterns_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn select(value: (usize, (bool, usize))) usize {
+    switch value {
+        (0, (false, _)) => 1,
+        (left, (true, right)) => left + right,
+        (_, (_, fallback)) => fallback,
+    }
+}
+
+const n: usize = select((3usize, (true, 5usize)));
+
+fn main() i32 {
+    let mut values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_function_switch_ranges_and_return_arms_drive_array_lengths() {
     let root = temp_dir("const_function_switch_ranges_and_return_arms_drive_array_lengths");
     write(

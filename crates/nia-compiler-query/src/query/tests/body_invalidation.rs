@@ -102,6 +102,52 @@ fn function_signature_update_refreshes_revision_bearing_definition_queries() {
 }
 
 #[test]
+fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "pub fn take(value: (i32, bool)) i32 { value.0 } fn main() i32 { 0 }",
+    );
+    let module_id = fixture.entry_id();
+    let database = fixture.database();
+
+    let first = database.check_program();
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    let after_first = database.query_trace();
+
+    fixture.update_module_source(
+        module_id,
+        "pub fn take(value: (bool, i32)) i32 { value.1 } fn main() i32 { 0 }",
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+    let reordered = database.check_program();
+    assert!(
+        reordered.diagnostics.is_empty(),
+        "{:?}",
+        reordered.diagnostics
+    );
+    let after_reorder = database.query_trace();
+    assert!(
+        query_executions(&after_first, "signature_type_lowering")
+            < query_executions(&after_reorder, "signature_type_lowering")
+    );
+
+    fixture.update_module_source(
+        module_id,
+        "pub fn take(value: (bool, u8)) u8 { value.1 } fn main() i32 { 0 }",
+        SourceRevision(2),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+    let changed = database.check_program();
+    assert!(changed.diagnostics.is_empty(), "{:?}", changed.diagnostics);
+    let after_type_change = database.query_trace();
+    assert!(
+        query_executions(&after_reorder, "signature_type_lowering")
+            < query_executions(&after_type_change, "signature_type_lowering")
+    );
+}
+
+#[test]
 fn function_body_type_update_refreshes_signature_program_type_context() {
     let mut fixture =
         LoadedProgramFixture::new("main.nia", "fn main() i32 { let value: i32 = 0; value }");
