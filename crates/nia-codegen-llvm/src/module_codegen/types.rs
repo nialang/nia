@@ -218,12 +218,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             {
                 AbiParam::Direct(ty)
             }
-            Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiParam::IndirectReadonly(ty),
+            Some(TyKind::Tuple(_) | TyKind::Array { .. } | TyKind::Nominal { .. }) => {
+                AbiParam::IndirectReadonly(ty)
+            }
             Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => {
                 AbiParam::IndirectReadonly(ty)
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::Opaque
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
@@ -265,10 +268,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             {
                 AbiReturn::Direct(ty)
             }
-            Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiReturn::IndirectOut(ty),
+            Some(TyKind::Tuple(_) | TyKind::Array { .. } | TyKind::Nominal { .. }) => {
+                AbiReturn::IndirectOut(ty)
+            }
             Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => AbiReturn::IndirectOut(ty),
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::Opaque
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
@@ -336,6 +342,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Ok(self.context.struct_type(&[], false).into());
         }
         match self.ty_kind(ty) {
+            Some(TyKind::Tuple(elems)) => {
+                let fields = elems
+                    .iter()
+                    .map(|elem| self.llvm_basic_type_in(*elem, span))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(self.context.struct_type(&fields, false).into())
+            }
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
             Some(TyKind::Vector { elem, lanes }) => self.vector_type(*elem, *lanes, span),
             Some(
@@ -384,6 +397,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::Opaque
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }

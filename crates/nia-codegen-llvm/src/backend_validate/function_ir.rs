@@ -224,6 +224,27 @@ impl BackendValidator<'_> {
                 }
                 FunctionArrayElements::Repeat { value, .. } => self.validate_expr(value),
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.validate_expr(elem);
+                }
+            }
+            FunctionExprKind::TupleField { value, index } => {
+                self.validate_expr(value);
+                match self.index.ty_kind(value.ty) {
+                    Some(TyKind::Tuple(elems)) if *index < elems.len() => {}
+                    Some(TyKind::Tuple(_)) => self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        "backend IR tuple projection is out of bounds",
+                    )),
+                    _ => self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        "backend IR tuple projection target is not a tuple",
+                    )),
+                }
+            }
             FunctionExprKind::StructLiteral { def_id, fields } => {
                 self.validate_aggregate_def(
                     *def_id,

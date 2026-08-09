@@ -556,6 +556,11 @@ impl<'a> BodyChecker<'a> {
                 self.check_object_safe_type(span, elem);
             }
             Some(TyKind::Array { elem, .. }) => self.check_object_safe_type(span, elem),
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.check_object_safe_type(span, elem);
+                }
+            }
             Some(TyKind::Range { bound, .. }) => {
                 if let Some(bound) = bound {
                     self.check_object_safe_type(span, bound);
@@ -625,6 +630,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
@@ -785,6 +791,13 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.object_safe_ty(check, elem))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
             }
             Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
@@ -977,6 +990,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
@@ -1005,6 +1019,9 @@ impl<'a> BodyChecker<'a> {
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem }) => self.type_mentions_self(elem, self_ty),
             Some(TyKind::Array { elem, .. }) => self.type_mentions_self(elem, self_ty),
+            Some(TyKind::Tuple(elems)) => elems
+                .into_iter()
+                .any(|elem| self.type_mentions_self(elem, self_ty)),
             Some(TyKind::Range { bound, .. }) => {
                 bound.is_some_and(|bound| self.type_mentions_self(bound, self_ty))
             }
@@ -1056,6 +1073,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }

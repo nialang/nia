@@ -411,6 +411,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 allocation, array, ..
             } => self.emit_static_array_pointer(expr.span, *allocation, array),
             FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
+            FunctionExprKind::Tuple(elems) => self.emit_tuple_literal(expr, elems),
+            FunctionExprKind::TupleField { value, index } => {
+                let value = self.emit_expr(value)?.into_struct_value().map_err(|_| {
+                    self.error(expr.span, "tuple projection target is not a struct")
+                })?;
+                self.builder
+                    .build_extract_value(value, *index as u32, "tuple.field")
+                    .map_err(|_| self.error(expr.span, "failed to extract tuple field"))
+            }
             FunctionExprKind::StructLiteral { def_id, fields } => {
                 self.emit_struct_literal(expr, *def_id, fields)
             }

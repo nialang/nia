@@ -196,6 +196,28 @@ fn match_type_pattern<'a>(
             }
         }
         TyKind::SelfParam => matches!(actual.kind(), Some(TyKind::SelfParam)),
+        TyKind::Opaque => matches!(actual.kind(), Some(TyKind::Opaque)),
+        TyKind::Tuple(pattern_elems) => match actual.kind() {
+            Some(TyKind::Tuple(actual_elems)) if pattern_elems.len() == actual_elems.len() => {
+                pattern_elems
+                    .iter()
+                    .zip(actual_elems)
+                    .all(|(pattern_elem, actual_elem)| {
+                        match_type_pattern(
+                            TypedTyRef {
+                                store: pattern.store,
+                                ty: *pattern_elem,
+                            },
+                            TypedTyRef {
+                                store: actual.store,
+                                ty: *actual_elem,
+                            },
+                            substitutions,
+                        )
+                    })
+            }
+            _ => false,
+        },
         TyKind::Primitive(pattern_primitive) => {
             matches!(actual.kind(), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
         }
@@ -1034,6 +1056,14 @@ pub(super) fn substitute_ty(
     match kind {
         TyKind::GenericParam(name) => substitute_generic_ty(&name, substitutions, ty),
         TyKind::SelfParam => substitutions.self_ty.or(Some(ty)),
+        TyKind::Opaque => Some(ty),
+        TyKind::Tuple(elems) => {
+            let elems = elems
+                .into_iter()
+                .map(|elem| substitute_ty(types, elem, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            Some(types.intern(TyKind::Tuple(elems)))
+        }
         TyKind::Pointer { is_readonly, elem } => {
             let elem = substitute_ty(types, elem, substitutions)?;
             Some(types.intern(TyKind::Pointer { is_readonly, elem }))

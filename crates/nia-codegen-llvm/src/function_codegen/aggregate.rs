@@ -45,6 +45,35 @@ impl<'ctx> PromotedConstValue<'ctx> {
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
+    pub(super) fn emit_tuple_literal(
+        &mut self,
+        expr: &FunctionExpr,
+        elems: &[FunctionExpr],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let tuple_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(tuple_ty, "tupletmp")
+            .map_err(|_| self.error(expr.span, "failed to allocate tuple literal"))?;
+        for (index, elem) in elems.iter().enumerate() {
+            if self.is_zero_sized(elem.ty) {
+                self.emit_effect_expr(elem)?;
+                continue;
+            }
+            let field_ptr = self
+                .builder
+                .build_struct_gep(tuple_ty, ptr, index as u32, "tuple.field.ptr")
+                .map_err(|_| self.error(elem.span, "failed to address tuple field"))?;
+            let value = self.emit_expr(elem)?;
+            self.builder
+                .build_store(field_ptr, value)
+                .map_err(|_| self.error(elem.span, "failed to store tuple field"))?;
+        }
+        self.builder
+            .build_load(tuple_ty, ptr, "tuplelit")
+            .map_err(|_| self.error(expr.span, "failed to load tuple literal"))
+    }
+
     pub(super) fn emit_array_literal(
         &mut self,
         expr: &FunctionExpr,

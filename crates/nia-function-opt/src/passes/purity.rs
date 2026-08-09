@@ -53,6 +53,8 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
                 && range.end.as_deref().is_none_or(is_pure_discardable_expr)
         }
         FunctionExprKind::ArrayLiteral { elems } => is_pure_discardable_array_elements(elems),
+        FunctionExprKind::Tuple(elems) => elems.iter().all(is_pure_discardable_expr),
+        FunctionExprKind::TupleField { value, .. } => is_pure_discardable_expr(value),
         FunctionExprKind::StructLiteral { fields, .. } => fields
             .iter()
             .all(|field| is_pure_discardable_expr(&field.value)),

@@ -213,6 +213,9 @@ impl StaticChecker<'_> {
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Bool(_) => None,
+            ExprKind::Tuple(elems) => elems
+                .iter()
+                .find_map(|elem| self.static_init_reject_reason(elem)),
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 match elems {
                     ArrayElements::List(elems) => elems

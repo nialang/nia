@@ -350,6 +350,11 @@ impl ConstModuleLowerer<'_> {
                     }
                 }
             }
+            nia_ast::ExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.collect_expr_locals(elem, out);
+                }
+            }
             nia_ast::ExprKind::ArrayLiteral { elems }
             | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => match elems {
                 nia_ast::ArrayElements::List(elems) => {
@@ -483,6 +488,11 @@ impl ConstModuleLowerer<'_> {
             | nia_ast::PatternKind::OptionalSome(pattern)
             | nia_ast::PatternKind::ErrorOk(pattern)
             | nia_ast::PatternKind::ErrorErr(pattern) => self.collect_pattern_locals(pattern, out),
+            nia_ast::PatternKind::Tuple(patterns) => {
+                for pattern in patterns {
+                    self.collect_pattern_locals(pattern, out);
+                }
+            }
             nia_ast::PatternKind::EnumVariant { variant, fields } => {
                 self.collect_expr_locals(variant, out);
                 match fields {

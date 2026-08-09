@@ -114,6 +114,7 @@ impl Pattern {
             PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => pattern.contains_binding(),
+            PatternKind::Tuple(patterns) => patterns.iter().any(Pattern::contains_binding),
             PatternKind::EnumVariant { fields, .. } => fields.contains_binding(),
             PatternKind::Wildcard
             | PatternKind::OptionalNull
@@ -137,6 +138,7 @@ pub enum PatternKind {
     OptionalNull,
     ErrorOk(Box<Pattern>),
     ErrorErr(Box<Pattern>),
+    Tuple(Vec<Pattern>),
     EnumVariant {
         variant: Box<Expr>,
         fields: EnumVariantPatternFields,
@@ -227,6 +229,7 @@ pub enum ExprKind {
         callee: Box<Expr>,
         args: Vec<BracketArg>,
     },
+    Tuple(Vec<Expr>),
     ArrayLiteral {
         elems: ArrayElements,
     },

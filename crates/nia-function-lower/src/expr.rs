@@ -97,6 +97,12 @@ impl FunctionLowerer<'_> {
             TypedExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, scope, current, ops, blocks),
             },
+            TypedExprKind::Tuple(elems) => FunctionExprKind::Tuple(
+                elems
+                    .iter()
+                    .map(|elem| self.lower_value_expr(elem, scope, current, ops, blocks))
+                    .collect(),
+            ),
             TypedExprKind::StructLiteral { def_id, fields } => FunctionExprKind::StructLiteral {
                 def_id: *def_id,
                 fields: fields
@@ -909,7 +915,8 @@ impl FunctionLowerer<'_> {
                     | TypedPatternKind::OptionalSome(_)
                     | TypedPatternKind::OptionalNull
                     | TypedPatternKind::ErrorOk(_)
-                    | TypedPatternKind::ErrorErr(_) => {}
+                    | TypedPatternKind::ErrorErr(_)
+                    | TypedPatternKind::Tuple(_) => {}
                 }
             }
             lowered_arms.push((arm_target, arm));

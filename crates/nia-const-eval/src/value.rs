@@ -81,6 +81,7 @@ pub enum ConstValue {
     Bool(bool),
     String(String),
     Pointer(ConstPointerValue),
+    Tuple(Vec<ConstValue>),
     Array(Vec<ConstValue>),
     Vector(Vec<ConstValue>),
     Range(ConstRangeValue),

@@ -150,6 +150,11 @@ impl<'a> LayoutRootCollector<'a> {
                 self.add(error);
                 self.add(value);
             }
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.add(elem);
+                }
+            }
             Some(TyKind::Nominal {
                 def_id,
                 args,
@@ -187,6 +192,7 @@ impl<'a> LayoutRootCollector<'a> {
                 }
             }
             Some(TyKind::Primitive(_))
+            | Some(TyKind::Opaque)
             | Some(TyKind::BuiltinType(_))
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
@@ -243,6 +249,13 @@ impl<'a> LayoutRootCollector<'a> {
     ) -> InternedTyId {
         match self.type_store.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.substitute_generics(elem, substitutions))
+                    .collect();
+                self.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_generics(elem, substitutions);
                 self.intern(TyKind::Pointer { is_readonly, elem })
@@ -443,6 +456,7 @@ impl<'a> LayoutRootCollector<'a> {
                 })
             }
             Some(TyKind::Primitive(_))
+            | Some(TyKind::Opaque)
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
             | Some(TyKind::ConstOnly)

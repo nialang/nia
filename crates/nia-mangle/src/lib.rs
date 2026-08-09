@@ -191,7 +191,19 @@ where
     H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     match type_store.get(ty) {
+        Some(TyKind::Opaque) => "opaque".to_string(),
         Some(TyKind::Primitive(primitive)) => mangle_primitive(*primitive),
+        Some(TyKind::Tuple(elems)) => {
+            let arity = elems.len();
+            let encoded_elems = elems
+                .iter()
+                .map(|elem| {
+                    mangle_type_inner(type_store, *elem, module_id, nominal_name, array_len)
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            format!("tuple__len__{arity}__{encoded_elems}")
+        }
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let prefix = if *is_readonly { "ptr_read" } else { "ptr" };
             format!(

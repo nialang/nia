@@ -718,6 +718,12 @@ impl ResolvedConstPattern {
         }
     }
 
+    pub fn tuple(patterns: Vec<ResolvedConstPattern>, span: Span) -> Self {
+        Self {
+            kind: ResolvedConstPatternKind::Tuple { patterns, span },
+        }
+    }
+
     pub fn enum_variant(
         variant: ResolvedConstExpr,
         fields: ConstEnumPatternFields<ResolvedConstPattern>,
@@ -802,6 +808,10 @@ pub enum ResolvedConstPatternKind {
         pattern: Box<ResolvedConstPattern>,
         span: Span,
     },
+    Tuple {
+        patterns: Vec<ResolvedConstPattern>,
+        span: Span,
+    },
     EnumVariant {
         variant: ResolvedConstExpr,
         fields: ConstEnumPatternFields<ResolvedConstPattern>,
@@ -883,6 +893,7 @@ pub enum ResolvedConstExprKind {
         lhs: Box<ResolvedConstExpr>,
         range: ResolvedConstSliceRange,
     },
+    Tuple(Vec<ResolvedConstExpr>),
     ArrayLiteral {
         ty: Option<InternedTyId>,
         elems: ResolvedConstArrayElements,
@@ -1261,6 +1272,10 @@ pub enum EarlyConstPattern {
         pattern: Box<EarlyConstPattern>,
         span: Span,
     },
+    Tuple {
+        patterns: Vec<EarlyConstPattern>,
+        span: Span,
+    },
     EnumVariant {
         variant: EarlyConstExpr,
         fields: ConstEnumPatternFields<EarlyConstPattern>,
@@ -1388,6 +1403,7 @@ pub enum EarlyConstExprKind {
         lhs: Box<EarlyConstExpr>,
         range: EarlyConstSliceRange,
     },
+    Tuple(Vec<EarlyConstExpr>),
     ArrayLiteral {
         ty: Option<InternedTyId>,
         elems: EarlyConstArrayElements,

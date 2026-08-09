@@ -108,6 +108,11 @@ impl<'a> LocalUseCollector<'a> {
             FunctionExprKind::Atomic(atomic) => self.collect_atomic(atomic),
             FunctionExprKind::StaticArrayPointer { array, .. } => self.collect_expr(array),
             FunctionExprKind::ArrayLiteral { elems } => self.collect_array_elements(elems),
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.collect_expr(elem);
+                }
+            }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_expr(&field.value);
@@ -131,7 +136,8 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }
             | FunctionExprKind::RangeBound { range: expr, .. }
-            | FunctionExprKind::Field { lhs: expr, .. } => self.collect_expr(expr),
+            | FunctionExprKind::Field { lhs: expr, .. }
+            | FunctionExprKind::TupleField { value: expr, .. } => self.collect_expr(expr),
             FunctionExprKind::AddrOf(place) => self.collect_place(place),
             FunctionExprKind::Binary { lhs, rhs, .. }
             | FunctionExprKind::Index { lhs, index: rhs } => {

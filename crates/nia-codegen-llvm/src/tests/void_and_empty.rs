@@ -2,6 +2,50 @@
 use super::common::*;
 
 #[test]
+fn emits_tuple_returns_patterns_and_unit_values() {
+    let root = temp_dir("emits_tuple_returns_patterns_and_unit_values");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn make_pair() (i32, bool) {
+    (40, true)
+}
+
+fn make_single() (i32,) {
+    (2,)
+}
+
+fn explicit_unit() () {
+    ()
+}
+
+fn implicit_unit() {
+    explicit_unit()
+}
+
+fn main() i32 {
+    implicit_unit();
+    let (left, enabled) = make_pair();
+    let (right,) = make_single();
+    if enabled { left + right } else { 0 }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("define void @"), "{ir}");
+    assert!(ir.contains("tuple.field"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
 fn emits_void_values_and_empty_structs() {
     let root = temp_dir("emits_void_values_and_empty_structs");
     let main = root.join("main.nia");

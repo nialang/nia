@@ -54,7 +54,14 @@ impl<'a> TypeNormalizer<'a, '_> {
             return normalized;
         }
         let normalized = match self.type_store.get(ty_id).cloned() {
-            Some(TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
+            Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.normalize_ty(elem, stack))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
@@ -322,7 +329,14 @@ impl<'a> TypeNormalizer<'a, '_> {
         stack: &mut Vec<DefId>,
     ) -> InternedTyId {
         match self.type_store.get(ty_id).cloned() {
-            Some(TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
+            Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.normalize_ty_with_substitutions(elem, substitutions, stack))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::GenericParam(name)) => substitutions
                 .get(&name)
                 .copied()

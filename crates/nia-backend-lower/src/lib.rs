@@ -1168,6 +1168,11 @@ impl ReachableAggregateRoots {
             return;
         }
         match lowerer.ty_kind(ty).cloned() {
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.add_ty(lowerer, elem);
+                }
+            }
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -1244,6 +1249,7 @@ impl ReachableAggregateRoots {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)

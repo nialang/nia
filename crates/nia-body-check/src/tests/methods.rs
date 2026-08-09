@@ -63,7 +63,7 @@ fn main(value: Value) i32 {
 fn error_receivers_do_not_emit_provider_demands() {
     let checked = pipeline_without_visible_extensions(
         r#"
-fn main() void {
+fn main() () {
     missing.missing();
 }
 "#,
@@ -108,11 +108,11 @@ struct Counter {
 }
 
 extend Counter {
-    fn bump(&mut self) void {
+    fn bump(&mut self) () {
         self.value += 1;
     }
 
-    fn outer(&mut self) void {
+    fn outer(&mut self) () {
         self.bump();
     }
 }
@@ -168,7 +168,7 @@ struct Counter {
 }
 
 extend Counter {
-    fn bump(&mut self) void {
+    fn bump(&mut self) () {
         self.value += 1;
     }
 }
@@ -219,7 +219,7 @@ where T: Sized
         self.len()
     }
 
-    fn replaceFirst(&mut self, value: T) void {
+    fn replaceFirst(&mut self, value: T) () {
         self[0] = value;
     }
 
@@ -531,6 +531,9 @@ fn typed_stmt_has_error_expr(stmt: &nia_body_ir::TypedStmt) -> bool {
             .value
             .as_ref()
             .is_some_and(typed_expr_has_error_expr),
+        nia_body_ir::TypedStmtKind::PatternBinding(binding) => {
+            typed_expr_has_error_expr(&binding.value)
+        }
         nia_body_ir::TypedStmtKind::Expr(expr)
         | nia_body_ir::TypedStmtKind::Defer(expr)
         | nia_body_ir::TypedStmtKind::Return(Some(expr)) => typed_expr_has_error_expr(expr),
@@ -759,7 +762,7 @@ trait Writer {}
 trait Hash[H]
 where H: Writer
 {
-    fn hash(&self, writer: &mut H) void;
+    fn hash(&self, writer: &mut H) ();
 }
 
 struct H {}
@@ -775,13 +778,13 @@ extend H : Writer {}
 extend[H] u32 : Hash[H]
 where H: Writer
 {
-    fn hash(&self, writer: &mut H) void {
+    fn hash(&self, writer: &mut H) () {
         _ = self;
         _ = writer;
     }
 }
 
-fn main() void {
+fn main() () {
     let mut hasher = H::init();
     (7u32).hash(&mut hasher);
 }
@@ -806,7 +809,7 @@ fn main() void {
 fn checks_function_pointer_calls() {
     let checked = pipeline(
         r#"
-fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) void, flag: bool) i64 {
+fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) (), flag: bool) i64 {
     let mut x: i64 = cb(1, flag);
     _ = cb(flag, flag);
     _ = cb(1);
@@ -864,7 +867,7 @@ extend Point {
 fn main() i32 {
     let make: &fn(i32) Point = & Point::new;
     let get: &fn(& Point) i32 = & Point::get;
-    let set: &fn(&Point, i32) void = & Point::set;
+    let set: &fn(&Point, i32) () = & Point::set;
     let mut p = make(1);
     set(&p, 2);
     get(& p)

@@ -292,6 +292,11 @@ pub enum FunctionExprKind {
     ArrayLiteral {
         elems: FunctionArrayElements,
     },
+    Tuple(Vec<FunctionExpr>),
+    TupleField {
+        value: Box<FunctionExpr>,
+        index: usize,
+    },
     StructLiteral {
         def_id: nia_ids::GlobalDefId,
         fields: Vec<FunctionFieldInit>,

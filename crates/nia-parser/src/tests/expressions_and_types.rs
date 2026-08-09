@@ -2,6 +2,89 @@
 use super::common::*;
 
 #[test]
+fn parses_unit_and_tuple_types_and_values() {
+    let (module, errors) = parse_module(
+        r#"
+fn values(unit: (), single: (i32,), pair: (i32, bool), grouped: (i32)) () {
+    let a = ();
+    let b = (1,);
+    let c = (1, true);
+    let d = (1);
+    ()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Tuple { elems }) if elems.is_empty()
+    ));
+    assert!(matches!(
+        function.params[1].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Tuple { elems }) if elems.len() == 1
+    ));
+    assert!(matches!(
+        function.params[2].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Tuple { elems }) if elems.len() == 2
+    ));
+    assert!(matches!(
+        function.params[3].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Path { .. })
+    ));
+    assert!(matches!(
+        function.return_type.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Tuple { elems }) if elems.is_empty()
+    ));
+
+    let body = function.body.as_ref().expect("expected body");
+    for (index, expected_len) in [0, 1, 2].into_iter().enumerate() {
+        let StmtKind::Binding(binding) = &body.stmts[index].kind else {
+            panic!("expected binding");
+        };
+        assert!(matches!(
+            binding.value.as_ref().map(|value| &value.kind),
+            Some(ExprKind::Tuple(elems)) if elems.len() == expected_len
+        ));
+    }
+    let StmtKind::Binding(grouped) = &body.stmts[3].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        grouped.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::Integer(_))
+    ));
+    assert!(matches!(
+        body.tail.as_ref().map(|value| &value.kind),
+        Some(ExprKind::Tuple(elems)) if elems.is_empty()
+    ));
+}
+
+#[test]
+fn parses_opaque_only_as_a_distinct_type_syntax() {
+    let (module, errors) = parse_module(
+        r#"
+extern fn use_pointer(value: &opaque) &mut opaque;
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Pointer { elem, .. }) if matches!(elem.kind, TypeKind::Opaque)
+    ));
+    assert!(matches!(
+        function.return_type.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Pointer { elem, .. }) if matches!(elem.kind, TypeKind::Opaque)
+    ));
+}
+
+#[test]
 fn qualified_enum_value_before_if_block_is_not_a_struct_literal() {
     let (module, errors) = parse_module(
         r#"

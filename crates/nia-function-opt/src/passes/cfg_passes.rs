@@ -114,6 +114,8 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::Range(_)
         | FunctionExprKind::RangeBound { .. }
         | FunctionExprKind::ArrayLiteral { .. }
+        | FunctionExprKind::Tuple(_)
+        | FunctionExprKind::TupleField { .. }
         | FunctionExprKind::StructLiteral { .. }
         | FunctionExprKind::UnionLiteral { .. }
         | FunctionExprKind::UnionStorageLiteral { .. }

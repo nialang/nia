@@ -190,6 +190,14 @@ impl<'a> ModuleLowerer<'a> {
                     changed |= self.devirtualize_direct_trait_calls_in_expr(value);
                 }
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    changed |= self.devirtualize_direct_trait_calls_in_expr(elem);
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => {
+                changed |= self.devirtualize_direct_trait_calls_in_expr(value);
+            }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     changed |= self.devirtualize_direct_trait_calls_in_expr(&mut field.value);

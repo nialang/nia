@@ -64,6 +64,12 @@ impl BackendValidator<'_> {
             return;
         };
         match kind {
+            TyKind::Tuple(elems) => {
+                for elem in elems {
+                    self.validate_type(elem, span);
+                }
+            }
+            TyKind::Opaque => {}
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -290,6 +296,19 @@ impl BackendValidator<'_> {
             return Some(layout.clone());
         }
         match self.index.ty_kind(ty)? {
+            TyKind::Tuple(elems) => {
+                let mut size = 0u64;
+                let mut align = 1u64;
+                for elem in elems {
+                    let elem = self.layout_of_with_active(*elem, active)?;
+                    size = align_to(size, elem.align).saturating_add(elem.size);
+                    align = align.max(elem.align);
+                }
+                Some(TypeLayout {
+                    size: align_to(size, align),
+                    align,
+                })
+            }
             TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
             TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
             TyKind::Pointer { .. }
@@ -298,7 +317,9 @@ impl BackendValidator<'_> {
             TyKind::Slice { .. } | TyKind::TraitObject { .. } => {
                 Some(TypeLayout { size: 16, align: 8 })
             }
-            TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. } => None,
+            TyKind::Opaque | TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. } => {
+                None
+            }
             TyKind::Range { bound: None, .. } => Some(TypeLayout { size: 0, align: 1 }),
             TyKind::Range {
                 kind,

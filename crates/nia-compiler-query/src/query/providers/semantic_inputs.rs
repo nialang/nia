@@ -657,6 +657,11 @@ fn collect_array_len_const_exprs_in_ty(
             collect_array_len_const_exprs_in_ty(type_store, *error, candidate_ids, out, seen);
             collect_array_len_const_exprs_in_ty(type_store, *value, candidate_ids, out, seen);
         }
+        Some(TyKind::Tuple(elems)) => {
+            for elem in elems {
+                collect_array_len_const_exprs_in_ty(type_store, *elem, candidate_ids, out, seen);
+            }
+        }
         Some(TyKind::Range {
             bound: Some(bound), ..
         }) => {
@@ -725,6 +730,7 @@ fn collect_array_len_const_exprs_in_ty(
         }
         Some(
             TyKind::Range { bound: None, .. }
+            | TyKind::Opaque
             | TyKind::Error
             | TyKind::ConstOnly
             | TyKind::SelfParam

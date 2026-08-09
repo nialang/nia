@@ -742,6 +742,17 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = self.self_substitution(substitutions).unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
+            Some(TyKind::Opaque) => self.finish_type_instantiation(key, ty, can_use_cache),
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| {
+                        self.instantiate_ty_with_id_inner(elem, substitutions, active_projections)
+                    })
+                    .collect();
+                let instantiated = self.type_context.append.intern(TyKind::Tuple(elems));
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
@@ -1425,6 +1436,22 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(self.ty_kind(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
             }
+            Some(TyKind::Opaque) => matches!(self.ty_kind(actual), Some(TyKind::Opaque)),
+            Some(TyKind::Tuple(pattern_elems)) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::Tuple(actual_elems)) if pattern_elems.len() == actual_elems.len() => {
+                    pattern_elems
+                        .iter()
+                        .zip(actual_elems)
+                        .all(|(pattern_elem, actual_elem)| {
+                            self.match_extension_type_pattern(
+                                *pattern_elem,
+                                actual_elem,
+                                substitutions,
+                            )
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
@@ -1683,6 +1710,10 @@ impl<'a> ModuleLowerer<'a> {
         match self.ty_kind(pattern) {
             Some(TyKind::GenericParam(name)) => substitutions.contains_key(name),
             Some(TyKind::SelfParam) => true,
+            Some(TyKind::Opaque) => true,
+            Some(TyKind::Tuple(elems)) => elems
+                .iter()
+                .all(|elem| self.extension_pattern_generics_are_bound(*elem, substitutions)),
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }
@@ -1769,6 +1800,9 @@ impl<'a> ModuleLowerer<'a> {
     fn extension_pattern_contains_generic(&self, pattern: InternedTyId) -> bool {
         match self.ty_kind(pattern) {
             Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
+            Some(TyKind::Tuple(elems)) => elems
+                .iter()
+                .any(|elem| self.extension_pattern_contains_generic(*elem)),
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }
@@ -1844,6 +1878,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },

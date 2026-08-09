@@ -429,6 +429,12 @@ impl<'a> FunctionIrValidator<'a> {
                 }
                 FunctionArrayElements::Repeat { value, .. } => self.validate_value_expr(value)?,
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.validate_value_expr(elem)?;
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => self.validate_value_expr(value)?,
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.validate_value_expr(&field.value)?;

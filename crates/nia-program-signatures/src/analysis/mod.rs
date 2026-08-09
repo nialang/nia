@@ -1627,11 +1627,12 @@ fn push_trait_goal_assumption_with_supertraits_inner(
 
 fn is_extendable_target(interner: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
     match interner.get(ty) {
-        Some(TyKind::Error | TyKind::ConstOnly) | None => false,
+        Some(TyKind::Error | TyKind::ConstOnly | TyKind::Opaque) | None => false,
         Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
         Some(TyKind::Array { len, .. }) => !matches!(len, nia_ty::ArrayLenTy::Infer),
         Some(
             TyKind::Primitive(_)
+            | TyKind::Tuple(_)
             | TyKind::Vector { .. }
             | TyKind::Pointer { .. }
             | TyKind::VolatilePointer { .. }

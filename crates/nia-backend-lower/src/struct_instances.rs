@@ -351,6 +351,14 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(value, seen, out);
                 }
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.collect_struct_instances_expr(elem, seen, out);
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => {
+                self.collect_struct_instances_expr(value, seen, out)
+            }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_struct_instances_expr(&field.value, seen, out);
@@ -653,6 +661,11 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendStructInstance>,
     ) {
         match self.ty_kind(ty).cloned() {
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.collect_struct_instance_ty(elem, seen, out);
+                }
+            }
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -738,6 +751,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
@@ -997,6 +1011,14 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(value, seen, out);
                 }
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.collect_union_instances_expr(elem, seen, out);
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => {
+                self.collect_union_instances_expr(value, seen, out)
+            }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_union_instances_expr(&field.value, seen, out);
@@ -1299,6 +1321,11 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match self.ty_kind(ty).cloned() {
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.collect_union_instance_ty(elem, seen, out);
+                }
+            }
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -1384,6 +1411,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)

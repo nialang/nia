@@ -311,6 +311,7 @@ fn collect_ty_owner_modules<'a>(
         | TyKind::Optional { elem } => {
             type_ids.push_back(*elem);
         }
+        TyKind::Tuple(elems) => type_ids.extend(elems.iter().copied()),
         TyKind::Array { len, elem } => {
             type_ids.push_back(*elem);
             collect_array_len_owner_modules(len, type_ids);
@@ -370,6 +371,7 @@ fn collect_ty_owner_modules<'a>(
         TyKind::BuiltinTrait { args, .. } => type_ids.extend(args.iter().copied()),
         TyKind::Error
         | TyKind::ConstOnly
+        | TyKind::Opaque
         | TyKind::Primitive(_)
         | TyKind::BuiltinType(_)
         | TyKind::Vector { .. }

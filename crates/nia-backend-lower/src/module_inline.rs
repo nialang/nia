@@ -365,6 +365,14 @@ impl<'a> ModuleLowerer<'a> {
                     self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
                 }
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.inline_leaf_calls_in_expr(elem, function_candidates, instance_candidates);
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => {
+                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+            }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.inline_leaf_calls_in_expr(
@@ -868,6 +876,14 @@ fn substitute_inline_locals(
                 substitute_inline_locals(value, substitutions, require_local_match)?;
             }
         },
+        FunctionExprKind::Tuple(elems) => {
+            for elem in elems {
+                substitute_inline_locals(elem, substitutions, require_local_match)?;
+            }
+        }
+        FunctionExprKind::TupleField { value, .. } => {
+            substitute_inline_locals(value, substitutions, require_local_match)?;
+        }
         FunctionExprKind::StructLiteral { fields, .. } => {
             for field in fields {
                 substitute_inline_locals(&mut field.value, substitutions, require_local_match)?;
@@ -1082,6 +1098,15 @@ fn small_pure_inline_expr_cost_with_local(
                 1 + small_pure_inline_expr_cost_with_local(value, budget, local_allowed)?
             }
         },
+        FunctionExprKind::Tuple(elems) => {
+            1 + elems
+                .iter()
+                .map(|elem| small_pure_inline_expr_cost_with_local(elem, budget, local_allowed))
+                .sum::<Option<usize>>()?
+        }
+        FunctionExprKind::TupleField { value, .. } => {
+            1 + small_pure_inline_expr_cost_with_local(value, budget, local_allowed)?
+        }
         FunctionExprKind::StructLiteral { fields, .. } => {
             1 + fields
                 .iter()

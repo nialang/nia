@@ -269,6 +269,35 @@ impl FunctionLowerer<'_> {
     ) -> Option<FunctionExpr> {
         match &pattern.kind {
             TypedPatternKind::Wildcard | TypedPatternKind::Bind { .. } => None,
+            TypedPatternKind::Tuple(patterns) => {
+                let mut condition = None;
+                for (index, pattern) in patterns.iter().enumerate() {
+                    let field = FunctionExpr {
+                        span: pattern.span,
+                        ty: pattern.ty,
+                        kind: FunctionExprKind::TupleField {
+                            value: Box::new(target.clone()),
+                            index,
+                        },
+                    };
+                    if let Some(field_condition) = self.pattern_condition(&field, pattern, context)
+                    {
+                        condition = Some(match condition {
+                            Some(previous) => FunctionExpr {
+                                span: pattern.span,
+                                ty: context.bool_ty,
+                                kind: FunctionExprKind::Binary {
+                                    lhs: Box::new(previous),
+                                    op: BinaryOp::And,
+                                    rhs: Box::new(field_condition),
+                                },
+                            },
+                            None => field_condition,
+                        });
+                    }
+                }
+                condition
+            }
             TypedPatternKind::Pointer(inner) | TypedPatternKind::MutPointer(inner) => {
                 self.pattern_condition(target, inner, context)
             }
@@ -552,6 +581,19 @@ impl FunctionLowerer<'_> {
                     self.lower_pattern_binding(field_pattern, &payload, ops);
                 }
             }
+            TypedPatternKind::Tuple(patterns) => {
+                for (index, pattern) in patterns.iter().enumerate() {
+                    let field = FunctionExpr {
+                        span: pattern.span,
+                        ty: pattern.ty,
+                        kind: FunctionExprKind::TupleField {
+                            value: Box::new(target.clone()),
+                            index,
+                        },
+                    };
+                    self.lower_pattern_binding(pattern, &field, ops);
+                }
+            }
             TypedPatternKind::Wildcard
             | TypedPatternKind::OptionalNull
             | TypedPatternKind::Expr(_)
@@ -667,6 +709,9 @@ impl FunctionLowerer<'_> {
                 TypedStmtKind::Expr(expr) => self.collect_expr_locals(expr, locals),
                 TypedStmtKind::Return(Some(expr)) | TypedStmtKind::Defer(expr) => {
                     self.collect_expr_locals(expr, locals)
+                }
+                TypedStmtKind::PatternBinding(binding) => {
+                    self.collect_expr_locals(&binding.value, locals)
                 }
                 TypedStmtKind::Binding(_)
                 | TypedStmtKind::Return(None)
@@ -796,6 +841,10 @@ impl FunctionLowerer<'_> {
                             visit_expr(value, max_id);
                         }
                     }
+                    TypedStmtKind::PatternBinding(binding) => {
+                        visit_pattern(&binding.pattern, max_id);
+                        visit_expr(&binding.value, max_id);
+                    }
                     TypedStmtKind::Return(None)
                     | TypedStmtKind::Break
                     | TypedStmtKind::Continue => {}
@@ -844,6 +893,11 @@ impl FunctionLowerer<'_> {
                     }
                     TypedArrayElements::Repeat { value, .. } => visit_expr(value, max_id),
                 },
+                TypedExprKind::Tuple(elems) => {
+                    for elem in elems {
+                        visit_expr(elem, max_id);
+                    }
+                }
                 TypedExprKind::StructLiteral { fields, .. } => {
                     for field in fields {
                         visit_expr(&field.value, max_id);
@@ -922,6 +976,10 @@ impl FunctionLowerer<'_> {
                                     if let Some(value) = &binding.value {
                                         visit_expr(value, max_id);
                                     }
+                                }
+                                TypedStmtKind::PatternBinding(binding) => {
+                                    visit_pattern(&binding.pattern, max_id);
+                                    visit_expr(&binding.value, max_id);
                                 }
                                 TypedStmtKind::ForIn(for_stmt) => {
                                     visit_pattern(&for_stmt.pattern, max_id);
@@ -1020,6 +1078,11 @@ impl FunctionLowerer<'_> {
                 TypedPatternKind::EnumVariant { fields, .. } => {
                     for field in fields {
                         visit_pattern(field, max_id);
+                    }
+                }
+                TypedPatternKind::Tuple(patterns) => {
+                    for pattern in patterns {
+                        visit_pattern(pattern, max_id);
                     }
                 }
                 TypedPatternKind::Expr(pattern) => visit_expr(pattern, max_id),

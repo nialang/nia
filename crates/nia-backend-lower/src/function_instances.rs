@@ -281,6 +281,9 @@ impl<'a> ModuleLowerer<'a> {
         };
         let next = remaining - 1;
         match kind {
+            TyKind::Tuple(elems) => elems
+                .iter()
+                .any(|elem| self.ty_exceeds_backend_instance_depth(*elem, next)),
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -340,6 +343,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             TyKind::GenericParam(_)
             | TyKind::SelfParam
+            | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
@@ -716,6 +720,9 @@ pub(crate) fn contains_generic_param(
     let contains = match ty_kind(ty) {
         Some(TyKind::GenericParam(_)) => true,
         Some(TyKind::SelfParam) => true,
+        Some(TyKind::Tuple(elems)) => elems
+            .iter()
+            .any(|elem| contains_generic_param(*elem, ty_kind, cache.as_deref_mut())),
         Some(
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
@@ -781,6 +788,7 @@ pub(crate) fn contains_generic_param(
         }
         Some(
             TyKind::Primitive(_)
+            | TyKind::Opaque
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
             | TyKind::ConstOnly
@@ -807,6 +815,9 @@ pub(crate) fn contains_unresolved_projection(
             | TyKind::SlicePointee { elem },
         ) => contains_unresolved_projection(elem, ty_kind),
         Some(TyKind::Array { elem, .. }) => contains_unresolved_projection(elem, ty_kind),
+        Some(TyKind::Tuple(elems)) => elems
+            .into_iter()
+            .any(|elem| contains_unresolved_projection(elem, ty_kind)),
         Some(TyKind::Range { bound, .. }) => {
             bound.is_some_and(|bound| contains_unresolved_projection(bound, ty_kind))
         }
@@ -854,6 +865,7 @@ pub(crate) fn contains_unresolved_projection(
         | Some(
             TyKind::Error
             | TyKind::ConstOnly
+            | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. },
@@ -881,6 +893,9 @@ pub(crate) fn contains_error(
             | TyKind::SlicePointee { elem },
         ) => contains_error(elem, ty_kind, None),
         Some(TyKind::Array { elem, .. }) => contains_error(elem, ty_kind, None),
+        Some(TyKind::Tuple(elems)) => elems
+            .into_iter()
+            .any(|elem| contains_error(elem, ty_kind, None)),
         Some(TyKind::Range { bound, .. }) => {
             bound.is_some_and(|bound| contains_error(bound, ty_kind, None))
         }
@@ -936,6 +951,7 @@ pub(crate) fn contains_error(
         | Some(TyKind::SelfParam)
         | Some(
             TyKind::ConstOnly
+            | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. },

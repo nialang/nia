@@ -710,9 +710,30 @@ impl Parser {
             TokenKind::LBracket => self.parse_bracket_primary(),
             TokenKind::LParen => {
                 self.bump();
-                let expr = self.parse_expr()?;
-                self.expect(TokenKind::RParen, "expected `)`")?;
-                Some(expr)
+                if let Some(end) = self.eat(TokenKind::RParen) {
+                    return Some(self.make_expr(
+                        Span::new(token.span.start, end.span.end),
+                        ExprKind::Tuple(Vec::new()),
+                    ));
+                }
+                let first = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])?;
+                if self.eat(TokenKind::Comma).is_none() {
+                    self.expect(TokenKind::RParen, "expected `)`")?;
+                    return Some(first);
+                }
+                let mut elems = vec![first];
+                while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                    elems.push(
+                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])?,
+                    );
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                let end = self
+                    .expect(TokenKind::RParen, "expected `)` after tuple")?
+                    .end;
+                Some(self.make_expr(Span::new(token.span.start, end), ExprKind::Tuple(elems)))
             }
             TokenKind::LBrace if self.looks_like_inferred_struct_literal() => {
                 self.parse_inferred_struct_literal()

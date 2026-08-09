@@ -2,6 +2,76 @@
 use super::common::*;
 
 #[test]
+fn parses_nested_tuple_binding_patterns_and_mutability() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(pair: (i32, (bool, i32))) {
+    let mut (x, (flag, y)) = pair;
+    let (mut selected, fixed) = (1, 2);
+    let () = ();
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+
+    let StmtKind::Binding(all_mutable) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    let PatternKind::Tuple(fields) = &all_mutable.pattern.kind else {
+        panic!("expected tuple pattern");
+    };
+    assert!(matches!(
+        fields[0].kind,
+        PatternKind::Bind {
+            is_mutable: true,
+            ..
+        }
+    ));
+    let PatternKind::Tuple(nested) = &fields[1].kind else {
+        panic!("expected nested tuple pattern");
+    };
+    assert!(nested.iter().all(|pattern| matches!(
+        pattern.kind,
+        PatternKind::Bind {
+            is_mutable: true,
+            ..
+        }
+    )));
+
+    let StmtKind::Binding(selective) = &body.stmts[1].kind else {
+        panic!("expected binding");
+    };
+    let PatternKind::Tuple(fields) = &selective.pattern.kind else {
+        panic!("expected tuple pattern");
+    };
+    assert!(matches!(
+        fields[0].kind,
+        PatternKind::Bind {
+            is_mutable: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        fields[1].kind,
+        PatternKind::Bind {
+            is_mutable: false,
+            ..
+        }
+    ));
+    let StmtKind::Binding(unit) = &body.stmts[2].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        &unit.pattern.kind,
+        PatternKind::Tuple(fields) if fields.is_empty()
+    ));
+}
+
+#[test]
 fn parses_union_items() {
     let (module, errors) = parse_module(
         r#"

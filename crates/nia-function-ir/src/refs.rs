@@ -298,6 +298,14 @@ fn collect_function_refs_from_expr(
                 collect_function_refs_from_expr(value, types, refs)
             }
         },
+        FunctionExprKind::Tuple(elems) => {
+            for elem in elems {
+                collect_function_refs_from_expr(elem, types, refs);
+            }
+        }
+        FunctionExprKind::TupleField { value, .. } => {
+            collect_function_refs_from_expr(value, types, refs);
+        }
         FunctionExprKind::StructLiteral { fields, .. } => {
             for field in fields {
                 collect_function_refs_from_expr(&field.value, types, refs);

@@ -1290,7 +1290,7 @@ impl<'a> SignatureCollector<'a> {
             .collect();
         let return_type = match &function.return_type {
             Some(ty) => self.ty_for_type(ty),
-            None => self.primitive(PrimitiveTy::Void),
+            None => self.append.intern(TyKind::Tuple(Vec::new())),
         };
         FunctionSignature {
             name: function.name,

@@ -197,7 +197,7 @@ impl AbiChecker<'_> {
                 signature.span,
                 "extern return type cannot use `never`",
             ));
-        } else if !self.is_void(signature.return_type) {
+        } else if !self.is_unit(signature.return_type) {
             self.check_extern_ty(
                 signature.span,
                 signature.return_type,
@@ -232,13 +232,6 @@ impl AbiChecker<'_> {
                     format!("{context_desc} cannot use `char` directly"),
                 ))
             }
-            Some(TyKind::Primitive(PrimitiveTy::Void)) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
-                    span,
-                    format!("{context_desc} cannot use `void` directly"),
-                ))
-            }
             Some(TyKind::Primitive(PrimitiveTy::Never)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::STATIC_CHECK,
@@ -249,6 +242,16 @@ impl AbiChecker<'_> {
             Some(TyKind::Primitive(_))
             | Some(TyKind::Pointer { .. })
             | Some(TyKind::VolatilePointer { .. }) => {}
+            Some(TyKind::Opaque) => self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                span,
+                format!("{context_desc} cannot use incomplete `opaque` directly"),
+            )),
+            Some(TyKind::Tuple(_)) => self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                span,
+                format!("{context_desc} cannot use tuple by value"),
+            )),
             Some(TyKind::Vector { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 span,
@@ -291,7 +294,7 @@ impl AbiChecker<'_> {
                 for param in params {
                     self.check_extern_ty(span, *param, ExternTyContext::FunctionPointerParameter);
                 }
-                if !self.is_void(*return_type) {
+                if !self.is_unit(*return_type) {
                     self.check_extern_ty(
                         span,
                         *return_type,
@@ -405,11 +408,8 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_void(&self, ty: nia_ids::InternedTyId) -> bool {
-        matches!(
-            self.type_store.get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Void))
-        )
+    fn is_unit(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(self.type_store.get(ty), Some(TyKind::Tuple(elems)) if elems.is_empty())
     }
 
     fn struct_signature(&self, def_id: GlobalDefId) -> Option<&StructSignature> {

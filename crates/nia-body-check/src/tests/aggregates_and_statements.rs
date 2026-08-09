@@ -137,7 +137,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-void expression result"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-unit expression result"))
             .count(),
         1
     );
@@ -199,7 +199,7 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .all(|diagnostic| !diagnostic.summary.contains("non-void expression result")),
+            .all(|diagnostic| !diagnostic.summary.contains("non-() expression result")),
         "{:?}",
         checked.diagnostics
     );
@@ -481,7 +481,7 @@ fn main(flag: bool) {
             .iter()
             .filter(|diagnostic| diagnostic
                 .summary
-                .contains("`defer` expression must have type `void`"))
+                .contains("`defer` expression must have type `()`"))
             .count(),
         2,
         "{:?}",

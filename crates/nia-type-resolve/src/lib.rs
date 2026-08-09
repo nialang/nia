@@ -583,7 +583,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
 
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         match &ty.kind {
-            TypeKind::Error | TypeKind::Infer | TypeKind::Void | TypeKind::Never => {}
+            TypeKind::Error | TypeKind::Infer | TypeKind::Opaque | TypeKind::Never => {}
             TypeKind::Projection { ty, trait_ref, .. } => {
                 self.visit_type(ty);
                 self.visit_type(trait_ref);
@@ -608,6 +608,11 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                     nia_ast_walk::walk_expr(self, expr);
                 }
                 self.visit_type(elem);
+            }
+            TypeKind::Tuple { elems } => {
+                for elem in elems {
+                    self.visit_type(elem);
+                }
             }
             TypeKind::Range { start, end, .. } => {
                 if let Some(start) = start {
@@ -849,6 +854,11 @@ impl<'a> TypeResolver<'a> {
             | TypeKind::Optional { elem }
             | TypeKind::ErrorUnion { error: elem, .. } => self.resolve_type_candidate(elem),
             TypeKind::Array { elem, .. } => self.resolve_type_candidate(elem),
+            TypeKind::Tuple { elems } => {
+                for elem in elems {
+                    self.resolve_type_candidate(elem);
+                }
+            }
             TypeKind::Range { start, end, .. } => {
                 if let Some(start) = start {
                     self.resolve_type_candidate(start);
@@ -872,7 +882,7 @@ impl<'a> TypeResolver<'a> {
             TypeKind::Error
             | TypeKind::SelfType
             | TypeKind::Infer
-            | TypeKind::Void
+            | TypeKind::Opaque
             | TypeKind::Never => {}
         }
     }

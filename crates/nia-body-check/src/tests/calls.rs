@@ -21,7 +21,7 @@ fn rejects_builtin_function_pointers() {
 @[builtin("trap")]
 pub fn trap() never;
 
-fn main() void {
+fn main() () {
     _ = &trap;
 }
 "#,
@@ -325,7 +325,7 @@ fn changed(v: u8x16, i: usize) u8x16 {
 fn rejects_invalid_simd_lane_builtins() {
     let checked = pipeline(
         r#"
-fn invalid(v: u8x16) void {
+fn invalid(v: u8x16) () {
     _ = std::builtin::extract[u8](v, 0usize);
     _ = std::builtin::extract(1u8, 0usize);
     _ = std::builtin::insert(v, 0usize, true);
@@ -360,7 +360,7 @@ fn invalid(v: u8x16) void {
 fn checks_atomic_builtin_ordering_rules() {
     let checked = pipeline(
         r#"
-fn main() void {
+fn main() () {
     let mut value = 0i32;
     _ = std::builtin::atomic_load[i32](&value, 3usize);
     std::builtin::atomic_store[i32](&mut value, 1i32, 2usize);
@@ -412,7 +412,7 @@ struct Point {
     x: i32,
 }
 
-fn main() void {
+fn main() () {
     let mut point: Point = { x: 1 };
     _ = std::builtin::atomic_load[Point](&point, 1usize);
     _ = std::builtin::atomic_rmw[Point](&mut point, 1usize, { x: 2 }, 1usize);

@@ -945,6 +945,15 @@ impl<'a> Encoder<'a> {
                     }
                 }
             }
+            FunctionExprKind::Tuple(elems) => {
+                self.tag(52);
+                self.exprs(elems);
+            }
+            FunctionExprKind::TupleField { value, index } => {
+                self.tag(53);
+                self.expr(value);
+                self.usize(*index);
+            }
             FunctionExprKind::StructLiteral { def_id, fields } => {
                 self.tag(31);
                 self.global_def(*def_id);
@@ -1519,6 +1528,11 @@ impl<'a> Encoder<'a> {
                 self.symbol(*name);
             }
             TyKind::SelfParam => self.tag(20),
+            TyKind::Opaque => self.tag(21),
+            TyKind::Tuple(elems) => {
+                self.tag(22);
+                self.types(elems);
+            }
         }
     }
 

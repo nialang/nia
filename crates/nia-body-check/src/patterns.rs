@@ -282,6 +282,55 @@ impl<'a> BodyChecker<'a> {
                 });
                 self.check_pattern(inner, error_ty, child_coverage, context);
             }
+            nia_ast::PatternKind::Tuple(patterns) => {
+                let elem_types = match self
+                    .interner
+                    .get(self.normalization.normalize(target_ty))
+                    .cloned()
+                {
+                    Some(TyKind::Tuple(elems)) if elems.len() == patterns.len() => elems,
+                    Some(TyKind::Tuple(elems)) => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            pattern.span,
+                            format!(
+                                "{context} tuple arity mismatch: expected {}, found {}",
+                                elems.len(),
+                                patterns.len()
+                            ),
+                        ));
+                        vec![self.error(); patterns.len()]
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            pattern.span,
+                            format!("{context} tuple pattern requires a tuple target"),
+                        ));
+                        vec![self.error(); patterns.len()]
+                    }
+                };
+                let mut field_coverages = vec![PatternCoverage::default(); patterns.len()];
+                for ((pattern, elem_ty), field_coverage) in patterns
+                    .iter()
+                    .zip(elem_types.iter().copied())
+                    .zip(&mut field_coverages)
+                {
+                    self.check_pattern(pattern, elem_ty, Some(field_coverage), context);
+                }
+                if let Some(coverage) = coverage
+                    && elem_types
+                        .iter()
+                        .copied()
+                        .zip(&field_coverages)
+                        .all(|(elem_ty, field)| self.pattern_coverage_covers_type(elem_ty, field))
+                {
+                    if let Some(previous) = coverage.catch_all {
+                        self.report_pattern_overlap(pattern.span, previous);
+                    }
+                    coverage.catch_all = Some(pattern.span);
+                }
+            }
             nia_ast::PatternKind::EnumVariant { variant, fields } => {
                 self.check_enum_variant_pattern(
                     pattern.span,

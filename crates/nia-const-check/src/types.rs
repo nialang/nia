@@ -119,6 +119,9 @@ pub(crate) fn resolved_pattern_local_id(pattern: &ResolvedConstPattern) -> Optio
         | ResolvedConstPatternKind::OptionalSome { pattern, .. }
         | ResolvedConstPatternKind::ErrorOk { pattern, .. }
         | ResolvedConstPatternKind::ErrorErr { pattern, .. } => resolved_pattern_local_id(pattern),
+        ResolvedConstPatternKind::Tuple { patterns, .. } => {
+            patterns.iter().find_map(resolved_pattern_local_id)
+        }
         ResolvedConstPatternKind::EnumVariant { fields, .. } => match fields {
             nia_const_ir::ConstEnumPatternFields::Tuple(fields) => {
                 fields.iter().find_map(resolved_pattern_local_id)

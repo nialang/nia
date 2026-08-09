@@ -169,6 +169,13 @@ where
         FunctionExprKind::ArrayLiteral { elems } => {
             rewrite_array_elements_exprs(elems, rewrite_expr)
         }
+        FunctionExprKind::Tuple(elems) => {
+            let mut changed = false;
+            for elem in elems {
+                changed |= rewrite_expr(elem);
+            }
+            changed
+        }
         FunctionExprKind::StructLiteral { fields, .. } => {
             let mut changed = false;
             for field in fields {
@@ -194,7 +201,8 @@ where
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. }
-        | FunctionExprKind::Field { lhs: expr, .. } => rewrite_expr(expr),
+        | FunctionExprKind::Field { lhs: expr, .. }
+        | FunctionExprKind::TupleField { value: expr, .. } => rewrite_expr(expr),
         FunctionExprKind::AddrOf(place) => {
             traversal.places && rewrite_place_exprs(place, rewrite_expr)
         }

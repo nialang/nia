@@ -453,13 +453,14 @@ fn type_ref_is_generic_or_structural_provider_target(
         | TypeKind::Slice { .. }
         | TypeKind::SlicePointee { .. }
         | TypeKind::Array { .. }
+        | TypeKind::Tuple { .. }
         | TypeKind::Range { .. }
         | TypeKind::FunctionPointer { .. }
         | TypeKind::Optional { .. }
         | TypeKind::ErrorUnion { .. }
         | TypeKind::SelfType
         | TypeKind::Infer => true,
-        TypeKind::Error | TypeKind::Projection { .. } | TypeKind::Void | TypeKind::Never => false,
+        TypeKind::Error | TypeKind::Projection { .. } | TypeKind::Opaque | TypeKind::Never => false,
     }
 }
 

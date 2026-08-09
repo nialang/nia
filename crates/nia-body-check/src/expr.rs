@@ -60,6 +60,31 @@ impl<'a> BodyChecker<'a> {
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
             }
+            ExprKind::Tuple(elems) => {
+                let expected_elems = expected.and_then(|expected| {
+                    match self.interner.get(self.normalization.normalize(expected)) {
+                        Some(TyKind::Tuple(expected_elems))
+                            if expected_elems.len() == elems.len() =>
+                        {
+                            Some(expected_elems.clone())
+                        }
+                        _ => None,
+                    }
+                });
+                let elem_types = elems
+                    .iter()
+                    .enumerate()
+                    .map(|(index, elem)| {
+                        let expected = expected_elems.as_ref().map(|elems| elems[index]);
+                        let actual = self.check_expr_with_expected(elem, expected);
+                        if let Some(expected) = expected {
+                            self.expect_expr_type(elem, expected, actual, "tuple element");
+                        }
+                        actual
+                    })
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elem_types))
+            }
             ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
                 Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
                 None if expected.is_some() => self.infer_array_literal_expr(expr),
@@ -141,7 +166,7 @@ impl<'a> BodyChecker<'a> {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_CHECK,
                                 inner.span,
-                                "reference target cannot have void or never type",
+                                "reference target cannot have an uninhabited type",
                             ));
                         }
                         self.check_reference_target(inner, "reference target", true);
@@ -161,7 +186,7 @@ impl<'a> BodyChecker<'a> {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_CHECK,
                                 inner.span,
-                                "reference target cannot have void or never type",
+                                "reference target cannot have an uninhabited type",
                             ));
                         }
                         self.check_reference_target(inner, "reference target", false);
