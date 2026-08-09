@@ -295,8 +295,15 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(&arm.pattern, seen, out);
                 }
             }
-            FunctionTerminator::Try { value, .. } => {
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
                 self.collect_struct_instances_expr(value, seen, out);
+                if let Some(conversion) = error_conversion {
+                    self.collect_struct_instances_expr(conversion, seen, out);
+                }
             }
             FunctionTerminator::Loop { header, .. } => {
                 self.collect_struct_instances_for_header(header, seen, out);
@@ -934,8 +941,15 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(&arm.pattern, seen, out);
                 }
             }
-            FunctionTerminator::Try { value, .. } => {
+            FunctionTerminator::Try {
+                value,
+                error_conversion,
+                ..
+            } => {
                 self.collect_union_instances_expr(value, seen, out);
+                if let Some(conversion) = error_conversion {
+                    self.collect_union_instances_expr(conversion, seen, out);
+                }
             }
             FunctionTerminator::Loop { header, .. } => {
                 self.collect_union_instances_for_header(header, seen, out);

@@ -604,7 +604,7 @@ fn collect_typed_expr_refs(
         | TypedExprKind::OptionalSome { expr: value }
         | TypedExprKind::ErrorOk { expr: value }
         | TypedExprKind::ErrorErr { expr: value }
-        | TypedExprKind::Try { expr: value }
+        | TypedExprKind::Try { expr: value, .. }
         | TypedExprKind::Discard(value)
         | TypedExprKind::Cast { expr: value, .. }
         | TypedExprKind::TraitObjectUpcast { expr: value, .. } => {

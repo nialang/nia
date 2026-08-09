@@ -103,6 +103,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
                     ty: optional_i32,
                     kind: TypedExprKind::Local(LocalId(0)),
                 }),
+                error_conversion: None,
             },
         })),
         ty: i32_ty,

@@ -135,6 +135,7 @@ pub enum FunctionTerminator {
     Try {
         value: FunctionExpr,
         kind: FunctionTryKind,
+        error_conversion: Option<FunctionExpr>,
         success_local: LocalId,
         success_target: FunctionBlockId,
         span: Span,

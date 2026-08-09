@@ -64,3 +64,159 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let status = Command::new(&exe).status_timeout("run switch destructuring executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_error_propagation_converts_with_into_error() {
+    let root = temp_dir("emit_exe_error_propagation_converts_with_into_error");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::process;
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    Unknown = 3,
+    _,
+}
+
+struct EmptySourceError {}
+struct EmptyTargetError {}
+
+static mut conversionCount: i32 = 0;
+
+extend SourceError : error::IntoError[TargetError] {
+    fn into_error(self) TargetError {
+        conversionCount += 1;
+        switch self {
+            SourceError::Failed => TargetError::Converted,
+            _ => TargetError::Unknown,
+        }
+    }
+}
+
+extend EmptySourceError : error::IntoError[EmptyTargetError] {
+    fn into_error(self) EmptyTargetError {
+        conversionCount += 1;
+        {}
+    }
+}
+
+fn failVoid() SourceError!void {
+    SourceError::Failed!
+}
+
+fn failEmpty() EmptySourceError!void {
+    EmptySourceError {}!
+}
+
+fn propagateWithDefer() TargetError!void {
+    defer conversionCount *= 10;
+    failVoid().?;
+    !{}
+}
+
+fn propagateEmpty() EmptyTargetError!void {
+    failEmpty().?;
+    !{}
+}
+
+fn source(succeed: bool) SourceError!i32 {
+    if succeed {
+        !41
+    } else {
+        SourceError::Failed!
+    }
+}
+
+fn propagate[Source, Target](value: Source!i32) Target!i32
+where Source: error::IntoError[Target]
+{
+    !(value.? + 1)
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    switch propagate[SourceError, TargetError](source(true)) {
+        !value => {
+            if value != 42 {
+                return process::exit(1)!;
+            }
+        },
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+    }
+    if conversionCount != 0 {
+        return process::exit(5)!;
+    }
+    switch propagate[SourceError, TargetError](source(false)) {
+        !value => {
+            _ = value;
+            return process::exit(3)!;
+        },
+        TargetError::Converted! => {},
+        error! => {
+            _ = error;
+            return process::exit(4)!;
+        },
+    }
+    if conversionCount != 1 {
+        return process::exit(6)!;
+    }
+    conversionCount = 0;
+    switch propagateWithDefer() {
+        !ok => {
+            _ = ok;
+            return process::exit(7)!;
+        },
+        TargetError::Converted! => {},
+        error! => {
+            _ = error;
+            return process::exit(8)!;
+        },
+    }
+    if conversionCount != 10 {
+        return process::exit(9)!;
+    }
+    conversionCount = 0;
+    switch propagateEmpty() {
+        !ok => {
+            _ = ok;
+            return process::exit(10)!;
+        },
+        error! => { _ = error; },
+    }
+    if conversionCount != 1 {
+        return process::exit(11)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write IntoError propagation source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit IntoError propagation executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run IntoError propagation executable");
+    assert_eq!(status.code(), Some(0));
+}

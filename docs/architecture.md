@@ -968,6 +968,16 @@ Propagation expressions use the same typed value surface: when the operand type
 is known as `?T` or `E!T`, `operand.?` has payload type `T` for later const
 generic inference.
 
+Runtime body checking also records automatic error conversions as ordinary
+resolved trait-call facts on the propagation node. Typed body IR carries that
+conversion separately from the operand, and function lowering materializes the
+operand once before constructing the failure-only call. Function IR therefore
+keeps success extraction, error conversion, trait witness resolution, executable
+reachability, and defer ordering explicit. LLVM lowering evaluates the converted
+return value before tail defers, matching the order of an explicit conversion
+followed by propagation. Const IR does not yet represent this failure-edge call,
+so const body checking rejects automatic `IntoError` conversion.
+
 Binary const expressions are typed conservatively from operand types.
 Boolean logic and comparisons produce `bool`; integer arithmetic and bit
 operations produce the shared operand type only when both operands already have

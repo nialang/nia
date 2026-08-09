@@ -134,12 +134,15 @@ impl<'a> ModuleLowerer<'a> {
             FunctionTerminator::Try {
                 value,
                 kind,
+                error_conversion,
                 success_local,
                 success_target,
                 span,
             } => FunctionTerminator::Try {
                 value: self.instantiate_expr(value, substitutions),
                 kind,
+                error_conversion: error_conversion
+                    .map(|conversion| self.instantiate_expr(conversion, substitutions)),
                 success_local,
                 success_target,
                 span,

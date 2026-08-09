@@ -268,6 +268,7 @@ pub enum TypedExprKind {
     },
     Try {
         expr: Box<TypedExpr>,
+        error_conversion: Option<TypedTryErrorConversion>,
     },
     Binary {
         lhs: Box<TypedExpr>,
@@ -319,6 +320,17 @@ pub enum TypedExprKind {
     },
     IfPattern(Box<TypedIfPattern>),
     Switch(Box<TypedSwitch>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedTryErrorConversion {
+    pub trait_id: GlobalDefId,
+    pub method_id: GlobalDefId,
+    pub method_name: SymbolId,
+    pub source_ty: InternedTyId,
+    pub target_ty: InternedTyId,
+    pub trait_args: Vec<InternedTyId>,
+    pub receiver_kind: ReceiverKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]

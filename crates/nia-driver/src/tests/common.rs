@@ -193,7 +193,16 @@ fn function_terminator_contains_builtin_eq(terminator: &FunctionTerminator) -> b
         FunctionTerminator::If { cond, .. } | FunctionTerminator::Switch { target: cond, .. } => {
             function_expr_contains_builtin_eq(cond)
         }
-        FunctionTerminator::Try { value, .. } => function_expr_contains_builtin_eq(value),
+        FunctionTerminator::Try {
+            value,
+            error_conversion,
+            ..
+        } => {
+            function_expr_contains_builtin_eq(value)
+                || error_conversion
+                    .as_ref()
+                    .is_some_and(function_expr_contains_builtin_eq)
+        }
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
             .as_ref()
             .is_some_and(function_expr_contains_builtin_eq),

@@ -157,7 +157,7 @@ pub(pkg) fn openAt(
         truncate,
         exclusive,
         permissions,
-    ).asOsError().?;
+    ).?;
     !FileHandle::fromPlatform(handle)
 }
 
@@ -183,7 +183,7 @@ pub(pkg) fn openAtBeneath(
         exclusive,
         permissions,
         followSymlinks,
-    ).asOsError().?;
+    ).?;
     !FileHandle::fromPlatform(handle)
 }
 
@@ -228,7 +228,7 @@ pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) 
         dir.platform(),
         path,
         followSymlinks,
-    ).asOsError().?;
+    ).?;
     !metadata.asOsMetadata()
 }
 
@@ -245,22 +245,22 @@ pub(pkg) fn random(bytes: &mut [u8]) Error!void {
 }
 
 pub(pkg) fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
-    let pid = platform::spawn_raw(path, argv, envp).asSpawnError().?;
+    let pid = platform::spawn_raw(path, argv, envp).?;
     !ProcessId::fromPlatform(pid)
 }
 
 pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
-    let result = platform::spawn(path, argv, envp, options.platform()).asSpawnError().?;
+    let result = platform::spawn(path, argv, envp, options.platform()).?;
     !SpawnResult::fromPlatform(result)
 }
 
 pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
-    let status = platform::wait(pid.platform()).asOsError().?;
+    let status = platform::wait(pid.platform()).?;
     !WaitStatus::fromPlatform(status)
 }
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
-    let status = platform::try_wait(pid.platform()).asOsError().?;
+    let status = platform::try_wait(pid.platform()).?;
     switch status {
         ?value => {
             !(?WaitStatus::fromPlatform(value))
@@ -610,7 +610,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn metadata(&self) Error!FileMetadata {
-        let metadata = self.platform().metadata().asOsError().?;
+        let metadata = self.platform().metadata().?;
         !metadata.asOsMetadata()
     }
 

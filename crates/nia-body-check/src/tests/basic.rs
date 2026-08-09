@@ -476,6 +476,231 @@ fn use_error(value: i32!i32) i32!i32 {
 }
 
 #[test]
+fn error_propagation_uses_unique_into_error_conversion() {
+    let checked = pipeline(
+        r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    Unknown = 3,
+    _,
+}
+
+extend SourceError : IntoError[TargetError] {
+    fn into_error(self) TargetError {
+        switch self {
+            SourceError::Failed => TargetError::Converted,
+            _ => TargetError::Unknown,
+        }
+    }
+}
+
+fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.facts.iter_node_resolved_calls().any(|(_, call)| {
+        matches!(
+            call,
+            nia_sema_ir::ResolvedCall::TraitMethod { method_name, .. }
+                if *method_name == nia_symbol::known::INTO_ERROR
+        )
+    }));
+}
+
+#[test]
+fn error_propagation_rejects_missing_into_error_conversion() {
+    let checked = pipeline(
+        r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    _,
+}
+
+fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("to implement `IntoError[")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn error_propagation_does_not_chain_into_error_conversions() {
+    let checked = pipeline(
+        r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+enum SourceError: i32 { Value = 1, _ }
+enum MiddleError: i32 { Value = 2, _ }
+enum TargetError: i32 { Value = 3, _ }
+
+extend SourceError : IntoError[MiddleError] {
+    fn into_error(self) MiddleError { MiddleError::Value }
+}
+
+extend MiddleError : IntoError[TargetError] {
+    fn into_error(self) TargetError { TargetError::Value }
+}
+
+fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("to implement `IntoError[")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn error_propagation_rejects_ambiguous_into_error_conversion() {
+    let checked = pipeline(
+        r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+struct TargetError {}
+
+extend[T] Pair[T, i32] : IntoError[TargetError] {
+    fn into_error(self) TargetError { {} }
+}
+
+extend[U] Pair[i32, U] : IntoError[TargetError] {
+    fn into_error(self) TargetError { {} }
+}
+
+fn propagate(value: Pair[i32, i32]!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("ambiguous error propagation conversion")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn error_propagation_ignores_malformed_into_error_protocol() {
+    let checked = pipeline(
+        r#"
+trait IntoError[Target] {
+    fn into_error(self, context: i32) Target;
+}
+
+struct SourceError {}
+struct TargetError {}
+
+extend SourceError : IntoError[TargetError] {
+    fn into_error(self, context: i32) TargetError {
+        _ = context;
+        {}
+    }
+}
+
+fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("to implement `IntoError[")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn const_error_propagation_rejects_automatic_into_error_conversion() {
+    let checked = pipeline_const_declarations(
+        r#"
+trait IntoError[Target] {
+    const fn into_error(self) Target;
+}
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    _,
+}
+
+extend SourceError : IntoError[TargetError] {
+    const fn into_error(self) TargetError {
+        TargetError::Converted
+    }
+}
+
+const fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("automatic `IntoError` conversion is not available during const evaluation")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_error_union_construction_without_expected_type() {
     let checked = pipeline(
         r#"

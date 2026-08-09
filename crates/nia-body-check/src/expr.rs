@@ -4,11 +4,11 @@ use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{BuiltinAssociatedConst, InternedTyId};
+use nia_ids::{BuiltinAssociatedConst, GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
     AssociatedConstProjection, BracketSuffixResolution, BuiltinAssociatedValue, BuiltinOperatorOp,
-    BuiltinValue,
+    BuiltinValue, ResolvedCall,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
@@ -183,7 +183,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::ErrorOk { expr: inner } => self.check_error_ok_expr(inner, expected),
             ExprKind::ErrorErr { expr: inner } => self.check_error_err_expr(inner, expected),
-            ExprKind::Try { expr: inner } => self.check_try_expr(expr.span, inner),
+            ExprKind::Try { expr: inner } => self.check_try_expr(expr, inner),
             ExprKind::Binary { lhs, op, rhs } => {
                 self.check_binary_expr(expr.span, lhs, *op, rhs, expected)
             }
@@ -706,7 +706,8 @@ impl<'a> BodyChecker<'a> {
         self.interner.intern(TyKind::ErrorUnion { error, value })
     }
 
-    fn check_try_expr(&mut self, span: Span, inner: &Expr) -> InternedTyId {
+    fn check_try_expr(&mut self, expr: &Expr, inner: &Expr) -> InternedTyId {
+        let span = expr.span;
         let inner_ty = self.check_expr(inner);
         self.record_expr_node_type(inner, inner_ty);
         let normalized = self.normalize_aliases(inner_ty);
@@ -729,14 +730,34 @@ impl<'a> BodyChecker<'a> {
                 match self.error_union_parts(self.current_return) {
                     Some((return_error, _)) => {
                         if !self.types_match(error, return_error) {
-                            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                                span,
-                                format!(
-                                    "error propagation type mismatch: cannot propagate `{}` from function returning `{}`",
-                                    self.ty_name(error),
-                                    self.ty_name(self.current_return)
-                                ),
-                            ));
+                            match self.resolve_into_error_conversion(span, error, return_error) {
+                                Ok(Some(conversion)) => {
+                                    if self.body_filter.checks_const_declarations() {
+                                        self.reject_const_operation(
+                                            span,
+                                            "automatic `IntoError` conversion is not available during const evaluation",
+                                        );
+                                    } else {
+                                        self.record_resolved_node_call(
+                                            span,
+                                            &expr.node_key,
+                                            conversion,
+                                        );
+                                    }
+                                }
+                                Ok(None) => {
+                                    self.diagnostics.push(Diagnostic::user_error_at(
+                                        codes::TYPE_CHECK,
+                                        span,
+                                        format!(
+                                            "error propagation requires `{}` to implement `IntoError[{}]`",
+                                            self.ty_name(error),
+                                            self.ty_name(return_error)
+                                        ),
+                                    ));
+                                }
+                                Err(()) => {}
+                            }
                         }
                     }
                     None => {
@@ -761,6 +782,111 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
         }
+    }
+
+    fn resolve_into_error_conversion(
+        &mut self,
+        span: Span,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
+    ) -> Result<Option<ResolvedCall>, ()> {
+        let mut trait_ids = self
+            .program_signature_scope
+            .trait_ids_with_method_named(&known::INTO_ERROR);
+        if let Some(def_id) = self.defs.module_scope.types.get(&known::INTO_ERROR_TRAIT)
+            && self
+                .defs
+                .defs
+                .get(def_id)
+                .is_some_and(|def| def.kind == DefKind::Trait)
+        {
+            trait_ids.push(GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            });
+        }
+        trait_ids.sort_unstable();
+        trait_ids.dedup();
+
+        let mut matches = Vec::new();
+        let mut ambiguous = false;
+        for trait_id in trait_ids {
+            if self.definition_name(trait_id) != Some(known::INTO_ERROR_TRAIT) {
+                continue;
+            }
+            let Some(signature) = self.resolved_trait_signature(trait_id) else {
+                continue;
+            };
+            if signature.generics.len() != 1 {
+                continue;
+            }
+            let Some(method) = signature
+                .methods
+                .iter()
+                .find(|method| method.name == known::INTO_ERROR)
+            else {
+                continue;
+            };
+            if !method.signature.generic_params.is_empty()
+                || method.signature.params.len() != 1
+                || method.signature.params[0].receiver != Some(nia_ids::ReceiverKind::Value)
+                || method.signature.is_variadic
+            {
+                continue;
+            }
+            let receiver_kind = nia_ids::ReceiverKind::Value;
+            let trait_args = vec![target_ty];
+            let (substitutions, const_substitutions) =
+                self.generic_substitutions_and_consts_for_def(trait_id, &trait_args, &[]);
+            let method_return = self.substitute_generics_and_consts_with_self(
+                method.signature.return_type,
+                &substitutions,
+                &const_substitutions,
+                source_ty,
+            );
+            let method_return = self.normalize_projection(method_return);
+            if !self.types_match(method_return, target_ty) {
+                continue;
+            }
+            match self.current_context_resolve_trait_obligation(
+                source_ty,
+                TraitId::Source(trait_id),
+                trait_args.clone(),
+            ) {
+                nia_trait_solve::TraitResolution::User(_)
+                | nia_trait_solve::TraitResolution::Assumed(_) => {
+                    matches.push(ResolvedCall::TraitMethod {
+                        trait_id,
+                        method_id: GlobalDefId {
+                            module_id: trait_id.module_id,
+                            def_id: method.def_id,
+                        },
+                        method_name: method.name,
+                        self_ty: source_ty,
+                        trait_args,
+                        args: Vec::new(),
+                        receiver_kind,
+                    });
+                }
+                nia_trait_solve::TraitResolution::Ambiguous => ambiguous = true,
+                nia_trait_solve::TraitResolution::Intrinsic(_)
+                | nia_trait_solve::TraitResolution::Unsatisfied => {}
+            }
+        }
+
+        if ambiguous || matches.len() > 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "ambiguous error propagation conversion from `{}` to `{}`",
+                    self.ty_name(source_ty),
+                    self.ty_name(target_ty)
+                ),
+            ));
+            return Err(());
+        }
+        Ok(matches.pop())
     }
 
     fn check_range_expr(

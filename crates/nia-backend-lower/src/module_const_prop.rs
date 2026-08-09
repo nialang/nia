@@ -280,11 +280,25 @@ fn propagate_cross_function_constants_in_terminator(
             }
             changed
         }
-        FunctionTerminator::Try { value, .. } => propagate_cross_function_constants_in_expr(
+        FunctionTerminator::Try {
             value,
-            function_constants,
-            instance_constants,
-        ),
+            error_conversion,
+            ..
+        } => {
+            let mut changed = propagate_cross_function_constants_in_expr(
+                value,
+                function_constants,
+                instance_constants,
+            );
+            if let Some(conversion) = error_conversion {
+                changed |= propagate_cross_function_constants_in_expr(
+                    conversion,
+                    function_constants,
+                    instance_constants,
+                );
+            }
+            changed
+        }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => propagate_cross_function_constants_in_expr(
                 cond,

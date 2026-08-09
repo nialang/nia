@@ -714,6 +714,7 @@ impl<'a> Encoder<'a> {
             FunctionTerminator::Try {
                 value,
                 kind,
+                error_conversion,
                 success_local,
                 success_target,
                 ..
@@ -721,6 +722,7 @@ impl<'a> Encoder<'a> {
                 self.tag(5);
                 self.expr(value);
                 self.tag(*kind as u8);
+                self.optional_expr(error_conversion.as_ref());
                 self.local(*success_local);
                 self.block_id(*success_target);
             }

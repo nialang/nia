@@ -210,7 +210,7 @@ impl BodyInputValidator {
             | TypedExprKind::OptionalSome { expr }
             | TypedExprKind::ErrorOk { expr }
             | TypedExprKind::ErrorErr { expr }
-            | TypedExprKind::Try { expr }
+            | TypedExprKind::Try { expr, .. }
             | TypedExprKind::Cast { expr, .. }
             | TypedExprKind::TraitObjectUpcast { expr, .. }
             | TypedExprKind::TraitObjectCoercion { expr, .. } => self.validate_value_expr(expr),

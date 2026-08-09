@@ -216,8 +216,9 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::process` also extends `std::fs.Error` and `std::mem.Error` with
   `asExitCode` and `exit` for explicitly returning standard library errors as
   process exit codes from executable entries. It also extends `std::fs.Error!T`
-  and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
-  so callers can write `io_call().exit().?`.
+  and `std::mem.Error!T` with `exit`, which explicitly maps the error side to
+  `ExitCode!T`. Immediate propagation from an `ExitCode!T` entry point normally
+  uses `io_call().?` through the same `IntoError` implementation.
 - `std::cstring` defines `CStringView`, a non-owning view of a NUL-terminated byte
   sequence. It provides `fromPtrUnchecked` for trusted external C string pointers,
   checked `fromBytes` for NUL-terminated byte slices such as `b"name\0"`,
@@ -253,8 +254,9 @@ capacity, and `ensureTotalCapacity` accepts an absolute capacity floor.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper returns `debug::Error!void`: `Format(fmt::Error)` preserves
   template/presentation failures and `Flush(fs::Error)` preserves the stderr
-  flush cause. Executable entry points may use `.exit().?` for the standard
-  process-status mapping. Use `std::io` directly when output destination,
+  flush cause. Executable entry points returning `process::ExitCode!T` may use
+  direct `.?` for the standard process-status mapping. Use `std::io` directly
+  when output destination,
   buffering, or recovery policy belongs to the application.
 - `std::fmt` defines the formatting protocol used by writer `.print(...)`.
   Format arguments are passed as a
@@ -1108,11 +1110,13 @@ the success value alone.
 
 The postfix propagation operator `.?` unwraps an optional or error union inside a
 function. For `?T`, `value.?` returns `T` on the present path and returns `null`
-from the current function on the empty path. For `E!T`, `value.?` returns `T` on
-the success path and propagates the error value from the current function on the
-error path. Optional propagation requires an optional function return type. Error
-propagation requires an error-union function return type with the same error
-type.
+from the current function on the empty path. For `Source!T`, `value.?` returns
+`T` on the success path. If the current function returns `Target!U`, the error
+path is propagated directly when `Source` and `Target` are the same type.
+Otherwise the compiler requires one applicable
+`Source: std::error::IntoError[Target]` implementation and calls
+`into_error` only on the error path. Optional propagation requires an optional
+function return type and never uses `IntoError`.
 
 ```nia
 fn read(value: i32!i32) i32!i32 {
@@ -1120,6 +1124,30 @@ fn read(value: i32!i32) i32!i32 {
     !x
 }
 ```
+
+`IntoError` is the standard infallible error-conversion protocol:
+
+```nia
+pub trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+```
+
+The target error type comes from the enclosing function return type, so callers
+normally write `operation().?` rather than an explicit conversion. Resolution
+uses the ordinary trait solver, including the current function's `where`
+predicates and normal impl specificity rules. An unsatisfied or ambiguous goal
+is a type error. Conversion is exactly one step: the compiler does not search
+for chains such as `Source -> Intermediate -> Target`. The source expression is
+evaluated once, the conversion is skipped on success, and the compiler does not
+introduce allocation or type erasure. An `IntoError` implementation is expected
+to be an infallible error mapping; conversions that add values not present in
+the source, such as an operation name or path, remain explicit adapters.
+
+Automatic `IntoError` conversion is currently a runtime-only propagation
+feature. Const evaluation rejects it even when the selected method is declared
+`const fn`; exact-type optional and error propagation remain available in const
+code.
 
 Patterns can destructure optional and error-union values:
 
