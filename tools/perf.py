@@ -16,6 +16,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMPILER = ROOT / "target" / "release" / "nia"
+DEFAULT_RESOURCE_ROOT = ROOT / "lib"
 DEFAULT_OUTPUT = ROOT / "target" / "nia-perf" / "baseline.json"
 
 
@@ -306,13 +307,23 @@ def command_label(value: str) -> str:
         return value
 
 
-def run_workload(compiler: Path, name: str, args: list[str]) -> dict[str, Any]:
-    command = [
+def workload_command(
+    compiler: Path, resource_root: Path, args: list[str]
+) -> list[str]:
+    return [
         str(compiler),
+        "--resource-root",
+        str(resource_root),
         "--timings=detail",
         "--timings-format=json",
         *args,
     ]
+
+
+def run_workload(
+    compiler: Path, resource_root: Path, name: str, args: list[str]
+) -> dict[str, Any]:
+    command = workload_command(compiler, resource_root, args)
     result = subprocess.run(
         command,
         cwd=ROOT,
@@ -343,6 +354,7 @@ def run_workload(compiler: Path, name: str, args: list[str]) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler", type=Path, default=DEFAULT_COMPILER)
+    parser.add_argument("--resource-root", type=Path, default=DEFAULT_RESOURCE_ROOT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--no-build", action="store_true")
@@ -369,6 +381,9 @@ def main() -> int:
     if args.runner_class is not None and not runner_class:
         raise SystemExit("--runner-class must not be empty")
     compiler = args.compiler.resolve()
+    resource_root = args.resource_root.resolve()
+    if not resource_root.joinpath("toolchain.meta").is_file():
+        raise SystemExit(f"resource root is invalid: {resource_root}")
     if not args.no_build and compiler == DEFAULT_COMPILER.resolve():
         subprocess.run(
             [
@@ -397,7 +412,9 @@ def main() -> int:
             for name in selected:
                 print(f"perf: iteration {iteration + 1}/{args.repeat} {name}", file=sys.stderr)
                 try:
-                    report = run_workload(compiler, name, available[name])
+                    report = run_workload(
+                        compiler, resource_root, name, available[name]
+                    )
                 except (RuntimeError, ValueError) as error:
                     raise SystemExit(f"error: {error}") from None
                 report["iteration"] = iteration
@@ -409,6 +426,7 @@ def main() -> int:
         "schema_version": 1,
         "compiler": {
             "path": command_label(str(compiler)),
+            "resource_root": command_label(str(resource_root)),
             "version": command_output([str(compiler), "--version"]),
             "revision": revision,
             "dirty": bool(dirty),

@@ -9,11 +9,14 @@ python3 tools/perf.py
 
 The runner builds the release compiler once with the dedicated `perf-alloc`
 instrumentation feature, runs each compiler workload in a fresh process, and
-writes `target/nia-perf/baseline.json`. The output path and repeat count are
-explicit options:
+writes `target/nia-perf/baseline.json`. Source-tree runs pass the repository
+`lib` directory as an explicit toolchain resource root; they never depend on the
+release binary accidentally finding an installed-layout sibling. The compiler,
+resource root, output path, and repeat count are explicit options:
 
 ```sh
-python3 tools/perf.py --repeat 3 --output target/nia-perf/before.json
+python3 tools/perf.py --resource-root lib --repeat 3 \
+  --output target/nia-perf/before.json
 python3 tools/perf.py --no-build --workload traits --workload const_eval
 ```
 
@@ -162,11 +165,13 @@ Successful main-branch and scheduled runs upload `baseline.json`, the comparison
 report when one exists, and run/revision identity with 90-day retention. Later
 runs only search successful main workflow runs, so a failed regression candidate
 cannot become the next baseline. Pull-request and failed-main candidates are
-stored separately for 14 days for diagnosis. The first main run is an explicit
-bootstrap because no earlier controlled
-artifact exists; after that, every available baseline is compared. This stores
-main-branch trends without committing machine-specific numbers to the source
-tree or treating a developer sample as a project-wide absolute threshold.
+stored separately for 14 days for diagnosis. A failed collection retains its
+combined candidate log plus run/revision identity even when no baseline JSON was
+completed. The first main run is an explicit bootstrap because no earlier
+controlled artifact exists; after that, every available baseline is compared.
+This stores main-branch trends without committing machine-specific numbers to
+the source tree or treating a developer sample as a project-wide absolute
+threshold.
 Each run also publishes an Actions step summary containing the candidate
 revision, controlled runner class, selected main baseline run, and comparison
 result when a prior artifact was available.

@@ -30,6 +30,22 @@ class PerformanceWorkflowTests(unittest.TestCase):
         self.assertIn("name: nia-perf-candidate", self.workflow)
         self.assertIn("retention-days: 14", self.workflow)
 
+    def test_failure_artifact_does_not_require_a_completed_candidate(self):
+        self.assertIn("tee target/nia-perf/candidate.log", self.workflow)
+        self.assertIn(
+            "if test -f target/nia-perf/candidate.json", self.workflow
+        )
+        self.assertIn("target/nia-perf/artifact/candidate.log", self.workflow)
+
+    def test_uses_current_official_action_runtimes(self):
+        for action in [
+            "actions/checkout@v7",
+            "actions/cache@v6",
+            "actions/upload-artifact@v7",
+        ]:
+            self.assertIn(action, self.workflow)
+        self.assertNotIn("@v4", self.workflow)
+
     def test_publishes_baseline_provenance_in_step_summary(self):
         self.assertIn("BASELINE_RUN_ID", self.workflow)
         self.assertIn("steps.main_baseline.outputs.run_id", self.workflow)

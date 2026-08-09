@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from tools.perf import (
     large_codegen_source,
@@ -6,10 +7,27 @@ from tools.perf import (
     require_allocation_instrumentation,
     require_codegen_bucket_instrumentation,
     require_module_finalization_instrumentation,
+    workload_command,
 )
 
 
 class PerfRunnerTests(unittest.TestCase):
+    def test_workload_command_uses_an_explicit_resource_root(self):
+        command = workload_command(
+            Path("/tool/nia"), Path("/tool/lib"), ["check", "/source/main.nia"]
+        )
+        self.assertEqual(
+            command[:6],
+            [
+                "/tool/nia",
+                "--resource-root",
+                "/tool/lib",
+                "--timings=detail",
+                "--timings-format=json",
+                "check",
+            ],
+        )
+
     def test_machine_metadata_records_explicit_runner_class(self):
         metadata = machine_metadata("github-hosted-ubuntu-24.04-x64")
         self.assertEqual(
