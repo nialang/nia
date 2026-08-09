@@ -30,25 +30,42 @@ Current support is intentionally narrow:
   target linker without CRT startup;
 - native object emission depends on the LLVM target configuration available to
   the local toolchain;
-- the repository defines a managed `ubuntu-24.04` x86_64 performance workflow
-  that installs LLVM 22 and exercises the complete compiler/LLVM workload suite;
+- the repository defines managed `ubuntu-24.04` x86_64 correctness and
+  performance workflows that install LLVM 22 and exercise the complete
+  compiler/LLVM workload suites;
 - cross compilation is not documented as a supported workflow yet.
 
 This does not mean other hosts or targets cannot work. It means the project does
 not yet claim support for them.
+
+## Toolchain Update Policy
+
+The project follows the maintainer's current Fedora development environment
+rather than defining old minimum compiler versions. Rust tracks the newest
+stable channel without a repository pin or MSRV. LLVM tracks the default LLVM
+release supplied by the newest stable Fedora release; the `llvm-sys` binding,
+`LLVM_SYS_*_PREFIX` name, linker package, and managed workflow installation move
+together when Fedora changes that identity. The Ubuntu hosted runners install
+the matching LLVM release from `apt.llvm.org`; Ubuntu is the execution venue,
+not the version authority.
+
+Every managed run reports its Rust/Cargo/Clippy/rustfmt identity and
+`llvm-config --version`. A new upstream stable release may legitimately expose
+new diagnostics. Maintainers reproduce those diagnostics after updating the
+local toolchain and fix the code rather than weakening strict lint policy.
 
 ## Known Maintainer Environment
 
 This is the current known working environment snapshot, not a minimum
 requirement or support guarantee.
 
-Snapshot date: 2026-06-12.
+Snapshot date: 2026-08-09.
 
 - OS: Fedora Linux 44 (WSL)
 - Architecture: x86_64
 - libc: GNU libc 2.43
-- Rust: rustc 1.96.0
-- Cargo: cargo 1.96.0
+- Rust: rustc 1.97.1
+- Cargo: cargo 1.97.1
 - default executable linker: `ld` resolves to `/usr/sbin/ld`
 - linker implementation: GNU ld 2.46
 - LLVM config tool: `/usr/sbin/llvm-config`
@@ -92,7 +109,7 @@ The following are not currently guaranteed:
 
 Expected platform work includes:
 
-- documenting exact Rust, LLVM, linker, and system toolchain requirements;
+- keeping the Rust and Fedora-derived LLVM identity current and observable;
 - adding CI for at least one Linux host;
 - making target selection explicit in the CLI;
 - making executable linker selection target-aware beyond the current

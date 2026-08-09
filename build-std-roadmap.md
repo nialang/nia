@@ -4684,3 +4684,13 @@ projection field and two equivalent byte-array fixtures are corrected without
 semantic changes. Rust 1.97.1 strict workspace Clippy plus the affected body
 checker and Driver const-eval suites pass locally; hosted acceptance still
 requires a successful rerun that reaches and publishes the complete baseline.
+
+Phase H progress (2026-08-09, moving toolchain policy): the maintained toolchain
+identity is now explicit in stable documentation. Rust intentionally follows
+the newest stable channel without a repository pin or MSRV; LLVM follows the
+default release in the newest stable Fedora maintainer environment. Ubuntu
+hosted jobs install the corresponding LLVM identity rather than defining it.
+Both managed workflows explicitly retain Clippy/rustfmt while updating stable
+and print the resolved Rust, Cargo, Clippy, rustfmt, and LLVM versions. Workflow
+structure tests lock that observability, and contribution guidance requires
+updating stable before treating local broad gates as comparable evidence.

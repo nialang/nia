@@ -42,6 +42,17 @@ class PerformanceWorkflowTests(unittest.TestCase):
         self.assertIn("llvm-toolchain-noble-22", self.workflow)
         self.assertIn("llvm-22-dev lld-22", self.workflow)
 
+    def test_tracks_and_reports_the_latest_rust_stable_identity(self):
+        self.assertIn("rustup toolchain install stable", self.workflow)
+        self.assertIn("--component clippy --component rustfmt", self.workflow)
+        for command in [
+            "rustc --version --verbose",
+            "cargo --version",
+            "cargo clippy --version",
+            "cargo fmt --version",
+        ]:
+            self.assertIn(command, self.workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

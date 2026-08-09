@@ -733,10 +733,12 @@ had taken 1291.21 seconds. This is test-infrastructure evidence, not a release
 compiler performance threshold.
 
 The managed `.github/workflows/build-std.yml` correctness workflow is the
-hosted acceptance boundary for this matrix. It installs the pinned Ubuntu LLVM
-toolchain, runs formatting, strict all-feature Clippy, workspace checks and
-tests, executes the configured multi-artifact and copied-toolchain relocation
-suites, then runs one resource-accounted release baseline containing clean,
+hosted acceptance boundary for this matrix. It follows and reports the newest
+Rust stable identity and installs Ubuntu packages matching the current
+Fedora-derived LLVM identity. It runs formatting, strict all-feature Clippy,
+workspace checks and tests, executes the configured multi-artifact and
+copied-toolchain relocation suites, then runs one resource-accounted release
+baseline containing clean,
 warm, source-edit, module-map-edit, corrupt-cache, recovered-warm, and
 failed-action states. The workflow
 publishes the machine-readable baseline as an artifact. A local run or a static
