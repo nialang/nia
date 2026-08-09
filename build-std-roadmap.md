@@ -4673,3 +4673,14 @@ isolation. A real one-sample release run damaged five accumulated entries; all
 three current action lookups reported corrupt misses with zero object/link
 misses, and the recovered-warm run then hit all three repaired entries. An
 actual successful hosted run and uploaded report remain external.
+
+Phase H progress (2026-08-09, first hosted execution): GitHub Actions run
+`31290680652` checked out exact commit `e9f50942`, installed Rust stable and the
+pinned LLVM 22.1 toolchain, and passed the workflow-tooling tests before strict
+Clippy stopped the matrix. The runner had advanced to Rust 1.97.1 while the
+local stable toolchain remained 1.96.0; reproducing under 1.97.1 exposed its new
+`unneeded_wildcard_pattern` and `byte_char_slices` lints. The redundant ignored
+projection field and two equivalent byte-array fixtures are corrected without
+semantic changes. Rust 1.97.1 strict workspace Clippy plus the affected body
+checker and Driver const-eval suites pass locally; hosted acceptance still
+requires a successful rerun that reaches and publishes the complete baseline.

@@ -845,7 +845,6 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
-                trait_const_args: _,
                 ..
             }) => {
                 self.type_contains_const_expr_len(*self_ty, visited)

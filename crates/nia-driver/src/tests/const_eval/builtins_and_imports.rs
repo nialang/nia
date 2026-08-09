@@ -86,7 +86,7 @@ fn main() i32 {
 fn builtin_functions_require_explicit_std_builtin_path_or_using() {
     let root = temp_dir("builtin_functions_require_explicit_std_builtin_path_or_using");
     std::fs::create_dir_all(root.join("assets")).expect("create assets dir");
-    std::fs::write(root.join("assets/payload.bin"), [b'n', b'i', b'a']).expect("write payload");
+    std::fs::write(root.join("assets/payload.bin"), b"nia").expect("write payload");
     write(
         &root.join("main.nia"),
         r#"
@@ -323,7 +323,7 @@ fn main() i32 {
 fn embed_reads_bytes_relative_to_source_file() {
     let root = temp_dir("embed_reads_bytes_relative_to_source_file");
     std::fs::create_dir_all(root.join("src/assets")).expect("create assets dir");
-    std::fs::write(root.join("src/assets/payload.bin"), [b'n', b'i', b'a']).expect("write payload");
+    std::fs::write(root.join("src/assets/payload.bin"), b"nia").expect("write payload");
     write(
         &root.join("src/main.nia"),
         r#"
