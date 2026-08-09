@@ -1,5 +1,5 @@
 using std::build;
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     static prepareName = "prepare";
     static buildName = "build";
     static checkName = "check";
@@ -9,5 +9,5 @@ pub fn build(b: &mut build::Build) build::Error!void {
     b.dependOn(buildStep, prepareStep).?;
     b.dependOn(checkStep, prepareStep).?;
     b.dependOn(checkStep, buildStep).?;
-    !{}
+    !()
 }

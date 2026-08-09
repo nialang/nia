@@ -31,7 +31,7 @@ const data_score: i32 = const_score(Event::Data(2));
 const move_score: i32 = const_score(Event::Move(3, 4));
 const resize_score: i32 = const_score(Event::Resize { height: 5, width: 6 });
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if score(Event::Closed) != closed_score or closed_score != 0 {
         return process::exit(10)!;
@@ -48,5 +48,5 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if helper::marker() != 1 {
         return process::exit(14)!;
     }
-    !{}
+    !()
 }

@@ -23,7 +23,7 @@ impl<'a> BodyChecker<'a> {
             for arg in args {
                 self.check_expr(arg);
             }
-            return self.void();
+            return self.unit();
         }
         let config = &args[0];
         let ExprKind::StructLiteral { fields } = &config.kind else {
@@ -33,7 +33,7 @@ impl<'a> BodyChecker<'a> {
                 "builtin `asm` expects an untyped struct literal configuration",
             ));
             self.check_expr(config);
-            return self.void();
+            return self.unit();
         };
 
         let mut has_code = false;
@@ -71,7 +71,7 @@ impl<'a> BodyChecker<'a> {
                 "builtin `asm` requires a `code` byte string literal",
             ));
         }
-        self.void()
+        self.unit()
     }
 
     fn check_asm_inputs(&mut self, expr: &Expr) {
@@ -110,14 +110,18 @@ impl<'a> BodyChecker<'a> {
     fn check_asm_operand_type(&mut self, span: Span, ty: InternedTyId, context: &str) {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty) {
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never))
-            | Some(TyKind::Opaque) => {
+            Some(kind)
+                if kind.is_unit()
+                    || matches!(kind, TyKind::Primitive(PrimitiveTy::Never) | TyKind::Opaque) =>
+            {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
                     format!("{context} cannot have an incomplete or uninhabited type"),
                 ));
             }
+            // Covered by the guarded arm above; kept explicit for match exhaustiveness.
+            Some(TyKind::Opaque) => unreachable!(),
             Some(
                 TyKind::Tuple(_)
                 | TyKind::Array { .. }

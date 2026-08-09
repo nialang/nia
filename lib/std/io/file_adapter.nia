@@ -57,7 +57,7 @@ extend FileWriter {
         self.file.writeSome(bytes).as_fs_error()
     }
 
-    fn append_buffered(&mut self, bytes: &[u8]) void {
+    fn append_buffered(&mut self, bytes: &[u8]) () {
         let mut index = 0usize;
         while index < bytes.len() {
             self.buffer[self.len + index] = bytes[index];
@@ -92,7 +92,7 @@ extend FileWriter : Writer {
         }
     }
 
-    pub fn flush(&mut self) Error!void {
+    pub fn flush(&mut self) Error!() {
         while self.len != 0 {
             let n = self.write_direct(& self.buffer[0..self.len]).?;
             if n == 0 {
@@ -109,7 +109,7 @@ extend FileWriter : Writer {
                 self.len -= n;
             }
         }
-        !{}
+        !()
     }
 }
 
@@ -134,7 +134,7 @@ extend FileReader {
         & self.buffer[self.start..self.end]
     }
 
-    pub fn discardBuffered(&mut self) void {
+    pub fn discardBuffered(&mut self) () {
         self.start = 0;
         self.end = 0;
     }

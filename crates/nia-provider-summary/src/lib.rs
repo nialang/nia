@@ -593,7 +593,7 @@ module fs;
 using fs;
 
 extend fs::File {
-    pub fn writer(&self) void {}
+    pub fn writer(&self) () {}
 }
 "#,
         );
@@ -646,7 +646,7 @@ extend[T] &T {
     fn ptr(self) bool { true }
 }
 
-extend void {
+extend () {
     fn unit(self) i32 { 1 }
 }
 "#,
@@ -717,7 +717,7 @@ using error;
 struct SpawnError {}
 
 extend SpawnError : error::IntoError {
-    fn into_error(self) void {}
+    fn into_error(self) () {}
 }
 "#,
         );

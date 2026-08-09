@@ -28,7 +28,7 @@ fn foundAt(result: ?usize, expected: usize) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let text: &[char] = &"alpha λ beta λ";
     if not text.equals(&"alpha λ beta λ")
@@ -471,7 +471,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if ownedAllocator.deinit().exit().? != mem::DeinitStatus::Ok {
         return process::exit(26)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -511,7 +511,7 @@ using std::io;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut pageAllocator;
 
@@ -730,7 +730,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not roundTrip.equals(content.text()) or not roundTrip.equals(&"你好 / Nia #42") {
         return process::exit(17)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -768,7 +768,7 @@ fn check_std_path_buf_does_not_adopt_raw_owned_text() {
         r#"
 using std;
 
-fn main() void {
+fn main() () {
     let mut text: [3]char = ['n', 'i', 'a'];
     _ = std::PathBuf::fromOwnedSlice(&mut text[..]);
 }

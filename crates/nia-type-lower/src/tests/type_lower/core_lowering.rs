@@ -10,7 +10,7 @@ struct Box[T] {
 value: T,
 }
 
-fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
+fn make(ptr: &u8, cb: &fn(i32) ()) [4]Box[i32] {
 let mut tmp: [_]i32 = [1, 2, 3];
 [{ value: 0 }; 4]
 }
@@ -65,7 +65,7 @@ struct Buffer[T, N: usize] {
 data: [N]T,
 }
 
-fn use_buffer(buf: Buffer[u8, 4]) void {}
+fn use_buffer(buf: Buffer[u8, 4]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -138,7 +138,7 @@ pub struct Packet[T, N: usize, U] {
 
     let (consuming_module, consuming_errors) = parse_module(
         r#"
-fn consume(packet: Packet[u8, 2, u16]) void {}
+fn consume(packet: Packet[u8, 2, u16]) () {}
 "#,
     );
     assert!(consuming_errors.is_empty(), "{consuming_errors:?}");
@@ -200,7 +200,7 @@ fn lowers_trait_associated_type_shorthand_to_projection() {
 trait Writer {
 type Error;
 
-fn write(& self) Error!void;
+fn write(& self) Error!();
 }
 
 enum BufferError: i32 {
@@ -213,9 +213,9 @@ struct Sink {}
 extend Sink : Writer {
 type Error = BufferError;
 
-fn write(& self) Error!void {
+fn write(& self) Error!() {
     _ = self;
-    !{}
+    !()
 }
 }
 "#,

@@ -727,7 +727,7 @@ impl<'a> BodyChecker<'a> {
         );
         if let Some(body) = &function.body {
             let expected_tail =
-                (!self.is_void(signature.return_type)).then_some(signature.return_type);
+                (!self.is_unit(signature.return_type)).then_some(signature.return_type);
             time_body_stage_if_slow(
                 self.timing,
                 "body_check.function.check_block",
@@ -738,7 +738,7 @@ impl<'a> BodyChecker<'a> {
                     self.profile_stage("body_check.profile.function.check_block", |this| {
                         let body_ty = this.check_block_with_expected(body, expected_tail);
                         if let Some(tail) = body.tail.as_deref() {
-                            if !this.is_void(signature.return_type) {
+                            if !this.is_unit(signature.return_type) {
                                 this.expect_expr_type(
                                     tail,
                                     signature.return_type,
@@ -746,7 +746,7 @@ impl<'a> BodyChecker<'a> {
                                     "function body",
                                 );
                             }
-                        } else if this.is_void(signature.return_type) {
+                        } else if this.is_unit(signature.return_type) {
                             this.expect_type(
                                 body.span,
                                 signature.return_type,

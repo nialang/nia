@@ -2,7 +2,7 @@ using std::fs;
 using std::process;
 using process::{ExitCode, Init};
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     let arguments: [2]&[char] = [&"-c", &"printf '%s\n' \"$NIA_EXAMPLE_MODE\""];
     let environment: [1]process::EnvEntry = [
         process::EnvEntry::init(&"NIA_EXAMPLE_MODE", &"typed environment"),
@@ -24,5 +24,5 @@ pub fn main(init: Init) ExitCode!void {
     if not term.succeeded() or not (&output[..]).equals(&b"typed environment\n") {
         return process::exit(1)!;
     }
-    !{}
+    !()
 }

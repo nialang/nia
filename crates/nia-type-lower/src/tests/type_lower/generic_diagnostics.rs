@@ -75,17 +75,17 @@ A,
 }
 
 struct BadFields {
-field: void,
-array: [1]void,
+field: (),
+array: [1](),
 never_field: never,
 }
 
-fn bad_param(x: void) void {}
-fn bad_never_param(x: never) void {}
-fn good_return() void {}
+fn bad_param(x: ()) () {}
+fn bad_never_param(x: never) () {}
+fn good_return() () {}
 fn good_never_return() never {}
 
-static mut global_void: void;
+static mut global_void: ();
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");

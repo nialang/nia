@@ -222,7 +222,7 @@ impl<'a> BodyChecker<'a> {
                             "`_` discard only supports plain assignment",
                         ));
                     }
-                    self.void()
+                    self.unit()
                 } else {
                     self.check_assignment_lhs(lhs);
                     self.check_assignable(lhs, "assignment target");
@@ -233,7 +233,7 @@ impl<'a> BodyChecker<'a> {
                         let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
                         self.expect_expr_type(rhs, lhs_ty, rhs_ty, "assignment");
                     }
-                    self.void()
+                    self.unit()
                 }
             }
             ExprKind::Cast { expr: inner, ty } => {
@@ -1084,7 +1084,7 @@ impl<'a> BodyChecker<'a> {
         self.expect_type(cond.span, self.bool(), cond_ty, "if condition");
         let Some(else_branch) = else_branch else {
             self.check_block(then_branch);
-            return self.void();
+            return self.unit();
         };
 
         if let Some(expected) = expected {

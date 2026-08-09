@@ -185,7 +185,6 @@ pub enum BuiltinTypeAnchor {
     F64,
     Bool,
     Char,
-    Void,
     Never,
 }
 
@@ -207,7 +206,7 @@ impl BuiltinType {
 }
 
 impl BuiltinTypeAnchor {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 17] = [
         Self::I8,
         Self::I16,
         Self::I32,
@@ -224,7 +223,6 @@ impl BuiltinTypeAnchor {
         Self::F64,
         Self::Bool,
         Self::Char,
-        Self::Void,
         Self::Never,
     ];
 
@@ -246,7 +244,6 @@ impl BuiltinTypeAnchor {
             "f64" => Some(Self::F64),
             "bool" => Some(Self::Bool),
             "char" => Some(Self::Char),
-            "void" => Some(Self::Void),
             "never" => Some(Self::Never),
             _ => None,
         }
@@ -270,7 +267,6 @@ impl BuiltinTypeAnchor {
             Self::F64 => "f64",
             Self::Bool => "bool",
             Self::Char => "char",
-            Self::Void => "void",
             Self::Never => "never",
         }
     }

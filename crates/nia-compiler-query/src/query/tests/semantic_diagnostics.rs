@@ -72,7 +72,7 @@ fn type_lowering_separates_semantic_value_from_diagnostics() {
 
 #[test]
 fn signature_item_signatures_separate_semantic_value_from_diagnostics() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() void;");
+    let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() ();");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -92,7 +92,7 @@ fn signature_item_signatures_separate_semantic_value_from_diagnostics() {
 
 #[test]
 fn item_signatures_separate_semantic_value_from_diagnostics() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() void;");
+    let fixture = LoadedProgramFixture::new("main.nia", "fn missing_body() ();");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -178,7 +178,7 @@ fn terminal_checks_separate_semantic_values_from_diagnostics() {
                 .contains("global initializer is not static data"))
     );
 
-    let abi_fixture = LoadedProgramFixture::new("main.nia", "extern fn bad(flag: bool) void;");
+    let abi_fixture = LoadedProgramFixture::new("main.nia", "extern fn bad(flag: bool) ();");
     let abi_module_id = abi_fixture.entry_id();
     let abi_db = query_db(abi_fixture.program());
     let abi_check = abi_db.expect_get(AbiCheckQuery(abi_module_id));

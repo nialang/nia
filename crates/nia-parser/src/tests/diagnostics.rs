@@ -98,7 +98,7 @@ fn main(ptr: &i32) i32 {
 fn rejects_removed_multi_arm_if_pattern_syntax() {
     let (_module, errors) = parse_module(
         r#"
-fn main(value: ?i32) void {
+fn main(value: ?i32) () {
     if ?item = value {
         _ = item;
     } or null {}

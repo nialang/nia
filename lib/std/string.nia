@@ -66,7 +66,7 @@ extend String {
         !out
     }
 
-    pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!void {
+    pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!() {
         let view = switch unicode::Utf8View::fromBytes(bytes) {
             !value => value,
             error! => return TextError::InvalidUtf8(error)!,
@@ -74,7 +74,7 @@ extend String {
         self.appendUtf8View(allocator, view).asTextError()
     }
 
-    pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!void {
+    pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
         let oldLen = self.len();
         let newLen = switch oldLen.checked_add(view.scalarCount()) {
             ?value => value,
@@ -84,7 +84,7 @@ extend String {
         for scalar in view {
             self.text.appendAssumeCapacity(scalar);
         }
-        !{}
+        !()
     }
 
     pub fn appendFormat(
@@ -92,7 +92,7 @@ extend String {
         allocator: &mut mem::Allocator,
         template: &[char],
         args: &[&fmt::Format],
-    ) TextFormatError!void {
+    ) TextFormatError!() {
         let oldLen = self.len();
         let mut committed = false;
         defer if not committed {
@@ -113,10 +113,10 @@ extend String {
         }
         writer.finish(null).?;
         committed = true;
-        !{}
+        !()
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.text.deinit(allocator)
     }
 
@@ -140,7 +140,7 @@ extend String {
         self.text.isEmpty()
     }
 
-    pub fn clear(&mut self) void {
+    pub fn clear(&mut self) () {
         self.text.clear()
     }
 
@@ -177,27 +177,27 @@ extend String {
         replaceAllText(allocator, self.text(), needle, replacement)
     }
 
-    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         self.text.ensureTotalCapacity(allocator, capacity)
     }
 
-    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         self.text.reserve(allocator, additional)
     }
 
-    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!void {
+    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!() {
         self.text.push(allocator, ch)
     }
 
-    pub fn pushAssumeCapacity(&mut self, ch: char) void {
+    pub fn pushAssumeCapacity(&mut self, ch: char) () {
         self.text.appendAssumeCapacity(ch)
     }
 
-    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!void {
+    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!() {
         self.text.appendSlice(allocator, text)
     }
 
-    pub fn appendAssumeCapacity(&mut self, text: &[char]) void {
+    pub fn appendAssumeCapacity(&mut self, text: &[char]) () {
         self.text.appendSliceAssumeCapacity(text)
     }
 
@@ -298,24 +298,24 @@ extend TextFormatWriter {
         }
     }
 
-    fn deinit(&mut self) mem::Error!void {
+    fn deinit(&mut self) mem::Error!() {
         self.bytes.deinit(self.allocator)
     }
 
-    fn finish(&mut self, primary: ?TextFormatError) TextFormatError!void {
+    fn finish(&mut self, primary: ?TextFormatError) TextFormatError!() {
         switch self.deinit() {
             !ok => {
                 _ = ok;
                 switch primary {
                     ?error => error!,
-                    null => !{},
+                    null => !(),
                 }
             },
             error! => TextFormatError::Allocation(error)!,
         }
     }
 
-    fn appendTo(&mut self, out: &mut String) TextFormatError!void {
+    fn appendTo(&mut self, out: &mut String) TextFormatError!() {
         out.appendUtf8(self.allocator, self.bytes.asSlice()).asTextFormatError()
     }
 
@@ -370,11 +370,11 @@ extend[T] TextError!T {
 }
 
 extend String : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         self.text().format(formatter)
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         self.text().format_spec(formatter, spec)
     }
 }

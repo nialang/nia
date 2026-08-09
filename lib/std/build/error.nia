@@ -202,7 +202,7 @@ extend[T] mem::Error!T {
 }
 
 extend ErrorOperation : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.write_text(switch self.* {
             ErrorOperation::Initialize => &"initialize",
             ErrorOperation::Retain => &"retain",
@@ -218,7 +218,7 @@ extend ErrorOperation : fmt::Format {
 }
 
 extend ErrorSubject : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         switch self.* {
             ErrorSubject::Build => formatter.write_text(&"build"),
             ErrorSubject::PackageRoot => formatter.write_text(&"package root"),
@@ -253,7 +253,7 @@ extend ErrorSubject : fmt::Format {
 }
 
 extend ErrorCause : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         switch self.* {
             ErrorCause::Memory(cause) => {
                 writeCausePrefix(formatter, &"memory").?;
@@ -281,7 +281,7 @@ extend ErrorCause : fmt::Format {
 }
 
 extend Error : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         switch self.* {
             Error::UnknownStep => formatter.write_text(&"unknown requested step"),
             Error::Invalid { operation, subject } => {
@@ -320,19 +320,19 @@ fn writeIndexedSubject(
     formatter: &mut fmt::Formatter,
     name: &[char],
     index: usize,
-) fmt::Error!void {
+) fmt::Error!() {
     formatter.write_text(name).?;
     formatter.write_text(&"[").?;
     formatter.write_unsigned(index as u128).?;
     formatter.write_text(&"]")
 }
 
-fn writeCausePrefix(formatter: &mut fmt::Formatter, domain: &[char]) fmt::Error!void {
+fn writeCausePrefix(formatter: &mut fmt::Formatter, domain: &[char]) fmt::Error!() {
     formatter.write_text(domain).?;
     formatter.write_text(&"/")
 }
 
-fn writeTermCause(formatter: &mut fmt::Formatter, cause: process::Term) fmt::Error!void {
+fn writeTermCause(formatter: &mut fmt::Formatter, cause: process::Term) fmt::Error!() {
     formatter.write_text(&"command/").?;
     formatter.write_text(switch cause.kind() {
         process::TermKind::Exited => &"exit code ",
@@ -343,7 +343,7 @@ fn writeTermCause(formatter: &mut fmt::Formatter, cause: process::Term) fmt::Err
     formatter.write_signed(cause.code() as i128)
 }
 
-fn writeMemoryCause(formatter: &mut fmt::Formatter, cause: mem::Error) fmt::Error!void {
+fn writeMemoryCause(formatter: &mut fmt::Formatter, cause: mem::Error) fmt::Error!() {
     switch cause {
         mem::Error::Invalid => formatter.write_text(&"invalid"),
         mem::Error::InvalidAlignment => formatter.write_text(&"invalid alignment"),
@@ -353,7 +353,7 @@ fn writeMemoryCause(formatter: &mut fmt::Formatter, cause: mem::Error) fmt::Erro
     }
 }
 
-fn writeFormatCause(formatter: &mut fmt::Formatter, cause: fmt::Error) fmt::Error!void {
+fn writeFormatCause(formatter: &mut fmt::Formatter, cause: fmt::Error) fmt::Error!() {
     switch cause {
         fmt::Error::Write => formatter.write_text(&"write"),
         fmt::Error::InvalidTemplate => formatter.write_text(&"invalid template"),
@@ -363,7 +363,7 @@ fn writeFormatCause(formatter: &mut fmt::Formatter, cause: fmt::Error) fmt::Erro
     }
 }
 
-fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::Error!void {
+fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::Error!() {
     switch cause {
         fs::Error::PermissionDenied => formatter.write_text(&"permission denied"),
         fs::Error::NotFound => formatter.write_text(&"not found"),
@@ -379,7 +379,7 @@ fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::E
     }
 }
 
-fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::OperationError) fmt::Error!void {
+fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::OperationError) fmt::Error!() {
     switch cause {
         fs::OperationError::Allocation { operation, cause } => {
             writeFileSystemOperation(formatter, operation).?;
@@ -399,7 +399,7 @@ fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::Oper
     }
 }
 
-fn writeFileSystemOperation(formatter: &mut fmt::Formatter, operation: fs::Operation) fmt::Error!void {
+fn writeFileSystemOperation(formatter: &mut fmt::Formatter, operation: fs::Operation) fmt::Error!() {
     formatter.write_text(switch operation {
         fs::Operation::OpenFile => &"open file",
         fs::Operation::OpenDir => &"open directory",
@@ -412,7 +412,7 @@ fn writeFileSystemOperation(formatter: &mut fmt::Formatter, operation: fs::Opera
     })
 }
 
-fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!void {
+fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!() {
     switch cause {
         process::Error::Allocation(cause) => {
             writeCausePrefix(formatter, &"allocation").?;
@@ -462,7 +462,7 @@ fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt:
     }
 }
 
-fn writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryError) fmt::Error!void {
+fn writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryError) fmt::Error!() {
     switch cause {
         process::EnvEntryError::EmptyName => formatter.write_text(&"empty name"),
         process::EnvEntryError::NameContainsEquals => formatter.write_text(&"name contains '='"),
@@ -476,7 +476,7 @@ fn writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryEr
     }
 }
 
-fn writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Error!void {
+fn writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Error!() {
     switch cause {
         fs::PathError::ContainsNul => formatter.write_text(&"contains NUL"),
         fs::PathError::Absolute => formatter.write_text(&"is absolute"),
@@ -487,7 +487,7 @@ fn writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Err
     }
 }
 
-fn writeStdStream(formatter: &mut fmt::Formatter, stream: process::StdStream) fmt::Error!void {
+fn writeStdStream(formatter: &mut fmt::Formatter, stream: process::StdStream) fmt::Error!() {
     formatter.write_text(switch stream {
         process::StdStream::Stdin => &"stdin",
         process::StdStream::Stdout => &"stdout",
@@ -495,7 +495,7 @@ fn writeStdStream(formatter: &mut fmt::Formatter, stream: process::StdStream) fm
     })
 }
 
-fn writeSystemCause(formatter: &mut fmt::Formatter, cause: process::SystemError) fmt::Error!void {
+fn writeSystemCause(formatter: &mut fmt::Formatter, cause: process::SystemError) fmt::Error!() {
     formatter.write_text(switch cause {
         process::SystemError::PermissionDenied => &"permission denied",
         process::SystemError::NotFound => &"not found",
@@ -523,7 +523,7 @@ fn writeSystemCause(formatter: &mut fmt::Formatter, cause: process::SystemError)
     })
 }
 
-fn writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!void {
+fn writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!() {
     switch cause {
         io::Error::EndOfStream => formatter.write_text(&"end of stream"),
         io::Error::ShortWrite => formatter.write_text(&"short write"),
@@ -556,7 +556,7 @@ fn writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!voi
     }
 }
 
-fn writeSpawnCause(formatter: &mut fmt::Formatter, cause: process::SpawnError) fmt::Error!void {
+fn writeSpawnCause(formatter: &mut fmt::Formatter, cause: process::SpawnError) fmt::Error!() {
     switch cause {
         process::SpawnError::Setup(system) => {
             formatter.write_text(&"setup/").?;

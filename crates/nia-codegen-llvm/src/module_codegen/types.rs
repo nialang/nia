@@ -103,7 +103,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             llvm_params.push(self.llvm_basic_type_in(param_ty, param_span)?);
         }
         match self.ty_kind(return_type) {
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
+            Some(kind) if kind.is_unit() => {
                 Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
             }
             _ => Ok(self
@@ -242,8 +242,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn classify_return_in(&self, ty: InternedTyId) -> AbiReturn {
         match self.ty_kind(ty) {
+            Some(kind) if kind.is_unit() => return AbiReturn::Void,
             Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
-            Some(TyKind::Primitive(PrimitiveTy::Void)) => return AbiReturn::Void,
             _ => {}
         }
         if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
@@ -542,8 +542,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             PrimitiveTy::F32 => self.context.f32_type().into(),
             PrimitiveTy::F64 => self.context.f64_type().into(),
             PrimitiveTy::Bool => self.context.bool_type().into(),
-            PrimitiveTy::Void | PrimitiveTy::Never => {
-                return Err(self.error(span, "`void` and `never` are not LLVM basic types"));
+            PrimitiveTy::Never => {
+                return Err(self.error(span, "`never` is not an LLVM basic type"));
             }
         };
         Ok(ty)

@@ -6,7 +6,7 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(main.clone(), "fn main() () {}");
     let first_file = sources.set_source(
         provider.clone(),
         "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
@@ -61,7 +61,7 @@ fn signature_edits_publish_distinct_provider_summaries() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(main.clone(), "fn main() () {}");
     let first_file = sources.set_source(
         provider.clone(),
         "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
@@ -113,7 +113,7 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(main.clone(), "fn main() () {}");
     let provider_file = sources.set_source(
         provider.clone(),
         "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",

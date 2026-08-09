@@ -1,6 +1,6 @@
 using std::process;
 
-fn main(init: process::Init) process::ExitCode!void {
+fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }

@@ -176,7 +176,7 @@ fn rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index:
     }
 }
 
-fn rejectsForeignStep(result: build::Error!void) bool {
+fn rejectsForeignStep(result: build::Error!()) bool {
     switch result {
         !ok => {
             _ = ok;
@@ -240,7 +240,7 @@ fn rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
     }
 }
 
-fn rejectsInvalidPlanModule(result: build::Error!void, index: usize) bool {
+fn rejectsInvalidPlanModule(result: build::Error!(), index: usize) bool {
     switch result {
         !ok => {
             _ = ok;
@@ -304,7 +304,7 @@ fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().ok().exit().?;
@@ -692,7 +692,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             .withArguments(&archiveArguments[..]),
     ).exit().?;
     api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
-    !{}
+    !()
 }
 "#,
     )

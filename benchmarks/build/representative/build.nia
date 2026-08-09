@@ -1,6 +1,6 @@
 using std::build;
 using std::fs;
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     let helperName = "helper";
     let helperPath = "deps/helper.nia";
     let sourcePath = "src/main.nia";
@@ -32,7 +32,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     let generatedApp = b.addExecutable(
         build::ExecutableOptions::init(&generatedName, generatedModule),
     ).?;
-    let generatedSource = b"using std::process;\npub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }\n";
+    let generatedSource = b"using std::process;\npub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }\n";
     let generate = b.addGeneratedFileStep(
         &generateName,
         build::BuildPathView::init(&generatedPath),
@@ -46,5 +46,5 @@ pub fn build(b: &mut build::Build) build::Error!void {
     b.dependOn(emitGenerated, generate).?;
     b.dependOn(all, emitGenerated).?;
     b.setDefaultStep(all).?;
-    !{}
+    !()
 }

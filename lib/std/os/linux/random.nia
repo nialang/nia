@@ -3,7 +3,7 @@ using pkg::os::linux::types;
 
 using types::Errno;
 
-pub fn random(bytes: &mut [u8]) Errno!void {
+pub fn random(bytes: &mut [u8]) Errno!() {
     let mut done = 0usize;
     while done < bytes.len() {
         let mut chunk = &mut bytes[done..];
@@ -21,5 +21,5 @@ pub fn random(bytes: &mut [u8]) Errno!void {
         }
         done += n;
     }
-    !{}
+    !()
 }

@@ -14,16 +14,16 @@ pub trait Writer {
 
     fn write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn flush(&mut self) Error!void {
-        !{}
+    fn flush(&mut self) Error!() {
+        !()
     }
 
-    fn writeByte(&mut self, byte: u8) Error!void {
+    fn writeByte(&mut self, byte: u8) Error!() {
         let bytes: [1]u8 = [byte];
         self.writeAll(&bytes[..])
     }
 
-    fn writeAll(&mut self, bytes: &[u8]) Error!void {
+    fn writeAll(&mut self, bytes: &[u8]) Error!() {
         let mut written = 0usize;
         while written < bytes.len() {
             let chunk = & bytes[written..];
@@ -33,14 +33,14 @@ pub trait Writer {
             }
             written += n;
         }
-        !{}
+        !()
     }
 
-    fn writeUtf8(&mut self, text: &[char]) Error!void {
+    fn writeUtf8(&mut self, text: &[char]) Error!() {
         for &ch in text {
             self.writeAll(ch.encodeUtf8().bytes()).?;
         }
-        !{}
+        !()
     }
 }
 
@@ -51,7 +51,7 @@ pub trait Reader {
 
     fn read(&mut self, bytes: &mut [u8]) Error!usize;
 
-    fn readExact(&mut self, bytes: &mut [u8]) Error!void {
+    fn readExact(&mut self, bytes: &mut [u8]) Error!() {
         let mut read = 0usize;
         while read < bytes.len() {
             let chunk = &mut bytes[read..];
@@ -61,6 +61,6 @@ pub trait Reader {
             }
             read += n;
         }
-        !{}
+        !()
     }
 }

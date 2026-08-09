@@ -1508,7 +1508,7 @@ impl<'a> BodyChecker<'a> {
                 if *is_variadic {
                     params.push("...".to_string());
                 }
-                let return_part = if self.is_void(*return_type) {
+                let return_part = if self.is_unit(*return_type) {
                     String::new()
                 } else {
                     format!(" {}", self.ty_name(*return_type))
@@ -1871,7 +1871,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(crate) fn void(&self) -> InternedTyId {
+    pub(crate) fn unit(&self) -> InternedTyId {
         self.interner.intern(TyKind::Tuple(Vec::new()))
     }
 
@@ -1879,12 +1879,10 @@ impl<'a> BodyChecker<'a> {
         self.primitive(PrimitiveTy::Never)
     }
 
-    pub(crate) fn is_void(&self, ty: InternedTyId) -> bool {
-        match self.interner.get(self.normalization.normalize(ty)) {
-            Some(TyKind::Tuple(elems)) => elems.is_empty(),
-            Some(TyKind::Primitive(PrimitiveTy::Void)) => true,
-            _ => false,
-        }
+    pub(crate) fn is_unit(&self, ty: InternedTyId) -> bool {
+        self.interner
+            .get(self.normalization.normalize(ty))
+            .is_some_and(TyKind::is_unit)
     }
 
     pub(crate) fn is_never(&self, ty: InternedTyId) -> bool {
@@ -1894,7 +1892,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn is_invalid_temporary_type(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(self.normalization.normalize(ty)),
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never))
+            Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }
 

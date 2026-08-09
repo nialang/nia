@@ -16,7 +16,7 @@ fn emit_exe_std_mem_core_allocator_and_layout_cases() {
 using std::mem;
 using std::process;
 
-fn check_page_allocator_allocates() process::ExitCode!void {
+fn check_page_allocator_allocates() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
     switch mem::Layout::of[u8]() {
@@ -35,10 +35,10 @@ fn check_page_allocator_allocates() process::ExitCode!void {
                 } },
         error! => { return process::exit(1)!; },
     }
-    !{}
+    !()
 }
 
-fn check_page_allocator_overaligned_layouts() process::ExitCode!void {
+fn check_page_allocator_overaligned_layouts() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
     switch mem::Layout::init(64, 8192) {
@@ -63,10 +63,10 @@ fn check_page_allocator_overaligned_layouts() process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(5)!; },
     }
-    !{}
+    !()
 }
 
-fn check_layout_rejects_invalid_alignment() process::ExitCode!void {
+fn check_layout_rejects_invalid_alignment() process::ExitCode!() {
     switch mem::Layout::init(16, 3) {
         !ok => { _ = ok;
                 return process::exit(1)!; },
@@ -74,10 +74,10 @@ fn check_layout_rejects_invalid_alignment() process::ExitCode!void {
                     return process::exit(2)!;
                 } },
     }
-    !{}
+    !()
 }
 
-fn check_layout_rejects_array_size_overflow() process::ExitCode!void {
+fn check_layout_rejects_array_size_overflow() process::ExitCode!() {
     switch mem::Layout::array[i32](4611686018427387904) {
         !ok => { _ = ok;
                 return process::exit(1)!; },
@@ -85,10 +85,10 @@ fn check_layout_rejects_array_size_overflow() process::ExitCode!void {
                     return process::exit(2)!;
                 } },
     }
-    !{}
+    !()
 }
 
-fn check_allocator_can_allocate_typed_slices() process::ExitCode!void {
+fn check_allocator_can_allocate_typed_slices() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     switch allocator.allocSlice[i32](4) {
         mut !items => { items[0] = 10;
@@ -107,17 +107,17 @@ fn check_allocator_can_allocate_typed_slices() process::ExitCode!void {
                 } },
         error! => { return process::exit(1)!; },
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     check_page_allocator_allocates().?;
     check_page_allocator_overaligned_layouts().?;
     check_layout_rejects_invalid_alignment().?;
     check_layout_rejects_array_size_overflow().?;
     check_allocator_can_allocate_typed_slices().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -152,7 +152,7 @@ fn emit_exe_std_mem_fixed_buffer_allocator_resize_and_reset() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [64]u8 = [_]u8[0; 64];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
@@ -195,7 +195,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !block => { allocator.free(block).exit().?; },
         error! => { return process::exit(8)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -234,7 +234,7 @@ fn probe(
     block: mem::Block,
     arena: &mut mem::ArenaAllocator,
     fixed: &mem::FixedBufferAllocator,
-) void {
+) () {
     let mut bytes: [1]u8 = [0];
     _ = allocator.alloc_bytes(1, 1);
     _ = allocator.alloc_slice[u8](1);
@@ -251,7 +251,7 @@ fn probe(
     _ = fixed.isLastAllocation(block);
 }
 
-fn main() void {}
+fn main() () {}
 "#,
     )
     .expect("write obsolete allocator API source");

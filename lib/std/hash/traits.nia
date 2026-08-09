@@ -1,10 +1,10 @@
 pub trait Hasher {
-    fn write(&mut self, bytes: &[u8]) void;
+    fn write(&mut self, bytes: &[u8]) ();
     fn finish(&self) u64;
 }
 
 pub trait Hash[H]
 where H: Hasher
 {
-    fn hash(&self, hasher: &mut H) void;
+    fn hash(&self, hasher: &mut H) ();
 }

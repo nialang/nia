@@ -169,7 +169,7 @@ fn check_reports_unused_import_warning_without_failing() {
         r#"
 using std::collections;
 
-fn main() void {}
+fn main() () {}
 "#,
     )
     .expect("write source");
@@ -199,7 +199,7 @@ fn emit_obj_reports_unused_import_warning_without_skipping_codegen() {
         r#"
 using std::collections;
 
-pub fn main() void {}
+pub fn main() () {}
 "#,
     )
     .expect("write source");
@@ -674,9 +674,9 @@ fn emit_obj_defaults_to_bare_runtime_and_can_emit_freestanding_startup() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    !{}
+    !()
 }
 "#,
     )

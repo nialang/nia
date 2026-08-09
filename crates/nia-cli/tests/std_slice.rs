@@ -58,7 +58,7 @@ fn sumMutView(values: &mut [i32]) i32 {
     total
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let values: [5]i32 = [2, 3, 5, 7, 11];
@@ -436,7 +436,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(46)!;
     }
 
-    !{}
+    !()
 }
 
 "#,
@@ -470,7 +470,7 @@ fn check_std_take_does_not_claim_double_ended_iteration() {
         r#"
 using std::iter;
 
-fn main() void {
+fn main() () {
     _ = (0usize..10usize).iter().take(3usize).rev();
 }
 "#,

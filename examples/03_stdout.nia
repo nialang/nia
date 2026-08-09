@@ -3,7 +3,7 @@ using std::io;
 using std::process;
 using process::{Init, ExitCode};
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     let mut buffer: [128]u8 = [0; 128];
     // Application stdout goes through std::io. The writer keeps pointers to
     // the runtime I/O state and caller-provided scratch buffer.
@@ -20,5 +20,5 @@ pub fn main(init: Init) ExitCode!void {
     ).exit().?;
     stdout.flush().exit().?;
 
-    !{}
+    !()
 }

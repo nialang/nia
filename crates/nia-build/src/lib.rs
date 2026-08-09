@@ -623,8 +623,8 @@ struct TargetText {
 
 fn rememberTargetCleanupError(
     firstError: &mut ?build::Error,
-    result: build::Error!void,
-) void {
+    result: build::Error!(),
+) () {
     switch result {
         !ok => {
             _ = ok;
@@ -653,7 +653,7 @@ extend TargetText {
         &mut self,
         allocator: &mut mem::Allocator,
         subject: build::ErrorSubject,
-    ) build::Error!void {
+    ) build::Error!() {
         let mut firstError: ?build::Error = null;
         rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
         rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
@@ -664,7 +664,7 @@ extend TargetText {
         if firstError is ?error {
             return error!;
         }
-        !{}
+        !()
     }
 }
 
@@ -857,7 +857,7 @@ fn configPathArg(
     !storage.view()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().ok().exit().?;
@@ -1026,7 +1026,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return error.asExitCode()!;
         },
     }
-    !{}
+    !()
 }
 "#,
     );

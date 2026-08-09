@@ -247,7 +247,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         BodyVisibleExtensionSource::Eager(input.extensions.clone())
     };
     let types = BodyTypeCx::new(input.type_store, module_id);
-    let void_ty = types.intern(TyKind::Tuple(Vec::new()));
+    let unit_ty = types.intern(TyKind::Tuple(Vec::new()));
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
         type_store: input.type_store,
         active_item_tree: input.active_item_tree,
@@ -314,7 +314,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         diagnostic_owners: Vec::new(),
         timing,
         timing_module_id: module_id,
-        current_return: void_ty,
+        current_return: unit_ty,
         current_def_id: None,
         current_param_locals: Vec::new(),
         const_context_depth: 0,

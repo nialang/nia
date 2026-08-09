@@ -15,7 +15,7 @@ extend FixedBufferAllocator {
         { buffer: buffer, endIndex: 0 }
     }
 
-    pub fn reset(&mut self) void {
+    pub fn reset(&mut self) () {
         self.endIndex = 0;
     }
 
@@ -168,9 +168,9 @@ extend FixedBufferAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) Error!void {
+    pub fn free(&mut self, block: Block) Error!() {
         if block.isEmpty() {
-            return !{};
+            return !();
         }
         if not self.ownsBlock(block) {
             return Error::Invalid!;
@@ -178,6 +178,6 @@ extend FixedBufferAllocator : Allocator {
         if self.isLastAllocation(block) {
             self.endIndex -= block.size();
         }
-        !{}
+        !()
     }
 }

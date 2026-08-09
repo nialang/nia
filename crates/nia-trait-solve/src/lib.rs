@@ -278,8 +278,8 @@ where
             }
             BuiltinTrait::Sized => self.can_have_known_layout(self_ty),
             BuiltinTrait::Unsized => self.can_be_compiler_classified_type(self_ty),
-            BuiltinTrait::Deref => self.can_be_non_void_pointer(self_ty, false),
-            BuiltinTrait::DerefMut => self.can_be_non_void_pointer(self_ty, true),
+            BuiltinTrait::Deref => self.can_be_non_unit_pointer(self_ty, false),
+            BuiltinTrait::DerefMut => self.can_be_non_unit_pointer(self_ty, true),
             BuiltinTrait::Index => {
                 let Some(index_ty) = trait_args.first().copied() else {
                     return false;
@@ -499,16 +499,16 @@ where
         !matches!(self.kind(ty), Some(TyKind::Error))
     }
 
-    fn can_be_non_void_pointer(&self, ty: InternedTyId, mutable: bool) -> bool {
+    fn can_be_non_unit_pointer(&self, ty: InternedTyId, mutable: bool) -> bool {
         match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Pointer { is_readonly, elem })
             | Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 (!mutable || !*is_readonly)
-                    && !matches!(
-                        self.type_store.get(self.normalize(*elem)),
-                        Some(TyKind::Primitive(PrimitiveTy::Void))
-                    )
+                    && !self
+                        .type_store
+                        .get(self.normalize(*elem))
+                        .is_some_and(TyKind::is_unit)
             }
             _ => false,
         }
@@ -1073,19 +1073,19 @@ impl TraitSolver<'_> {
             Some(TyKind::Pointer {
                 is_readonly: false,
                 elem,
-            }) if !self.is_void(*elem) => Some(*elem),
+            }) if !self.is_unit(*elem) => Some(*elem),
             Some(TyKind::VolatilePointer {
                 is_readonly: false,
                 elem,
-            }) if !self.is_void(*elem) => Some(*elem),
+            }) if !self.is_unit(*elem) => Some(*elem),
             Some(TyKind::Pointer {
                 is_readonly: true,
                 elem,
-            }) if !require_mutable && !self.is_void(*elem) => Some(*elem),
+            }) if !require_mutable && !self.is_unit(*elem) => Some(*elem),
             Some(TyKind::VolatilePointer {
                 is_readonly: true,
                 elem,
-            }) if !require_mutable && !self.is_void(*elem) => Some(*elem),
+            }) if !require_mutable && !self.is_unit(*elem) => Some(*elem),
             _ => None,
         }
     }
@@ -2859,8 +2859,8 @@ impl TraitSolver<'_> {
         self.interner.primitive(PrimitiveTy::Usize)
     }
 
-    fn is_void(&self, ty: InternedTyId) -> bool {
-        self.structural_types_equivalent(ty, self.interner.primitive(PrimitiveTy::Void))
+    fn is_unit(&self, ty: InternedTyId) -> bool {
+        self.kind(ty).is_some_and(TyKind::is_unit)
     }
 
     fn is_numeric(&self, ty: InternedTyId) -> bool {

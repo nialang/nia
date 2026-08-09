@@ -10,13 +10,13 @@ pub enum Error: i32 {
 }
 
 pub trait FormatWriter {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void;
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!();
 }
 
 pub trait Format {
-    fn format(&self, formatter: &mut Formatter) Error!void;
+    fn format(&self, formatter: &mut Formatter) Error!();
 
-    fn format_spec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!void {
+    fn format_spec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
         if spec.presentation() == FormatPresentation::Display {
             self.format(formatter)
         } else {
@@ -152,36 +152,36 @@ extend Formatter {
         { writer: writer }
     }
 
-    pub fn write_bytes(&mut self, bytes: &[u8]) Error!void {
+    pub fn write_bytes(&mut self, bytes: &[u8]) Error!() {
         self.writer.write_fmt_bytes(bytes)
     }
 
-    pub fn write_byte(&mut self, byte: u8) Error!void {
+    pub fn write_byte(&mut self, byte: u8) Error!() {
         let bytes: [1]u8 = [byte];
         self.write_bytes(&bytes[..])
     }
 
-    pub fn write_char(&mut self, ch: char) Error!void {
+    pub fn write_char(&mut self, ch: char) Error!() {
         let encoded = ch.encodeUtf8();
         self.write_bytes(encoded.bytes())
     }
 
-    pub fn write_text(&mut self, text: &[char]) Error!void {
+    pub fn write_text(&mut self, text: &[char]) Error!() {
         let mut index = 0usize;
         while index < text.len() {
             self.write_char(text[index]).?;
             index += 1usize;
         }
-        !{}
+        !()
     }
 
-    pub fn write_text_prefix(&mut self, text: &[char], count: usize) Error!void {
+    pub fn write_text_prefix(&mut self, text: &[char], count: usize) Error!() {
         let mut index = 0usize;
         while index < text.len() and index < count {
             self.write_char(text[index]).?;
             index += 1usize;
         }
-        !{}
+        !()
     }
 
     pub fn precision_width(&mut self, content_width: usize, spec: FormatSpec) usize {
@@ -200,13 +200,13 @@ extend Formatter {
         }
     }
 
-    pub fn write_fill(&mut self, fill: char, count: usize) Error!void {
+    pub fn write_fill(&mut self, fill: char, count: usize) Error!() {
         let mut index = 0usize;
         while index < count {
             self.write_char(fill).?;
             index += 1usize;
         }
-        !{}
+        !()
     }
 
     fn padding_width(&mut self, content_width: usize, spec: FormatSpec) usize {
@@ -218,33 +218,33 @@ extend Formatter {
         }
     }
 
-    pub fn write_padding_before(&mut self, content_width: usize, spec: FormatSpec) Error!void {
+    pub fn write_padding_before(&mut self, content_width: usize, spec: FormatSpec) Error!() {
         let padding = self.padding_width(content_width, spec);
         switch spec.alignment() {
-            FormatAlignment::Left => !{},
+            FormatAlignment::Left => !(),
             FormatAlignment::Center => self.write_fill(spec.fill(), padding / 2usize),
             _ => self.write_fill(spec.fill(), padding),
         }
     }
 
-    pub fn write_padding_after(&mut self, content_width: usize, spec: FormatSpec) Error!void {
+    pub fn write_padding_after(&mut self, content_width: usize, spec: FormatSpec) Error!() {
         let padding = self.padding_width(content_width, spec);
         switch spec.alignment() {
             FormatAlignment::Left => self.write_fill(spec.fill(), padding),
             FormatAlignment::Center => self.write_fill(spec.fill(), padding - (padding / 2usize)),
-            _ => !{},
+            _ => !(),
         }
     }
 
-    pub fn write_unsigned(&mut self, value: u128) Error!void {
+    pub fn write_unsigned(&mut self, value: u128) Error!() {
         self.write_unsigned_radix(value, 10u128, false)
     }
 
-    pub fn write_pointer(&mut self, value: usize) Error!void {
+    pub fn write_pointer(&mut self, value: usize) Error!() {
         self.write_pointer_spec(value, FormatSpec::pointer())
     }
 
-    pub fn write_pointer_spec(&mut self, value: usize, spec: FormatSpec) Error!void {
+    pub fn write_pointer_spec(&mut self, value: usize, spec: FormatSpec) Error!() {
         if spec.sign_plus() or spec.alternate() or spec.has_precision() {
             return Error::InvalidTemplate!;
         }
@@ -260,7 +260,7 @@ extend Formatter {
         self.write_unsigned_radix_spec(value as u128, 16u128, false, pointer_spec)
     }
 
-    pub fn write_unsigned_radix(&mut self, value: u128, radix: u128, uppercase: bool) Error!void {
+    pub fn write_unsigned_radix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
         if radix == 10u128 {
             self.write_unsigned_base10(value, uppercase)
         } else if radix == 16u128 {
@@ -295,7 +295,7 @@ extend Formatter {
         radix: u128,
         uppercase: bool,
         spec: FormatSpec,
-    ) Error!void {
+    ) Error!() {
         let mut prefix_width = 0usize;
         if spec.alternate() {
             if radix == 16u128 or radix == 2u128 {
@@ -324,9 +324,9 @@ extend Formatter {
         radix: u128,
         uppercase: bool,
         alternate: bool,
-    ) Error!void {
+    ) Error!() {
         if not alternate {
-            !{}
+            !()
         } else if radix == 16u128 {
             if uppercase {
                 self.write_text(&"0X")
@@ -342,7 +342,7 @@ extend Formatter {
         }
     }
 
-    fn write_unsigned_digit(&mut self, digit: u128, uppercase: bool) Error!void {
+    fn write_unsigned_digit(&mut self, digit: u128, uppercase: bool) Error!() {
         if digit < 10u128 {
             self.write_byte((digit as u8) + b'0')
         } else if uppercase {
@@ -352,7 +352,7 @@ extend Formatter {
         }
     }
 
-    fn write_unsigned_base10(&mut self, value: u128, uppercase: bool) Error!void {
+    fn write_unsigned_base10(&mut self, value: u128, uppercase: bool) Error!() {
         _ = uppercase;
         if value == 0u128 {
             self.write_byte(b'0')
@@ -375,7 +375,7 @@ extend Formatter {
                 count -= 1;
                 self.write_byte(digits[count]).?;
             }
-            !{}
+            !()
         }
     }
 
@@ -386,7 +386,7 @@ extend Formatter {
         step: u32,
         mask: u128,
         uppercase: bool,
-    ) Error!void {
+    ) Error!() {
         if value == 0u128 {
             self.write_byte(b'0')
         } else {
@@ -404,15 +404,15 @@ extend Formatter {
             if digit != 0u128 or started {
                 self.write_unsigned_digit(digit, uppercase).?;
             }
-            !{}
+            !()
         }
     }
 
-    pub fn write_signed(&mut self, value: i128) Error!void {
+    pub fn write_signed(&mut self, value: i128) Error!() {
         self.write_signed_radix(value, 10u128, false)
     }
 
-    pub fn write_signed_radix(&mut self, value: i128, radix: u128, uppercase: bool) Error!void {
+    pub fn write_signed_radix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
         if value < 0i128 {
             self.write_byte(b'-').?;
             self.write_unsigned_radix(((0i128 - (value + 1i128)) as u128) + 1u128, radix, uppercase)
@@ -436,7 +436,7 @@ extend Formatter {
         radix: u128,
         uppercase: bool,
         spec: FormatSpec,
-    ) Error!void {
+    ) Error!() {
         let abs = self.signed_abs(value);
         let mut prefix_width = 0usize;
         if spec.alternate() {
@@ -483,7 +483,7 @@ extend Formatter {
 extend[W] W : FormatWriter
 where W: io::Writer
 {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void {
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!() {
         switch self.writeAll(bytes) {
             !ok => {
                 !ok

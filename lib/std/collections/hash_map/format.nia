@@ -9,7 +9,7 @@ using types::HashMapContext;
 extend[K, V, C] HashMapWithContext[K, V, C] : fmt::Format
 where K: Sized + fmt::Format, V: Sized + fmt::Format, C: HashMapContext[K]
 {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.write_byte(b'{').?;
         let mut first = true;
         for entry in self.iter() {

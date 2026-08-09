@@ -49,7 +49,7 @@ struct Box[T] {
     value: T,
 }
 
-fn main(value: Box[[N]u8]) void {}
+fn main(value: Box[[N]u8]) () {}
 "#;
     let lowering = lower_source_with_const_mutation(source, |const_eval, type_lowering| {
         for id in type_lowering.const_exprs.keys() {

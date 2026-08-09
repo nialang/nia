@@ -3,7 +3,7 @@ using std::fs;
 using std::fmt;
 using std::io;
 
-fn configure(b: &mut build::Build) build::Error!void {
+fn configure(b: &mut build::Build) build::Error!() {
     let assets = b.addPackage(
         build::PackageOptions::init(&"assets", fs::PathView::init(&"packages/assets")),
     ).?;
@@ -90,7 +90,7 @@ fn configure(b: &mut build::Build) build::Error!void {
     _ = b.addGeneratedFileStep(
         &generateWorkerStepName,
         build::BuildPathView::init(&generatedWorker),
-        &b"using std::process;\n\npub fn main(init: process::Init) process::ExitCode!void {\n    _ = init;\n    !{}\n}\n"[..],
+        &b"using std::process;\n\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    !()\n}\n"[..],
     ).?;
     _ = b.addGeneratedFileStep(
         &generateHelperStepName,
@@ -147,10 +147,10 @@ fn configure(b: &mut build::Build) build::Error!void {
     b.dependOn(toolStep, archiveStep).?;
     b.dependOn(toolStep, installArchiveStep).?;
     b.setDefaultStep(toolStep).?;
-    !{}
+    !()
 }
 
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     configure(b).?;
 
     let mut buffer: [1024]u8 = [_]u8[0; 1024];
@@ -160,5 +160,5 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print(&"cache={}\n", &[b.cacheDir().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     stdout.print(&"toolchain={}\n", &[b.toolchainExecutable().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     stdout.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    !{}
+    !()
 }

@@ -4,12 +4,12 @@ using process::{Init, ExitCode};
 
 // Executable examples use the standard startup contract: the injected runtime
 // calls this public entry main and maps ExitCode errors to process status.
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     // The startup payload currently carries runtime I/O state. Discard it when
     // a program only needs debug output.
     _ = init;
     // Format arguments are passed as a slice of value handles.
     debug::print(&"hello from nia\n", &[]).exit().?;
-    // Success is the value side of the ExitCode!void error union.
-    !{}
+    // Success is the value side of the ExitCode!() error union.
+    !()
 }

@@ -55,7 +55,7 @@ extend ProbeCursor {
         (self.pos + offset) & (self.capacity - 1)
     }
 
-    pub fn advanceGroup(&mut self) void {
+    pub fn advanceGroup(&mut self) () {
         self.stride += groupWidth;
         self.pos = (self.pos + self.stride) & (self.capacity - 1);
         self.visited += groupWidth;
@@ -123,7 +123,7 @@ pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
     }
 }
 
-pub fn mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) void {
+pub fn mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) () {
     if bucketCount == 0 {
         return;
     }
@@ -132,7 +132,7 @@ pub fn mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) void {
     }
 }
 
-pub fn fillCtrl(ctrl: &mut [u8], value: u8) void {
+pub fn fillCtrl(ctrl: &mut [u8], value: u8) () {
     for index in 0..ctrl.len() {
         ctrl[index] = value;
     }

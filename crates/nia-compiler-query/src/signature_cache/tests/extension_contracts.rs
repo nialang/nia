@@ -5,7 +5,7 @@ fn extension_validation_diagnostics_roundtrip_and_retire_corruption() {
     let root = temp_dir("extension_validation_diagnostics");
     let cache = PersistentSignatureCache::new(root.clone());
     let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
-    let source = crate::source_content_fingerprint("extend ! { fn invalid(self) void {} }");
+    let source = crate::source_content_fingerprint("extend ! { fn invalid(self) () {} }");
     let program_sources = crate::frontend_program_source_fingerprint([(&module, source, 128)]);
     let namespace = crate::FrontendCacheNamespace::new(
         &nia_target_config::TargetConfig::host(),

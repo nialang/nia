@@ -459,7 +459,7 @@ pub(super) fn primitive_layout(primitive: PrimitiveTy) -> TypeLayout {
         | PrimitiveTy::Isize
         | PrimitiveTy::Usize => (8, 8),
         PrimitiveTy::I128 | PrimitiveTy::U128 => (16, 16),
-        PrimitiveTy::Void | PrimitiveTy::Never => (0, 1),
+        PrimitiveTy::Never => (0, 1),
     };
     TypeLayout { size, align }
 }

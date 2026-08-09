@@ -797,7 +797,7 @@ mod tests {
             id: SourceId(2),
             revision: SourceRevision(5),
         };
-        let tree = parse_source("fn main() void {}", Some(version));
+        let tree = parse_source("fn main() () {}", Some(version));
         let key = tree.root().node_key().expect("root node key");
 
         assert_eq!(key.source_version(), version);

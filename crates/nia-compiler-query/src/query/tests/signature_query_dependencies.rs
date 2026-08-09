@@ -457,7 +457,7 @@ fn signature_layout_reads_canonical_types_from_store() {
 fn abi_check_uses_abi_signature_index_not_body_signatures() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extern struct S { value: i32 } extern fn take(value: S) void;",
+        "extern struct S { value: i32 } extern fn take(value: S) ();",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

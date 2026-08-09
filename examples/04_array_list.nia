@@ -5,7 +5,7 @@ using std::mem;
 using std::process;
 using process::{Init, ExitCode};
 
-fn run(init: Init) ExitCode!void {
+fn run(init: Init) ExitCode!() {
     _ = init;
 
     let mut storage: [256]u8 = [_]u8[0; 256];
@@ -37,11 +37,11 @@ fn run(init: Init) ExitCode!void {
         &[&len, &capacity, &values, &total],
     ).exit().?;
 
-    !{}
+    !()
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     // Standard-library memory errors know how to become process exit codes.
     run(init).?;
-    !{}
+    !()
 }

@@ -47,7 +47,7 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
 fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
+        "extend ! { fn nope(self) () {} } pub fn main() i32 { 1 }",
     );
     let db = query_db(fixture.program());
 
@@ -80,7 +80,7 @@ fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start
 fn freestanding_entry_checked_program_uses_executable_reachability() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
+        "extend ! { fn nope(self) () {} } pub fn main() i32 { 1 }",
     );
     let mut loaded = fixture.program();
     loaded.runtime = RuntimeModel::FreestandingExecutable;

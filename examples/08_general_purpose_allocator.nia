@@ -5,7 +5,7 @@ using std::mem;
 using std::process;
 using process::{Init, ExitCode};
 
-fn run(init: Init) ExitCode!void {
+fn run(init: Init) ExitCode!() {
     _ = init;
 
     let mut page = mem::PageAllocator::init();
@@ -40,10 +40,10 @@ fn run(init: Init) ExitCode!void {
         &used,
         &capacity,
     ]).exit().?;
-    !{}
+    !()
 }
 
-pub fn main(init: Init) ExitCode!void {
+pub fn main(init: Init) ExitCode!() {
     run(init).?;
-    !{}
+    !()
 }

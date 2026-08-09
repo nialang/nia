@@ -50,7 +50,7 @@ fn query_loader_loads_implicit_builtin_trait_provider_from_facade() {
         r#"
 using std;
 
-fn main() void {
+fn main() () {
     for _ in 1usize..4usize {}
 }
 "#,
@@ -73,7 +73,7 @@ fn query_loader_loads_iterator_provider_for_for_in_iterator_values() {
         r#"
 using std::process;
 
-fn main(init: process::Init) void {
+fn main(init: process::Init) () {
     for _ in init.env().iter() {}
 }
 "#,
@@ -228,7 +228,7 @@ fn query_loader_loads_contained_metadata_provider_chain() {
         r#"
 using std::fs;
 
-fn main(dir: &fs::Dir, path: fs::RelativePathView) void {
+fn main(dir: &fs::Dir, path: fs::RelativePathView) () {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 "#,

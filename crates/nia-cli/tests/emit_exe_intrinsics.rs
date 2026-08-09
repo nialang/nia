@@ -15,7 +15,7 @@ fn emit_exe_simd_bitmask_matches_lane_bits() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let values: u8x16 = std::builtin::insert(std::builtin::insert(std::builtin::insert(std::builtin::splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
@@ -29,7 +29,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(2)!;
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -103,7 +103,7 @@ const compileMaskSlot: MaskSlot = { mask: compileMask };
 const compileMaskRaw: u8 = compileMaskSlot.raw;
 const compileMaskBits: usize = std::builtin::bitmask(compileMask);
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let runtimeBytes = readBytes(makeSlot(makeVector()));
     let materializedBytes = readBytes(compileSlot);
@@ -120,7 +120,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         or runtimeMaskSlot.raw != compileMaskRaw {
         return process::exit(1)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -158,10 +158,10 @@ fn lane(index: usize) u8 {
     std::builtin::extract(std::builtin::splat[u8x4](7), index)
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     _ = lane(4);
-    !{}
+    !()
 }
 "#,
     )
@@ -195,7 +195,7 @@ fn emit_exe_bit_intrinsics_are_zero_defined() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     if std::builtin::ctz[usize](0usize) != 64usize {
@@ -214,7 +214,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(5)!;
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -249,7 +249,7 @@ fn emit_exe_char_checks_unicode_scalar_values() {
 using std::process;
 using std::unicode;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let ascii = switch unicode::fromScalarValue(65) {
@@ -370,7 +370,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -404,7 +404,7 @@ fn emit_exe_unaligned_vector_load_reads_lanes() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let bytes: [10]u8 = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
@@ -420,7 +420,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(3)!;
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -656,12 +656,12 @@ fn runtimeChecks(value: usize) bool {
         and values.len() == 23
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if not runtimeChecks(7) {
         return process::exit(1)!;
     }
-    !{}
+    !()
 }
 "#,
     )

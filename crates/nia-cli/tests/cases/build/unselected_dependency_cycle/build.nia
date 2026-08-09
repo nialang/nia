@@ -1,11 +1,11 @@
 using std::build;
 
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     let selected = b.addAggregateStep(&"selected").?;
     let first = b.addAggregateStep(&"first").?;
     let second = b.addAggregateStep(&"second").?;
     b.dependOn(first, second).?;
     b.dependOn(second, first).?;
     b.setDefaultStep(selected).?;
-    !{}
+    !()
 }

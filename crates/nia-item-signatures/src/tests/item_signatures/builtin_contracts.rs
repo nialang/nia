@@ -85,7 +85,7 @@ fn probe(&self) usize;
 fn bodyless_non_extern_functions_require_builtin_attribute() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
-    let (module, errors) = parse_module("fn missing_body() void;");
+    let (module, errors) = parse_module("fn missing_body() ();");
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);
     let resolved = resolve_module_types(&module, &defs);

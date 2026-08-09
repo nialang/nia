@@ -2,15 +2,15 @@
 
 // Copies memory between non-overlapping slices.
 @[builtin("memcpy")]
-pub fn memcpy[T](dest: &mut [T], source: &[T]) void;
+pub fn memcpy[T](dest: &mut [T], source: &[T]) ();
 
 // Moves memory between possibly overlapping slices.
 @[builtin("memmove")]
-pub fn memmove[T](dest: &mut [T], source: &[T]) void;
+pub fn memmove[T](dest: &mut [T], source: &[T]) ();
 
 // Sets bytes in a mutable byte slice.
 @[builtin("memset")]
-pub fn memset(dest: &mut [u8], value: u8) void;
+pub fn memset(dest: &mut [u8], value: u8) ();
 
 // Loads `T` from a byte pointer without requiring alignment.
 @[builtin("load_unaligned")]

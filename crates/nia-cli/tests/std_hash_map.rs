@@ -16,15 +16,15 @@ fn emit_exe_std_hash_wyhash_matches_test_vectors() {
 using std::hash;
 using std::process;
 
-fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!void {
+fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!() {
     let actual = hash::wyhash(seed, input);
     if actual != expected {
         return process::exit(code)!;
     }
-    !{}
+    !()
 }
 
-fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::ExitCode!void {
+fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::ExitCode!() {
     let expected = hash::wyhash(seed, input);
 
     let mut one = hash::Wyhash::init(seed);
@@ -63,7 +63,7 @@ fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::Exi
     if chunks.finish() != expected {
         return process::exit(code + 3)!;
     }
-    !{}
+    !()
 }
 
 fn hashBytes(seed: u64, bytes: &[u8]) u64 {
@@ -73,7 +73,7 @@ fn hashBytes(seed: u64, bytes: &[u8]) u64 {
     hasher.finish()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     expect(0u64, &b"", 0x0409638ee2bde459u64, 1).?;
     expect(1u64, &b"a", 0xa8412d091b5fe0a9u64, 2).?;
@@ -165,7 +165,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(73)!;
     }
 
-    !{}
+    !()
 }
 "#,
     )
@@ -221,7 +221,7 @@ extend Context : collections::HashMapContext[i32] {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let direct = std::HashMap[i32, i32]::init();
     if not direct.isEmpty() {
@@ -252,7 +252,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not typed.isEmpty() {
         return process::exit(7)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -340,15 +340,15 @@ extend FailAllocator {
         }
     }
 
-    fn failNextAlloc(&mut self) void {
+    fn failNextAlloc(&mut self) () {
         self.failAllocAt = self.allocCount + 1;
     }
 
-    fn failNextFree(&mut self) void {
+    fn failNextFree(&mut self) () {
         self.failFreeAt = self.freeCount + 1;
     }
 
-    fn clearFailures(&mut self) void {
+    fn clearFailures(&mut self) () {
         self.failAllocAt = 0;
         self.failFreeAt = 0;
     }
@@ -413,7 +413,7 @@ extend FailAllocator : mem::Allocator {
         self.backing.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!void {
+    fn free(&mut self, block: mem::Block) mem::Error!() {
         if not block.isEmpty() {
             self.freeCount += 1;
             if self.failFreeAt == self.freeCount {
@@ -453,7 +453,7 @@ extend TailHashContext : std::collections::HashMapContext[i32] {
     }
 }
 
-fn run(init: process::Init) mem::Error!void {
+fn run(init: process::Init) mem::Error!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
@@ -1307,12 +1307,12 @@ fn run(init: process::Init) mem::Error!void {
             } },
     }
 
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     run(init).exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -1352,7 +1352,7 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) process::ExitCode!void {
+fn run(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut map = std::HashMap[i32, i32]::initSeed(42u64);
@@ -1361,12 +1361,12 @@ fn run(init: process::Init) process::ExitCode!void {
     _ = map.insert(&mut page, 1, 10).exit().?;
     _ = map.insert(&mut page, 2, 20).exit().?;
     debug::print(&"hash_map={}\n", &[&map]).exit().?;
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     run(init).?;
-    !{}
+    !()
 }
 "#,
     )
@@ -1406,7 +1406,7 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) mem::Error!void {
+fn run(init: process::Init) mem::Error!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
@@ -1575,12 +1575,12 @@ fn run(init: process::Init) mem::Error!void {
         null => { },
     }
 
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     run(init).exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -1633,7 +1633,7 @@ extend FailAllocator {
         }
     }
 
-    fn failNextAlloc(&mut self) void {
+    fn failNextAlloc(&mut self) () {
         self.failAllocAt = self.allocCount + 1;
     }
 }
@@ -1649,7 +1649,7 @@ extend FailAllocator : mem::Allocator {
         self.backing.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!void {
+    fn free(&mut self, block: mem::Block) mem::Error!() {
         self.backing.free(block)
     }
 
@@ -1658,7 +1658,7 @@ extend FailAllocator : mem::Allocator {
     }
 }
 
-fn run(init: process::Init) mem::Error!void {
+fn run(init: process::Init) mem::Error!() {
     _ = init;
     let mut storage: [32768]u8 = [0; 32768];
     let mut allocator = FailAllocator::init(&mut storage);
@@ -1703,12 +1703,12 @@ fn run(init: process::Init) mem::Error!void {
             } },
         null => { return mem::Error::Invalid!; },
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     run(init).exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -1746,7 +1746,7 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) mem::Error!void {
+fn run(init: process::Init) mem::Error!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut map = std::HashMap[i32, i32]::initSeed(321u64);
@@ -1849,12 +1849,12 @@ fn run(init: process::Init) mem::Error!void {
     } else {
         return mem::Error::Invalid!;
     }
-    !{}
+    !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     run(init).exit().?;
-    !{}
+    !()
 }
 "#,
     )

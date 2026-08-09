@@ -545,7 +545,7 @@ extern fn read_reg(reg: ^u32) u32 {
     reg.*
 }
 
-extern fn write_reg(reg: ^mut u32, value: u32) void {
+extern fn write_reg(reg: ^mut u32, value: u32) () {
     reg.* = value;
 }
 "#,
@@ -573,7 +573,7 @@ fn main() i32 {
     std::builtin::trap()
 }
 
-fn statement() void {
+fn statement() () {
     std::builtin::trap();
 }
 "#,

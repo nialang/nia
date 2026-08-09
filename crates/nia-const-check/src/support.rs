@@ -203,11 +203,7 @@ pub(crate) fn primitive_integer_layout(ty: PrimitiveTy, pointer_width: u32) -> O
         PrimitiveTy::U128 => Some((128, false)),
         PrimitiveTy::Usize => Some((pointer_width, false)),
         PrimitiveTy::Char => Some((32, false)),
-        PrimitiveTy::Bool
-        | PrimitiveTy::F32
-        | PrimitiveTy::F64
-        | PrimitiveTy::Void
-        | PrimitiveTy::Never => None,
+        PrimitiveTy::Bool | PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => None,
     }
 }
 
@@ -251,11 +247,7 @@ pub(crate) fn integer_range(ty: PrimitiveTy) -> Option<(i128, i128)> {
         PrimitiveTy::U128 => Some((0, i128::MAX)),
         PrimitiveTy::Usize => Some((0, usize::MAX as i128)),
         PrimitiveTy::Char => Some((0, 0x10FFFF)),
-        PrimitiveTy::Bool
-        | PrimitiveTy::F32
-        | PrimitiveTy::F64
-        | PrimitiveTy::Void
-        | PrimitiveTy::Never => None,
+        PrimitiveTy::Bool | PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => None,
     }
 }
 

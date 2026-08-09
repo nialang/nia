@@ -9,7 +9,7 @@ fn query_loader_keeps_local_modules_from_activating_same_named_package() {
         r#"
 module std;
 
-fn main(value: std::fmt::Value) void {
+fn main(value: std::fmt::Value) () {
 _ = value;
 }
 "#,

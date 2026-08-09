@@ -733,7 +733,7 @@ mod tests {
         });
         type_store
             .append_for_module(*module_id)
-            .primitive(nia_ty::PrimitiveTy::Void)
+            .intern(nia_ty::TyKind::Tuple(Vec::new()))
     }
 
     fn sym(text: &str) -> nia_symbol::SymbolId {

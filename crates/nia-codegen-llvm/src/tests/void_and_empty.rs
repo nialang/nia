@@ -58,13 +58,13 @@ fn emits_void_values_and_empty_structs() {
         r#"
 struct Empty {}
 
-fn sink(p: &void) {}
+fn sink(p: &opaque) {}
 
 fn main() i32 {
-    let mut unit: void = {};
+    let mut unit: () = {};
     let mut empty: Empty = {};
     let mut value: i32 = 7;
-    sink(&value as &void);
+    sink(&value as &opaque);
     0
 }
 "#,
@@ -313,8 +313,8 @@ enum Error: i32 {
     Fail = 1,
 }
 
-fn ok() Error!void {
-    !{}
+fn ok() Error!() {
+    !()
 }
 
 fn main() i32 {
@@ -484,17 +484,17 @@ fn preserves_effects_inside_zero_sized_aggregate_literals() {
         &main,
         r#"
 struct Wrap {
-    value: void,
+    value: (),
 }
 
 extern fn log(value: i32);
 
-fn effect(value: i32) void {
+fn effect(value: i32) () {
     log(value);
 }
 
-fn take(value: Wrap) void {}
-fn take_array(value: [2]void) void {}
+fn take(value: Wrap) () {}
+fn take_array(value: [2]()) () {}
 
 fn main() i32 {
     let mut local: Wrap = { value: effect(1) };

@@ -18,12 +18,12 @@ fn writeHandle(handle: ?os::FileHandle, bytes: &[u8]) io::Error!usize {
     }
 }
 
-fn closeHandle(handle: &mut ?os::FileHandle) io::Error!void {
+fn closeHandle(handle: &mut ?os::FileHandle) io::Error!() {
     let owned = handle.*;
     handle.* = null;
     switch owned {
         ?value => value.close().asIoError(),
-        null => !{},
+        null => !(),
     }
 }
 
@@ -32,7 +32,7 @@ extend ChildStdin {
         { handle: ?handle }
     }
 
-    pub fn close(&mut self) io::Error!void {
+    pub fn close(&mut self) io::Error!() {
         closeHandle(&mut self.handle)
     }
 
@@ -58,7 +58,7 @@ extend ChildStdout {
         { handle: ?handle }
     }
 
-    pub fn close(&mut self) io::Error!void {
+    pub fn close(&mut self) io::Error!() {
         closeHandle(&mut self.handle)
     }
 
@@ -84,7 +84,7 @@ extend ChildStderr {
         { handle: ?handle }
     }
 
-    pub fn close(&mut self) io::Error!void {
+    pub fn close(&mut self) io::Error!() {
         closeHandle(&mut self.handle)
     }
 

@@ -386,7 +386,7 @@ pub trait Writer {
 module io;
 using entry::io;
 
-fn error_of[W](value: [W as io::Writer]::Error) void
+fn error_of[W](value: [W as io::Writer]::Error) ()
 where W: io::Writer
 {
     _ = value;
@@ -1367,7 +1367,7 @@ fn lane_array(values: [[u8x16 as Simd]::Lanes]u8) u8 {
     values[15]
 }
 
-fn generic[V](value: [V as Simd]::Lane) void
+fn generic[V](value: [V as Simd]::Lane) ()
 where V: Simd
 {
     _ = value;
@@ -1389,7 +1389,7 @@ fn builtin_simd_mask_implies_simd_lane_projection() {
     write(
         &root.join("main.nia"),
         r#"
-fn generic[V](value: [V as Simd]::Lane) void
+fn generic[V](value: [V as Simd]::Lane) ()
 where V: SimdMask
 {
     _ = value;

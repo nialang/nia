@@ -427,7 +427,7 @@ where P: Deref {
     ptr.*
 }
 
-fn write_ptr[P](ptr: P, value: [P as DerefMut]::Target) void
+fn write_ptr[P](ptr: P, value: [P as DerefMut]::Target) ()
 where P: DerefMut {
     ptr.* = value;
 }
@@ -437,12 +437,12 @@ where C: Index[usize] {
     items[index]
 }
 
-fn write_index[C](items: C, index: usize, value: [C as IndexMut[usize]]::Output) void
+fn write_index[C](items: C, index: usize, value: [C as IndexMut[usize]]::Output) ()
 where C: IndexMut[usize] {
     items[index] = value;
 }
 
-fn write_index_i32[C](items: C, index: i32, value: [C as IndexMut[i32]]::Output) void
+fn write_index_i32[C](items: C, index: i32, value: [C as IndexMut[i32]]::Output) ()
 where C: IndexMut[i32] {
     items[index] = value;
 }
@@ -579,15 +579,15 @@ fn builtin_place_traits_reject_unconstrained_generic_operations() {
     write(
         &root.join("main.nia"),
         r##"
-fn bad_deref[T](value: T) void {
+fn bad_deref[T](value: T) () {
     _ = value.*;
 }
 
-fn bad_index[T](value: T) void {
+fn bad_index[T](value: T) () {
     _ = value[0];
 }
 
-fn bad_slice[T](value: T) void {
+fn bad_slice[T](value: T) () {
     _ = & value[..];
 }
 
@@ -665,7 +665,7 @@ where P: Deref {
     value.*
 }
 
-fn write_deref[P](value: P, next: [P as DerefMut]::Target) void
+fn write_deref[P](value: P, next: [P as DerefMut]::Target) ()
 where P: DerefMut {
     value.* = next;
 }
@@ -675,7 +675,7 @@ where C: Index[usize] {
     value[0]
 }
 
-fn write_index[C](value: C, next: [C as IndexMut[usize]]::Output) void
+fn write_index[C](value: C, next: [C as IndexMut[usize]]::Output) ()
 where C: IndexMut[usize] {
     value[0] = next;
 }

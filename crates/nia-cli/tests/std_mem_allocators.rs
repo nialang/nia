@@ -17,7 +17,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [256]u8 = [_]u8[0; 256];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
@@ -53,7 +53,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                     return process::exit(5)!;
                 } },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -89,7 +89,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut arena = mem::ArenaAllocator::init(&mut page);
@@ -129,7 +129,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if arena.capacity() != 0 or arena.used() != 0 {
         return process::exit(5)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -164,7 +164,7 @@ fn emit_exe_std_mem_arena_allocator_resize_remap_and_free_edges() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut arena = mem::ArenaAllocator::init(&mut page);
@@ -200,7 +200,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if arena.capacity() != retainedCapacity or arena.used() != 0 {
         return process::exit(7)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -238,7 +238,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
@@ -280,7 +280,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     list.deinit(&mut allocator).exit().?;
     allocator.deinit().ok().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -316,7 +316,7 @@ fn emit_exe_std_mem_general_purpose_allocator_supports_large_overaligned_realloc
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
@@ -356,7 +356,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(6)!;
     }
     allocator.deinit().ok().exit().?;
-    !{}
+    !()
 }
 "#,
     )
@@ -392,7 +392,7 @@ fn emit_exe_std_mem_general_purpose_allocator_rejects_invalid_free_and_resize() 
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
@@ -457,7 +457,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if leaking.deinit().exit().? != mem::DeinitStatus::Leak {
         return process::exit(13)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -492,7 +492,7 @@ fn emit_exe_std_mem_allocator_realloc_preserves_byte_prefix() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut block: mem::Block;
@@ -546,7 +546,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(10)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -617,19 +617,19 @@ extend CountingAllocator : mem::Allocator {
         !mem::Block::init(aligned as &mut u8, layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!void {
+    fn free(&mut self, block: mem::Block) mem::Error!() {
         if block.isEmpty() {
-            return !{};
+            return !();
         }
         self.free_count += 1;
         if self.free_count == 1 {
             return mem::Error::Invalid!;
         }
-        !{}
+        !()
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [64]u8 = [_]u8[0; 64];
     let mut allocator = CountingAllocator::init(&mut storage);
@@ -651,7 +651,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if allocator.free_count != 2 {
         return process::exit(3)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -686,7 +686,7 @@ fn emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
@@ -767,7 +767,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 } },
         null => { return process::exit(19)!; },
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -802,7 +802,7 @@ fn emit_exe_std_mem_allocator_realloc_from_empty_block() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut empty_layout: mem::Layout;
@@ -842,7 +842,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => { _ = ok; },
         error! => { return process::exit(8)!; },
     }
-    !{}
+    !()
 }
 "#,
     )

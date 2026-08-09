@@ -98,7 +98,7 @@ extend CString {
         self.len() == 0
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.bytes.deinit(allocator)
     }
 }
@@ -161,21 +161,21 @@ extend CStringView {
 }
 
 extend CString : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         self.view().format(formatter)
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         self.view().format_spec(formatter, spec)
     }
 }
 
 extend CStringView : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.write_bytes(self.bytes())
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         if spec.presentation() != fmt::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
             return fmt::Error::InvalidTemplate!;
         }

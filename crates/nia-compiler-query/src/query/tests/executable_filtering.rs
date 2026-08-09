@@ -297,12 +297,12 @@ fn short_write(&self) Error;
 
 fn write(&mut self) Error!usize;
 
-fn write_all(&mut self) Error!void {
+fn write_all(&mut self) Error!() {
     let n = self.write().?;
     if n == 0usize {
         return self.short_write()!;
     }
-    !{}
+    !()
 }
 }
 

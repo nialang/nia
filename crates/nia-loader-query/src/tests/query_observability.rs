@@ -28,7 +28,7 @@ fn provider_summary_is_cached_per_module_source_version() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(main.clone(), "fn main() () {}");
     sources.set_source(
         provider.clone(),
         r#"

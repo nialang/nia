@@ -35,7 +35,7 @@ where R: Reader
         & self.buffer[self.start..self.end]
     }
 
-    pub fn discardBuffered(&mut self) void {
+    pub fn discardBuffered(&mut self) () {
         self.start = 0;
         self.end = 0;
     }
@@ -102,7 +102,7 @@ where W: Writer
         & self.buffer[0..self.len]
     }
 
-    fn append_buffered(&mut self, bytes: &[u8]) void {
+    fn append_buffered(&mut self, bytes: &[u8]) () {
         _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
     }
@@ -134,9 +134,9 @@ where W: Writer
         }
     }
 
-    pub fn writeAll(&mut self, bytes: &[u8]) Error!void {
+    pub fn writeAll(&mut self, bytes: &[u8]) Error!() {
         if bytes.len() == 0 {
-            !{}
+            !()
         } else if bytes.len() > self.buffer.len() {
             self.flush().?;
             self.writer.writeAll(bytes)
@@ -146,11 +146,11 @@ where W: Writer
                 self.flush().?;
             }
             self.append_buffered(bytes);
-            !{}
+            !()
         }
     }
 
-    pub fn flush(&mut self) Error!void {
+    pub fn flush(&mut self) Error!() {
         while self.len != 0 {
             let n = self.writer.write(& self.buffer[0..self.len]).?;
             if n == 0 {

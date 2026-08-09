@@ -7,9 +7,9 @@ fn lowers_types_from_active_item_tree_only() {
     let (module, errors) = parse_module(
         r#"
 @[if false]
-fn skipped(value: MissingType) void {}
+fn skipped(value: MissingType) () {}
 @[if true]
-fn selected(value: i32) void {}
+fn selected(value: i32) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");

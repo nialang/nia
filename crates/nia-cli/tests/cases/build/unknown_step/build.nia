@@ -1,7 +1,7 @@
 using std::build;
 
-pub fn build(b: &mut build::Build) build::Error!void {
+pub fn build(b: &mut build::Build) build::Error!() {
     static checkName = "check";
     _ = b.addAggregateStep(&checkName).?;
-    !{}
+    !()
 }

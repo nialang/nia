@@ -6,7 +6,7 @@ pub fn atomic_load[T](ptr: &T, order: usize) T;
 
 // Atomic store.
 @[builtin("atomic_store")]
-pub fn atomic_store[T](ptr: &mut T, value: T, order: usize) void;
+pub fn atomic_store[T](ptr: &mut T, value: T, order: usize) ();
 
 // Atomic read-modify-write.
 @[builtin("atomic_rmw")]
@@ -22,4 +22,4 @@ pub fn cmpxchg_weak[T](ptr: &mut T, expected: T, desired: T, success: usize, fai
 
 // Atomic fence.
 @[builtin("fence")]
-pub fn fence(order: usize) void;
+pub fn fence(order: usize) ();

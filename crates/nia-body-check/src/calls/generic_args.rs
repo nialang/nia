@@ -541,7 +541,6 @@ fn const_generic_integer_range(primitive: PrimitiveTy, pointer_width: u32) -> Op
         | PrimitiveTy::Char
         | PrimitiveTy::F32
         | PrimitiveTy::F64
-        | PrimitiveTy::Void
         | PrimitiveTy::Never => return None,
     };
     match primitive {

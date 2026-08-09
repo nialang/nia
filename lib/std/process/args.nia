@@ -45,11 +45,11 @@ extend Arg {
 }
 
 extend Arg : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         self.text.format(formatter)
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         self.text.format_spec(formatter, spec)
     }
 }

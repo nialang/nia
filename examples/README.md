@@ -6,7 +6,7 @@ tests: inline comments call out Nia-specific syntax, ownership rules, runtime
 entry points, and standard-library idioms.
 
 Each top-level `.nia` file uses the current entry contract:
-`pub fn main(process::Init) process::ExitCode!void`.
+`pub fn main(process::Init) process::ExitCode!()`.
 
 Most examples print their results through `std::debug::print`, a stderr debug
 printing helper for small programs and diagnostics. It keeps example programs

@@ -28,7 +28,7 @@ fn read_error(value: i32!i32) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if read_optional(?4) != 4 {
         return process::exit(1)!;
@@ -42,7 +42,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if read_error(5!) != 5 {
         return process::exit(4)!;
     }
-    !{}
+    !()
 }
 "#,
     )
@@ -109,23 +109,23 @@ extend EmptySourceError : error::IntoError[EmptyTargetError] {
     }
 }
 
-fn failVoid() SourceError!void {
+fn failVoid() SourceError!() {
     SourceError::Failed!
 }
 
-fn failEmpty() EmptySourceError!void {
+fn failEmpty() EmptySourceError!() {
     EmptySourceError {}!
 }
 
-fn propagateWithDefer() TargetError!void {
+fn propagateWithDefer() TargetError!() {
     defer conversionCount *= 10;
     failVoid().?;
-    !{}
+    !()
 }
 
-fn propagateEmpty() EmptyTargetError!void {
+fn propagateEmpty() EmptyTargetError!() {
     failEmpty().?;
-    !{}
+    !()
 }
 
 fn source(succeed: bool) SourceError!i32 {
@@ -142,7 +142,7 @@ where Source: error::IntoError[Target]
     !(value.? + 1)
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     switch propagate[SourceError, TargetError](source(true)) {
         !value => {
@@ -198,7 +198,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if conversionCount != 1 {
         return process::exit(11)!;
     }
-    !{}
+    !()
 }
 "#,
     )

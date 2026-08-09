@@ -108,7 +108,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !map
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut result: ?mem::Error = null;
         switch self.freeAllocations(allocator) {
             !ok => {
@@ -129,7 +129,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 err!
             },
             null => {
-                !{}
+                !()
             },
         }
     }
@@ -146,38 +146,38 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.len == 0
     }
 
-    pub fn clear(&mut self) void {
+    pub fn clear(&mut self) () {
         raw::fillCtrl(&mut self.ctrl[0..self.bucketCount], raw::ctrlEmpty);
         raw::mirrorCtrlTail(self.ctrl, self.bucketCount);
         self.len = 0;
         self.growthLeft = self.capacity();
     }
 
-    pub fn shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    pub fn shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.shrinkToCapacity(allocator, self.len())
     }
 
-    pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!void {
+    pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
         let targetCapacity = raw::maxUsize(self.len(), minCapacity);
         if targetCapacity >= self.capacity() {
-            return !{};
+            return !();
         }
         if targetCapacity == 0 {
             self.deinit(allocator).?;
-            return !{};
+            return !();
         }
 
         let target = raw::capacityToBuckets(targetCapacity).?;
         self.rehashToBuckets(allocator, target)
     }
 
-    pub fn compact(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    pub fn compact(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.bucketCapacity() == 0 {
-            return !{};
+            return !();
         }
         if self.len() == 0 {
             self.clear();
-            return !{};
+            return !();
         }
         self.rehashToBuckets(allocator, self.bucketCapacity())
     }
@@ -467,9 +467,9 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    fn insertNew(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!void {
+    fn insertNew(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!() {
         _ = self.insertNewIndex(allocator, key, value).?;
-        !{}
+        !()
     }
 
     fn insertNewIndex(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!usize {
@@ -491,7 +491,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !slot
     }
 
-    fn insertNewAssumeCapacity(&mut self, key: K, value: V) void {
+    fn insertNewAssumeCapacity(&mut self, key: K, value: V) () {
         let slot = self.insertNewIndexAssumeCapacity(key, value);
         _ = slot;
     }
@@ -560,13 +560,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         self.ensureUnusedCapacity(allocator, additional)
     }
 
-    fn ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+    fn ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         if additional <= self.growthLeft {
-            return !{};
+            return !();
         }
         let needed = switch self.len.checked_add(additional) {
             ?value => {
@@ -578,18 +578,18 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         };
         if needed <= self.capacity() {
             self.rehashToBuckets(allocator, self.bucketCapacity()).?;
-            return !{};
+            return !();
         }
         self.growForCapacity(allocator, needed).?;
-        !{}
+        !()
     }
 
-    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         if capacity <= self.capacity() {
-            return !{};
+            return !();
         }
         self.growForCapacity(allocator, capacity).?;
-        !{}
+        !()
     }
 
     fn bucketCapacity(&self) usize {
@@ -647,12 +647,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         std::builtin::trap()
     }
 
-    fn growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+    fn growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         let target = raw::capacityToBuckets(capacity).?;
         self.rehashToBuckets(allocator, target)
     }
 
-    fn rehashToBuckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!void {
+    fn rehashToBuckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!() {
         let mut newMap = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
         newMap.allocate(allocator, target).?;
 
@@ -684,7 +684,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         oldMap.freeAllocations(allocator)
     }
 
-    fn insertExisting(&mut self, key: K, value: V) void {
+    fn insertExisting(&mut self, key: K, value: V) () {
         let valueHash = self.hashKey(&key);
         let slot = self.findInsertIndex(valueHash);
         self.setCtrl(slot, raw::tag(valueHash));
@@ -694,14 +694,14 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.growthLeft -= 1;
     }
 
-    pub(pkg) fn setCtrl(&mut self, index: usize, value: u8) void {
+    pub(pkg) fn setCtrl(&mut self, index: usize, value: u8) () {
         self.ctrl[index] = value;
         if index < raw::groupWidth - 1 {
             self.ctrl[self.bucketCount + index] = value;
         }
     }
 
-    fn allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+    fn allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         let ctrlLen = raw::ctrlAllocationLen(capacity).?;
         let ctrlLayout = mem::Layout::array[u8](ctrlLen).?;
         let keysLayout = mem::Layout::array[K](capacity).?;
@@ -761,10 +761,10 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.bucketCount = capacity;
         self.len = 0;
         self.growthLeft = raw::usableCapacity(capacity);
-        !{}
+        !()
     }
 
-    fn freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+    fn freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut firstError: ?mem::Error = null;
         if self.ctrl.len() != 0 {
             let layout = mem::Layout::array[u8](self.ctrl.len()).?;
@@ -822,7 +822,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 err!
             },
             null => {
-                !{}
+                !()
             },
         }
     }

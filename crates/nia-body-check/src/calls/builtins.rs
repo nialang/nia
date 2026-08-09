@@ -937,7 +937,7 @@ impl<'a> BodyChecker<'a> {
             for arg in args {
                 self.check_expr(arg);
             }
-            return self.void();
+            return self.unit();
         }
 
         let dest_actual = self.check_expr(&args[0]);
@@ -950,7 +950,7 @@ impl<'a> BodyChecker<'a> {
                 elem,
             });
             self.check_expr_with_expected(&args[1], Some(src_expected));
-            return self.void();
+            return self.unit();
         };
         self.expect_expr_type(
             &args[0],
@@ -980,7 +980,7 @@ impl<'a> BodyChecker<'a> {
             src_actual,
             "memory intrinsic source",
         );
-        self.void()
+        self.unit()
     }
 
     fn check_memory_set_builtin_call(
@@ -1001,7 +1001,7 @@ impl<'a> BodyChecker<'a> {
             for arg in args {
                 self.check_expr(arg);
             }
-            return self.void();
+            return self.unit();
         }
 
         let u8_ty = self.primitive(PrimitiveTy::U8);
@@ -1009,7 +1009,7 @@ impl<'a> BodyChecker<'a> {
         let Some((elem_ty, dest_expected)) = self.memory_dest_slice_expected(&args[0], dest_actual)
         else {
             self.check_expr_with_expected(&args[1], Some(u8_ty));
-            return self.void();
+            return self.unit();
         };
         self.expect_expr_type(
             &args[0],
@@ -1026,7 +1026,7 @@ impl<'a> BodyChecker<'a> {
 
         let value_actual = self.check_expr_with_expected(&args[1], Some(u8_ty));
         self.expect_expr_type(&args[1], u8_ty, value_actual, "memory intrinsic byte value");
-        self.void()
+        self.unit()
     }
 
     fn memory_dest_slice_expected(
@@ -1127,14 +1127,14 @@ impl<'a> BodyChecker<'a> {
             for arg in args {
                 self.check_expr(arg);
             }
-            return self.void();
+            return self.unit();
         }
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
         let value_actual = self.check_expr_with_expected(&args[1], Some(ty));
         self.expect_expr_type(&args[1], ty, value_actual, "atomic store value");
         self.check_atomic_order_arg(&args[2], name, AtomicOrderContext::Store);
-        self.void()
+        self.unit()
     }
 
     fn check_atomic_rmw_builtin_call(
@@ -1233,10 +1233,10 @@ impl<'a> BodyChecker<'a> {
             for arg in args {
                 self.check_expr(arg);
             }
-            return self.void();
+            return self.unit();
         }
         self.check_atomic_order_arg(&args[0], name, AtomicOrderContext::Fence);
-        self.void()
+        self.unit()
     }
 
     fn atomic_type_arg(
@@ -1313,7 +1313,6 @@ impl<'a> BodyChecker<'a> {
                 | PrimitiveTy::U128
                 | PrimitiveTy::F32
                 | PrimitiveTy::F64
-                | PrimitiveTy::Void
                 | PrimitiveTy::Never => None,
             },
             TyKind::Pointer { .. } => Some(self.target.pointer_width),

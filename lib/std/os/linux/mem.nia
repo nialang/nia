@@ -25,12 +25,12 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
     }
 }
 
-fn raw_unmap_pages(ptr: &mut u8, len: usize) Errno!void {
+fn raw_unmap_pages(ptr: &mut u8, len: usize) Errno!() {
     let ret = syscall::syscall3(syscall::munmap, ptr as usize, len, 0);
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !{}
+        !()
     }
 }
 
@@ -102,7 +102,7 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     !(result_addr as &mut u8)
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!void {
+pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 {
         Errno::Invalid!
     } else {

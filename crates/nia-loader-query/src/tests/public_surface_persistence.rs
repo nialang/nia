@@ -160,10 +160,7 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     let root = temp_dir("public_surface_facts_with_diagnostics_are_not_persisted");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(
-        main.clone(),
-        "pub fn value() void {} pub fn value() void {}",
-    );
+    let file = sources.set_source(main.clone(), "pub fn value() () {} pub fn value() () {}");
     let identity = public_surface_facts_cache_identity(&file);
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),

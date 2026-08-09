@@ -1013,7 +1013,7 @@ struct Buffer[N: usize] {
     values: [N]i32,
 }
 
-pub fn take(value: Buffer[MISSING]) void {
+pub fn take(value: Buffer[MISSING]) () {
     _ = value;
 }
 

@@ -536,8 +536,8 @@ fn emits_defer_registered_after_earlier_return_branch() {
     std::fs::write(
         &main,
         r#"
-extern fn fclose(file: &void) i32;
-extern fn fopen(path: & u8, mode: & u8) &void;
+extern fn fclose(file: &opaque) i32;
+extern fn fopen(path: & u8, mode: & u8) &opaque;
 
 fn inspect(path: & u8) i32 {
     let mode = b"rb\0";
@@ -580,7 +580,7 @@ fn emits_deferred_block_cleanup() {
     std::fs::write(
         &main,
         r#"
-fn cleanup() void {}
+fn cleanup() () {}
 
 fn main() i32 {
     defer {
@@ -693,11 +693,11 @@ enum Error: i32 {
     _
 }
 
-fn cleanup(fail: bool) Error!void {
+fn cleanup(fail: bool) Error!() {
     if fail {
         Error::Bad!
     } else {
-        !{}
+        !()
     }
 }
 

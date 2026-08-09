@@ -162,7 +162,7 @@ extend Dir {
         self.createNativeFile(native, options)
     }
 
-    pub fn createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!void {
+    pub fn createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.createDirWithAllocator(allocator, path, options)
@@ -173,14 +173,14 @@ extend Dir {
         allocator: &mut mem::Allocator,
         path: RelativePathView,
         options: CreateDirOptions,
-    ) OperationError!void {
+    ) OperationError!() {
         let mut owned = lowerPath(allocator, path.path(), Operation::CreateDir).?;
         defer owned.deinit(allocator).withOperation(Operation::CreateDir).?;
         let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::CreateDir).?;
         self.createNativeDirWithAllocator(allocator, native, options)
     }
 
-    pub fn deleteFile(&self, path: RelativePathView) OperationError!void {
+    pub fn deleteFile(&self, path: RelativePathView) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.deleteFileWithAllocator(allocator, path)
@@ -190,14 +190,14 @@ extend Dir {
         &self,
         allocator: &mut mem::Allocator,
         path: RelativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         let mut owned = lowerPath(allocator, path.path(), Operation::DeleteFile).?;
         defer owned.deinit(allocator).withOperation(Operation::DeleteFile).?;
         let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::DeleteFile).?;
         self.deleteNativeFileWithAllocator(allocator, native)
     }
 
-    pub fn deleteDir(&self, path: RelativePathView) OperationError!void {
+    pub fn deleteDir(&self, path: RelativePathView) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.deleteDirWithAllocator(allocator, path)
@@ -207,14 +207,14 @@ extend Dir {
         &self,
         allocator: &mut mem::Allocator,
         path: RelativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         let mut owned = lowerPath(allocator, path.path(), Operation::DeleteDir).?;
         defer owned.deinit(allocator).withOperation(Operation::DeleteDir).?;
         let native = RelativeNativePathView::fromBytes(owned.nulTerminatedBytes()).withOperation(Operation::DeleteDir).?;
         self.deleteNativeDirWithAllocator(allocator, native)
     }
 
-    pub fn rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!void {
+    pub fn rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.renameWithAllocator(allocator, oldPath, newPath)
@@ -225,7 +225,7 @@ extend Dir {
         allocator: &mut mem::Allocator,
         oldPath: RelativePathView,
         newPath: RelativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         self.renameToWithAllocator(allocator, oldPath, self, newPath)
     }
 
@@ -234,7 +234,7 @@ extend Dir {
         oldPath: RelativePathView,
         newDir: &Dir,
         newPath: RelativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.renameToWithAllocator(allocator, oldPath, newDir, newPath)
@@ -246,7 +246,7 @@ extend Dir {
         oldPath: RelativePathView,
         newDir: &Dir,
         newPath: RelativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         let mut oldOwned = lowerPath(allocator, oldPath.path(), Operation::Rename).?;
         defer oldOwned.deinit(allocator).withOperation(Operation::Rename).?;
         let mut newOwned = lowerPath(allocator, newPath.path(), Operation::Rename).?;
@@ -327,7 +327,7 @@ extend Dir {
         !File::fromOwnedDescriptor(handle)
     }
 
-    pub fn createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!void {
+    pub fn createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.createNativeDirWithAllocator(allocator, path, options)
@@ -338,7 +338,7 @@ extend Dir {
         allocator: &mut mem::Allocator,
         path: RelativeNativePathView,
         options: CreateDirOptions,
-    ) OperationError!void {
+    ) OperationError!() {
         let bytes = path.bytes();
         let split = parentSplit(bytes, true);
         let current = b".";
@@ -361,7 +361,7 @@ extend Dir {
         ).as_fs_error().withOperation(Operation::CreateDir)
     }
 
-    pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!void {
+    pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.deleteNativeFileWithAllocator(allocator, path)
@@ -371,11 +371,11 @@ extend Dir {
         &self,
         allocator: &mut mem::Allocator,
         path: RelativeNativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         self.deleteNativeWithAllocator(allocator, path, Operation::DeleteFile, false, false)
     }
 
-    pub fn deleteNativeDir(&self, path: RelativeNativePathView) OperationError!void {
+    pub fn deleteNativeDir(&self, path: RelativeNativePathView) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.deleteNativeDirWithAllocator(allocator, path)
@@ -385,7 +385,7 @@ extend Dir {
         &self,
         allocator: &mut mem::Allocator,
         path: RelativeNativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         self.deleteNativeWithAllocator(allocator, path, Operation::DeleteDir, true, true)
     }
 
@@ -396,7 +396,7 @@ extend Dir {
         operation: Operation,
         directory: bool,
         trimTrailingSeparators: bool,
-    ) OperationError!void {
+    ) OperationError!() {
         let bytes = path.bytes();
         let split = parentSplit(bytes, trimTrailingSeparators);
         let current = b".";
@@ -424,7 +424,7 @@ extend Dir {
         oldPath: RelativeNativePathView,
         newDir: &Dir,
         newPath: RelativeNativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         let mut page = mem::PageAllocator::init();
         let allocator: &mut mem::Allocator = &mut page;
         self.renameNativeToWithAllocator(allocator, oldPath, newDir, newPath)
@@ -436,7 +436,7 @@ extend Dir {
         oldPath: RelativeNativePathView,
         newDir: &Dir,
         newPath: RelativeNativePathView,
-    ) OperationError!void {
+    ) OperationError!() {
         let oldBytes = oldPath.bytes();
         let oldSplit = parentSplit(oldBytes, false);
         let current = b".";
@@ -510,7 +510,7 @@ extend Dir {
         !handle
     }
 
-    pub fn close(&mut self) Error!void {
+    pub fn close(&mut self) Error!() {
         let handle = self.takeHandle().?;
         handle.close().as_fs_error()
     }
@@ -615,26 +615,26 @@ extend File {
         !metadata.as_fs_metadata()
     }
 
-    pub fn truncate(&self, len: u64) Error!void {
+    pub fn truncate(&self, len: u64) Error!() {
         if len > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
         self.borrowHandle().?.truncate(len).as_fs_error()
     }
 
-    pub fn setPermissions(&self, permissions: u32) Error!void {
+    pub fn setPermissions(&self, permissions: u32) Error!() {
         self.borrowHandle().?.setPermissions(permissions).as_fs_error()
     }
 
-    pub fn sync(&self) Error!void {
+    pub fn sync(&self) Error!() {
         self.borrowHandle().?.sync().as_fs_error()
     }
 
-    pub fn syncData(&self) Error!void {
+    pub fn syncData(&self) Error!() {
         self.borrowHandle().?.syncData().as_fs_error()
     }
 
-    pub fn close(&mut self) Error!void {
+    pub fn close(&mut self) Error!() {
         let handle = self.takeHandle().?;
         handle.close().as_fs_error()
     }

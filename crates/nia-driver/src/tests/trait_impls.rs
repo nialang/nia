@@ -413,15 +413,15 @@ pub trait Writer {
     type Error;
 
     fn write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
-    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!void;
+    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!();
 }
 
-pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
+pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     let mut written = writer.write(bytes).?;
     _ = written;
-    !{}
+    !()
 }
 "#,
     );
@@ -448,18 +448,18 @@ extend File : io::Writer {
         !(bytes.len())
     }
 
-    fn write_all(& self, bytes: &[u8]) Error!void {
+    fn write_all(& self, bytes: &[u8]) Error!() {
         let mut written = 0usize;
         while written < bytes.len() {
             let mut chunk = & bytes[written..];
             let mut n = self.write(chunk).?;
             written += n;
         }
-        !{}
+        !()
     }
 }
 
-fn main() void {
+fn main() () {
     let mut stdout: File = { raw: 1 };
     switch io::write_fully_with[File](& stdout, &b"nia\n") {
         !ok => {
@@ -527,15 +527,15 @@ pub trait Writer {
     type Error;
 
     fn write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
-    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!void;
+    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!();
 }
 
-pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
+pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     let mut written = writer.write(bytes).?;
     _ = written;
-    !{}
+    !()
 }
 
 extend fs::File : Writer {
@@ -546,14 +546,14 @@ extend fs::File : Writer {
         !(bytes.len())
     }
 
-    fn write_all(& self, bytes: &[u8]) fs::Error!void {
+    fn write_all(& self, bytes: &[u8]) fs::Error!() {
         let mut written = 0usize;
         while written < bytes.len() {
             let mut chunk = & bytes[written..];
             let mut n = self.write(chunk).?;
             written += n;
         }
-        !{}
+        !()
     }
 }
 "#,
@@ -567,7 +567,7 @@ module io;
 using entry::fs;
 using entry::io;
 
-fn main() void {
+fn main() () {
     let mut stdout = fs::File::standard_output();
     switch io::write_fully_with[fs::File](& stdout, &b"nia\n") {
         !ok => {
@@ -593,10 +593,10 @@ fn mutable_generic_trait_receiver_uses_pointee_self_type() {
 trait Writer {
     type Error;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!void;
+    fn write_all(&mut self, bytes: &[u8]) Error!();
 }
 
-fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!void
+fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     writer.write_all(bytes)
@@ -612,9 +612,9 @@ struct Sink {}
 extend Sink : Writer {
     type Error = Error;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!void {
+    fn write_all(&mut self, bytes: &[u8]) Error!() {
         _ = bytes;
-        !{}
+        !()
     }
 }
 
@@ -648,13 +648,13 @@ trait Writer {
 
     fn write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!void {
+    fn write_all(&mut self, bytes: &[u8]) Error!() {
         _ = self.write(bytes).?;
-        !{}
+        !()
     }
 }
 
-fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!void
+fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     writer.write_all(bytes)
@@ -703,19 +703,19 @@ fn blanket_impl_with_projected_trait_arg_can_call_source_trait_method() {
 trait Writer {
     type Error;
 
-    fn write_all(&mut self) Error!void {
-        !{}
+    fn write_all(&mut self) Error!() {
+        !()
     }
 }
 
 trait FormatWriter[E] {
-    fn write_fmt_bytes(&mut self) E!void;
+    fn write_fmt_bytes(&mut self) E!();
 }
 
 extend[W] W : FormatWriter[[W as Writer]::Error]
 where W: Writer
 {
-    fn write_fmt_bytes(&mut self) [W as Writer]::Error!void {
+    fn write_fmt_bytes(&mut self) [W as Writer]::Error!() {
         self.write_all()
     }
 }

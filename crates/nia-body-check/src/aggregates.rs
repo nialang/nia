@@ -614,10 +614,13 @@ impl<'a> BodyChecker<'a> {
             return false;
         }
         let supported = match self.expect_ty_kind(ty).clone() {
-            TyKind::Primitive(primitive) => !matches!(
-                primitive,
-                nia_ty::PrimitiveTy::Void | nia_ty::PrimitiveTy::Never
-            ),
+            TyKind::Primitive(primitive) => !matches!(primitive, nia_ty::PrimitiveTy::Never),
+            TyKind::Tuple(elems) => {
+                !elems.is_empty()
+                    && elems
+                        .iter()
+                        .all(|elem| self.const_union_ty_has_abi_model_inner(*elem, visiting))
+            }
             TyKind::Array { elem, .. } => self.const_union_ty_has_abi_model_inner(elem, visiting),
             TyKind::Vector { elem, lanes } => {
                 elem.is_vector_element()

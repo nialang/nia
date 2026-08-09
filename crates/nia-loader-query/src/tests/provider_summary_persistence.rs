@@ -7,7 +7,7 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(main.clone(), "fn main() () {}");
     let provider_file = sources.set_source(
         provider.clone(),
         "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
@@ -80,7 +80,7 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(main.clone(), "fn main() () {}");
     let provider_file = sources.set_source(
         provider.clone(),
         "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",

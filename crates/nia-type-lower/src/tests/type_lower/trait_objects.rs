@@ -10,8 +10,8 @@ trait Source[T] {
 type Item;
 }
 
-fn read(source: &Source[i32, Item = i32]) void {}
-fn write(source: &mut Source[i32, Item = i32]) void {}
+fn read(source: &Source[i32, Item = i32]) () {}
+fn write(source: &mut Source[i32, Item = i32]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -56,8 +56,8 @@ trait Source {
 type Item;
 }
 
-fn unknown(source: &Source[Missing = i32]) void {}
-fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
+fn unknown(source: &Source[Missing = i32]) () {}
+fn duplicate(source: &Source[Item = i32, Item = bool]) () {}
 "#,
         symbols.clone(),
     );
@@ -108,7 +108,7 @@ fn rejects_bare_trait_as_value_type() {
         r#"
 trait Show {}
 
-fn bad(value: Show) void {}
+fn bad(value: Show) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
