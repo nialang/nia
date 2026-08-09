@@ -3776,7 +3776,8 @@ this document:
 - payload-carrying algebraic data types beyond current enums;
 - aggregate destructuring patterns beyond current optional and error-union
   patterns;
-- closures;
+- closures (design and staged implementation are tracked in
+  [closure-roadmap.md](closure-roadmap.md));
 - package management semantics;
 - LSP semantics;
 - large standard-library layering;

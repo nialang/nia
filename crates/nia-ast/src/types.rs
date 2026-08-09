@@ -565,6 +565,40 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_joined(out, elems, write_expr_identity);
             out.push(')');
         }
+        ExprKind::Closure {
+            captures,
+            params,
+            return_type,
+            ..
+        } => {
+            out.push_str("closure(");
+            for (index, capture) in captures.iter().enumerate() {
+                if index != 0 {
+                    out.push('|');
+                }
+                write_symbol_identity(out, capture.name);
+                out.push('=');
+                write_expr_identity(out, &capture.value);
+            }
+            out.push('|');
+            for (index, param) in params.iter().enumerate() {
+                if index != 0 {
+                    out.push(',');
+                }
+                if let Some(ty) = &param.ty {
+                    write_type_ref_identity(out, ty);
+                } else {
+                    out.push_str("receiver");
+                }
+            }
+            out.push('|');
+            if let Some(return_type) = return_type {
+                write_type_ref_identity(out, return_type);
+            } else {
+                out.push_str("unit");
+            }
+            out.push(')');
+        }
         ExprKind::ArrayLiteral { elems } => write_array_elements_identity(out, "array", elems),
         ExprKind::StructLiteral { fields } => write_fields_identity(out, "struct", fields),
         ExprKind::TypedArrayLiteral { ty, elems } => {

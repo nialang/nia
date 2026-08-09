@@ -85,6 +85,14 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::Tuple(elem_types))
             }
+            ExprKind::Closure { .. } => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "closure expressions are not type-checked yet",
+                ));
+                self.error()
+            }
             ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
                 Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
                 None if expected.is_some() => self.infer_array_literal_expr(expr),

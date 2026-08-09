@@ -485,6 +485,15 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
+            ExprKind::Closure { captures, body, .. } => {
+                for capture in captures {
+                    self.check_expr_flow(&capture.value);
+                }
+                self.check_block(body);
+                Flow {
+                    falls_through: true,
+                }
+            }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 match elems {
                     nia_ast::ArrayElements::List(elems) => {

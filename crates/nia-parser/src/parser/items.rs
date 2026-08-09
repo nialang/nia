@@ -760,7 +760,7 @@ impl Parser {
         }))
     }
 
-    fn parse_params(&mut self) -> (Vec<Param>, bool) {
+    pub(super) fn parse_params(&mut self) -> (Vec<Param>, bool) {
         let mut params = Vec::new();
         let mut is_variadic = false;
         while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {

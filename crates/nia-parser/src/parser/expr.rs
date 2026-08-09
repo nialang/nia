@@ -928,6 +928,9 @@ impl Parser {
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {
+        if let Some(closure) = self.parse_closure_primary() {
+            return Some(closure);
+        }
         let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
@@ -954,6 +957,74 @@ impl Parser {
         self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_bracket_array_literal()
+    }
+
+    fn parse_closure_primary(&mut self) -> Option<Expr> {
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let result = self.parse_closure_primary_inner();
+        if result.is_none() {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+        }
+        result
+    }
+
+    fn parse_closure_primary_inner(&mut self) -> Option<Expr> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::LBracket, "expected `[` before closure captures")?;
+
+        let mut captures = Vec::new();
+        while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+            let capture_start = self.peek().span.start;
+            let name_token = self.expect_name(TokenKind::Ident, "expected capture name")?;
+            let value = if self.eat(TokenKind::Eq).is_some() {
+                self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])?
+            } else {
+                let name_span = Span::new(capture_start, self.previous_end());
+                self.make_expr(name_span, ExprKind::Ident(name_token))
+            };
+            let capture_span = Span::new(capture_start, value.span.end);
+            let node_key = self.node_key(nia_node_id::SyntaxKind::Expr, capture_span);
+            captures.push(ClosureCapture {
+                name: name_token,
+                span: capture_span,
+                node_key,
+                value,
+            });
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBracket, "expected `]` after closure captures")?;
+        if !self.at(TokenKind::LParen) {
+            return None;
+        }
+
+        self.expect(TokenKind::LParen, "expected `(` after closure captures")?;
+        let (params, is_variadic) = self.parse_params();
+        self.expect(TokenKind::RParen, "expected `)` after closure parameters")?;
+        if is_variadic {
+            self.error_at(
+                Span::new(start, self.previous_end()),
+                "closures cannot use variadic parameters",
+            );
+        }
+        let return_type = if self.at(TokenKind::LBrace) {
+            None
+        } else {
+            Some(self.parse_type_until(&[TokenKind::LBrace])?)
+        };
+        let body = self.parse_block()?;
+        Some(self.make_expr(
+            Span::new(start, body.span.end),
+            ExprKind::Closure {
+                captures,
+                params,
+                return_type,
+                body,
+            },
+        ))
     }
 
     fn parse_trait_target_after_open(&mut self) -> Option<(TypeRef, TypeRef)> {
