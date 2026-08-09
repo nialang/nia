@@ -114,7 +114,9 @@ impl AssociatedConstProjectionUseCollector<'_> {
                     self.visit_expr(arg);
                 }
             }
-            nia_ast::ExprKind::Qualified { lhs, .. } | nia_ast::ExprKind::Field { lhs, .. } => {
+            nia_ast::ExprKind::Qualified { lhs, .. }
+            | nia_ast::ExprKind::Field { lhs, .. }
+            | nia_ast::ExprKind::TupleField { lhs, .. } => {
                 self.visit_expr(lhs);
             }
             nia_ast::ExprKind::Index { lhs, index } => {

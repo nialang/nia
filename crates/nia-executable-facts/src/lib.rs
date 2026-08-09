@@ -565,6 +565,7 @@ fn collect_typed_expr_refs(
         TypedExprKind::Field { lhs, .. } => {
             collect_typed_expr_refs(module, lhs, refs);
         }
+        TypedExprKind::TupleField { lhs, .. } => collect_typed_expr_refs(module, lhs, refs),
         TypedExprKind::Range(range) => {
             if let Some(start) = range.start.as_deref() {
                 collect_typed_expr_refs(module, start, refs);
@@ -993,7 +994,7 @@ fn collect_typed_place_refs(
     for elem in &place.elems {
         match elem {
             PlaceElem::Index(expr) => collect_typed_expr_refs(module, expr, refs),
-            PlaceElem::Field(_) | PlaceElem::Error => {}
+            PlaceElem::Field(_) | PlaceElem::TupleField(_) | PlaceElem::Error => {}
         }
     }
 }

@@ -18,6 +18,10 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_assignment_lhs(lhs);
                 self.field_access_type_from_lhs_ty(expr.span, lhs_ty, name)
             }
+            ExprKind::TupleField { lhs, index } => {
+                let lhs_ty = self.check_assignment_lhs(lhs);
+                self.tuple_field_type(expr.span, lhs_ty, *index)
+            }
             ExprKind::Index {
                 lhs,
                 index: IndexArg::Expr(index),
@@ -203,7 +207,9 @@ impl<'a> BodyChecker<'a> {
                 Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
                 Some(LocalUse::Unresolved) | None => Some("name is unresolved"),
             },
-            ExprKind::Field { lhs, .. } => self.not_addressable_reason(lhs),
+            ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
+                self.not_addressable_reason(lhs)
+            }
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Expr(_) if self.indirect_index_base(lhs).is_some() => None,
                 IndexArg::Expr(_) => self.not_addressable_reason(lhs),
@@ -245,7 +251,9 @@ impl<'a> BodyChecker<'a> {
         }
         match &expr.kind {
             ExprKind::Ident(_) | ExprKind::SelfValue => self.ident_not_assignable_reason(expr),
-            ExprKind::Field { lhs, .. } => self.not_assignable_reason(lhs),
+            ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
+                self.not_assignable_reason(lhs)
+            }
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
                 IndexArg::Expr(index) if self.indirect_index_base(lhs).is_some() => {
@@ -764,7 +772,9 @@ impl<'a> BodyChecker<'a> {
                 self.local_use(expr),
                 Some(LocalUse::Local(_) | LocalUse::ModuleValue)
             ),
-            ExprKind::Field { lhs, .. } => self.is_place_expr(lhs),
+            ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
+                self.is_place_expr(lhs)
+            }
             ExprKind::Index {
                 lhs,
                 index: IndexArg::Expr(_),

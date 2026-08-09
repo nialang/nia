@@ -290,6 +290,10 @@ pub enum ExprKind {
         lhs: Box<Expr>,
         name: SymbolId,
     },
+    TupleField {
+        lhs: Box<Expr>,
+        index: usize,
+    },
     Index {
         lhs: Box<Expr>,
         index: IndexArg,

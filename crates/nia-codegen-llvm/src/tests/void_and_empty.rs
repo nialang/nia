@@ -28,7 +28,10 @@ fn main() i32 {
     implicit_unit();
     let (left, enabled) = make_pair();
     let (right,) = make_single();
-    if enabled { left + right } else { 0 }
+    let mut nested = ((left, right), ());
+    nested.0.0 = nested.0.0 + nested.0.1;
+    let answer = nested.0.0;
+    if enabled { answer } else { 0 }
 }
 "#,
     )
@@ -42,6 +45,7 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("define void @"), "{ir}");
     assert!(ir.contains("tuple.field"), "{ir}");
+    assert!(ir.contains("tuple.place.field.ptr"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }
 

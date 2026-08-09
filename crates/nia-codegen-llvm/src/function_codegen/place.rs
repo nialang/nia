@@ -456,6 +456,26 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     }
                     current_ty = self.field_ty(current_ty, *field, place.span)?;
                 }
+                FunctionPlaceElem::TupleField(index) => {
+                    let Some(TyKind::Tuple(elems)) = self.module.ty_kind(current_ty) else {
+                        return Err(
+                            self.error(place.span, "tuple place projection target is not a tuple")
+                        );
+                    };
+                    let elem_ty = elems.get(*index).copied().ok_or_else(|| {
+                        self.error(place.span, "tuple place projection is out of bounds")
+                    })?;
+                    if !self.is_zero_sized(elem_ty) {
+                        let base_ty = self.module.llvm_basic_type(current_ty, place.span)?;
+                        ptr = self
+                            .builder
+                            .build_struct_gep(base_ty, ptr, *index as u32, "tuple.place.field.ptr")
+                            .map_err(|_| {
+                                self.error(place.span, "failed to build tuple field address")
+                            })?;
+                    }
+                    current_ty = elem_ty;
+                }
                 FunctionPlaceElem::Index(index) => {
                     ptr = self.emit_index_addr(place.span, current_ty, ptr, index)?;
                     current_ty = self.array_elem_ty(current_ty, place.span)?;

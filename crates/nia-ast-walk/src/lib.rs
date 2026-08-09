@@ -384,7 +384,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(arg);
             }
         }
-        ExprKind::Qualified { lhs, .. } | ExprKind::Field { lhs, .. } => visitor.visit_expr(lhs),
+        ExprKind::Qualified { lhs, .. }
+        | ExprKind::Field { lhs, .. }
+        | ExprKind::TupleField { lhs, .. } => visitor.visit_expr(lhs),
         ExprKind::Index { lhs, index } => {
             visitor.visit_expr(lhs);
             match index {

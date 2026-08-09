@@ -621,7 +621,7 @@ impl<'a> FunctionIrValidator<'a> {
                         "error place element escaped into function IR",
                     ));
                 }
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
             }
         }
         Ok(())

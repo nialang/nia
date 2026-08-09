@@ -589,7 +589,7 @@ fn collect_function_refs_from_place(
     for elem in &place.elems {
         match elem {
             FunctionPlaceElem::Index(expr) => collect_function_refs_from_expr(expr, types, refs),
-            FunctionPlaceElem::Field(_) => {}
+            FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
             FunctionPlaceElem::Error => unreachable_invalid_function_ir("FunctionPlaceElem::Error"),
         }
     }

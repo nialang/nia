@@ -443,6 +443,31 @@ impl Parser {
                     );
                     continue;
                 }
+                if self.at(TokenKind::Integer) {
+                    let token = self.bump();
+                    let text = self.token_text(&token);
+                    if !text.chars().all(|ch| ch.is_ascii_digit()) {
+                        self.error_at(token.span, "tuple field must be a decimal integer");
+                        return None;
+                    }
+                    if text.len() > 1 && text.starts_with('0') {
+                        self.error_at(token.span, "tuple field must not contain leading zeroes");
+                        return None;
+                    }
+                    let Some(index) = text.parse::<usize>().ok() else {
+                        self.error_at(token.span, "tuple field index is too large");
+                        return None;
+                    };
+                    let end = token.span.end;
+                    expr = self.make_expr(
+                        Span::new(expr.span.start, end),
+                        ExprKind::TupleField {
+                            lhs: Box::new(expr),
+                            index,
+                        },
+                    );
+                    continue;
+                }
                 let name = self.expect_name(TokenKind::Ident, "expected field name")?;
                 let end = self.previous_end();
                 expr = self.make_expr(

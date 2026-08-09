@@ -269,7 +269,9 @@ impl StaticChecker<'_> {
                     self.static_address_path_reject_reason(expr)
                 }
             }
-            ExprKind::Field { lhs, .. } => self.static_address_path_reject_reason(lhs),
+            ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
+                self.static_address_path_reject_reason(lhs)
+            }
             ExprKind::Index { .. } => self.static_address_path_reject_reason(expr),
             ExprKind::BracketSuffix { args, .. } if Self::bracket_index_arg(args).is_some() => {
                 self.static_address_path_reject_reason(expr)
@@ -348,7 +350,9 @@ impl StaticChecker<'_> {
                 self.static_address_path_reject_reason(lhs)
             }
             ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => None,
-            ExprKind::Field { lhs, .. } => self.static_address_path_reject_reason(lhs),
+            ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
+                self.static_address_path_reject_reason(lhs)
+            }
             ExprKind::Index { lhs, index } => {
                 self.static_address_path_reject_reason(lhs)
                     .or_else(|| match index {

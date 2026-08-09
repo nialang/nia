@@ -259,6 +259,10 @@ impl<'a> BodyChecker<'a> {
                 .check_enum_variant_call(expr, callee, args)
                 .unwrap_or_else(|| self.check_call(expr, callee, args, expected)),
             ExprKind::Field { lhs, name } => self.check_field_access(expr, lhs, name),
+            ExprKind::TupleField { lhs, index } => {
+                let lhs_ty = self.check_expr(lhs);
+                self.tuple_field_type(expr.span, lhs_ty, *index)
+            }
             ExprKind::Qualified { lhs, name } => {
                 if let Some(builtin) = crate::calls::std_builtin_function(expr) {
                     self.diagnostics.push(Diagnostic::user_error_at(

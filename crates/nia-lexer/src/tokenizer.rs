@@ -13,6 +13,7 @@ pub fn tokenize_lossless(source: &str) -> Vec<LosslessToken> {
 pub struct Tokenizer<'a> {
     source: &'a [u8],
     pos: usize,
+    previous_kind: Option<TokenKind>,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -20,6 +21,7 @@ impl<'a> Tokenizer<'a> {
         Self {
             source: source.as_bytes(),
             pos: 0,
+            previous_kind: None,
         }
     }
 
@@ -71,6 +73,12 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn next_token(&mut self) -> Token {
+        let token = self.scan_token();
+        self.previous_kind = Some(token.kind.clone());
+        token
+    }
+
+    fn scan_token(&mut self) -> Token {
         let start = self.pos;
         let Some(byte) = self.bump() else {
             return self.token(TokenKind::Eof, start, start);
@@ -272,7 +280,10 @@ impl<'a> Tokenizer<'a> {
             return self.token(TokenKind::Integer, start, self.pos);
         }
         self.consume_digits(10);
-        if self.peek() == Some(b'.') && self.peek_next().is_some_and(|b| b.is_ascii_digit()) {
+        if self.previous_kind.as_ref() != Some(&TokenKind::Dot)
+            && self.peek() == Some(b'.')
+            && self.peek_next().is_some_and(|b| b.is_ascii_digit())
+        {
             self.bump();
             self.consume_digits(10);
             if self.try_scan_exponent() == Some(false) {
@@ -815,6 +826,22 @@ mod tests {
                 TokenKind::Ellipsis,
                 TokenKind::DotDot,
                 TokenKind::DotDotEq,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_chained_tuple_fields_as_distinct_integer_tokens() {
+        assert_eq!(
+            kinds("pair.0.1 1.0"),
+            vec![
+                TokenKind::Ident,
+                TokenKind::Dot,
+                TokenKind::Integer,
+                TokenKind::Dot,
+                TokenKind::Integer,
+                TokenKind::Float,
                 TokenKind::Eof,
             ]
         );

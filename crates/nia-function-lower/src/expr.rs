@@ -237,6 +237,10 @@ impl FunctionLowerer<'_> {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 field: *field,
             },
+            TypedExprKind::TupleField { lhs, index } => FunctionExprKind::TupleField {
+                value: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
+                index: *index,
+            },
             TypedExprKind::Index { lhs, index } => FunctionExprKind::Index {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 index: Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),

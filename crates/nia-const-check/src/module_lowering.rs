@@ -355,6 +355,7 @@ impl ConstModuleLowerer<'_> {
                     self.collect_expr_locals(elem, out);
                 }
             }
+            nia_ast::ExprKind::TupleField { lhs, .. } => self.collect_expr_locals(lhs, out),
             nia_ast::ExprKind::ArrayLiteral { elems }
             | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => match elems {
                 nia_ast::ArrayElements::List(elems) => {
