@@ -1861,9 +1861,11 @@ fn validate_const_pointer_escape(
                 }
                 Ok(())
             }
-            ConstValue::Array(values) | ConstValue::Vector(values) => values
-                .iter()
-                .try_for_each(|value| validate(value, place_may_escape, inside_frozen_allocation)),
+            ConstValue::Tuple(values) | ConstValue::Array(values) | ConstValue::Vector(values) => {
+                values.iter().try_for_each(|value| {
+                    validate(value, place_may_escape, inside_frozen_allocation)
+                })
+            }
             ConstValue::Struct(fields) => fields
                 .values()
                 .try_for_each(|value| validate(value, place_may_escape, inside_frozen_allocation)),

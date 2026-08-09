@@ -80,6 +80,11 @@ impl AssociatedConstProjectionUseCollector<'_> {
             | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => {
                 self.visit_array_elements(elems)
             }
+            nia_ast::ExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.visit_expr(elem);
+                }
+            }
             nia_ast::ExprKind::StructLiteral { fields }
             | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
@@ -239,6 +244,11 @@ impl AssociatedConstProjectionUseCollector<'_> {
                 }
             }
             nia_ast::PatternKind::Expr(expr) => self.visit_expr(expr),
+            nia_ast::PatternKind::Tuple(patterns) => {
+                for pattern in patterns {
+                    self.visit_pattern(pattern);
+                }
+            }
             nia_ast::PatternKind::Range { start, end, .. } => {
                 self.visit_expr(start);
                 self.visit_expr(end);
@@ -827,6 +837,13 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         match self.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.substitute_ty(elem, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
@@ -1022,6 +1039,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::SelfParam,
@@ -1542,6 +1560,11 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 self.check_type_projection_obligations(span, elem, obligations);
             }
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.check_type_projection_obligations(span, elem, obligations);
+                }
+            }
             Some(TyKind::Array { len, elem }) => {
                 self.check_array_len_projection_obligations(span, &len, obligations);
                 self.check_type_projection_obligations(span, elem, obligations);
@@ -1666,6 +1689,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }

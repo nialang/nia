@@ -41,6 +41,9 @@ pub fn substitute_ty(
     match store.get(ty) {
         Some(TyKind::GenericParam(name)) => type_arg(name).unwrap_or(ty),
         Some(TyKind::SelfParam) => self_ty.unwrap_or(ty),
+        Some(TyKind::Tuple(elems)) => append.intern(TyKind::Tuple(
+            elems.iter().copied().map(substitute).collect(),
+        )),
         Some(TyKind::Pointer { is_readonly, elem }) => append.intern(TyKind::Pointer {
             is_readonly: *is_readonly,
             elem: substitute(*elem),
@@ -154,6 +157,7 @@ pub fn substitute_ty(
         Some(
             TyKind::Error
             | TyKind::ConstOnly
+            | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::Vector { .. }
             | TyKind::BuiltinType(_),

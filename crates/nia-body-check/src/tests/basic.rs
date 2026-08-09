@@ -310,20 +310,20 @@ fn main() i32 {
 }
 
 #[test]
-fn checks_void_values_empty_structs_and_void_pointers() {
+fn checks_unit_values_empty_structs_and_opaque_pointers() {
     let checked = pipeline(
         r#"
 struct Empty {}
 
-fn take_void(p: &void) {}
-fn take_read_void(p: &void) {}
+fn take_opaque(p: &opaque) {}
+fn take_read_opaque(p: &opaque) {}
 
 fn main() {
-    let mut unit: void = {};
+    let mut unit: () = ();
     let mut empty: Empty = {};
     let mut value: i32 = 1;
-    take_void(&value as &void);
-    take_read_void(&value as &void);
+    take_opaque(&value as &opaque);
+    take_read_opaque(&value as &opaque);
     unit
 }
 "#,
@@ -334,7 +334,7 @@ fn main() {
         r#"
 fn main() {
     let mut value: i32 = 1;
-    let mut ptr: &void = &value;
+    let mut ptr: &opaque = &value;
 }
 "#,
     );
@@ -351,7 +351,7 @@ fn main() {
         r#"
 fn main() i32 {
     let mut value: i32 = 1;
-    let mut ptr: &void = &value as &void;
+    let mut ptr: &opaque = &value as &opaque;
     ptr.*
 }
 "#,
@@ -360,7 +360,7 @@ fn main() i32 {
         bad_deref
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("cannot dereference `&void`")),
+            .any(|diagnostic| diagnostic.summary.contains("cannot dereference `&opaque`")),
         "{:?}",
         bad_deref.diagnostics
     );
@@ -374,7 +374,7 @@ fn read_reg(reg: ^u32) u32 {
     reg.*
 }
 
-fn write_reg(reg: ^mut u32, value: u32) void {
+fn write_reg(reg: ^mut u32, value: u32) () {
     reg.* = value;
 }
 
@@ -391,7 +391,7 @@ fn readonly_from_mut(reg: ^mut u32) ^u32 {
 
     let bad = pipeline(
         r#"
-fn write_readonly(reg: ^u32, value: u32) void {
+fn write_readonly(reg: ^u32, value: u32) () {
     reg.* = value;
 }
 "#,

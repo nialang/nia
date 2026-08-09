@@ -320,6 +320,9 @@ impl MonoCollector<'_> {
         };
         match kind {
             TyKind::GenericParam(_) | TyKind::SelfParam => true,
+            TyKind::Tuple(elems) => elems
+                .iter()
+                .any(|elem| self.ty_contains_generic_param(*elem)),
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -377,6 +380,7 @@ impl MonoCollector<'_> {
                         .any(|arg| self.ty_contains_generic_param(*arg))
             }
             TyKind::Primitive(_)
+            | TyKind::Opaque
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
             | TyKind::ConstOnly
@@ -542,6 +546,9 @@ impl MonoCollector<'_> {
         };
         let next = remaining - 1;
         match kind {
+            TyKind::Tuple(elems) => elems
+                .iter()
+                .any(|elem| self.ty_exceeds_instance_depth(*elem, next)),
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -601,6 +608,7 @@ impl MonoCollector<'_> {
             }
             TyKind::GenericParam(_)
             | TyKind::SelfParam
+            | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
@@ -668,7 +676,21 @@ impl MonoCollector<'_> {
                 .get(substitutions.0)
                 .and_then(|substitutions| substitutions.self_arg)
                 .unwrap_or(ty),
-            TyKind::BuiltinType(_) => ty,
+            TyKind::Opaque | TyKind::BuiltinType(_) => ty,
+            TyKind::Tuple(elems) => {
+                let elems = elems
+                    .iter()
+                    .map(|elem| {
+                        self.instantiate_ty_inner(
+                            module_id,
+                            *elem,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                self.intern_working_ty(module_id, TyKind::Tuple(elems))
+            }
             TyKind::Pointer { is_readonly, elem } => {
                 let elem =
                     self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);

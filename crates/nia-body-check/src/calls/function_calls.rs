@@ -821,6 +821,9 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.type_contains_generic_param(*error) || self.type_contains_generic_param(*value)
             }
+            Some(TyKind::Tuple(elems)) => elems
+                .iter()
+                .any(|elem| self.type_contains_generic_param(*elem)),
             Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
                 .any(|arg| self.type_contains_generic_param(*arg)),
@@ -854,6 +857,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },
@@ -893,6 +897,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::SelfParam) => {}
             Some(TyKind::BuiltinType(_)) => {}
+            Some(TyKind::Opaque) => {}
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
@@ -1005,6 +1010,15 @@ impl<'a> BodyChecker<'a> {
                 {
                     self.infer_generics_from_type(pattern_error, actual_error, substitutions, span);
                     self.infer_generics_from_type(pattern_value, actual_value, substitutions, span);
+                }
+            }
+            Some(TyKind::Tuple(pattern_elems)) => {
+                if let Some(TyKind::Tuple(actual_elems)) = self.interner.get(actual).cloned()
+                    && pattern_elems.len() == actual_elems.len()
+                {
+                    for (pattern, actual) in pattern_elems.into_iter().zip(actual_elems) {
+                        self.infer_generics_from_type(pattern, actual, substitutions, span);
+                    }
                 }
             }
             Some(TyKind::Nominal {

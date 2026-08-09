@@ -364,6 +364,16 @@ impl Pruner<'_> {
                         .collect(),
                 },
             },
+            ExprKind::Tuple(elems) => Expr {
+                span,
+                node_key,
+                kind: ExprKind::Tuple(
+                    elems
+                        .into_iter()
+                        .map(|elem| self.prune_expr(elem))
+                        .collect(),
+                ),
+            },
             ExprKind::ArrayLiteral { elems } => Expr {
                 span,
                 node_key,
@@ -553,6 +563,12 @@ impl Pruner<'_> {
                 PatternKind::ErrorErr(pattern) => {
                     PatternKind::ErrorErr(Box::new(self.prune_pattern(*pattern)))
                 }
+                PatternKind::Tuple(fields) => PatternKind::Tuple(
+                    fields
+                        .into_iter()
+                        .map(|field| self.prune_pattern(field))
+                        .collect(),
+                ),
                 PatternKind::EnumVariant { variant, fields } => PatternKind::EnumVariant {
                     variant: Box::new(self.prune_expr(*variant)),
                     fields: match fields {

@@ -110,15 +110,17 @@ impl<'a> BodyChecker<'a> {
     fn check_asm_operand_type(&mut self, span: Span, ty: InternedTyId, context: &str) {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty) {
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
+            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never))
+            | Some(TyKind::Opaque) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("{context} cannot have void or never type"),
+                    format!("{context} cannot have an incomplete or uninhabited type"),
                 ));
             }
             Some(
-                TyKind::Array { .. }
+                TyKind::Tuple(_)
+                | TyKind::Array { .. }
                 | TyKind::Vector { .. }
                 | TyKind::Slice { .. }
                 | TyKind::SlicePointee { .. }

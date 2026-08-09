@@ -54,6 +54,9 @@ pub enum TypeKind {
         len: ArrayLen,
         elem: Box<TypeRef>,
     },
+    Tuple {
+        elems: Vec<TypeRef>,
+    },
     Range {
         start: Option<Box<TypeRef>>,
         end: Option<Box<TypeRef>>,
@@ -72,7 +75,7 @@ pub enum TypeKind {
         value: Box<TypeRef>,
     },
     SelfType,
-    Void,
+    Opaque,
     Never,
     Infer,
 }
@@ -180,7 +183,7 @@ fn type_kind_decl_eq(lhs: &TypeKind, rhs: &TypeKind) -> bool {
     match (lhs, rhs) {
         (TypeKind::Error, TypeKind::Error)
         | (TypeKind::SelfType, TypeKind::SelfType)
-        | (TypeKind::Void, TypeKind::Void)
+        | (TypeKind::Opaque, TypeKind::Opaque)
         | (TypeKind::Never, TypeKind::Never)
         | (TypeKind::Infer, TypeKind::Infer) => true,
         (TypeKind::Path { segments: lhs }, TypeKind::Path { segments: rhs }) => {
@@ -246,6 +249,9 @@ fn type_kind_decl_eq(lhs: &TypeKind, rhs: &TypeKind) -> bool {
                 elem: rhs_elem,
             },
         ) => array_len_decl_eq(lhs_len, rhs_len) && type_ref_decl_eq(lhs_elem, rhs_elem),
+        (TypeKind::Tuple { elems: lhs }, TypeKind::Tuple { elems: rhs }) => {
+            type_refs_decl_eq(lhs, rhs)
+        }
         (
             TypeKind::Range {
                 start: lhs_start,
@@ -414,6 +420,11 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
             write_type_ref_identity(out, elem);
             out.push(')');
         }
+        TypeKind::Tuple { elems } => {
+            out.push_str("tuple(");
+            write_joined(out, elems, write_type_ref_identity);
+            out.push(')');
+        }
         TypeKind::Range {
             start,
             end,
@@ -445,7 +456,7 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
             out.push(')');
         }
         TypeKind::SelfType => out.push_str("self"),
-        TypeKind::Void => out.push_str("void"),
+        TypeKind::Opaque => out.push_str("opaque"),
         TypeKind::Never => out.push_str("never"),
         TypeKind::Infer => out.push_str("infer"),
     }
@@ -547,6 +558,11 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_expr_identity(out, callee);
             out.push('|');
             write_joined(out, args, write_bracket_arg_identity);
+            out.push(')');
+        }
+        ExprKind::Tuple(elems) => {
+            out.push_str("tuple(");
+            write_joined(out, elems, write_expr_identity);
             out.push(')');
         }
         ExprKind::ArrayLiteral { elems } => write_array_elements_identity(out, "array", elems),

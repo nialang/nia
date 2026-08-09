@@ -510,6 +510,27 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::Bool(_) => Some(ConstValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),
+            ResolvedConstExprKind::Tuple(elems) => {
+                let expected_elems = expected.and_then(|expected| match self.ty_kind(expected) {
+                    Some(TyKind::Tuple(expected_elems)) if expected_elems.len() == elems.len() => {
+                        Some(expected_elems)
+                    }
+                    _ => None,
+                });
+                let elem_types = elems
+                    .iter()
+                    .enumerate()
+                    .map(|(index, elem)| {
+                        self.resolved_const_arg_runtime_type(
+                            elem,
+                            expected_elems.as_ref().map(|elems| elems[index]),
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(ConstValueType::Runtime(
+                    self.current_runtime_tuple_type(elem_types),
+                ))
+            }
             ResolvedConstExprKind::ArrayLiteral {
                 ty: Some(ty),
                 elems,
@@ -648,7 +669,7 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::Assign(assign) => {
                 self.check_resolved_const_assignment(expr.span(), assign);
                 Some(ConstValueType::Runtime(
-                    self.current_runtime_primitive_type(PrimitiveTy::Void),
+                    self.current_runtime_tuple_type(Vec::new()),
                 ))
             }
         }
@@ -1076,6 +1097,15 @@ impl Analyzer<'_> {
                     return None;
                 };
                 self.resolved_pattern_binding_type(pattern, error, local_id)
+            }
+            ResolvedConstPatternKind::Tuple { patterns, .. } => {
+                let TyKind::Tuple(elems) = self.ty_kind(target_ty)? else {
+                    return None;
+                };
+                (patterns.len() == elems.len()).then_some(())?;
+                patterns.iter().zip(elems).find_map(|(pattern, elem)| {
+                    self.resolved_pattern_binding_type(pattern, elem, local_id)
+                })
             }
             ResolvedConstPatternKind::EnumVariant {
                 variant, fields, ..
@@ -1711,6 +1741,9 @@ impl Analyzer<'_> {
         }
         match self.ty_kind(ty) {
             Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
+            Some(TyKind::Tuple(elems)) => elems
+                .into_iter()
+                .any(|elem| self.type_contains_generic_inner(elem, seen)),
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -1767,6 +1800,7 @@ impl Analyzer<'_> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },
@@ -2375,6 +2409,15 @@ impl Analyzer<'_> {
                 };
                 self.resolved_const_pattern_has_definite_mismatch(pattern, error)
             }
+            ResolvedConstPatternKind::Tuple { patterns, .. } => {
+                let Some(TyKind::Tuple(elems)) = self.ty_kind(target_ty) else {
+                    return true;
+                };
+                patterns.len() != elems.len()
+                    || patterns.iter().zip(elems).any(|(pattern, elem)| {
+                        self.resolved_const_pattern_has_definite_mismatch(pattern, elem)
+                    })
+            }
             ResolvedConstPatternKind::EnumVariant {
                 variant, fields, ..
             } => {
@@ -2450,6 +2493,17 @@ impl Analyzer<'_> {
                     };
                     self.check_resolved_const_patterns(std::slice::from_ref(pattern), error)?;
                 }
+                ResolvedConstPatternKind::Tuple { patterns, .. } => {
+                    let Some(TyKind::Tuple(elems)) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    if patterns.len() != elems.len() {
+                        return None;
+                    }
+                    for (pattern, elem) in patterns.iter().zip(elems) {
+                        self.check_resolved_const_patterns(std::slice::from_ref(pattern), elem)?;
+                    }
+                }
                 ResolvedConstPatternKind::EnumVariant {
                     variant, fields, ..
                 } => {
@@ -2508,6 +2562,17 @@ impl Analyzer<'_> {
                     return None;
                 };
                 self.bind_typed_resolved_const_pattern(pattern, error)?;
+            }
+            ResolvedConstPatternKind::Tuple { patterns, .. } => {
+                let Some(TyKind::Tuple(elems)) = self.ty_kind(target_ty) else {
+                    return None;
+                };
+                if patterns.len() != elems.len() {
+                    return None;
+                }
+                for (pattern, elem) in patterns.iter().zip(elems) {
+                    self.bind_typed_resolved_const_pattern(pattern, elem)?;
+                }
             }
             ResolvedConstPatternKind::EnumVariant {
                 variant, fields, ..

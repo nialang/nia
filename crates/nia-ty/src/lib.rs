@@ -179,7 +179,9 @@ impl TypeStore {
 pub enum TyKind {
     Error,
     ConstOnly,
+    Opaque,
     Primitive(PrimitiveTy),
+    Tuple(Vec<InternedTyId>),
     Pointer {
         is_readonly: bool,
         elem: InternedTyId,
@@ -261,6 +263,11 @@ impl TyKind {
             }
         }
         match self {
+            Self::Tuple(elems) => {
+                for elem in elems {
+                    visit(*elem);
+                }
+            }
             Self::Pointer { elem, .. }
             | Self::VolatilePointer { elem, .. }
             | Self::Slice { elem, .. }
@@ -342,6 +349,7 @@ impl TyKind {
             }
             Self::Error
             | Self::ConstOnly
+            | Self::Opaque
             | Self::Primitive(_)
             | Self::Vector { .. }
             | Self::BuiltinType(_)
@@ -531,7 +539,11 @@ pub trait TypeEquivalence {
     fn compute_same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         match (self.ty_kind_for_equiv(left), self.ty_kind_for_equiv(right)) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
+            (Some(TyKind::Opaque), Some(TyKind::Opaque)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+            (Some(TyKind::Tuple(left)), Some(TyKind::Tuple(right))) => {
+                self.same_type_args_for_equiv(left, right)
+            }
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
             (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
             (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,

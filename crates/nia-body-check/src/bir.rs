@@ -9,9 +9,9 @@ use nia_body_ir::{
     LocalName, MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic,
     TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
     TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedTryErrorConversion, TypedUnionRelocation, TypedWhile,
+    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternBinding, TypedPatternKind, TypedPlace,
+    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
+    TypedSwitchArmBody, TypedTryErrorConversion, TypedUnionRelocation, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -203,10 +203,21 @@ impl<'a> BodyChecker<'a> {
                 ty: self.error(),
                 kind: TypedExprKind::Error,
             }),
-            StmtKind::Binding(binding) => self
-                .lower_binding_stmt(stmt, binding)
-                .map(TypedStmtKind::Binding)
-                .unwrap_or_else(|| TypedStmtKind::Expr(self.error_expr(stmt.span))),
+            StmtKind::Binding(binding) => {
+                if self.single_pattern_binding(&binding.pattern).is_some() {
+                    self.lower_binding_stmt(stmt, binding)
+                        .map(TypedStmtKind::Binding)
+                        .unwrap_or_else(|| TypedStmtKind::Expr(self.error_expr(stmt.span)))
+                } else if let Some(value) = &binding.value {
+                    let value_ty = self.expr_ty(value).unwrap_or_else(|| self.error());
+                    TypedStmtKind::PatternBinding(Box::new(TypedPatternBinding {
+                        pattern: self.lower_pattern(&binding.pattern, value_ty),
+                        value: self.lower_expr_with_ty(value, Some(value_ty)),
+                    }))
+                } else {
+                    TypedStmtKind::Expr(self.error_expr(stmt.span))
+                }
+            }
             StmtKind::Expr(expr) => TypedStmtKind::Expr(self.lower_expr(expr)),
             StmtKind::Return(value) => TypedStmtKind::Return(
                 value
@@ -413,6 +424,19 @@ impl<'a> BodyChecker<'a> {
                     _ => self.error(),
                 };
                 TypedPatternKind::ErrorErr(Box::new(self.lower_pattern(inner, error_ty)))
+            }
+            nia_ast::PatternKind::Tuple(patterns) => {
+                let elem_types = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::Tuple(elems)) if elems.len() == patterns.len() => elems.clone(),
+                    _ => vec![self.error(); patterns.len()],
+                };
+                TypedPatternKind::Tuple(
+                    patterns
+                        .iter()
+                        .zip(elem_types)
+                        .map(|(pattern, elem_ty)| self.lower_pattern(pattern, elem_ty))
+                        .collect(),
+                )
             }
             nia_ast::PatternKind::EnumVariant { variant, fields } => {
                 let variant_id =
@@ -672,6 +696,9 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
+            ExprKind::Tuple(elems) => {
+                TypedExprKind::Tuple(elems.iter().map(|elem| self.lower_expr(elem)).collect())
+            }
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_const_use(expr) {

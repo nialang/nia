@@ -161,9 +161,26 @@ impl Parser {
                 }
             }
         } else if self.eat(TokenKind::LParen).is_some() {
-            let ty = self.parse_type_with_mode(mode)?;
-            self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
-            return Some(self.make_type_ref(Span::new(start, self.previous_end()), ty.kind));
+            if self.eat(TokenKind::RParen).is_some() {
+                TypeKind::Tuple { elems: Vec::new() }
+            } else {
+                let first = self.parse_type_with_mode(mode)?;
+                if self.eat(TokenKind::Comma).is_none() {
+                    self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
+                    return Some(
+                        self.make_type_ref(Span::new(start, self.previous_end()), first.kind),
+                    );
+                }
+                let mut elems = vec![first];
+                while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                    elems.push(self.parse_type_with_mode(mode)?);
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "expected `)` after tuple type")?;
+                TypeKind::Tuple { elems }
+            }
         } else if self.eat(TokenKind::Underscore).is_some() {
             TypeKind::Infer
         } else if self.at(TokenKind::Fn) {
@@ -171,8 +188,8 @@ impl Parser {
             return None;
         } else if self.eat(TokenKind::SelfType).is_some() {
             TypeKind::SelfType
-        } else if self.eat(TokenKind::Void).is_some() {
-            TypeKind::Void
+        } else if self.eat(TokenKind::Opaque).is_some() {
+            TypeKind::Opaque
         } else if self.eat(TokenKind::Never).is_some() {
             TypeKind::Never
         } else if self.at_type_path_segment() {
@@ -544,7 +561,7 @@ impl Parser {
                 | TokenKind::LParen
                 | TokenKind::Bool
                 | TokenKind::SelfType
-                | TokenKind::Void
+                | TokenKind::Opaque
                 | TokenKind::Never
                 | TokenKind::Question
                 | TokenKind::Caret

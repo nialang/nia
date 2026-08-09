@@ -369,6 +369,12 @@ fn lower_expr_internal(
                 range: lower_slice_range_with_context(range, context)?,
             },
         },
+        nia_ast::ExprKind::Tuple(elems) => EarlyConstExprKind::Tuple(
+            elems
+                .iter()
+                .map(|elem| lower_expr_internal(elem, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         nia_ast::ExprKind::ArrayLiteral { elems } => EarlyConstExprKind::ArrayLiteral {
             ty: None,
             elems: lower_array_elements_with_context(elems, context)?,
@@ -1186,6 +1192,12 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             lhs: Box::new(resolve_expr(*lhs)?),
             range: resolve_const_slice_range(range)?,
         },
+        EarlyConstExprKind::Tuple(elems) => ResolvedConstExprKind::Tuple(
+            elems
+                .into_iter()
+                .map(resolve_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         EarlyConstExprKind::ArrayLiteral { ty, elems } => ResolvedConstExprKind::ArrayLiteral {
             ty,
             elems: resolve_const_array_elements(elems)?,
@@ -1404,6 +1416,13 @@ fn resolve_const_pattern(
         )),
         EarlyConstPattern::ErrorErr { pattern, span } => Ok(ResolvedConstPattern::error_err(
             resolve_const_pattern(*pattern)?,
+            span,
+        )),
+        EarlyConstPattern::Tuple { patterns, span } => Ok(ResolvedConstPattern::tuple(
+            patterns
+                .into_iter()
+                .map(resolve_const_pattern)
+                .collect::<Result<Vec<_>, _>>()?,
             span,
         )),
         EarlyConstPattern::EnumVariant {
@@ -1838,6 +1857,13 @@ fn lower_pattern_with_context(
         }),
         nia_ast::PatternKind::ErrorErr(inner) => Ok(EarlyConstPattern::ErrorErr {
             pattern: Box::new(lower_pattern_with_context(inner, context)?),
+            span: pattern.span,
+        }),
+        nia_ast::PatternKind::Tuple(patterns) => Ok(EarlyConstPattern::Tuple {
+            patterns: patterns
+                .iter()
+                .map(|pattern| lower_pattern_with_context(pattern, context))
+                .collect::<Result<Vec<_>, _>>()?,
             span: pattern.span,
         }),
         nia_ast::PatternKind::EnumVariant { variant, fields } => {

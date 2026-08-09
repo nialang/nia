@@ -219,6 +219,9 @@ fn typed_stmt_contains_error_expr(stmt: &nia_body_ir::TypedStmt) -> bool {
             .value
             .as_ref()
             .is_some_and(typed_expr_contains_error_expr),
+        nia_body_ir::TypedStmtKind::PatternBinding(binding) => {
+            typed_expr_contains_error_expr(&binding.value)
+        }
         nia_body_ir::TypedStmtKind::Expr(expr)
         | nia_body_ir::TypedStmtKind::Defer(expr)
         | nia_body_ir::TypedStmtKind::Return(Some(expr)) => typed_expr_contains_error_expr(expr),
@@ -333,7 +336,7 @@ fn main() i32 {
 fn checks_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
-fn main() void {
+fn main() () {
     let mut dst: [4]u8 = [0, 0, 0, 0];
     let src: [4]u8 = [1, 2, 3, 4];
     std::builtin::memcpy(&mut dst[..], &src[..]);
@@ -372,11 +375,11 @@ fn main() void {
 fn rejects_invalid_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
-fn readonly(xs: & [u8]) void {
+fn readonly(xs: & [u8]) () {
     std::builtin::memcpy(xs, xs);
 }
 
-fn memset_non_byte() void {
+fn memset_non_byte() () {
     let mut xs: [2]i32 = [1, 2];
     std::builtin::memset(&mut xs[..], 0);
 }
@@ -563,11 +566,11 @@ fn main() i32 {
 fn checks_pointer_to_nested_fixed_array_parameters() {
     let checked = pipeline(
         r#"
-fn touch(xs: &mut ([2][2]i32)) void {
+fn touch(xs: &mut ([2][2]i32)) () {
     _ = xs;
 }
 
-fn main() void {
+fn main() () {
     let mut matrix: [2][2]i32 = [[1, 2], [3, 4]];
     touch(&mut matrix);
 }
@@ -620,7 +623,7 @@ where T: Sized
     }
 }
 
-fn main() void {
+fn main() () {
     let mut values: [3]i32 = [1, 2, 3];
     let mut slice = &mut values[..];
     for value in slice.iter_mut() {
@@ -985,15 +988,15 @@ fn main(mut_ptr: &mut i32, mut_slice: &mut [i32]) i32 {
 fn rejects_readonly_references_and_slices_for_mutable_expected_types() {
     let checked = pipeline(
         r#"
-fn write_ptr(x: &mut i32) void {
+fn write_ptr(x: &mut i32) () {
     x.* = 1;
 }
 
-fn write_slice(xs: &mut [i32]) void {
+fn write_slice(xs: &mut [i32]) () {
     xs[0] = 1;
 }
 
-fn main(ro_ptr: &i32, ro_slice: &[i32]) void {
+fn main(ro_ptr: &i32, ro_slice: &[i32]) () {
     write_ptr(ro_ptr);
     write_slice(ro_slice);
 }
@@ -1038,7 +1041,7 @@ fn main(xs: &mut [i32]) i32 {
 fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"
-fn main() void {
+fn main() () {
     let mut bytes: [4]u8 = [1, 2, 3, 0];
     let mut byte_ptr: &u8 = b"hello";
     let mut array_ptr: &u8 = bytes;

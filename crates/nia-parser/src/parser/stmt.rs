@@ -272,7 +272,11 @@ impl Parser {
     fn starts_binding_pattern(&self) -> bool {
         matches!(
             self.peek().kind,
-            TokenKind::Ident | TokenKind::Underscore | TokenKind::Amp | TokenKind::Mut
+            TokenKind::Ident
+                | TokenKind::Underscore
+                | TokenKind::Amp
+                | TokenKind::Mut
+                | TokenKind::LParen
         )
     }
 
@@ -315,6 +319,42 @@ impl Parser {
                 kind: PatternKind::Wildcard,
             });
         }
+        if self.eat(TokenKind::LParen).is_some() {
+            if let Some(end) = self.eat(TokenKind::RParen) {
+                return Some(Pattern {
+                    span: Span::new(start, end.span.end),
+                    kind: PatternKind::Tuple(Vec::new()),
+                });
+            }
+            let first =
+                self.parse_irrefutable_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?;
+            if self.eat(TokenKind::Comma).is_none() {
+                self.expect(
+                    TokenKind::RParen,
+                    "expected `)` after parenthesized pattern",
+                )?;
+                return Some(Pattern {
+                    span: Span::new(start, self.previous_end()),
+                    kind: first.kind,
+                });
+            }
+            let mut fields = vec![first];
+            while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                fields.push(
+                    self.parse_irrefutable_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?,
+                );
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            let end = self
+                .expect(TokenKind::RParen, "expected `)` after tuple pattern")?
+                .end;
+            return Some(Pattern {
+                span: Span::new(start, end),
+                kind: PatternKind::Tuple(fields),
+            });
+        }
         if self.at(TokenKind::Ident)
             && self
                 .tokens
@@ -355,6 +395,11 @@ impl Parser {
             | PatternKind::OptionalSome(inner)
             | PatternKind::ErrorOk(inner)
             | PatternKind::ErrorErr(inner) => Self::mark_pattern_bindings_mutable(inner),
+            PatternKind::Tuple(fields) => {
+                for field in fields {
+                    Self::mark_pattern_bindings_mutable(field);
+                }
+            }
             PatternKind::EnumVariant { fields, .. } => match fields {
                 EnumVariantPatternFields::Tuple(fields) => {
                     for field in fields {
@@ -449,6 +494,48 @@ impl Parser {
             return Some(Pattern {
                 span: Span::new(start, pattern.span.end),
                 kind: PatternKind::ErrorOk(Box::new(pattern)),
+            });
+        }
+        if self.eat(TokenKind::LParen).is_some() {
+            if let Some(end) = self.eat(TokenKind::RParen) {
+                return Some(Pattern {
+                    span: Span::new(start, end.span.end),
+                    kind: PatternKind::Tuple(Vec::new()),
+                });
+            }
+            let first = self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?;
+            if self.eat(TokenKind::Comma).is_none() {
+                self.expect(
+                    TokenKind::RParen,
+                    "expected `)` after parenthesized pattern",
+                )?;
+                if let PatternKind::Bind { name, .. } = first.kind {
+                    let span = Span::new(start, self.previous_end());
+                    return Some(Pattern {
+                        span,
+                        kind: PatternKind::Expr(Box::new(
+                            self.make_expr(first.span, ExprKind::Ident(name)),
+                        )),
+                    });
+                }
+                return Some(Pattern {
+                    span: Span::new(start, self.previous_end()),
+                    kind: first.kind,
+                });
+            }
+            let mut fields = vec![first];
+            while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                fields.push(self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?);
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            let end = self
+                .expect(TokenKind::RParen, "expected `)` after tuple pattern")?
+                .end;
+            return Some(Pattern {
+                span: Span::new(start, end),
+                kind: PatternKind::Tuple(fields),
             });
         }
         if let Some(pattern) = self.parse_enum_variant_payload_pattern(stops) {

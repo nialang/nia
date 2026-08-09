@@ -37,6 +37,10 @@ impl BodyInputValidator {
                     self.validate_value_expr(value)?;
                 }
             }
+            TypedStmtKind::PatternBinding(binding) => {
+                self.validate_pattern(&binding.pattern)?;
+                self.validate_value_expr(&binding.value)?;
+            }
             TypedStmtKind::Expr(expr) | TypedStmtKind::Defer(expr) => {
                 self.validate_effect_expr(expr)?;
             }
@@ -199,6 +203,12 @@ impl BodyInputValidator {
             TypedExprKind::CharFromU32 { value } => self.validate_value_expr(value),
             TypedExprKind::StaticArrayPointer { array, .. } => self.validate_value_expr(array),
             TypedExprKind::ArrayLiteral { elems } => self.validate_array_elements(elems),
+            TypedExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.validate_value_expr(elem)?;
+                }
+                Ok(())
+            }
             TypedExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.validate_value_expr(&field.value)?;
@@ -299,6 +309,12 @@ impl BodyInputValidator {
             TypedPatternKind::EnumVariant { fields, .. } => {
                 for field in fields {
                     self.validate_pattern(field)?;
+                }
+                Ok(())
+            }
+            TypedPatternKind::Tuple(patterns) => {
+                for pattern in patterns {
+                    self.validate_pattern(pattern)?;
                 }
                 Ok(())
             }

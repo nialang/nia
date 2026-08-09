@@ -54,6 +54,7 @@ pub enum TokenKind {
     Never,
     Not,
     Null,
+    Opaque,
     Or,
     Pub,
     Pkg,
@@ -70,7 +71,6 @@ pub enum TokenKind {
     Union,
     Using,
     Var,
-    Void,
     Where,
     While,
 

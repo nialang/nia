@@ -492,7 +492,6 @@ impl Parser {
         let known = match token.kind {
             TokenKind::Bool => Some(nia_symbol::known::BOOL),
             TokenKind::Char => Some(nia_symbol::known::CHAR),
-            TokenKind::Void => Some(nia_symbol::known::VOID),
             TokenKind::Never => Some(nia_symbol::known::NEVER),
             _ => None,
         };

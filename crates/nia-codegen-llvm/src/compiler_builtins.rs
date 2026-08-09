@@ -173,6 +173,12 @@ impl CompilerBuiltinCollector {
                 }
                 FunctionArrayElements::Repeat { value, .. } => self.collect_expr(index, value),
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.collect_expr(index, elem);
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => self.collect_expr(index, value),
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_expr(index, &field.value);

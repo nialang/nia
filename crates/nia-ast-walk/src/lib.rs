@@ -175,8 +175,13 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
         TypeKind::Error
         | TypeKind::Infer
         | TypeKind::SelfType
-        | TypeKind::Void
+        | TypeKind::Opaque
         | TypeKind::Never => {}
+        TypeKind::Tuple { elems } => {
+            for elem in elems {
+                visitor.visit_type(elem);
+            }
+        }
         TypeKind::Path { segments } => {
             for segment in segments {
                 for arg in &segment.args {
@@ -313,6 +318,11 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 }
             }
         }
+        ExprKind::Tuple(elems) => {
+            for elem in elems {
+                visitor.visit_expr(elem);
+            }
+        }
         ExprKind::ArrayLiteral { elems } => match elems {
             ArrayElements::List(elems) => {
                 for elem in elems {
@@ -441,6 +451,11 @@ fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'as
         | PatternKind::OptionalSome(pattern)
         | PatternKind::ErrorOk(pattern)
         | PatternKind::ErrorErr(pattern) => visit_pattern(visitor, pattern),
+        PatternKind::Tuple(patterns) => {
+            for pattern in patterns {
+                visit_pattern(visitor, pattern);
+            }
+        }
         PatternKind::EnumVariant { variant, fields } => {
             visitor.visit_expr(variant);
             match fields {

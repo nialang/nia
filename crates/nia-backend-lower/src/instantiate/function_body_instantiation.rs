@@ -353,6 +353,16 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                     elems: self.instantiate_array_elements(elems, substitutions),
                 },
+                FunctionExprKind::Tuple(elems) => FunctionExprKind::Tuple(
+                    elems
+                        .into_iter()
+                        .map(|elem| self.instantiate_expr(elem, substitutions))
+                        .collect(),
+                ),
+                FunctionExprKind::TupleField { value, index } => FunctionExprKind::TupleField {
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                    index,
+                },
                 FunctionExprKind::StructLiteral { def_id, fields } => {
                     FunctionExprKind::StructLiteral {
                         def_id,

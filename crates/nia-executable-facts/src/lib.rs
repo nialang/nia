@@ -512,6 +512,10 @@ fn collect_typed_stmt_refs(
                 collect_typed_expr_refs(module, value, refs);
             }
         }
+        TypedStmtKind::PatternBinding(binding) => {
+            collect_typed_pattern_refs(module, &binding.pattern, refs);
+            collect_typed_expr_refs(module, &binding.value, refs);
+        }
         TypedStmtKind::Expr(expr) | TypedStmtKind::Defer(expr) => {
             collect_typed_expr_refs(module, expr, refs);
         }
@@ -628,6 +632,11 @@ fn collect_typed_expr_refs(
                 collect_typed_expr_refs(module, value, refs)
             }
         },
+        TypedExprKind::Tuple(elems) => {
+            for elem in elems {
+                collect_typed_expr_refs(module, elem, refs);
+            }
+        }
         TypedExprKind::StructLiteral { fields, .. } => {
             for field in fields {
                 collect_typed_expr_refs(module, &field.value, refs);
@@ -911,6 +920,11 @@ fn collect_typed_pattern_refs(
         TypedPatternKind::EnumVariant { fields, .. } => {
             for field in fields {
                 collect_typed_pattern_refs(module, field, refs);
+            }
+        }
+        TypedPatternKind::Tuple(patterns) => {
+            for pattern in patterns {
+                collect_typed_pattern_refs(module, pattern, refs);
             }
         }
         TypedPatternKind::Expr(expr) => collect_typed_expr_refs(module, expr, refs),

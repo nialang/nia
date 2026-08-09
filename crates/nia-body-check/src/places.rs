@@ -184,7 +184,7 @@ impl<'a> BodyChecker<'a> {
             return Some("expression type is not known");
         };
         if self.is_invalid_temporary_type(ty) {
-            Some("temporary cannot have void or never type")
+            Some("temporary cannot have an uninhabited type")
         } else {
             None
         }
@@ -676,12 +676,15 @@ impl<'a> BodyChecker<'a> {
         );
         match self.expect_ty_kind(ty) {
             TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
-                if self.normalization.normalize(*elem) == self.void() =>
+                if matches!(
+                    self.interner.get(self.normalization.normalize(*elem)),
+                    Some(TyKind::Opaque)
+                ) =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    "cannot dereference `&void`",
+                    "cannot dereference `&opaque`",
                 ));
                 self.error()
             }
@@ -724,12 +727,15 @@ impl<'a> BodyChecker<'a> {
         );
         match self.expect_ty_kind(ty) {
             TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
-                if self.normalization.normalize(*elem) == self.void() =>
+                if matches!(
+                    self.interner.get(self.normalization.normalize(*elem)),
+                    Some(TyKind::Opaque)
+                ) =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    "cannot dereference `&void`",
+                    "cannot dereference `&opaque`",
                 ));
                 self.error()
             }

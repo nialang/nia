@@ -46,6 +46,23 @@ impl FunctionLowerer<'_> {
                 let binding = self.lower_binding(binding, scope, current, ops, blocks);
                 ops.push(FunctionOp::Binding(binding));
             }
+            TypedStmtKind::PatternBinding(binding) => {
+                let value = self.lower_value_expr(&binding.value, scope, current, ops, blocks);
+                let temp = self.alloc_temp_local(binding.value.span, binding.value.ty);
+                ops.push(FunctionOp::Binding(FunctionBinding {
+                    local_id: temp,
+                    name: LocalName::temporary(temp.0),
+                    ty: binding.value.ty,
+                    value: Some(value),
+                    is_let: true,
+                }));
+                let target = FunctionExpr {
+                    span: binding.value.span,
+                    ty: binding.value.ty,
+                    kind: FunctionExprKind::Local(temp),
+                };
+                self.lower_pattern_binding(&binding.pattern, &target, ops);
+            }
             TypedStmtKind::Expr(expr) => {
                 self.lower_expr_stmt(stmt.span, expr, scope, current, ops, blocks);
             }
@@ -445,7 +462,8 @@ impl FunctionLowerer<'_> {
                     | TypedPatternKind::OptionalSome(_)
                     | TypedPatternKind::OptionalNull
                     | TypedPatternKind::ErrorOk(_)
-                    | TypedPatternKind::ErrorErr(_) => {}
+                    | TypedPatternKind::ErrorErr(_)
+                    | TypedPatternKind::Tuple(_) => {}
                 }
             }
             lowered_arms.push((arm_target, arm));

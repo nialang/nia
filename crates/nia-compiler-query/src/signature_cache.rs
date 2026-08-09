@@ -1951,6 +1951,11 @@ fn write_ty_kind(
             graph.write_symbol(encoded, *name)?;
         }
         TyKind::SelfParam => encoded.push(20),
+        TyKind::Opaque => encoded.push(21),
+        TyKind::Tuple(elems) => {
+            encoded.push(22);
+            write_types(encoded, elems, graph)?;
+        }
     }
     Ok(())
 }
@@ -2036,6 +2041,8 @@ fn read_ty_kind(
         },
         19 => TyKind::GenericParam(read_symbol(cursor, symbols)?),
         20 => TyKind::SelfParam,
+        21 => TyKind::Opaque,
+        22 => TyKind::Tuple(read_types(cursor, types)?),
         _ => return None,
     })
 }

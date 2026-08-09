@@ -397,6 +397,7 @@ struct LoweredAssocBindingKey<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypeContext {
     Value,
+    Pointee,
     Return,
     Alias,
     SizeQuery,
@@ -858,6 +859,15 @@ impl<'a> TypeLowerer<'a, '_> {
     fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
         self.type_uses.insert(ty.node_key.site().clone(), lowered);
+        if matches!(self.type_store.get(lowered), Some(TyKind::Opaque))
+            && context != TypeContext::Pointee
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_NORMALIZATION,
+                ty.span,
+                "`opaque` is incomplete and may only be used as a direct pointer target",
+            ));
+        }
         if context == TypeContext::Value
             && let Some(message) = self.invalid_value_type_message(lowered)
         {
@@ -881,8 +891,15 @@ impl<'a> TypeLowerer<'a, '_> {
                 ));
                 self.append.intern(TyKind::Error)
             }
-            TypeKind::Void => self.append.intern(TyKind::Primitive(PrimitiveTy::Void)),
+            TypeKind::Opaque => self.append.intern(TyKind::Opaque),
             TypeKind::Never => self.append.intern(TyKind::Primitive(PrimitiveTy::Never)),
+            TypeKind::Tuple { elems } => {
+                let elems = elems
+                    .iter()
+                    .map(|elem| self.lower_type_in_context(elem, TypeContext::Value))
+                    .collect();
+                self.append.intern(TyKind::Tuple(elems))
+            }
             TypeKind::Optional { elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
                 self.append.intern(TyKind::Optional { elem })
@@ -904,7 +921,7 @@ impl<'a> TypeLowerer<'a, '_> {
                 if let Some(trait_object) = self.lower_trait_object_type(*is_readonly, elem) {
                     trait_object
                 } else {
-                    let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                    let elem = self.lower_type_in_context(elem, TypeContext::Pointee);
                     self.append.intern(TyKind::Pointer {
                         is_readonly: *is_readonly,
                         elem,
@@ -912,7 +929,7 @@ impl<'a> TypeLowerer<'a, '_> {
                 }
             }
             TypeKind::VolatilePointer { is_readonly, elem } => {
-                let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                let elem = self.lower_type_in_context(elem, TypeContext::Pointee);
                 self.append.intern(TyKind::VolatilePointer {
                     is_readonly: *is_readonly,
                     elem,
@@ -952,7 +969,7 @@ impl<'a> TypeLowerer<'a, '_> {
                     Some(return_type) => {
                         self.lower_type_in_context(return_type, TypeContext::Return)
                     }
-                    None => self.append.intern(TyKind::Primitive(PrimitiveTy::Void)),
+                    None => self.append.intern(TyKind::Tuple(Vec::new())),
                 };
                 self.append.intern(TyKind::FunctionPointer {
                     params,

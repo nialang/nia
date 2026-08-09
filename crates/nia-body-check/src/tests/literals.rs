@@ -208,7 +208,7 @@ fn main(flag: bool) i32 {
 fn allows_never_if_branches_to_converge_to_the_other_branch_type() {
     let checked = pipeline(
         r#"
-fn then_return_else_void(flag: bool) void {
+fn then_return_else_unit(flag: bool) () {
     if flag {
         return;
     } else {
@@ -216,7 +216,7 @@ fn then_return_else_void(flag: bool) void {
     }
 }
 
-fn chained_returns(byte: u8) void {
+fn chained_returns(byte: u8) () {
     if byte == b'/' {
         return;
     } else if byte == b'*' {

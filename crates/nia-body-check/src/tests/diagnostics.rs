@@ -14,14 +14,14 @@ struct Pair[A, B] {
     second: B,
 }
 
-fn take_pair(value: Pair[i32, usize]) void {}
-fn take_read_point_ptr(value: &Point) void {}
-fn take_array(value: [3]i32) void {}
-fn take_slice(value: &[i32]) void {}
-fn take_fn_ptr(value: &fn(i32, usize) bool) void {}
-fn pred(value: i32, width: usize) void {}
+fn take_pair(value: Pair[i32, usize]) () {}
+fn take_read_point_ptr(value: &Point) () {}
+fn take_array(value: [3]i32) () {}
+fn take_slice(value: &[i32]) () {}
+fn take_fn_ptr(value: &fn(i32, usize) bool) () {}
+fn pred(value: i32, width: usize) () {}
 
-fn main(value: void, ptr: &u8) void {
+fn main(value: (), ptr: &u8) () {
     let mut short = [1, 2];
     _ = value as usize;
     take_pair(true);
@@ -40,7 +40,7 @@ fn main(value: void, ptr: &u8) void {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("invalid cast: cannot cast void to usize")),
+            .any(|message| message.contains("invalid cast: cannot cast () to usize")),
         "{:?}",
         checked.diagnostics
     );

@@ -102,6 +102,13 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let ty = self.normalize_aliases(ty);
         match self.interner.get(ty).cloned() {
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.normalize_projection_inner(elem, active_projections))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
@@ -326,6 +333,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
@@ -802,6 +810,9 @@ impl<'a> BodyChecker<'a> {
                 self.type_contains_const_expr_len(*elem, visited)
             }
             Some(TyKind::Optional { elem }) => self.type_contains_const_expr_len(*elem, visited),
+            Some(TyKind::Tuple(elems)) => elems
+                .iter()
+                .any(|elem| self.type_contains_const_expr_len(*elem, visited)),
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.type_contains_const_expr_len(*error, visited)
                     || self.type_contains_const_expr_len(*value, visited)
@@ -854,6 +865,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Primitive(_)
+                | TyKind::Opaque
                 | TyKind::ConstOnly
                 | TyKind::Vector { .. }
                 | TyKind::BuiltinType(_)
@@ -1411,6 +1423,19 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn ty_name(&self, ty: InternedTyId) -> String {
         match self.interner.get(ty) {
+            Some(TyKind::Opaque) => "opaque".to_string(),
+            Some(TyKind::Tuple(elems)) if elems.is_empty() => "()".to_string(),
+            Some(TyKind::Tuple(elems)) => {
+                let names = elems
+                    .iter()
+                    .map(|elem| self.ty_name(*elem))
+                    .collect::<Vec<_>>();
+                if names.len() == 1 {
+                    format!("({},)", names[0])
+                } else {
+                    format!("({})", names.join(", "))
+                }
+            }
             Some(TyKind::Primitive(primitive)) => primitive.name().to_string(),
             Some(TyKind::Vector { elem, lanes }) => format!("{}x{lanes}", elem.name()),
             Some(TyKind::Pointer { is_readonly, elem }) => {
@@ -1810,7 +1835,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn void(&self) -> InternedTyId {
-        self.primitive(PrimitiveTy::Void)
+        self.interner.intern(TyKind::Tuple(Vec::new()))
     }
 
     pub(crate) fn never(&self) -> InternedTyId {
@@ -1818,7 +1843,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn is_void(&self, ty: InternedTyId) -> bool {
-        ty == self.void()
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Tuple(elems)) => elems.is_empty(),
+            Some(TyKind::Primitive(PrimitiveTy::Void)) => true,
+            _ => false,
+        }
     }
 
     pub(crate) fn is_never(&self, ty: InternedTyId) -> bool {
@@ -1826,7 +1855,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn is_invalid_temporary_type(&self, ty: InternedTyId) -> bool {
-        self.is_void(ty) || self.is_never(ty)
+        matches!(
+            self.interner.get(self.normalization.normalize(ty)),
+            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never))
+        )
     }
 
     pub(crate) fn is_integer(&self, ty: InternedTyId) -> bool {

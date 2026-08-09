@@ -1113,6 +1113,11 @@ impl Analyzer<'_> {
             | Some(TyKind::SlicePointee { elem }) => {
                 self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
             }
+            Some(TyKind::Tuple(elems)) => {
+                for elem in elems {
+                    self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
+                }
+            }
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.collect_array_len_const_exprs_in_ty_inner(error, out, seen);
                 self.collect_array_len_const_exprs_in_ty_inner(value, out, seen);
@@ -1208,6 +1213,7 @@ impl Analyzer<'_> {
                 TyKind::Range { bound: None, .. }
                 | TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::Primitive(_)

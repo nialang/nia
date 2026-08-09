@@ -341,6 +341,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         let target = &self.source.layouts.target;
         match self.ty_kind(ty) {
+            Some(TyKind::Tuple(elems)) => {
+                let mut size = 0u64;
+                let mut align = 1u64;
+                for elem in elems {
+                    let elem = self.layout_of(*elem)?;
+                    size = align_to(size, elem.align).saturating_add(elem.size);
+                    align = align.max(elem.align);
+                }
+                Some(TypeLayout {
+                    size: align_to(size, align),
+                    align,
+                })
+            }
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
             Some(
@@ -355,7 +368,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 size: target.pointer_size * 2,
                 align: target.pointer_align,
             }),
-            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. }) => None,
+            Some(
+                TyKind::Opaque | TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. },
+            ) => None,
             Some(TyKind::Range { bound: None, .. }) => Some(TypeLayout { size: 0, align: 1 }),
             Some(TyKind::Range {
                 bound: Some(bound), ..

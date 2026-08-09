@@ -250,6 +250,27 @@ pub(super) fn substitute_type(
     match type_store.get(ty) {
         Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
         Some(TyKind::SelfParam) => self_substitution.unwrap_or(ty),
+        Some(TyKind::Opaque) => ty,
+        Some(TyKind::Tuple(elems)) => {
+            let elems = elems
+                .iter()
+                .map(|elem| {
+                    substitute_type(
+                        append,
+                        module,
+                        type_store,
+                        *elem,
+                        substitutions,
+                        const_substitutions,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
+                    )
+                })
+                .collect();
+            append.intern(TyKind::Tuple(elems))
+        }
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
             let elem = substitute_type(

@@ -87,7 +87,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
-                        "non-void expression result is discarded; assign it to `_` explicitly",
+                        "non-unit expression result is discarded; assign it to `_` explicitly",
                     ));
                 }
             }
@@ -97,7 +97,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
-                        "`defer` expression must have type `void`",
+                        "`defer` expression must have type `()`",
                     ));
                 }
             }
@@ -343,6 +343,39 @@ impl<'a> BodyChecker<'a> {
                 };
                 self.check_irrefutable_pattern(inner, elem_ty, context)
             }
+            nia_ast::PatternKind::Tuple(patterns) => {
+                let elem_types = match self
+                    .interner
+                    .get(self.normalization.normalize(value_ty))
+                    .cloned()
+                {
+                    Some(TyKind::Tuple(elems)) if elems.len() == patterns.len() => elems,
+                    Some(TyKind::Tuple(elems)) => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            pattern.span,
+                            format!(
+                                "{context} tuple arity mismatch: expected {}, found {}",
+                                elems.len(),
+                                patterns.len()
+                            ),
+                        ));
+                        vec![self.error(); patterns.len()]
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            pattern.span,
+                            format!("{context} requires a tuple value"),
+                        ));
+                        vec![self.error(); patterns.len()]
+                    }
+                };
+                for (pattern, elem_ty) in patterns.iter().zip(elem_types) {
+                    self.check_irrefutable_pattern(pattern, elem_ty, context);
+                }
+                value_ty
+            }
             nia_ast::PatternKind::OptionalSome(_)
             | nia_ast::PatternKind::OptionalNull
             | nia_ast::PatternKind::ErrorOk(_)
@@ -428,14 +461,7 @@ impl<'a> BodyChecker<'a> {
                 "const binding requires an initializer",
             ));
         }
-        let Some(binding_key) = self.single_pattern_binding_key(&binding.pattern) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                binding.pattern.span,
-                "binding requires a single binding pattern",
-            ));
-            return;
-        };
+        let binding_key = self.single_pattern_binding_key(&binding.pattern);
         if !matches!(binding.pattern.kind, nia_ast::PatternKind::Bind { .. })
             && binding.value.is_none()
         {
@@ -444,7 +470,10 @@ impl<'a> BodyChecker<'a> {
                 binding.pattern.span,
                 "binding pattern requires an initializer",
             ));
-            return self.record_error_local_binding(binding_key);
+            if let Some(binding_key) = binding_key {
+                self.record_error_local_binding(binding_key);
+            }
+            return;
         }
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
@@ -461,7 +490,10 @@ impl<'a> BodyChecker<'a> {
                     // The initializer is validated by nia-const-check and has no runtime value.
                 } else if self.is_const_only_ty(value_ty) {
                     self.reject_runtime_const_only_value(value.span, "binding initializer");
-                    return self.record_error_local_binding(binding_key);
+                    if let Some(binding_key) = binding_key {
+                        self.record_error_local_binding(binding_key);
+                    }
+                    return;
                 } else {
                     self.expect_expr_type(value, explicit_input, value_ty, "binding initializer");
                 }
@@ -505,7 +537,9 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
         };
-        if let Some(local_id) = self.local_def(binding_key) {
+        if let Some(binding_key) = binding_key
+            && let Some(local_id) = self.local_def(binding_key)
+        {
             self.record_local_type(local_id, binding_ty);
         }
     }

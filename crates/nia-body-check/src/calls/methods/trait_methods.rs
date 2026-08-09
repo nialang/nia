@@ -332,6 +332,13 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.normalize_dynamic_trait_object_projection(candidate, elem))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner
@@ -535,6 +542,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
+                | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)

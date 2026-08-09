@@ -514,6 +514,11 @@ impl LocalDefinitionAllocator {
                     }
                 }
             }
+            ExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.allocate_expr(elem);
+                }
+            }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 self.allocate_array_elements(elems);
             }
@@ -652,6 +657,11 @@ impl LocalDefinitionAllocator {
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => {
                 self.allocate_pattern_with_span(pattern, binding_kind, binding_span)
+            }
+            PatternKind::Tuple(fields) => {
+                for field in fields {
+                    self.allocate_pattern_with_span(field, binding_kind, binding_span);
+                }
             }
             PatternKind::EnumVariant { variant, fields } => {
                 self.allocate_expr(variant);
@@ -922,7 +932,7 @@ impl<'a> LocalResolver<'a> {
         match &ty.kind {
             TypeKind::Error
             | TypeKind::SelfType
-            | TypeKind::Void
+            | TypeKind::Opaque
             | TypeKind::Never
             | TypeKind::Infer => {}
             TypeKind::Path { segments } => {
@@ -953,6 +963,11 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(expr);
                 }
                 self.resolve_type(elem);
+            }
+            TypeKind::Tuple { elems } => {
+                for elem in elems {
+                    self.resolve_type(elem);
+                }
             }
             TypeKind::Range { start, end, .. } => {
                 if let Some(start) = start {
@@ -1041,6 +1056,11 @@ impl<'a> LocalResolver<'a> {
                             self.resolve_expr(expr);
                         }
                     }
+                }
+            }
+            ExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.resolve_expr(elem);
                 }
             }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
@@ -1194,6 +1214,11 @@ impl<'a> LocalResolver<'a> {
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => {
                 self.resolve_pattern_with_span(pattern, binding_kind, binding_span, duplicate);
+            }
+            PatternKind::Tuple(fields) => {
+                for field in fields {
+                    self.resolve_pattern_with_span(field, binding_kind, binding_span, duplicate);
+                }
             }
             PatternKind::EnumVariant { variant, fields } => {
                 self.resolve_expr(variant);

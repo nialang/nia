@@ -333,6 +333,16 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                     elems: self.resolve_builtin_operator_calls_in_array_elements(elems),
                 },
+                FunctionExprKind::Tuple(elems) => FunctionExprKind::Tuple(
+                    elems
+                        .into_iter()
+                        .map(|elem| self.resolve_builtin_operator_calls_in_expr(elem))
+                        .collect(),
+                ),
+                FunctionExprKind::TupleField { value, index } => FunctionExprKind::TupleField {
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                    index,
+                },
                 FunctionExprKind::StructLiteral { def_id, fields } => {
                     FunctionExprKind::StructLiteral {
                         def_id,

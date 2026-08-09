@@ -57,6 +57,7 @@ pub struct TypedStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedStmtKind {
     Binding(TypedBinding),
+    PatternBinding(Box<TypedPatternBinding>),
     Expr(TypedExpr),
     Return(Option<TypedExpr>),
     Break,
@@ -65,6 +66,12 @@ pub enum TypedStmtKind {
     ForIn(Box<TypedForIn>),
     While(Box<TypedWhile>),
     Loop(Box<TypedLoop>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedPatternBinding {
+    pub pattern: TypedPattern,
+    pub value: TypedExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -141,6 +148,7 @@ pub enum TypedPatternKind {
     OptionalNull,
     ErrorOk(Box<TypedPattern>),
     ErrorErr(Box<TypedPattern>),
+    Tuple(Vec<TypedPattern>),
     EnumVariant {
         variant: GlobalDefId,
         backing_type: InternedTyId,
@@ -201,6 +209,7 @@ pub enum TypedExprKind {
         variant: GlobalDefId,
         fields: Vec<TypedExpr>,
     },
+    Tuple(Vec<TypedExpr>),
     BuiltinValue(BuiltinConst),
     Trap,
     Range(TypedRange),

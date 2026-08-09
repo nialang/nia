@@ -56,6 +56,7 @@ enum PatternFingerprint {
     OptionalNull,
     ErrorOk(Box<PatternFingerprint>),
     ErrorErr(Box<PatternFingerprint>),
+    Tuple(Vec<PatternFingerprint>),
     EnumVariant {
         variant: ExprFingerprint,
         fields: Vec<(Option<SymbolId>, PatternFingerprint)>,
@@ -92,6 +93,23 @@ struct SyntacticPatternCoverage {
 }
 
 impl SyntacticPatternCoverage {
+    fn is_catch_all(pattern: &Pattern) -> bool {
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::Bind { .. } => true,
+            PatternKind::Pointer(inner) | PatternKind::MutPointer(inner) => {
+                Self::is_catch_all(inner)
+            }
+            PatternKind::Tuple(fields) => fields.iter().all(Self::is_catch_all),
+            PatternKind::OptionalSome(_)
+            | PatternKind::OptionalNull
+            | PatternKind::ErrorOk(_)
+            | PatternKind::ErrorErr(_)
+            | PatternKind::EnumVariant { .. }
+            | PatternKind::Expr(_)
+            | PatternKind::Range { .. } => false,
+        }
+    }
+
     fn record(&mut self, pattern: &Pattern) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::Bind { .. } => self.catch_all = true,
@@ -109,6 +127,11 @@ impl SyntacticPatternCoverage {
                 .error_err
                 .get_or_insert_with(Default::default)
                 .record(inner),
+            PatternKind::Tuple(fields) => {
+                if fields.iter().all(Self::is_catch_all) {
+                    self.catch_all = true;
+                }
+            }
             PatternKind::EnumVariant { .. } => {}
             PatternKind::Expr(_) | PatternKind::Range { .. } => {}
         }
@@ -454,6 +477,14 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
+            ExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.check_expr_flow(elem);
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 match elems {
                     nia_ast::ArrayElements::List(elems) => {
@@ -592,6 +623,11 @@ impl FlowChecker<'_> {
             | PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => self.check_pattern_flow(pattern),
+            PatternKind::Tuple(fields) => {
+                for field in fields {
+                    self.check_pattern_flow(field);
+                }
+            }
             PatternKind::EnumVariant { variant, fields } => {
                 self.check_expr_flow(variant);
                 match fields {
@@ -652,6 +688,7 @@ impl FlowChecker<'_> {
             PatternKind::Pointer(inner) | PatternKind::MutPointer(inner) => {
                 Self::pattern_is_catch_all(inner)
             }
+            PatternKind::Tuple(fields) => fields.iter().all(Self::pattern_is_catch_all),
             PatternKind::OptionalSome(_)
             | PatternKind::OptionalNull
             | PatternKind::ErrorOk(_)
@@ -681,6 +718,12 @@ impl FlowChecker<'_> {
             PatternKind::ErrorErr(inner) => Some(PatternFingerprint::ErrorErr(Box::new(
                 Self::pattern_fingerprint(inner)?,
             ))),
+            PatternKind::Tuple(fields) => Some(PatternFingerprint::Tuple(
+                fields
+                    .iter()
+                    .map(Self::pattern_fingerprint)
+                    .collect::<Option<Vec<_>>>()?,
+            )),
             PatternKind::EnumVariant { variant, fields } => {
                 let fields = match fields {
                     nia_ast::EnumVariantPatternFields::Tuple(fields) => fields

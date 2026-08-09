@@ -218,6 +218,14 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_trait_object_vtables_from_expr(value, out, seen);
                 }
             },
+            FunctionExprKind::Tuple(elems) => {
+                for elem in elems {
+                    self.collect_trait_object_vtables_from_expr(elem, out, seen);
+                }
+            }
+            FunctionExprKind::TupleField { value, .. } => {
+                self.collect_trait_object_vtables_from_expr(value, out, seen)
+            }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_trait_object_vtables_from_expr(&field.value, out, seen);

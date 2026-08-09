@@ -293,6 +293,8 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
                 function_expr_contains_builtin_eq(value)
             }
         },
+        FunctionExprKind::Tuple(elems) => elems.iter().any(function_expr_contains_builtin_eq),
+        FunctionExprKind::TupleField { value, .. } => function_expr_contains_builtin_eq(value),
         FunctionExprKind::StructLiteral { fields, .. } => fields
             .iter()
             .any(|field| function_expr_contains_builtin_eq(&field.value)),

@@ -425,6 +425,22 @@ fn propagate_cross_function_constants_in_expr(
                 );
             }
         },
+        FunctionExprKind::Tuple(elems) => {
+            for elem in elems {
+                changed |= propagate_cross_function_constants_in_expr(
+                    elem,
+                    function_constants,
+                    instance_constants,
+                );
+            }
+        }
+        FunctionExprKind::TupleField { value, .. } => {
+            changed |= propagate_cross_function_constants_in_expr(
+                value,
+                function_constants,
+                instance_constants,
+            );
+        }
         FunctionExprKind::StructLiteral { fields, .. } => {
             for field in fields {
                 changed |= propagate_cross_function_constants_in_expr(

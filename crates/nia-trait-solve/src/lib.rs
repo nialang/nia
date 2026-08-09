@@ -1801,6 +1801,23 @@ impl TraitSolver<'_> {
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
             }
+            Some(TyKind::Opaque) => matches!(self.interner.get(actual), Some(TyKind::Opaque)),
+            Some(TyKind::Tuple(pattern_elems)) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Tuple(actual_elems)) if pattern_elems.len() == actual_elems.len() => {
+                    pattern_elems
+                        .iter()
+                        .zip(actual_elems)
+                        .all(|(pattern_elem, actual_elem)| {
+                            self.match_impl_pattern_with_consts(
+                                *pattern_elem,
+                                actual_elem,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Pointer { is_readonly, elem }) => matches!(
                 self.interner.get(actual).cloned(),
                 Some(TyKind::Pointer {
@@ -2252,6 +2269,14 @@ impl TraitSolver<'_> {
         match self.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
             Some(TyKind::SelfParam) => ty,
+            Some(TyKind::Opaque) => ty,
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.substitute_ty(elem, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Tuple(elems))
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })

@@ -1081,6 +1081,22 @@ impl<'a> BodyChecker<'a> {
                 self.interner.get(specific).cloned(),
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
             ),
+            Some(TyKind::Opaque) => {
+                matches!(self.interner.get(specific), Some(TyKind::Opaque))
+            }
+            Some(TyKind::Tuple(general_elems)) => match self.interner.get(specific).cloned() {
+                Some(TyKind::Tuple(specific_elems))
+                    if general_elems.len() == specific_elems.len() =>
+                {
+                    general_elems
+                        .iter()
+                        .zip(&specific_elems)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::BuiltinType(general_builtin)) => matches!(
                 self.interner.get(specific).cloned(),
                 Some(TyKind::BuiltinType(specific_builtin)) if general_builtin == specific_builtin
@@ -1538,6 +1554,23 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(actual_kind, Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
             }
+            Some(TyKind::Opaque) => matches!(actual_kind, Some(TyKind::Opaque)),
+            Some(TyKind::Tuple(pattern_elems)) => match actual_kind {
+                Some(TyKind::Tuple(actual_elems)) if pattern_elems.len() == actual_elems.len() => {
+                    pattern_elems
+                        .iter()
+                        .zip(&actual_elems)
+                        .all(|(pattern, actual)| {
+                            self.match_type_pattern_with_consts(
+                                *pattern,
+                                *actual,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,

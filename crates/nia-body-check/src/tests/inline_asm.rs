@@ -5,7 +5,7 @@ use super::common::*;
 fn checks_inline_asm_configuration() {
     let checked = pipeline(
         r#"
-fn main() void {
+fn main() () {
     let mut ret: i64 = 0;
     std::builtin::asm({
         code: b"syscall",
@@ -21,7 +21,7 @@ fn main() void {
 
     let bad = pipeline(
         r#"
-fn main() void {
+fn main() () {
     std::builtin::asm({
         code: 1,
         outputs: { rax: 10 },
@@ -70,7 +70,7 @@ fn main() void {
 
     let bare_option = pipeline(
         r#"
-fn main() void {
+fn main() () {
     let mut volatile = 0;
     std::builtin::asm({
         code: b"nop",
@@ -92,7 +92,7 @@ fn main() void {
         r#"
 struct Pair { x: i64 }
 
-fn main() void {
+fn main() () {
     let mut pair: Pair = { x: 1 };
     std::builtin::asm({
         code: b"nop",

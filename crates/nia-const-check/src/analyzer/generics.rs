@@ -59,6 +59,22 @@ impl Analyzer<'_> {
                 }
             }
             TyKind::SelfParam => {}
+            TyKind::Opaque => {}
+            TyKind::Tuple(elems) => {
+                if let Some(TyKind::Tuple(actual_elems)) = self.ty_kind(actual_ty)
+                    && elems.len() == actual_elems.len()
+                {
+                    for (elem, actual_elem) in elems.into_iter().zip(actual_elems) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            elem,
+                            actual_elem,
+                            substitutions,
+                        )?;
+                    }
+                }
+            }
             TyKind::Pointer { is_readonly, elem } => {
                 if let Some(TyKind::Pointer {
                     is_readonly: actual_readonly,

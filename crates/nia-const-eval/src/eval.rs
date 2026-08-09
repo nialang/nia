@@ -259,6 +259,13 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::Slice { lhs, range } => {
             return eval_resolved_array_slice_flow(span, lhs, range, env);
         }
+        ResolvedConstExprKind::Tuple(elems) => {
+            let mut values = Vec::with_capacity(elems.len());
+            for elem in elems {
+                values.push(eval_resolved_value_or_return_flow!(elem, env));
+            }
+            ConstValue::Tuple(values)
+        }
         ResolvedConstExprKind::ArrayLiteral { elems, .. } => {
             return eval_resolved_array_literal_flow(elems, env);
         }
@@ -562,6 +569,13 @@ fn eval_const_expr_flow(
         }
         EarlyConstExprKind::Slice { lhs, range } => {
             return eval_array_slice_flow(expr.span, lhs, range, env);
+        }
+        EarlyConstExprKind::Tuple(elems) => {
+            let mut values = Vec::with_capacity(elems.len());
+            for elem in elems {
+                values.push(eval_value_or_return_flow!(elem, env));
+            }
+            ConstValue::Tuple(values)
         }
         EarlyConstExprKind::ArrayLiteral { elems, .. } => {
             return eval_array_literal_flow(elems, env);
@@ -1208,6 +1222,13 @@ fn early_pattern_matches(
                 message: "const error switch pattern requires an error union target".to_string(),
             }),
         },
+        EarlyConstPattern::Tuple { patterns, span } => tuple_pattern_matches(
+            target,
+            patterns,
+            bindings,
+            *span,
+            |value, pattern, bindings| early_pattern_matches(value, pattern, env, bindings),
+        ),
         EarlyConstPattern::EnumVariant {
             variant,
             fields,
@@ -1311,6 +1332,13 @@ fn resolved_pattern_matches(
                 message: "const error switch pattern requires an error union target".to_string(),
             }),
         },
+        ResolvedConstPatternKind::Tuple { patterns, span } => tuple_pattern_matches(
+            target,
+            patterns,
+            bindings,
+            *span,
+            |value, pattern, bindings| resolved_pattern_matches(value, pattern, env, bindings),
+        ),
         ResolvedConstPatternKind::EnumVariant {
             variant,
             fields,
@@ -1403,6 +1431,34 @@ fn enum_pattern_matches<P>(
             message: "const enum pattern shape does not match its variant payload".to_string(),
         }),
     }
+}
+
+fn tuple_pattern_matches<P>(
+    target: &ConstValue,
+    patterns: &[P],
+    bindings: &mut Vec<ConstSwitchBinding>,
+    span: Span,
+    mut pattern_matches: impl FnMut(
+        &ConstValue,
+        &P,
+        &mut Vec<ConstSwitchBinding>,
+    ) -> Result<bool, ConstError>,
+) -> Result<bool, ConstError> {
+    let ConstValue::Tuple(values) = target else {
+        return Err(ConstError {
+            span,
+            message: "const tuple pattern requires a tuple target".to_string(),
+        });
+    };
+    if values.len() != patterns.len() {
+        return Ok(false);
+    }
+    for (value, pattern) in values.iter().zip(patterns) {
+        if !pattern_matches(value, pattern, bindings)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn switch_range_matches(
@@ -4096,6 +4152,14 @@ fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
         }
         (ConstValue::Range(lhs), ConstValue::Range(rhs)) => Some(lhs == rhs),
         (ConstValue::Array(lhs), ConstValue::Array(rhs)) => {
+            if lhs.len() != rhs.len() {
+                return Some(false);
+            }
+            lhs.iter()
+                .zip(rhs)
+                .try_fold(true, |_, (lhs, rhs)| values_equal(lhs, rhs))
+        }
+        (ConstValue::Tuple(lhs), ConstValue::Tuple(rhs)) => {
             if lhs.len() != rhs.len() {
                 return Some(false);
             }

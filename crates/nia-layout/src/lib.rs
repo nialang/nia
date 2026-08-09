@@ -618,6 +618,7 @@ impl<'a> LayoutComputer<'a> {
         }
         let layout = match self.type_context.get(ty_id).cloned() {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(primitive),
+            Some(TyKind::Tuple(elems)) => self.tuple_layout(span, &elems),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(span, elem, lanes),
             Some(
                 TyKind::Pointer { .. }
@@ -631,7 +632,9 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size * 2,
                 align: self.target.pointer_align,
             }),
-            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. }) => None,
+            Some(
+                TyKind::Opaque | TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. },
+            ) => None,
             Some(TyKind::Range { kind, bound }) => self.range_layout(span, kind, bound),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
             Some(TyKind::Optional { elem }) => self.optional_layout(span, elem),
@@ -690,7 +693,15 @@ impl<'a> LayoutComputer<'a> {
             Some(TyKind::Array { len, elem }) => {
                 self.is_open_generic_array_len(len) || self.is_open_generic_type_inner(*elem, seen)
             }
-            Some(TyKind::Vector { .. } | TyKind::Primitive(_) | TyKind::BuiltinType(_)) => false,
+            Some(
+                TyKind::Opaque
+                | TyKind::Vector { .. }
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_),
+            ) => false,
+            Some(TyKind::Tuple(elems)) => elems
+                .iter()
+                .any(|elem| self.is_open_generic_type_inner(*elem, seen)),
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }
@@ -881,6 +892,20 @@ impl<'a> LayoutComputer<'a> {
             return None;
         };
         Some(layout)
+    }
+
+    fn tuple_layout(&mut self, span: Span, elems: &[InternedTyId]) -> Option<TypeLayout> {
+        let mut size = 0u64;
+        let mut align = 1u64;
+        for elem in elems {
+            let elem = self.layout_ty(*elem, span)?;
+            size = align_to(size, elem.align).saturating_add(elem.size);
+            align = align.max(elem.align);
+        }
+        Some(TypeLayout {
+            size: align_to(size, align),
+            align,
+        })
     }
 
     fn range_layout(

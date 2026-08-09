@@ -680,7 +680,7 @@ impl Parser {
         let name = if is_builtin_type
             && matches!(
                 self.peek().kind,
-                TokenKind::Bool | TokenKind::Char | TokenKind::Never | TokenKind::Void
+                TokenKind::Bool | TokenKind::Char | TokenKind::Never
             ) {
             let token = self.bump();
 

@@ -366,6 +366,13 @@ impl Analyzer<'_> {
         self.primitive_ty_for_module(self.current_execution_module_id(), primitive)
     }
 
+    pub(super) fn current_runtime_tuple_type(&self, elems: Vec<InternedTyId>) -> InternedTyId {
+        self.type_contexts
+            .get(&self.current_execution_module_id())
+            .expect("active const execution module has a type context")
+            .intern(TyKind::Tuple(elems))
+    }
+
     pub(super) fn const_string_literal_type(
         &mut self,
         literal: &ConstStringLiteral,
