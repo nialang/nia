@@ -4676,7 +4676,7 @@ actual successful hosted run and uploaded report remain external.
 
 Phase H progress (2026-08-09, first hosted execution): GitHub Actions run
 `31290680652` checked out exact commit `e9f50942`, installed Rust stable and the
-pinned LLVM 22.1 toolchain, and passed the workflow-tooling tests before strict
+current LLVM 22.1 toolchain, and passed the workflow-tooling tests before strict
 Clippy stopped the matrix. The runner had advanced to Rust 1.97.1 while the
 local stable toolchain remained 1.96.0; reproducing under 1.97.1 exposed its new
 `unneeded_wildcard_pattern` and `byte_char_slices` lints. The redundant ignored
@@ -4694,3 +4694,15 @@ Both managed workflows explicitly retain Clippy/rustfmt while updating stable
 and print the resolved Rust, Cargo, Clippy, rustfmt, and LLVM versions. Workflow
 structure tests lock that observability, and contribution guidance requires
 updating stable before treating local broad gates as comparable evidence.
+
+Phase H progress (2026-08-09, hosted performance recovery): performance run
+`31292037050` passed toolchain installation and tooling tests but failed its
+first workload because the source-tree release compiler was invoked without an
+explicit resource root and therefore correctly rejected the absent installed
+layout under `target/lib/nia`. The performance runner now owns, validates, and
+records an explicit resource root in every compiler invocation. Failed
+candidate collection also retains its combined log and run/revision identity
+without assuming `candidate.json` exists, preventing cleanup from masking the
+original failure. Managed workflows move from Node 20 action releases to the
+current official checkout v7, cache v6, and artifact v7 runtimes; structural
+tests lock the invocation, failure-evidence, and action-version contracts.

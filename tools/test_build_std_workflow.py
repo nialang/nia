@@ -54,8 +54,17 @@ class BuildStdWorkflowTests(unittest.TestCase):
     def test_baseline_requires_real_acceptance_and_publishes_evidence(self):
         self.assertIn("--repetitions 1", self.workflow)
         self.assertIn('report["acceptance"]["passed"]', self.workflow)
-        self.assertIn("actions/upload-artifact@v4", self.workflow)
+        self.assertIn("actions/upload-artifact@v7", self.workflow)
         self.assertIn("nia-build-std-evidence", self.workflow)
+
+    def test_uses_current_official_action_runtimes(self):
+        for action in [
+            "actions/checkout@v7",
+            "actions/cache@v6",
+            "actions/upload-artifact@v7",
+        ]:
+            self.assertIn(action, self.workflow)
+        self.assertNotIn("@v4", self.workflow)
 
 
 if __name__ == "__main__":

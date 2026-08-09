@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -68,7 +68,7 @@ jobs:
           /usr/lib/llvm-22/bin/llvm-config --version
 
       - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -126,10 +126,13 @@ jobs:
 
       - name: Collect candidate baseline
         run: |
+          mkdir -p target/nia-perf
+          set -o pipefail
           python3 tools/perf.py \
             --repeat 3 \
             --runner-class github-hosted-ubuntu-24.04-x64 \
-            --output target/nia-perf/candidate.json
+            --output target/nia-perf/candidate.json \
+            2>&1 | tee target/nia-perf/candidate.log
 
       - name: Compare with main baseline
         if: steps.main_baseline.outputs.available == 'true'
@@ -160,6 +163,11 @@ jobs:
             echo "## Nia performance guard"
             echo "- Candidate revision: \`${GITHUB_SHA}\`"
             echo "- Runner class: \`github-hosted-ubuntu-24.04-x64\`"
+            if test -f target/nia-perf/candidate.json; then
+              echo "- Candidate collected: \`true\`"
+            else
+              echo "- Candidate collected: \`false\`"
+            fi
             if test "${BASELINE_AVAILABLE}" = true; then
               echo "- Main baseline run: \`${BASELINE_RUN_ID}\`"
             else
@@ -177,7 +185,12 @@ jobs:
         if: always()
         run: |
           mkdir -p target/nia-perf/artifact
-          cp target/nia-perf/candidate.json target/nia-perf/artifact/baseline.json
+          if test -f target/nia-perf/candidate.json; then
+            cp target/nia-perf/candidate.json target/nia-perf/artifact/baseline.json
+          fi
+          if test -f target/nia-perf/candidate.log; then
+            cp target/nia-perf/candidate.log target/nia-perf/artifact/candidate.log
+          fi
           if test -f target/nia-perf/comparison.json; then
             cp target/nia-perf/comparison.json target/nia-perf/artifact/comparison.json
           fi
@@ -186,7 +199,7 @@ jobs:
 
       - name: Store main-branch trend baseline
         if: success() && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nia-perf-baseline
           path: target/nia-perf/artifact
@@ -195,7 +208,7 @@ jobs:
 
       - name: Store unpromoted candidate
         if: always() && (github.ref != 'refs/heads/main' || failure())
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nia-perf-candidate
           path: target/nia-perf/artifact
