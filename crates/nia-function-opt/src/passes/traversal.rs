@@ -203,6 +203,7 @@ where
         | FunctionExprKind::RangeBound { range: expr, .. }
         | FunctionExprKind::Field { lhs: expr, .. }
         | FunctionExprKind::TupleField { value: expr, .. } => rewrite_expr(expr),
+        FunctionExprKind::CallableCoercion { state, .. } => rewrite_expr(state),
         FunctionExprKind::AddrOf(place) => {
             traversal.places && rewrite_place_exprs(place, rewrite_expr)
         }
@@ -312,6 +313,7 @@ where
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
         | FunctionCallee::BuiltinMethod { receiver, .. }
+        | FunctionCallee::Callable(receiver)
         | FunctionCallee::FunctionPointer(receiver) => rewrite_expr(receiver),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }

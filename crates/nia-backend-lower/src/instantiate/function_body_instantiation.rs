@@ -498,6 +498,12 @@ impl<'a> ModuleLowerer<'a> {
                     target_ty: self.instantiate_ty_with_id(target_ty, substitutions),
                     self_ty: self.instantiate_ty_with_id(self_ty, substitutions),
                 },
+                FunctionExprKind::CallableCoercion { state, closure_id } => {
+                    FunctionExprKind::CallableCoercion {
+                        state: Box::new(self.instantiate_expr(*state, substitutions)),
+                        closure_id,
+                    }
+                }
                 FunctionExprKind::Call { callee, args } => {
                     let args = args
                         .into_iter()
@@ -1020,6 +1026,9 @@ impl<'a> ModuleLowerer<'a> {
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
+            FunctionCallee::Callable(expr) => {
+                FunctionCallee::Callable(Box::new(self.instantiate_expr(*expr, substitutions)))
+            }
             FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.instantiate_expr(*expr, substitutions),
             )),

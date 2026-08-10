@@ -946,11 +946,11 @@ impl<'a> Encoder<'a> {
                 }
             }
             FunctionExprKind::Tuple(elems) => {
-                self.tag(52);
+                self.tag(55);
                 self.exprs(elems);
             }
             FunctionExprKind::TupleField { value, index } => {
-                self.tag(53);
+                self.tag(56);
                 self.expr(value);
                 self.usize(*index);
             }
@@ -965,7 +965,7 @@ impl<'a> Encoder<'a> {
                 self.function_field(field);
             }
             FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
-                self.tag(51);
+                self.tag(54);
                 self.len(bytes.len());
                 for byte in bytes {
                     self.bool(byte.is_some());
@@ -1056,6 +1056,12 @@ impl<'a> Encoder<'a> {
                 self.expr(expr);
                 self.ty(*target_ty);
                 self.ty(*self_ty);
+            }
+            FunctionExprKind::CallableCoercion { state, closure_id } => {
+                self.tag(57);
+                self.expr(state);
+                self.global_def(closure_id.owner);
+                self.u32(closure_id.ordinal);
             }
             FunctionExprKind::Call { callee, args } => {
                 self.tag(47);
@@ -1347,6 +1353,10 @@ impl<'a> Encoder<'a> {
             }
             FunctionCallee::FunctionPointer(expr) => {
                 self.tag(9);
+                self.expr(expr);
+            }
+            FunctionCallee::Callable(expr) => {
+                self.tag(11);
                 self.expr(expr);
             }
         }

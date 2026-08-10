@@ -946,6 +946,7 @@ pub enum ResolvedCall {
         trait_args: Vec<InternedTyId>,
     },
     Closure,
+    Callable,
     FunctionPointer,
 }
 

@@ -480,6 +480,12 @@ impl<'a> ModuleLowerer<'a> {
                     target_ty,
                     self_ty,
                 },
+                FunctionExprKind::CallableCoercion { state, closure_id } => {
+                    FunctionExprKind::CallableCoercion {
+                        state: Box::new(self.resolve_builtin_operator_calls_in_expr(*state)),
+                        closure_id,
+                    }
+                }
                 FunctionExprKind::Call { callee, args } => {
                     let callee = self.resolve_builtin_operator_calls_in_callee(callee);
                     let args = args
@@ -838,6 +844,9 @@ impl<'a> ModuleLowerer<'a> {
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
+            FunctionCallee::Callable(expr) => FunctionCallee::Callable(Box::new(
+                self.resolve_builtin_operator_calls_in_expr(*expr),
+            )),
             FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.resolve_builtin_operator_calls_in_expr(*expr),
             )),

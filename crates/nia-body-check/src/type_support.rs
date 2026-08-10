@@ -534,6 +534,17 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_node_type(expr, coerced);
             return;
         }
+        if matches!(
+            expr.kind,
+            ExprKind::Unary {
+                op: UnaryOp::Ref | UnaryOp::RefReadOnly,
+                ..
+            }
+        ) && let Some(coerced) = self.coerce_closure_pointer_to_callable(expected, actual)
+        {
+            self.record_expr_node_type(expr, coerced);
+            return;
+        }
         if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
             self.record_expr_node_type(expr, coerced);
             return;

@@ -265,6 +265,9 @@ fn collect_function_refs_from_expr(
             });
             collect_function_refs_from_expr(inner, types, refs);
         }
+        FunctionExprKind::CallableCoercion { state, .. } => {
+            collect_function_refs_from_expr(state, types, refs);
+        }
         FunctionExprKind::StaticArrayPointer {
             allocation, array, ..
         } => {
@@ -553,7 +556,7 @@ fn collect_function_refs_from_callee(
                 collect_function_refs_from_expr(receiver, types, refs);
             }
         }
-        FunctionCallee::FunctionPointer(receiver) => {
+        FunctionCallee::Callable(receiver) | FunctionCallee::FunctionPointer(receiver) => {
             collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::BuiltinOperator(_) => {}

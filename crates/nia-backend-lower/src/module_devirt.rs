@@ -180,6 +180,9 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
                 changed |= self.devirtualize_direct_trait_calls_in_expr(array);
             }
+            FunctionExprKind::CallableCoercion { state, .. } => {
+                changed |= self.devirtualize_direct_trait_calls_in_expr(state);
+            }
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {
@@ -322,6 +325,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
+            | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => {
                 self.devirtualize_direct_trait_calls_in_expr(receiver)
             }

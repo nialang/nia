@@ -410,6 +410,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
                 self.validate_value_expr(inner)?
             }
+            FunctionExprKind::CallableCoercion { state, .. } => self.validate_value_expr(state)?,
             FunctionExprKind::Discard(inner) => self.validate_expr(inner)?,
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &range.start {
@@ -593,6 +594,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
+            | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => self.validate_value_expr(receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }

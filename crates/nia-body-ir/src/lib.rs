@@ -310,6 +310,10 @@ pub enum TypedExprKind {
         target_ty: InternedTyId,
         self_ty: InternedTyId,
     },
+    CallableCoercion {
+        state: Box<TypedExpr>,
+        closure_id: nia_ids::ClosureId,
+    },
     Call {
         callee: TypedCallee,
         args: Vec<TypedExpr>,
@@ -579,6 +583,7 @@ pub enum TypedCallee {
     },
     BuiltinOperator(BuiltinOperator),
     BuiltinPlaceMethod(BuiltinPlaceMethod),
+    Callable(Box<TypedExpr>),
     FunctionPointer(Box<TypedExpr>),
 }
 

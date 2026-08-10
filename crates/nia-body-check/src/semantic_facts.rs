@@ -93,6 +93,9 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::Closure => {
                     "closure calls are not available during const evaluation".to_string()
                 }
+                ResolvedCall::Callable => {
+                    "callable view calls are not available during const evaluation".to_string()
+                }
                 ResolvedCall::FunctionPointer => {
                     "indirect function calls are not available during const evaluation".to_string()
                 }
@@ -117,6 +120,7 @@ impl<'a> BodyChecker<'a> {
             | ResolvedCall::TraitAssociatedFunction { method_id, .. } => *method_id,
             ResolvedCall::DynamicTraitMethod { .. }
             | ResolvedCall::Closure
+            | ResolvedCall::Callable
             | ResolvedCall::FunctionPointer => {
                 return false;
             }
@@ -212,6 +216,7 @@ impl<'a> BodyChecker<'a> {
             | ResolvedCall::BuiltinMethod { .. }
             | ResolvedCall::BuiltinPlaceMethod { .. }
             | ResolvedCall::Closure
+            | ResolvedCall::Callable
             | ResolvedCall::FunctionPointer => return,
         };
         if Some(def_id.module_id) != self.current_def_id.map(|current| current.module_id) {

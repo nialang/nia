@@ -422,6 +422,15 @@ impl<'a> BodyChecker<'a> {
                 self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Closure);
                 return_type
             }
+            TyKind::Callable {
+                params,
+                return_type,
+                ..
+            } => {
+                self.check_direct_call_args(span, args, &params, false);
+                self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Callable);
+                return_type
+            }
             TyKind::Error => {
                 for arg in args {
                     self.check_expr(arg);

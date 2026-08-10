@@ -1515,7 +1515,23 @@ unsized `TyKind::CallablePointee`; `&Fn(...)` and `&mut Fn(...)` are
 `TyKind::Callable` values whose readonly bit is part of type identity. The
 interface signature participates in normalization, substitution, structural
 equivalence, reachability, monomorphization, persistent signature caching, and
-mangling even before dynamic construction and calls are enabled.
+mangling.
+
+Body checking constructs a callable view only when an expected `TyKind::Callable`
+guides an explicit `&closure` or `&mut closure` expression. It requires exact
+parameter and return signatures, permits a mutable state pointer to become a
+readonly view, and rejects the opposite direction. The conversion does not
+apply to a closure-state pointer after that pointer has been stored separately.
+Checked Body IR records the operation as `TypedExprKind::CallableCoercion` and
+records calls with `TypedCallee::Callable`; Function IR preserves those as
+`FunctionExprKind::CallableCoercion` and `FunctionCallee::Callable`. Both nodes
+retain ordinary recursive expression dependencies, while the construction also
+carries the owning `ClosureId` used to select the generated entry.
+
+These nodes stop at the same explicit backend materialization boundary as a
+direct `FunctionCallee::ClosureEntry` call. LLVM codegen does not synthesize an
+entry address or callable call ABI ahead of the stable closure-entry symbols
+and ABI records owned by the final closure product wave.
 
 ### 9.5 `nia-function-lower`
 

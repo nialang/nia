@@ -56,7 +56,7 @@ The type taxonomy is deliberately split:
 ### 3. Callable views and coercions
 
 - [x] Add the unsized `Fn(Args...) Return` callable interface type.
-- [ ] Add explicit `&Fn`/`&mut Fn` fat-pointer construction and dynamic calls.
+- [x] Add explicit `&Fn`/`&mut Fn` fat-pointer construction and dynamic calls.
 - [ ] Permit no-capture decay to the existing `&fn` pointer only.
 - [ ] Reject capturing-to-thin-pointer coercions with a dedicated diagnostic.
 
@@ -85,3 +85,12 @@ than referring to parent-function locals. Stable backend symbols and ABI
 records remain gated as Wave 5 work; backend input assembly rejects generated
 entries at that explicit materialization boundary instead of treating them as
 source `GlobalDefId` functions or thin `&fn` pointers.
+
+Wave 3 callable construction is expected-type guided but remains explicit in
+source: only `&closure` and `&mut closure` create views. Signatures match
+structurally, writable state may be viewed readonly, and a readonly state
+pointer cannot become writable. Body IR and Function IR use dedicated
+construction and callee variants, and the generated entry remains owned by the
+same `LoweredFunctionBody` product. Executable materialization remains
+intentionally blocked until Wave 5 assigns stable entry symbols and ABI
+records.

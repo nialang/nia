@@ -8,7 +8,8 @@ fn lowered_closure_entries_remain_owned_by_the_source_body_query() {
         r#"
 fn main(base: i32) i32 {
     let callback = [base](value: i32) i32 { base + value };
-    callback(2)
+    let view: &Fn(i32) i32 = &callback;
+    callback(1) + view(2)
 }
 "#,
     );
@@ -49,22 +50,51 @@ fn main(base: i32) i32 {
             .expect("source body")
             .blocks
             .iter()
-            .any(|block| {
-                matches!(
-                    &block.terminator,
-                    nia_function_ir::FunctionTerminator::Tail {
-                        value: Some(nia_function_ir::FunctionExpr {
-                            kind: nia_function_ir::FunctionExprKind::Call {
-                                callee: nia_function_ir::FunctionCallee::ClosureEntry { .. },
-                                ..
-                            },
-                            ..
-                        }),
+            .flat_map(|block| &block.ops)
+            .any(|op| matches!(
+                op,
+                nia_function_ir::FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    value: Some(nia_function_ir::FunctionExpr {
+                        kind: nia_function_ir::FunctionExprKind::CallableCoercion {
+                            closure_id,
+                            state,
+                        },
                         ..
-                    }
-                )
-            })
+                    }),
+                    ..
+                }) if *closure_id == entry.closure_id
+                    && matches!(state.kind, nia_function_ir::FunctionExprKind::AddrOf(_))
+            ))
     );
+    let tail = lowered
+        .body()
+        .expect("source body")
+        .blocks
+        .iter()
+        .find_map(|block| match &block.terminator {
+            nia_function_ir::FunctionTerminator::Tail {
+                value: Some(value), ..
+            } => Some(value),
+            _ => None,
+        })
+        .expect("source tail");
+    let nia_function_ir::FunctionExprKind::Call { args, .. } = &tail.kind else {
+        panic!("expected addition call");
+    };
+    assert!(matches!(
+        args[0].kind,
+        nia_function_ir::FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::ClosureEntry { closure_id, .. },
+            ..
+        } if closure_id == entry.closure_id
+    ));
+    assert!(matches!(
+        args[1].kind,
+        nia_function_ir::FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::Callable(_),
+            ..
+        }
+    ));
 
     let backend_inputs = db.expect_get(BackendLoweringInputsQuery);
     assert!(backend_inputs.semantic.is_none());
