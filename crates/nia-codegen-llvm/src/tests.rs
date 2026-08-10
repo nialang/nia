@@ -156,6 +156,60 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn closure_function_pointer_codegen_materializes_adapter() {
+    let root = common::temp_dir("closure_function_pointer_codegen_adapter");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn apply[T](value: T) T {
+    let callback = [](inner: T) T { inner };
+    let pointer: &fn(T) T = &callback;
+    pointer(value)
+}
+
+fn main() i32 {
+    apply[i32](7)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let module = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main backend module");
+    let entry = module
+        .closure_entries
+        .iter()
+        .find(|entry| {
+            matches!(
+                entry.key.owner,
+                nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(_)
+            )
+        })
+        .expect("generic instance closure entry");
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    let adapter_symbol = format!("{}__fn_adapter", entry.symbol);
+
+    assert!(
+        ir.contains(&adapter_symbol),
+        "LLVM IR omitted no-capture adapter `{adapter_symbol}`: {ir}"
+    );
+    assert!(
+        ir.contains("closure.fn.call"),
+        "LLVM IR omitted adapter entry call: {ir}"
+    );
+}
+
+#[test]
 fn generic_closure_codegen_uses_the_concrete_instance_entry() {
     let root = common::temp_dir("generic_closure_codegen_instance_entry");
     let main = root.join("main.nia");

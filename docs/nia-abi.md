@@ -263,9 +263,12 @@ function or concrete generic instance. Direct closure calls pass the state
 pointer as the hidden first argument; callable-view calls load the view's state
 and entry fields and make an indirect call with that same ABI. This is an
 internal, unstable ABI: it does not imply an allocator-backed owner or
-destruction protocol. A no-capture closure-to-`&fn` conversion still needs a
+destruction protocol. A no-capture closure-to-`&fn` conversion uses a
 separate zero-state adapter because the thin function-pointer ABI has no hidden
-state parameter.
+state parameter. The adapter has the ordinary thin signature and creates a
+private non-null token for the empty closure state while it calls the generated
+entry. It forwards direct and indirect arguments and returns according to the
+same Nia ABI classification as an ordinary function.
 
 ## 9. Array Representation
 

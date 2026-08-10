@@ -1,12 +1,26 @@
 using std::process;
 using helper;
 
+struct Pair {
+    left: i32,
+    right: i32,
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let base = helper::marker();
     let callback = [base](value: i32) i32 { base + value };
     let view: &Fn(i32) i32 = &callback;
-    if callback(1) != 2 or view(2) != 3 {
+    let increment = [](value: i32) i32 { value + 1 };
+    let incrementPointer: &fn(i32) i32 = &increment;
+    let swap = [](value: Pair) Pair {
+        Pair { left: value.right, right: value.left }
+    };
+    let swapPointer: &fn(Pair) Pair = &swap;
+    let swapped = swapPointer(Pair { left: 4, right: 5 });
+    if callback(1) != 2 or view(2) != 3 or incrementPointer(3) != 4
+        or swapped.left != 5 or swapped.right != 4
+    {
         return process::exit(10)!;
     }
     !()

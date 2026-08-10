@@ -492,10 +492,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::CallableCoercion { closure_id, state } => {
                 self.emit_callable_coercion(expr.span, *closure_id, state)
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => Err(self.error(
-                expr.span,
-                "closure function pointer reached LLVM before closure entry materialization",
-            )),
+            FunctionExprKind::ClosureFunctionPointer { closure_id } => {
+                let key = nia_backend_ir::BackendClosureEntryKey {
+                    closure_id: *closure_id,
+                    owner: self.function.closure_owner.clone(),
+                };
+                Ok(self
+                    .module
+                    .closure_function_pointer_adapter(&key, expr.ty, expr.span)?
+                    .as_global_value()
+                    .as_pointer_value()
+                    .into())
+            }
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {

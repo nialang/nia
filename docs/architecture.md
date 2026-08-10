@@ -1544,9 +1544,12 @@ and emits it in the same partition as its source function or concrete generic
 instance. A direct `FunctionCallee::ClosureEntry` calls that declaration with
 the hidden state pointer; `FunctionCallee::Callable` extracts the state and
 entry fields from its two-word view and performs an indirect call with the same
-ABI. `FunctionExprKind::ClosureFunctionPointer` remains at a distinct
-materialization boundary: a no-capture entry still has a hidden state parameter,
-so conversion to the thin `&fn` ABI requires a zero-state adapter thunk.
+ABI. `FunctionExprKind::ClosureFunctionPointer` resolves to a generated thin
+adapter for the same entry. The adapter has the ordinary `&fn` signature,
+creates a private non-null zero-state token for the duration of the call, and
+forwards it as the entry's hidden state pointer. Adapters are keyed by the full
+source-or-instance closure entry identity and use a stable symbol derived from
+the entry symbol.
 
 The LLVM backend validator treats generated entries as first-class backend
 products before codegen. It validates the hidden state parameter as a

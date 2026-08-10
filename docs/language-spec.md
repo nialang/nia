@@ -1405,10 +1405,9 @@ error and should instead use a matching `&Fn(...)` callable view. This bounded
 no-capture conversion does not make `&fn(...)` and `&Fn(...)`
 representation-equivalent type families.
 
-The frontend accepts this no-capture conversion. Native LLVM emission remains
-reserved until it has a generated zero-state adapter: the concrete closure
-entry has a hidden state parameter whereas `&fn(...)` has the ordinary thin
-function-pointer ABI.
+Native LLVM emission implements this conversion with a generated zero-state
+adapter: the adapter has the ordinary thin function-pointer ABI and supplies a
+private state token when it calls the concrete closure entry.
 
 Callable views are non-owning and stack-backed by default. A view created from a
 concrete closure must remain within the lexical lifetime of that closure state:
@@ -3863,8 +3862,8 @@ this document:
 - payload-carrying algebraic data types beyond current enums;
 - aggregate destructuring patterns beyond current optional and error-union
   patterns;
-- allocator-backed closure ownership, explicit destruction, and the no-capture
-  closure-to-thin-`&fn` adapter (the staged closure implementation is tracked in
+- allocator-backed closure ownership and explicit destruction (the staged
+  closure implementation is tracked in
   [closure-roadmap.md](closure-roadmap.md));
 - package management semantics;
 - LSP semantics;
