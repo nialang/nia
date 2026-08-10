@@ -85,7 +85,7 @@ pub struct Point {
 }
 
 #[test]
-fn closure_codegen_reports_the_materialization_boundary() {
+fn closure_codegen_materializes_direct_entry_calls() {
     let root = common::temp_dir("closure_codegen_materialization_boundary");
     let main = root.join("main.nia");
     std::fs::write(
@@ -102,14 +102,108 @@ fn main(base: i32) i32 {
     let codegen = common::codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let module = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main backend module");
+    let entry_symbol = &module.closure_entries[0].symbol;
+    let ir = common::source_module_ir(&output, "main.nia");
 
     assert!(
-        output.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .summary
-                .contains("generated closure entry reached LLVM before backend materialization")
-        }),
-        "expected the closure materialization boundary diagnostic, got {:?}",
-        output.diagnostics
+        ir.contains(entry_symbol),
+        "LLVM IR omitted generated closure entry `{entry_symbol}`: {ir}"
+    );
+    assert!(
+        ir.contains("closure.call") || ir.contains("call i32"),
+        "LLVM IR omitted direct closure call: {ir}"
+    );
+}
+
+#[test]
+fn callable_view_codegen_materializes_dynamic_dispatch() {
+    let root = common::temp_dir("callable_view_codegen_dynamic_dispatch");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    let view: &Fn(i32) i32 = &callback;
+    view(1)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+
+    assert!(
+        ir.contains("callable.entry"),
+        "LLVM IR omitted callable entry metadata: {ir}"
+    );
+    assert!(
+        ir.contains("callable.call"),
+        "LLVM IR omitted callable indirect dispatch: {ir}"
+    );
+}
+
+#[test]
+fn generic_closure_codegen_uses_the_concrete_instance_entry() {
+    let root = common::temp_dir("generic_closure_codegen_instance_entry");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn apply[T](value: T) T {
+    let callback = [value]() T { value };
+    callback()
+}
+
+fn main() i32 {
+    apply[i32](7)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let module = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main backend module");
+    let entry = module
+        .closure_entries
+        .iter()
+        .find(|entry| {
+            matches!(
+                entry.key.owner,
+                nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(_)
+            )
+        })
+        .expect("generic instance closure entry");
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+
+    assert!(
+        ir.contains(&entry.symbol),
+        "LLVM IR omitted concrete generic closure entry `{}`: {ir}",
+        entry.symbol
+    );
+    assert!(
+        ir.contains("closure.call"),
+        "LLVM IR omitted generic closure entry call: {ir}"
     );
 }

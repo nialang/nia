@@ -1507,7 +1507,7 @@ identity and an explicit readonly state-pointer expression. The generated body
 receives that pointer as its first ABI parameter; captured local references are
 rewritten to ordered state-field projections, so parent-function `LocalId`
 values never cross into the entry body. Stable symbols and backend ABI records
-are a later materialization boundary, not part of source definition identity.
+are backend products, not part of source definition identity.
 
 The callable interface type is deliberately separate from generated closure
 entry materialization. `Fn(Args...) Return` is represented semantically by the
@@ -1539,19 +1539,21 @@ it as `FunctionExprKind::ClosureFunctionPointer`. The node carries the owning
 `ClosureId` rather than pretending that a generated closure entry is a source
 `GlobalDefId` function.
 
-These callable-view and closure-function-pointer nodes stop at the same explicit
-backend materialization boundary as a direct `FunctionCallee::ClosureEntry`
-call. LLVM codegen does not synthesize an entry address or callable call ABI
-ahead of the stable closure-entry symbols and ABI records owned by the final
-closure product wave.
+LLVM codegen declares each generated entry from its stable backend ABI record
+and emits it in the same partition as its source function or concrete generic
+instance. A direct `FunctionCallee::ClosureEntry` calls that declaration with
+the hidden state pointer; `FunctionCallee::Callable` extracts the state and
+entry fields from its two-word view and performs an indirect call with the same
+ABI. `FunctionExprKind::ClosureFunctionPointer` remains at a distinct
+materialization boundary: a no-capture entry still has a hidden state parameter,
+so conversion to the thin `&fn` ABI requires a zero-state adapter thunk.
 
-The LLVM backend validator still treats generated entries as first-class
-backend products before that gate. It validates the hidden state parameter as a
+The LLVM backend validator treats generated entries as first-class backend
+products before codegen. It validates the hidden state parameter as a
 readonly pointer to the published closure-state type, checks user parameter
 order and local identities against the ABI record, and validates the generated
 Function IR body and return type. This keeps malformed closure products from
-reaching LLVM while preserving the deliberate materialization diagnostic for
-otherwise valid callable views and closure-entry calls.
+reaching LLVM before declarations and bodies are emitted.
 
 `nia-closure-check` is the independent semantic stage for this escape boundary.
 It consumes stable `nia-body-ir::TypedBody` products and the session

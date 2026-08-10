@@ -12,7 +12,10 @@ use crate::declaration_membership::CodegenDeclarationMembership;
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::program_index::ProgramIndex;
 use crate::time_codegen_module_stage;
-use nia_backend_ir::{BackendFunction, BackendModule, CodegenPartition};
+use nia_backend_ir::{
+    BackendClosureEntryKey, BackendClosureEntryOwner, BackendFunction, BackendModule, BackendParam,
+    CodegenPartition,
+};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::PromotedAllocationId;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
@@ -112,6 +115,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) function_instances: FunctionInstanceMap<'ctx>,
     pub(super) function_instances_by_def: FunctionInstancesByDef<'ctx>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
+    pub(super) closure_entries: HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
     promoted_allocations: RefCell<HashMap<PromotedAllocationId, InternedTyId>>,
@@ -158,6 +162,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
             function_instance_value_lookups: RefCell::new(HashMap::new()),
+            closure_entries: HashMap::new(),
             globals: HashMap::new(),
             global_instances: HashMap::new(),
             promoted_allocations: RefCell::new(HashMap::new()),
@@ -582,10 +587,56 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return_type: instance.return_type,
                     local_names: &instance.local_names,
                     span: instance.span,
+                    closure_owner: BackendClosureEntryOwner::FunctionInstance(
+                        nia_function_ir::FunctionInstanceKey {
+                            def_id: instance.def_id,
+                            arg_module_id: instance.arg_module_id,
+                            self_arg: instance.self_arg,
+                            args: instance.args.clone(),
+                            const_args: instance.const_args.clone(),
+                        },
+                    ),
                 },
                 llvm_function,
             );
             codegen.emit_function_body(function_body)?;
+        }
+        for &index in self.partition.closure_entry_definitions() {
+            let entry = &self.source.closure_entries[index];
+            let Some(llvm_function) = self.closure_entries.get(&entry.key).copied() else {
+                return Err(self.error(entry.span, "missing generated closure entry"));
+            };
+            let mut params = Vec::with_capacity(entry.params.len() + 1);
+            params.push(BackendParam {
+                local_id: Some(entry.state_param),
+                name: None,
+                receiver: None,
+                passing_ty: entry.abi.state_pointer_type,
+                local_ty: entry.abi.state_pointer_type,
+                span: entry.span,
+            });
+            params.extend(entry.params.iter().copied().zip(&entry.abi.params).map(
+                |(local_id, &ty)| BackendParam {
+                    local_id: Some(local_id),
+                    name: None,
+                    receiver: None,
+                    passing_ty: ty,
+                    local_ty: ty,
+                    span: entry.span,
+                },
+            ));
+            let mut codegen = FunctionCodegen::new(
+                self,
+                FunctionCodegenInput {
+                    params: &params,
+                    return_type: entry.abi.return_type,
+                    local_names: &entry.local_names,
+                    span: entry.span,
+                    closure_owner: entry.key.owner.clone(),
+                },
+                llvm_function,
+            );
+            codegen.emit_function_body(&entry.function_body)?;
         }
         Ok(())
     }

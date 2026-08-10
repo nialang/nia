@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::module_codegen::{AbiParam, AbiReturn};
+use nia_backend_ir::BackendClosureEntryKey;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
 use nia_ids::{InternedTyId, ReceiverKind};
@@ -249,10 +250,29 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
         match callee {
-            FunctionCallee::ClosureEntry { .. } => Err(self.error(
-                expr.span,
-                "generated closure entry reached LLVM before backend materialization",
-            )),
+            FunctionCallee::ClosureEntry { closure_id, state } => {
+                let key = BackendClosureEntryKey {
+                    closure_id: *closure_id,
+                    owner: self.function.closure_owner.clone(),
+                };
+                let Some(entry) = self.module.closure_entry_item(&key) else {
+                    return Err(self.error(expr.span, "missing generated closure entry ABI"));
+                };
+                let state_pointer_type = entry.abi.state_pointer_type;
+                let param_types = entry.abi.params.clone();
+                let Some(function) = self.module.closure_entry_value(&key) else {
+                    return Err(self.error(expr.span, "missing generated closure entry function"));
+                };
+                let llvm_args = self.emit_call_args_iter(
+                    expr.span,
+                    std::iter::once(state.as_ref()).chain(args.iter()),
+                    std::iter::once(state_pointer_type).chain(param_types),
+                    out_ptr,
+                )?;
+                self.builder
+                    .build_call(function, &llvm_args, "closure.call")
+                    .map_err(|_| self.error(expr.span, "failed to build generated closure call"))
+            }
             FunctionCallee::Function(def_id) => {
                 let Some(function) = self.module.function(*def_id) else {
                     return Err(self.error(expr.span, "missing callee function"));
@@ -462,10 +482,44 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "builtin operator cannot be emitted as a raw call",
             )),
-            FunctionCallee::Callable(_) => Err(self.error(
-                expr.span,
-                "callable view call reached LLVM before closure entry materialization",
-            )),
+            FunctionCallee::Callable(receiver) => {
+                let (params, return_type) = match self.module.ty_kind(receiver.ty) {
+                    Some(TyKind::Callable {
+                        params,
+                        return_type,
+                        ..
+                    }) => (params.clone(), *return_type),
+                    _ => return Err(self.error(receiver.span, "callee is not a callable view")),
+                };
+                let callable = self
+                    .emit_expr(receiver)?
+                    .into_struct_value()
+                    .map_err(|_| self.error(receiver.span, "callable callee is not a view"))?;
+                let state = self
+                    .builder
+                    .build_extract_value(callable, 0, "callable.state")
+                    .map_err(|_| self.error(receiver.span, "failed to extract callable state"))?
+                    .into_pointer_value()?;
+                let entry = self
+                    .builder
+                    .build_extract_value(callable, 1, "callable.entry")
+                    .map_err(|_| self.error(receiver.span, "failed to extract callable entry"))?
+                    .into_pointer_value()?;
+                let function_type = self.module.callable_entry_function_type_in(
+                    &params,
+                    return_type,
+                    receiver.span,
+                )?;
+                let mut llvm_args = self.emit_call_args(expr.span, args, params, None)?;
+                let state_index = usize::from(out_ptr.is_some());
+                if let Some(out_ptr) = out_ptr {
+                    llvm_args.insert(0, out_ptr.into());
+                }
+                llvm_args.insert(state_index, state.into());
+                self.builder
+                    .build_indirect_call(function_type, entry, &llvm_args, "callable.call")
+                    .map_err(|_| self.error(expr.span, "failed to build callable view call"))
+            }
             FunctionCallee::FunctionPointer(callee) => {
                 let Some(TyKind::FunctionPointer {
                     params,
@@ -566,12 +620,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         param_tys: impl IntoIterator<Item = InternedTyId>,
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
+        self.emit_call_args_iter(span, args.iter(), param_tys, out_ptr)
+    }
+
+    fn emit_call_args_iter<'expr>(
+        &mut self,
+        span: Span,
+        args: impl IntoIterator<Item = &'expr FunctionExpr>,
+        param_tys: impl IntoIterator<Item = InternedTyId>,
+        out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+    ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
         let mut llvm_args = Vec::new();
         if let Some(out_ptr) = out_ptr {
             llvm_args.push(out_ptr.into());
         }
         for (arg, classification) in args
-            .iter()
+            .into_iter()
             .zip(self.module.classify_function_params(param_tys))
         {
             match classification {

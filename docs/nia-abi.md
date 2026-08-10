@@ -258,11 +258,14 @@ from `&mut Fn(i32) i32`, whose value is the 16-byte callable view itself.
 
 Callable entry symbols and ABI records are already produced by backend
 lowering, reachability, partitioning, and incremental fingerprinting. LLVM
-declaration/body materialization remains an explicit later boundary while the
-allocator-backed owner and destruction protocol are not yet part of the Nia
-language ABI. Valid callable programs currently stop at that boundary with a
-diagnostic rather than receiving an implicit heap owner or an incomplete
-runtime entry.
+declares and defines each entry in the same codegen partition as its source
+function or concrete generic instance. Direct closure calls pass the state
+pointer as the hidden first argument; callable-view calls load the view's state
+and entry fields and make an indirect call with that same ABI. This is an
+internal, unstable ABI: it does not imply an allocator-backed owner or
+destruction protocol. A no-capture closure-to-`&fn` conversion still needs a
+separate zero-state adapter because the thin function-pointer ABI has no hidden
+state parameter.
 
 ## 9. Array Representation
 

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
-use nia_backend_ir::{BackendFunction, BackendParam};
+use nia_backend_ir::{BackendClosureEntryOwner, BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee,
@@ -46,12 +46,13 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     active_function_scope: Option<FunctionScopeId>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct FunctionCodegenInput<'a> {
     pub(super) params: &'a [BackendParam],
     pub(super) return_type: InternedTyId,
     pub(super) local_names: &'a HashMap<LocalId, String>,
     pub(super) span: Span,
+    pub(super) closure_owner: BackendClosureEntryOwner,
 }
 
 impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
@@ -61,6 +62,7 @@ impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
             return_type: function.return_type,
             local_names: &function.local_names,
             span: function.span,
+            closure_owner: BackendClosureEntryOwner::Source(function.def_id),
         }
     }
 }
@@ -487,10 +489,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 target_ty,
                 self_ty,
             } => self.emit_trait_object_coercion(expr.span, inner, *self_ty, *target_ty),
-            FunctionExprKind::CallableCoercion { .. } => Err(self.error(
-                expr.span,
-                "callable view construction reached LLVM before closure entry materialization",
-            )),
+            FunctionExprKind::CallableCoercion { closure_id, state } => {
+                self.emit_callable_coercion(expr.span, *closure_id, state)
+            }
             FunctionExprKind::ClosureFunctionPointer { .. } => Err(self.error(
                 expr.span,
                 "closure function pointer reached LLVM before closure entry materialization",
@@ -840,6 +841,37 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_insert_value(result, metadata, 1, "traitobj.vtable")
             .map_err(|_| self.error(span, "failed to build trait object"))?;
         Ok(result)
+    }
+
+    fn emit_callable_coercion(
+        &mut self,
+        span: Span,
+        closure_id: nia_ids::ClosureId,
+        state: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let key = nia_backend_ir::BackendClosureEntryKey {
+            closure_id,
+            owner: self.function.closure_owner.clone(),
+        };
+        let Some(function) = self.module.closure_entry_value(&key) else {
+            return Err(self.error(span, "missing generated closure entry function"));
+        };
+        let state = self.emit_expr(state)?.into_pointer_value()?;
+        let result = self.module.callable_type().get_undef();
+        let result = self
+            .builder
+            .build_insert_value(result, state, 0, "callable.state")
+            .map_err(|_| self.error(span, "failed to build callable state view"))?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "failed to build callable state view"))?;
+        self.builder
+            .build_insert_value(
+                result,
+                function.as_global_value().as_pointer_value(),
+                1,
+                "callable.entry",
+            )
+            .map_err(|_| self.error(span, "failed to build callable entry view"))
     }
 
     fn emit_trait_object_data_ptr(

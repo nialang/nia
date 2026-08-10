@@ -72,8 +72,15 @@ The type taxonomy is deliberately split:
 ### 5. Products and documentation
 
 - [x] Generate stable symbols and backend ABI records for closure entries.
-- [ ] Add codegen, runtime, diagnostics, and clean/incremental identity tests.
-- [ ] Document the final ABI and memory model in the language and ABI specs.
+- [x] Materialize direct entries and non-owning callable views in LLVM, with
+  codegen, runtime, diagnostics, and clean/incremental identity coverage.
+- [ ] Materialize no-capture closure decay to `&fn` through a zero-state
+  adapter/thunk; the front end accepts the conversion, but entries use a hidden
+  state parameter and cannot yet be used as thin pointers by LLVM.
+- [x] Document the current non-owning ABI and stack-backed memory model in the
+  language and ABI specifications.
+- [ ] Extend the ABI and memory documentation when allocator-backed ownership
+  and explicit destruction are designed and implemented.
 - [ ] Retire this roadmap only after every acceptance item has evidence and the
   durable rules have moved to stable documentation.
 
@@ -81,23 +88,23 @@ Wave 2 now lowers each concrete closure value to an ordered state aggregate and
 keeps generated entry bodies under the owning source-body query. Direct calls
 carry a dedicated closure-entry identity plus an explicit readonly state
 pointer, while entry bodies project captured values through that pointer rather
-than referring to parent-function locals. Stable backend symbols and ABI
-records remain gated as Wave 5 work; backend input assembly rejects generated
-entries at that explicit materialization boundary instead of treating them as
-source `GlobalDefId` functions or thin `&fn` pointers.
+than referring to parent-function locals. Backend input assembly publishes
+stable symbols and ABI records without treating generated entries as source
+`GlobalDefId` functions or thin `&fn` pointers.
 
 Wave 3 callable construction is expected-type guided but remains explicit in
 source: only `&closure` and `&mut closure` create views. Signatures match
 structurally, writable state may be viewed readonly, and a readonly state
 pointer cannot become writable. Body IR and Function IR use dedicated
 construction and callee variants, and the generated entry remains owned by the
-same `LoweredFunctionBody` product. Executable materialization remains
-intentionally blocked until Wave 5 assigns stable entry symbols and ABI
-records. No-capture closures additionally support expected-signature-guided
-readonly `&closure` conversion to the existing thin `&fn` pointer. Body IR and
-Function IR preserve that operation with dedicated closure-function-pointer
-nodes carrying `ClosureId`; capturing closures are rejected with a diagnostic
-that directs the programmer to `&Fn(...)`.
+same `LoweredFunctionBody` product. LLVM materializes the entry and its callable
+view directly from its stable backend ABI record. No-capture closures
+additionally support expected-signature-guided readonly `&closure` conversion
+to the existing thin `&fn` pointer. Body IR and Function IR preserve that
+operation with dedicated closure-function-pointer nodes carrying `ClosureId`;
+capturing closures are rejected with a diagnostic that directs the programmer to
+`&Fn(...)`. The frontend conversion currently stops at LLVM until a zero-state
+adapter thunk is introduced.
 
 Wave 4 now runs as an independent `nia-closure-check` semantic stage after Body
 IR construction. It computes a cross-function fixed point of parameter return
@@ -121,7 +128,8 @@ ordered user parameters and return type. Closure entry bodies participate in
 backend reachability, dead-code analysis, aggregate roots, codegen partition
 membership, and incremental fingerprints. The LLVM backend validator checks that
 ABI record against the generated entry body before codegen starts. LLVM
-declaration/body materialization is still intentionally gated until the
-remaining ABI and callable-view work is complete; valid entries currently
-produce a dedicated materialization-boundary diagnostic rather than an
-incomplete module.
+declaration/body materialization emits every entry in the same partition as its
+source function or concrete generic instance. Direct calls use that entry
+directly, and callable views store its address for indirect calls. No-capture
+thin-pointer decay remains separately gated on a zero-state adapter because an
+entry's hidden state parameter is not part of the `&fn` ABI.

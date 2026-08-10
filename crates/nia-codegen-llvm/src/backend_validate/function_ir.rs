@@ -232,12 +232,19 @@ impl BackendValidator<'_> {
             FunctionExprKind::TupleField { value, index } => {
                 self.validate_expr(value);
                 match self.index.ty_kind(value.ty) {
-                    Some(TyKind::Tuple(elems)) if *index < elems.len() => {}
-                    Some(TyKind::Tuple(_)) => self.diagnostics.push(Diagnostic::internal_error_at(
-                        nia_diagnostic::codes::INVALID_BACKEND_IR,
-                        expr.span,
-                        "backend IR tuple projection is out of bounds",
-                    )),
+                    Some(
+                        TyKind::Tuple(elems)
+                        | TyKind::ClosureState {
+                            captures: elems, ..
+                        },
+                    ) if *index < elems.len() => {}
+                    Some(TyKind::Tuple(_) | TyKind::ClosureState { .. }) => {
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            nia_diagnostic::codes::INVALID_BACKEND_IR,
+                            expr.span,
+                            "backend IR tuple projection is out of bounds",
+                        ))
+                    }
                     _ => self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         expr.span,
@@ -332,11 +339,6 @@ impl BackendValidator<'_> {
             | FunctionExprKind::TraitObjectCoercion { expr, .. } => self.validate_expr(expr),
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.validate_expr(state);
-                self.diagnostics.push(Diagnostic::internal_error_at(
-                    nia_diagnostic::codes::INVALID_BACKEND_IR,
-                    expr.span,
-                    "callable view construction reached LLVM before closure entry materialization",
-                ));
             }
             FunctionExprKind::ClosureFunctionPointer { .. } => {
                 self.diagnostics.push(Diagnostic::internal_error_at(
@@ -474,11 +476,6 @@ impl BackendValidator<'_> {
         match callee {
             FunctionCallee::ClosureEntry { state, .. } => {
                 self.validate_expr(state);
-                self.diagnostics.push(Diagnostic::internal_error_at(
-                    nia_diagnostic::codes::INVALID_BACKEND_IR,
-                    span,
-                    "generated closure entry reached LLVM before backend materialization",
-                ));
             }
             FunctionCallee::Function(def_id) => self.validate_function_ref(
                 *def_id,
@@ -708,7 +705,13 @@ impl BackendValidator<'_> {
                     }
                 }
                 FunctionPlaceElem::TupleField(index) => {
-                    let Some(TyKind::Tuple(elems)) = self.ty_kind(current_ty) else {
+                    let Some(
+                        TyKind::Tuple(elems)
+                        | TyKind::ClosureState {
+                            captures: elems, ..
+                        },
+                    ) = self.ty_kind(current_ty)
+                    else {
                         self.diagnostics.push(Diagnostic::internal_error_at(
                             nia_diagnostic::codes::INVALID_BACKEND_IR,
                             place.span,

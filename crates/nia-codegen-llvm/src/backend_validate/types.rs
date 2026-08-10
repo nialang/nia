@@ -163,12 +163,19 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
             }
-            TyKind::ClosureState { .. } => {
-                self.diagnostics.push(Diagnostic::internal_error_at(
-                    nia_diagnostic::codes::INVALID_BACKEND_IR,
-                    span,
-                    "closure state reached LLVM before closure lowering",
-                ));
+            TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            } => {
+                for capture in captures {
+                    self.validate_runtime_type(capture, span);
+                }
+                for param in params {
+                    self.validate_runtime_type(param, span);
+                }
+                self.validate_type(return_type, span);
             }
             TyKind::ConstOnly => self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
