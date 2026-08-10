@@ -2477,7 +2477,9 @@ impl<'a> BodyChecker<'a> {
         let callee_ty = self.expr_ty(callee)?;
         let callee_ty = self.normalize_projection(callee_ty);
         match self.interner.get(callee_ty).cloned() {
-            Some(TyKind::FunctionPointer { params, .. }) => Some(params),
+            Some(TyKind::FunctionPointer { params, .. } | TyKind::ClosureState { params, .. }) => {
+                Some(params)
+            }
             _ => None,
         }
     }
@@ -2870,6 +2872,7 @@ impl<'a> BodyChecker<'a> {
                     ),
                 })
             }
+            ResolvedCall::Closure => TypedCallee::Closure(Box::new(self.lower_expr(callee))),
             ResolvedCall::FunctionPointer => {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }

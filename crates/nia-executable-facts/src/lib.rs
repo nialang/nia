@@ -469,7 +469,9 @@ fn collect_resolved_call_refs(
                 trait_args.clone(),
             );
         }
-        ResolvedCall::BuiltinFunction { .. } | ResolvedCall::FunctionPointer => {}
+        ResolvedCall::BuiltinFunction { .. }
+        | ResolvedCall::Closure
+        | ResolvedCall::FunctionPointer => {}
     }
 }
 
@@ -749,6 +751,7 @@ fn collect_typed_callee_refs(
     refs: &mut ExecutableItemRefs,
 ) {
     match callee {
+        TypedCallee::Closure(callee) => collect_typed_expr_refs(module, callee, refs),
         TypedCallee::Function(def_id) => {
             refs.functions.insert(*def_id);
         }
