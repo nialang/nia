@@ -713,6 +713,35 @@ pub(super) fn checked_module_diagnostics(
     Ok(diagnostics)
 }
 
+pub(super) fn closure_safety_diagnostics(
+    db: &QueryDb<CompilerContext>,
+    checked_modules: &[Arc<CheckedModule>],
+) -> Vec<ProgramDiagnostic> {
+    let functions = checked_modules
+        .iter()
+        .flat_map(|module| {
+            module.body_ir.function_bodies.iter().map(|(def_id, body)| {
+                nia_closure_check::ClosureCheckFunction {
+                    def_id: *def_id,
+                    body,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    nia_closure_check::check_closure_safety(&functions, &db.context().type_store)
+        .diagnostics
+        .into_iter()
+        .map(|diagnostic| ProgramDiagnostic {
+            path: checked_modules
+                .iter()
+                .find(|module| module.id == diagnostic.owner.module_id)
+                .map(|module| module.path.clone())
+                .unwrap_or_else(synthetic_diagnostic_path),
+            diagnostic: diagnostic.diagnostic,
+        })
+        .collect()
+}
+
 pub(super) fn monomorphization_diagnostics(
     checked_modules: &[Arc<CheckedModule>],
     diagnostics: &[Diagnostic],

@@ -62,9 +62,9 @@ The type taxonomy is deliberately split:
 
 ### 4. Escape and allocation safety
 
-- [ ] Track closure-state provenance through aggregates, returns, stores, and
+- [x] Track closure-state provenance through aggregates, returns, stores, and
   call summaries.
-- [ ] Reject dynamic views that outlive stack-backed closure state.
+- [x] Reject dynamic views that outlive stack-backed closure state.
 - [ ] Reject captures of local addresses when the resulting state can escape.
 - [ ] Add an explicit allocator-backed owner with explicit destruction before
   enabling escaping dynamic closures.
@@ -98,3 +98,16 @@ readonly `&closure` conversion to the existing thin `&fn` pointer. Body IR and
 Function IR preserve that operation with dedicated closure-function-pointer
 nodes carrying `ClosureId`; capturing closures are rejected with a diagnostic
 that directs the programmer to `&Fn(...)`.
+
+Wave 4 now runs as an independent `nia-closure-check` semantic stage after Body
+IR construction. It computes a cross-function fixed point of parameter return
+and escape summaries, then tracks callable-view provenance through locals,
+patterns, aggregates, projections, stores, calls, branches, loops, and nested
+closure bodies. Direct calls use the summaries; function pointers, dynamic
+dispatch, and unknown calls conservatively treat arguments as
+retaining-capable. Every stack-backed `&Fn`/`&mut Fn` view is rejected when it
+is returned, stored through memory, passed to a potentially retaining call, or
+carried across the lexical scope that created its closure state. The stage is
+deliberately a bounded provenance analysis, not a general ownership or borrow
+checker. Captured local addresses and an allocator-backed owner remain separate
+Wave 4 work.

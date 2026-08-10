@@ -1403,6 +1403,15 @@ error and should instead use a matching `&Fn(...)` callable view. This bounded
 no-capture conversion does not make `&fn(...)` and `&Fn(...)`
 representation-equivalent type families.
 
+Callable views are non-owning and stack-backed by default. A view created from a
+concrete closure must remain within the lexical lifetime of that closure state:
+it may be called and copied into local aggregates, but it cannot be returned,
+stored through a pointer or global, passed to a call that may retain it, or
+assigned into an outer scope after the closure state's scope ends. The compiler
+closure escape stage follows this provenance through direct function summaries;
+function-pointer, dynamic-dispatch, and unknown calls are treated as potentially
+retaining. No allocator-backed escaping owner is implied by `&Fn` or `&mut Fn`.
+
 A function declaration name is a function item, not an ordinary runtime value.
 Function items cannot be used bare:
 

@@ -256,6 +256,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-closure-check"
+version = "0.4.3"
+dependencies = [
+ "nia-body-ir",
+ "nia-diagnostic",
+ "nia-ids",
+ "nia-span",
+ "nia-ty",
+]
+
+[[package]]
 name = "nia-codegen-llvm"
 version = "0.4.3"
 dependencies = [
@@ -299,6 +310,7 @@ dependencies = [
  "nia-backend-lower",
  "nia-body-check",
  "nia-body-ir",
+ "nia-closure-check",
  "nia-const-check",
  "nia-const-ir",
  "nia-defs",

@@ -1290,6 +1290,8 @@ mod tests {
     mod body_invalidation;
     #[path = "checked_products.rs"]
     mod checked_products;
+    #[path = "closure_safety.rs"]
+    mod closure_safety;
     #[path = "compiler_contracts.rs"]
     mod compiler_contracts;
     #[path = "compiler_incremental_consistency.rs"]
