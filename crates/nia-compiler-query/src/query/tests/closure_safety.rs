@@ -241,6 +241,137 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn placement_through_a_stack_pointer_remains_stack_backed() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn place[T](destination: &mut u8, value: T) &mut T
+where T: Sized
+{
+    let mut target = destination as &mut T;
+    target.* = value;
+    target
+}
+
+fn leak(base: i32) &Fn(i32) i32 {
+    let mut storage: [16]u8 = [0; 16];
+    let mut state = place(&mut storage[0], [base](value: i32) i32 { base + value });
+    &mut state.*
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("cannot be returned")
+    );
+}
+
+#[test]
+fn explicit_nonlexical_storage_allows_an_escaping_callable_view() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn place[T](destination: &mut u8, value: T) &mut T
+where T: Sized
+{
+    let mut target = destination as &mut T;
+    target.* = value;
+    target
+}
+
+fn escape(address: usize, base: i32) &Fn(i32) i32 {
+    let mut state = place(address as &mut u8, [base](value: i32) i32 { base + value });
+    &mut state.*
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "explicit externally managed storage produced diagnostics: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn propagated_error_provenance_does_not_contaminate_the_success_value() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn place[T](destination: &mut u8, value: T) &mut T
+where T: Sized
+{
+    let mut target = destination as &mut T;
+    target.* = value;
+    target
+}
+
+fn separate(input: &mut u8, fail: bool) &mut u8!&mut u8 {
+    if fail {
+        return input!;
+    }
+    let address = input as usize;
+    !(address as &mut u8)
+}
+
+fn escape(address: usize, base: i32) &mut u8!&Fn(i32) i32 {
+    let mut local = 0u8;
+    let destination = separate(&mut local, false).?;
+    let mut state = place(destination, [base](value: i32) i32 { base + value });
+    !&mut state.*
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "error-only provenance contaminated the success value: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn unrelated_storage_cannot_hide_a_stack_backed_callable() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Owner {
+    callback: &Fn(i32) i32,
+    storage: &mut u8,
+}
+
+fn pack(callback: &Fn(i32) i32, storage: &mut u8) Owner {
+    { callback: callback, storage: storage }
+}
+
+fn leak(storage: &mut u8, base: i32) Owner {
+    let state = [base](value: i32) i32 { base + value };
+    let callback: &Fn(i32) i32 = &state;
+    pack(callback, storage)
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("cannot be returned")
+    );
+}
+
+#[test]
 fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry = fixture.entry_id();

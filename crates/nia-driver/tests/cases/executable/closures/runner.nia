@@ -1,3 +1,4 @@
+using std::mem;
 using std::process;
 using helper;
 
@@ -18,8 +19,36 @@ pub fn main(init: process::Init) process::ExitCode!() {
     };
     let swapPointer: &fn(Pair) Pair = &swap;
     let swapped = swapPointer(Pair { left: 4, right: 5 });
+    let mut pageAllocator = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
+    defer allocator.deinit().ok().exit().?;
+    let mut owned = helper::allocateOffset(&mut allocator, 7).exit().?;
+    defer owned.deinit(&mut allocator).exit().?;
+    let ownedResult = owned.callback()(8);
+
+    let mut noCapture = allocator.allocValue([](value: i32) i32 { value + 2 }).exit().?;
+    let mut noCaptureState = noCapture.valueMut();
+    let noCaptureView: &mut Fn(i32) i32 = &mut noCaptureState.*;
+    let mut noCaptureOwner = noCapture.intoCallable(noCaptureView);
+    defer noCaptureOwner.deinit(&mut allocator).exit().?;
+    let noCaptureResult = noCaptureOwner.callback()(3);
+
+    let mut emptyStorage: [0]u8 = [];
+    let mut emptyAllocator = mem::FixedBufferAllocator::init(&mut emptyStorage[..]);
+    let failedAsExpected = switch emptyAllocator.allocValue([base](value: i32) i32 { base + value }) {
+        mem::Error::OutOfMemory! => true,
+        !mut unexpected => {
+            unexpected.deinit(&mut emptyAllocator).exit().?;
+            false
+        },
+        error! => {
+            _ = error;
+            false
+        },
+    };
     if callback(1) != 2 or view(2) != 3 or incrementPointer(3) != 4
-        or swapped.left != 5 or swapped.right != 4
+        or swapped.left != 5 or swapped.right != 4 or ownedResult != 15
+        or noCaptureResult != 5 or not failedAsExpected
     {
         return process::exit(10)!;
     }

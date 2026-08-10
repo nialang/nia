@@ -59,20 +59,54 @@ enum InputSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Provenance {
     Input(InputSource),
-    StackAddress { scope_depth: usize },
+    StackAddress {
+        scope_depth: usize,
+    },
     CapturedInputAddress(InputSource),
-    CapturedStackAddress { scope_depth: usize },
-    StackClosure(ClosureId),
+    CapturedStackAddress {
+        scope_depth: usize,
+    },
+    CallableClosure {
+        closure_id: ClosureId,
+        stack_backed: bool,
+    },
 }
 
 type Provenances = BTreeSet<Provenance>;
-type Environment = HashMap<LocalId, Provenances>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ValueProvenance {
+    value: Provenances,
+    error: Provenances,
+}
+
+impl ValueProvenance {
+    fn from_value(value: Provenances) -> Self {
+        Self {
+            value,
+            error: Provenances::new(),
+        }
+    }
+
+    fn all(&self) -> Provenances {
+        union(self.value.clone(), self.error.clone())
+    }
+
+    fn extend(&mut self, other: Self) {
+        self.value.extend(other.value);
+        self.error.extend(other.error);
+    }
+}
+
+type Environment = HashMap<LocalId, ValueProvenance>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CallableSummary {
     returned_inputs: BTreeSet<InputSource>,
+    returned_error_inputs: BTreeSet<InputSource>,
     escaping_inputs: BTreeSet<InputSource>,
     returned_captured_addresses: BTreeSet<InputSource>,
+    returned_error_captured_addresses: BTreeSet<InputSource>,
     escaping_captured_addresses: BTreeSet<InputSource>,
 }
 
@@ -158,6 +192,7 @@ pub fn check_closure_safety(
                     returned_parameters: summary
                         .returned_inputs
                         .into_iter()
+                        .chain(summary.returned_error_inputs)
                         .filter_map(|source| match source {
                             InputSource::Parameter(index) => Some(index),
                             InputSource::Capture(_) => None,
@@ -172,7 +207,11 @@ pub fn check_closure_safety(
                         })
                         .collect(),
                     returned_captured_address_parameters: parameter_sources(
-                        summary.returned_captured_addresses,
+                        summary
+                            .returned_captured_addresses
+                            .into_iter()
+                            .chain(summary.returned_error_captured_addresses)
+                            .collect(),
                     ),
                     escaping_captured_address_parameters: parameter_sources(
                         summary.escaping_captured_addresses,
@@ -198,6 +237,7 @@ struct Analyzer<'a> {
     type_store: &'a TypeStore,
     summaries: &'a HashMap<CallableKey, CallableSummary>,
     returned: Provenances,
+    returned_errors: Provenances,
     escaped: Provenances,
     diagnostics: Option<DiagnosticSink<'a>>,
     scope_depth: usize,
@@ -214,6 +254,7 @@ impl<'a> Analyzer<'a> {
             type_store,
             summaries,
             returned: Provenances::new(),
+            returned_errors: Provenances::new(),
             escaped: Provenances::new(),
             diagnostics,
             scope_depth: 0,
@@ -226,26 +267,36 @@ impl<'a> Analyzer<'a> {
         for (index, local_id) in callable.captures.iter().copied().enumerate() {
             env.insert(
                 local_id,
-                Provenances::from([Provenance::Input(InputSource::Capture(index))]),
+                ValueProvenance::from_value(Provenances::from([Provenance::Input(
+                    InputSource::Capture(index),
+                )])),
             );
         }
         for (index, local_id) in callable.params.iter().copied().enumerate() {
             env.insert(
                 local_id,
-                Provenances::from([Provenance::Input(InputSource::Parameter(index))]),
+                ValueProvenance::from_value(Provenances::from([Provenance::Input(
+                    InputSource::Parameter(index),
+                )])),
             );
         }
         let tail = self.analyze_body_contents(callable.body, &mut env);
         self.record_return(&tail, callable.body.span);
         CallableSummary {
             returned_inputs: input_sources(&self.returned),
+            returned_error_inputs: input_sources(&self.returned_errors),
             escaping_inputs: input_sources(&self.escaped),
             returned_captured_addresses: captured_input_sources(&self.returned),
+            returned_error_captured_addresses: captured_input_sources(&self.returned_errors),
             escaping_captured_addresses: captured_input_sources(&self.escaped),
         }
     }
 
-    fn analyze_body_contents(&mut self, body: &TypedBody, env: &mut Environment) -> Provenances {
+    fn analyze_body_contents(
+        &mut self,
+        body: &TypedBody,
+        env: &mut Environment,
+    ) -> ValueProvenance {
         for stmt in &body.stmts {
             match &stmt.kind {
                 TypedStmtKind::Binding(binding) => {
@@ -306,7 +357,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn analyze_nested_body(&mut self, body: &TypedBody, env: &mut Environment) -> Provenances {
+    fn analyze_nested_body(&mut self, body: &TypedBody, env: &mut Environment) -> ValueProvenance {
         self.scope_depth = self.scope_depth.saturating_add(1);
         let depth = self.scope_depth;
         let value = self.analyze_body_contents(body, env);
@@ -315,10 +366,10 @@ impl<'a> Analyzer<'a> {
             .iter()
             .map(|local| local.id)
             .collect::<HashSet<_>>();
-        let mut crossing = value.clone();
+        let mut crossing = value.all();
         for (local_id, origins) in env.iter() {
             if !locals.contains(local_id) {
-                crossing.extend(origins);
+                crossing.extend(origins.all());
             }
         }
         self.report_scope_exit(&crossing, body.span, depth);
@@ -327,7 +378,7 @@ impl<'a> Analyzer<'a> {
         value
     }
 
-    fn analyze_expr(&mut self, expr: &TypedExpr, env: &mut Environment) -> Provenances {
+    fn analyze_expr(&mut self, expr: &TypedExpr, env: &mut Environment) -> ValueProvenance {
         let origins = match &expr.kind {
             TypedExprKind::Error
             | TypedExprKind::Integer(_)
@@ -344,10 +395,10 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::FunctionInstance { .. }
             | TypedExprKind::BuiltinValue(_)
             | TypedExprKind::Trap
-            | TypedExprKind::ClosureFunctionPointer { .. } => Provenances::new(),
+            | TypedExprKind::ClosureFunctionPointer { .. } => ValueProvenance::default(),
             TypedExprKind::Local(local_id) => env.get(local_id).cloned().unwrap_or_default(),
             TypedExprKind::EnumVariant { fields, .. } | TypedExprKind::Tuple(fields) => {
-                self.analyze_exprs(fields, env)
+                ValueProvenance::from_value(self.analyze_exprs(fields, env))
             }
             TypedExprKind::Closure {
                 captures,
@@ -358,39 +409,43 @@ impl<'a> Analyzer<'a> {
                 self.closure_scopes
                     .entry(*closure_id)
                     .or_insert(self.scope_depth);
-                capture_address_origins(
+                ValueProvenance::from_value(capture_address_origins(
                     captures
                         .iter()
-                        .map(|capture| self.analyze_expr(&capture.value, env))
+                        .map(|capture| self.analyze_expr(&capture.value, env).all())
                         .fold(Provenances::new(), union),
-                )
+                ))
             }
-            TypedExprKind::Range(range) => range
-                .start
-                .iter()
-                .chain(&range.end)
-                .map(|bound| self.analyze_expr(bound, env))
-                .fold(Provenances::new(), union),
+            TypedExprKind::Range(range) => ValueProvenance::from_value(
+                range
+                    .start
+                    .iter()
+                    .chain(&range.end)
+                    .map(|bound| self.analyze_expr(bound, env).all())
+                    .fold(Provenances::new(), union),
+            ),
             TypedExprKind::InlineAsm(asm) => {
                 let values = asm
                     .inputs
                     .iter()
-                    .map(|input| self.analyze_expr(&input.value, env))
+                    .map(|input| self.analyze_expr(&input.value, env).all())
                     .fold(Provenances::new(), union);
                 self.record_escape(&values, expr.span, EscapeKind::Call);
                 for output in &asm.outputs {
                     self.analyze_place(&output.place, env);
                 }
-                Provenances::new()
+                ValueProvenance::default()
             }
             TypedExprKind::MemoryIntrinsic(intrinsic) => {
-                let dest = self.analyze_expr(&intrinsic.dest, env);
+                let dest = self.analyze_expr(&intrinsic.dest, env).all();
                 let source = match &intrinsic.source {
                     TypedMemoryIntrinsicSource::Slice(source)
-                    | TypedMemoryIntrinsicSource::Byte(source) => self.analyze_expr(source, env),
+                    | TypedMemoryIntrinsicSource::Byte(source) => {
+                        self.analyze_expr(source, env).all()
+                    }
                 };
                 self.record_escape(&source, expr.span, EscapeKind::Store);
-                union(dest, source)
+                ValueProvenance::from_value(union(dest, source))
             }
             TypedExprKind::Atomic(atomic) => self.analyze_atomic(atomic, expr.span, env),
             TypedExprKind::LoadUnaligned { ptr, .. }
@@ -399,14 +454,30 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::CharFromU32 { value: ptr }
             | TypedExprKind::StaticArrayPointer { array: ptr, .. }
             | TypedExprKind::OptionalSome { expr: ptr }
-            | TypedExprKind::ErrorOk { expr: ptr }
-            | TypedExprKind::ErrorErr { expr: ptr }
             | TypedExprKind::Discard(ptr)
-            | TypedExprKind::Cast { expr: ptr, .. }
             | TypedExprKind::TraitObjectUpcast { expr: ptr, .. }
-            | TypedExprKind::TraitObjectCoercion { expr: ptr, .. } => self.analyze_expr(ptr, env),
+            | TypedExprKind::TraitObjectCoercion { expr: ptr, .. } => {
+                ValueProvenance::from_value(self.analyze_expr(ptr, env).all())
+            }
+            TypedExprKind::ErrorOk { expr: inner } => {
+                ValueProvenance::from_value(self.analyze_expr(inner, env).all())
+            }
+            TypedExprKind::ErrorErr { expr: inner } => ValueProvenance {
+                value: Provenances::new(),
+                error: self.analyze_expr(inner, env).all(),
+            },
+            TypedExprKind::Cast { expr: inner, .. } => {
+                let value = self.analyze_expr(inner, env).all();
+                if is_pointer_type(self.type_store, inner.ty)
+                    && is_integer_type(self.type_store, expr.ty)
+                {
+                    ValueProvenance::default()
+                } else {
+                    ValueProvenance::from_value(value)
+                }
+            }
             TypedExprKind::Unary { op, expr: inner } => {
-                let mut value = self.analyze_expr(inner, env);
+                let mut value = self.analyze_expr(inner, env).all();
                 if matches!(op, nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly)
                     && address_uses_stack_storage(inner)
                 {
@@ -414,38 +485,55 @@ impl<'a> Analyzer<'a> {
                         scope_depth: self.scope_depth,
                     });
                 }
-                value
+                ValueProvenance::from_value(value)
             }
-            TypedExprKind::ExtractElement { vector, index } => union(
-                self.analyze_expr(vector, env),
-                self.analyze_expr(index, env),
-            ),
+            TypedExprKind::ExtractElement { vector, index } => ValueProvenance::from_value(union(
+                self.analyze_expr(vector, env).all(),
+                self.analyze_expr(index, env).all(),
+            )),
             TypedExprKind::InsertElement {
                 vector,
                 index,
                 value,
-            } => self.analyze_exprs([vector.as_ref(), index.as_ref(), value.as_ref()], env),
-            TypedExprKind::Bitmask { vector } => self.analyze_expr(vector, env),
+            } => ValueProvenance::from_value(
+                self.analyze_exprs([vector.as_ref(), index.as_ref(), value.as_ref()], env),
+            ),
+            TypedExprKind::Bitmask { vector } => {
+                ValueProvenance::from_value(self.analyze_expr(vector, env).all())
+            }
             TypedExprKind::ArrayLiteral { elems } => match elems {
-                TypedArrayElements::List(elems) => self.analyze_exprs(elems, env),
-                TypedArrayElements::Repeat { value, .. } => self.analyze_expr(value, env),
+                TypedArrayElements::List(elems) => {
+                    ValueProvenance::from_value(self.analyze_exprs(elems, env))
+                }
+                TypedArrayElements::Repeat { value, .. } => {
+                    ValueProvenance::from_value(self.analyze_expr(value, env).all())
+                }
             },
-            TypedExprKind::StructLiteral { fields, .. } => fields
-                .iter()
-                .map(|field| self.analyze_expr(&field.value, env))
-                .fold(Provenances::new(), union),
-            TypedExprKind::UnionLiteral { field, .. } => self.analyze_expr(&field.value, env),
-            TypedExprKind::UnionStorageLiteral { relocations, .. } => relocations
-                .iter()
-                .map(|relocation| self.analyze_expr(&relocation.pointee, env))
-                .fold(Provenances::new(), union),
+            TypedExprKind::StructLiteral { fields, .. } => ValueProvenance::from_value(
+                fields
+                    .iter()
+                    .map(|field| self.analyze_expr(&field.value, env).all())
+                    .fold(Provenances::new(), union),
+            ),
+            TypedExprKind::UnionLiteral { field, .. } => {
+                ValueProvenance::from_value(self.analyze_expr(&field.value, env).all())
+            }
+            TypedExprKind::UnionStorageLiteral { relocations, .. } => ValueProvenance::from_value(
+                relocations
+                    .iter()
+                    .map(|relocation| self.analyze_expr(&relocation.pointee, env).all())
+                    .fold(Provenances::new(), union),
+            ),
             TypedExprKind::Try { expr: inner, .. } => {
                 let value = self.analyze_expr(inner, env);
-                self.record_return(&value, expr.span);
-                value
+                self.record_error_return(&value.error, expr.span);
+                ValueProvenance::from_value(value.value)
             }
             TypedExprKind::Binary { lhs, rhs, .. } | TypedExprKind::Index { lhs, index: rhs } => {
-                union(self.analyze_expr(lhs, env), self.analyze_expr(rhs, env))
+                ValueProvenance::from_value(union(
+                    self.analyze_expr(lhs, env).all(),
+                    self.analyze_expr(rhs, env).all(),
+                ))
             }
             TypedExprKind::Assign { place, rhs, .. } => {
                 let value = self.analyze_expr(rhs, env);
@@ -453,23 +541,29 @@ impl<'a> Analyzer<'a> {
                 value
             }
             TypedExprKind::CallableCoercion { state, closure_id } => {
-                let mut value = self.analyze_expr(state, env);
-                value.insert(Provenance::StackClosure(*closure_id));
-                value
+                let mut value = self.analyze_expr(state, env).all();
+                let stack_backed = value
+                    .iter()
+                    .any(|origin| matches!(origin, Provenance::StackAddress { .. }));
+                value.insert(Provenance::CallableClosure {
+                    closure_id: *closure_id,
+                    stack_backed,
+                });
+                ValueProvenance::from_value(value)
             }
             TypedExprKind::Call { callee, args } => self.analyze_call(callee, args, expr, env),
             TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
-                self.analyze_expr(lhs, env)
+                ValueProvenance::from_value(self.analyze_expr(lhs, env).all())
             }
             TypedExprKind::Slice { lhs, range, .. } => {
-                let mut value = self.analyze_expr(lhs, env);
+                let mut value = self.analyze_expr(lhs, env).all();
                 if let Some(start) = &range.start {
-                    value.extend(self.analyze_expr(start, env));
+                    value.extend(self.analyze_expr(start, env).all());
                 }
                 if let Some(end) = &range.end {
-                    value.extend(self.analyze_expr(end, env));
+                    value.extend(self.analyze_expr(end, env).all());
                 }
-                value
+                ValueProvenance::from_value(value)
             }
             TypedExprKind::Block(body) => self.analyze_nested_body(body, env),
             TypedExprKind::If {
@@ -488,7 +582,9 @@ impl<'a> Analyzer<'a> {
                     .unwrap_or_default();
                 join_environment(&mut then_env, &else_env);
                 *env = then_env;
-                union(then_value, else_value)
+                let mut value = then_value;
+                value.extend(else_value);
+                value
             }
             TypedExprKind::IfPattern(pattern) => {
                 let target = self.analyze_expr(&pattern.target, env);
@@ -504,13 +600,15 @@ impl<'a> Analyzer<'a> {
                     .unwrap_or_default();
                 join_environment(&mut then_env, &else_env);
                 *env = then_env;
-                union(then_value, else_value)
+                let mut value = then_value;
+                value.extend(else_value);
+                value
             }
             TypedExprKind::Switch(switch) => {
                 let target = self.analyze_expr(&switch.target, env);
                 let base = env.clone();
                 let mut merged = base.clone();
-                let mut value = Provenances::new();
+                let mut value = ValueProvenance::default();
                 for arm in &switch.arms {
                     let mut arm_env = base.clone();
                     for pattern in &arm.patterns {
@@ -549,7 +647,7 @@ impl<'a> Analyzer<'a> {
     ) -> Provenances {
         exprs
             .into_iter()
-            .map(|expr| self.analyze_expr(expr, env))
+            .map(|expr| self.analyze_expr(expr, env).all())
             .fold(Provenances::new(), union)
     }
 
@@ -558,14 +656,16 @@ impl<'a> Analyzer<'a> {
         atomic: &TypedAtomic,
         span: Span,
         env: &mut Environment,
-    ) -> Provenances {
+    ) -> ValueProvenance {
         match atomic {
-            TypedAtomic::Load { ptr, .. } => self.analyze_expr(ptr, env),
+            TypedAtomic::Load { ptr, .. } => {
+                ValueProvenance::from_value(self.analyze_expr(ptr, env).all())
+            }
             TypedAtomic::Store { ptr, value, .. } | TypedAtomic::Rmw { ptr, value, .. } => {
-                let ptr = self.analyze_expr(ptr, env);
-                let value = self.analyze_expr(value, env);
+                let ptr = self.analyze_expr(ptr, env).all();
+                let value = self.analyze_expr(value, env).all();
                 self.record_escape(&value, span, EscapeKind::Store);
-                union(ptr, value)
+                ValueProvenance::from_value(union(ptr, value))
             }
             TypedAtomic::Cmpxchg {
                 ptr,
@@ -573,13 +673,13 @@ impl<'a> Analyzer<'a> {
                 desired,
                 ..
             } => {
-                let ptr = self.analyze_expr(ptr, env);
-                let expected = self.analyze_expr(expected, env);
-                let desired = self.analyze_expr(desired, env);
+                let ptr = self.analyze_expr(ptr, env).all();
+                let expected = self.analyze_expr(expected, env).all();
+                let desired = self.analyze_expr(desired, env).all();
                 self.record_escape(&desired, span, EscapeKind::Store);
-                union(union(ptr, expected), desired)
+                ValueProvenance::from_value(union(union(ptr, expected), desired))
             }
-            TypedAtomic::Fence { .. } => Provenances::new(),
+            TypedAtomic::Fence { .. } => ValueProvenance::default(),
         }
     }
 
@@ -589,10 +689,10 @@ impl<'a> Analyzer<'a> {
         args: &[TypedExpr],
         call: &TypedExpr,
         env: &mut Environment,
-    ) -> Provenances {
+    ) -> ValueProvenance {
         let args = args
             .iter()
-            .map(|arg| self.analyze_expr(arg, env))
+            .map(|arg| self.analyze_expr(arg, env).all())
             .collect::<Vec<_>>();
         match callee {
             TypedCallee::Function(def_id) | TypedCallee::FunctionInstance { def_id, .. } => self
@@ -601,18 +701,20 @@ impl<'a> Analyzer<'a> {
                     &Provenances::new(),
                     &args,
                     call.span,
+                    call.ty,
                 ),
             TypedCallee::Method {
                 def_id, receiver, ..
             } => {
-                let receiver = self.analyze_expr(receiver, env);
-                let mut operands = vec![receiver];
+                let receiver_origins = self.analyze_expr(receiver, env).all();
+                let mut operands = vec![receiver_origins];
                 operands.extend(args);
                 self.apply_summary(
                     CallableKey::Function(*def_id),
                     &Provenances::new(),
                     &operands,
                     call.span,
+                    call.ty,
                 )
             }
             TypedCallee::TraitMethod {
@@ -620,7 +722,7 @@ impl<'a> Analyzer<'a> {
                 receiver,
                 ..
             } => {
-                let receiver = self.analyze_expr(receiver, env);
+                let receiver = self.analyze_expr(receiver, env).all();
                 let mut operands = vec![receiver];
                 operands.extend(args);
                 self.apply_summary(
@@ -628,6 +730,7 @@ impl<'a> Analyzer<'a> {
                     &Provenances::new(),
                     &operands,
                     call.span,
+                    call.ty,
                 )
             }
             TypedCallee::TraitAssociatedFunction { method_id, .. } => self.apply_summary(
@@ -635,9 +738,10 @@ impl<'a> Analyzer<'a> {
                 &Provenances::new(),
                 &args,
                 call.span,
+                call.ty,
             ),
             TypedCallee::Closure(state) => {
-                let state_origins = self.analyze_expr(state, env);
+                let state_origins = self.analyze_expr(state, env).all();
                 let closure_id = match self.type_store.get(state.ty) {
                     Some(TyKind::ClosureState { closure_id, .. }) => Some(*closure_id),
                     _ => None,
@@ -648,31 +752,41 @@ impl<'a> Analyzer<'a> {
                         &state_origins,
                         &args,
                         call.span,
+                        call.ty,
                     ),
-                    None => self.apply_unknown_call(&args, call.span),
+                    None => self.apply_unknown_call(&args, call.span, call.ty),
                 }
             }
             TypedCallee::Callable(callee) => {
-                let callee = self.analyze_expr(callee, env);
+                let callee = self.analyze_expr(callee, env).all();
                 let closure_ids = callee
                     .iter()
                     .filter_map(|origin| match origin {
-                        Provenance::StackClosure(closure_id) => Some(*closure_id),
+                        Provenance::CallableClosure { closure_id, .. } => Some(*closure_id),
                         Provenance::Input(_)
                         | Provenance::StackAddress { .. }
                         | Provenance::CapturedInputAddress(_)
                         | Provenance::CapturedStackAddress { .. } => None,
                     })
                     .collect::<BTreeSet<_>>();
-                let mut result = Provenances::new();
+                let mut result = ValueProvenance::default();
                 for closure_id in &closure_ids {
                     let mut captures = callee.clone();
-                    captures.remove(&Provenance::StackClosure(*closure_id));
+                    captures.retain(|origin| {
+                        !matches!(
+                            origin,
+                            Provenance::CallableClosure {
+                                closure_id: candidate,
+                                ..
+                            } if candidate == closure_id
+                        )
+                    });
                     result.extend(self.apply_summary(
                         CallableKey::Closure(*closure_id),
                         &captures,
                         &args,
                         call.span,
+                        call.ty,
                     ));
                 }
                 if closure_ids.is_empty()
@@ -680,31 +794,33 @@ impl<'a> Analyzer<'a> {
                         .iter()
                         .any(|origin| matches!(origin, Provenance::Input(_)))
                 {
-                    result.extend(self.apply_unknown_call(&args, call.span));
+                    result.extend(self.apply_unknown_call(&args, call.span, call.ty));
                 }
                 result
             }
             TypedCallee::FunctionPointer(callee) => {
                 self.analyze_expr(callee, env);
-                self.apply_unknown_call(&args, call.span)
+                self.apply_unknown_call(&args, call.span, call.ty)
             }
             TypedCallee::DynamicTraitMethod { receiver, .. } => {
-                let receiver = self.analyze_expr(receiver, env);
+                let receiver = self.analyze_expr(receiver, env).all();
                 let mut operands = vec![receiver];
                 operands.extend(args);
-                self.apply_unknown_call(&operands, call.span)
+                self.apply_unknown_call(&operands, call.span, call.ty)
             }
             TypedCallee::BuiltinMethod { receiver, .. }
             | TypedCallee::BuiltinPlaceMethod(nia_body_ir::BuiltinPlaceMethod {
                 receiver, ..
             }) => {
-                let mut result = self.analyze_expr(receiver, env);
+                let mut result = self.analyze_expr(receiver, env).all();
                 for arg in args {
                     result.extend(arg);
                 }
-                result
+                ValueProvenance::from_value(result)
             }
-            TypedCallee::BuiltinOperator(_) => args.into_iter().fold(Provenances::new(), union),
+            TypedCallee::BuiltinOperator(_) => {
+                ValueProvenance::from_value(args.into_iter().fold(Provenances::new(), union))
+            }
         }
     }
 
@@ -714,13 +830,18 @@ impl<'a> Analyzer<'a> {
         captures: &Provenances,
         args: &[Provenances],
         span: Span,
-    ) -> Provenances {
+        return_ty: nia_ids::InternedTyId,
+    ) -> ValueProvenance {
         let Some(summary) = self.summaries.get(&key) else {
-            return self.apply_unknown_call(args, span);
+            return self.apply_unknown_call(args, span, return_ty);
         };
         let mut result = Provenances::new();
         for source in &summary.returned_inputs {
             result.extend(input_origins(*source, captures, args));
+        }
+        let mut error = Provenances::new();
+        for source in &summary.returned_error_inputs {
+            error.extend(input_origins(*source, captures, args));
         }
         for source in &summary.escaping_inputs {
             self.record_escape(
@@ -734,6 +855,11 @@ impl<'a> Analyzer<'a> {
                 *source, captures, args,
             )));
         }
+        for source in &summary.returned_error_captured_addresses {
+            error.extend(capture_address_origins(input_origins(
+                *source, captures, args,
+            )));
+        }
         for source in &summary.escaping_captured_addresses {
             self.record_escape(
                 &capture_address_origins(input_origins(*source, captures, args)),
@@ -741,24 +867,38 @@ impl<'a> Analyzer<'a> {
                 EscapeKind::Call,
             );
         }
-        result
+        ValueProvenance {
+            value: result,
+            error,
+        }
     }
 
-    fn apply_unknown_call(&mut self, args: &[Provenances], span: Span) -> Provenances {
+    fn apply_unknown_call(
+        &mut self,
+        args: &[Provenances],
+        span: Span,
+        return_ty: nia_ids::InternedTyId,
+    ) -> ValueProvenance {
         let result = args.iter().cloned().fold(Provenances::new(), union);
         self.record_escape(&result, span, EscapeKind::Call);
-        result
+        match self.type_store.get(return_ty) {
+            Some(TyKind::ErrorUnion { .. }) => ValueProvenance {
+                value: result.clone(),
+                error: result,
+            },
+            _ => ValueProvenance::from_value(result),
+        }
     }
 
     fn analyze_place(&mut self, place: &TypedPlace, env: &mut Environment) -> Provenances {
         let mut value = match &place.base {
-            PlaceBase::Local(local_id) => env.get(local_id).cloned().unwrap_or_default(),
+            PlaceBase::Local(local_id) => env.get(local_id).cloned().unwrap_or_default().all(),
             PlaceBase::Global(_) | PlaceBase::Error => Provenances::new(),
-            PlaceBase::Deref(expr) => self.analyze_expr(expr, env),
+            PlaceBase::Deref(expr) => self.analyze_expr(expr, env).all(),
         };
         for elem in &place.elems {
             if let PlaceElem::Index(index) = elem {
-                value.extend(self.analyze_expr(index, env));
+                value.extend(self.analyze_expr(index, env).all());
             }
         }
         value
@@ -767,7 +907,7 @@ impl<'a> Analyzer<'a> {
     fn assign_place(
         &mut self,
         place: &TypedPlace,
-        value: &Provenances,
+        value: &ValueProvenance,
         env: &mut Environment,
         span: Span,
     ) {
@@ -777,18 +917,24 @@ impl<'a> Analyzer<'a> {
                 env.insert(*local_id, value.clone());
             }
             PlaceBase::Local(local_id) => {
-                env.entry(*local_id).or_default().extend(value);
+                env.entry(*local_id).or_default().value.extend(value.all());
             }
             PlaceBase::Global(_) | PlaceBase::Deref(_) => {
-                self.record_escape(value, span, EscapeKind::Store);
+                self.record_escape(&value.all(), span, EscapeKind::Store);
             }
             PlaceBase::Error => {}
         }
     }
 
-    fn record_return(&mut self, value: &Provenances, span: Span) {
-        self.returned.extend(value);
-        self.report_escaping_state(value, span, EscapeKind::Return);
+    fn record_return(&mut self, value: &ValueProvenance, span: Span) {
+        self.returned.extend(&value.value);
+        self.returned_errors.extend(&value.error);
+        self.report_escaping_state(&value.all(), span, EscapeKind::Return);
+    }
+
+    fn record_error_return(&mut self, error: &Provenances, span: Span) {
+        self.returned_errors.extend(error);
+        self.report_escaping_state(error, span, EscapeKind::Return);
     }
 
     fn record_escape(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
@@ -800,9 +946,15 @@ impl<'a> Analyzer<'a> {
         let Some(sink) = &mut self.diagnostics else {
             return;
         };
-        let stack_closure = value
-            .iter()
-            .any(|origin| matches!(origin, Provenance::StackClosure(_)));
+        let stack_closure = value.iter().any(|origin| {
+            matches!(
+                origin,
+                Provenance::CallableClosure {
+                    stack_backed: true,
+                    ..
+                }
+            )
+        });
         let captured_stack_address = value
             .iter()
             .any(|origin| matches!(origin, Provenance::CapturedStackAddress { .. }));
@@ -835,11 +987,13 @@ impl<'a> Analyzer<'a> {
         let escaping = value
             .iter()
             .filter_map(|origin| match origin {
-                Provenance::StackClosure(closure_id)
-                    if self
-                        .closure_scopes
-                        .get(closure_id)
-                        .is_some_and(|closure_depth| *closure_depth >= depth) =>
+                Provenance::CallableClosure {
+                    closure_id,
+                    stack_backed: true,
+                } if self
+                    .closure_scopes
+                    .get(closure_id)
+                    .is_some_and(|closure_depth| *closure_depth >= depth) =>
                 {
                     Some(*origin)
                 }
@@ -850,13 +1004,31 @@ impl<'a> Analyzer<'a> {
                 | Provenance::StackAddress { .. }
                 | Provenance::CapturedInputAddress(_)
                 | Provenance::CapturedStackAddress { .. }
-                | Provenance::StackClosure(_) => None,
+                | Provenance::CallableClosure { .. } => None,
             })
             .collect();
         self.report_escaping_state(&escaping, span, EscapeKind::Scope);
     }
 
-    fn filter_for_type(&self, origins: Provenances, ty: nia_ids::InternedTyId) -> Provenances {
+    fn filter_for_type(
+        &self,
+        origins: ValueProvenance,
+        ty: nia_ids::InternedTyId,
+    ) -> ValueProvenance {
+        match self.type_store.get(ty) {
+            Some(TyKind::ErrorUnion { error, value }) => ValueProvenance {
+                value: self.filter_origins_for_type(origins.value, *value),
+                error: self.filter_origins_for_type(origins.error, *error),
+            },
+            _ => ValueProvenance::from_value(self.filter_origins_for_type(origins.all(), ty)),
+        }
+    }
+
+    fn filter_origins_for_type(
+        &self,
+        origins: Provenances,
+        ty: nia_ids::InternedTyId,
+    ) -> Provenances {
         if self.type_may_carry_borrowed_state(ty, &mut HashSet::new()) {
             origins
         } else {
@@ -924,7 +1096,7 @@ fn input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
             Provenance::StackAddress { .. }
             | Provenance::CapturedInputAddress(_)
             | Provenance::CapturedStackAddress { .. }
-            | Provenance::StackClosure(_) => None,
+            | Provenance::CallableClosure { .. } => None,
         })
         .collect()
 }
@@ -937,7 +1109,7 @@ fn captured_input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
             Provenance::Input(_)
             | Provenance::StackAddress { .. }
             | Provenance::CapturedStackAddress { .. }
-            | Provenance::StackClosure(_) => None,
+            | Provenance::CallableClosure { .. } => None,
         })
         .collect()
 }
@@ -962,7 +1134,7 @@ fn capture_address_origins(origins: Provenances) -> Provenances {
             }
             Provenance::CapturedInputAddress(_)
             | Provenance::CapturedStackAddress { .. }
-            | Provenance::StackClosure(_) => origin,
+            | Provenance::CallableClosure { .. } => origin,
         })
         .collect()
 }
@@ -986,6 +1158,27 @@ fn address_uses_stack_storage(expr: &TypedExpr) -> bool {
     }
 }
 
+fn is_pointer_type(type_store: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
+    matches!(
+        type_store.get(ty),
+        Some(
+            TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::Slice { .. }
+                | TyKind::Callable { .. }
+                | TyKind::FunctionPointer { .. }
+                | TyKind::TraitObject { .. }
+        )
+    )
+}
+
+fn is_integer_type(type_store: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
+    matches!(
+        type_store.get(ty),
+        Some(TyKind::Primitive(primitive)) if primitive.is_integer()
+    )
+}
+
 fn input_origins(source: InputSource, captures: &Provenances, args: &[Provenances]) -> Provenances {
     match source {
         InputSource::Capture(_) => captures.clone(),
@@ -993,24 +1186,34 @@ fn input_origins(source: InputSource, captures: &Provenances, args: &[Provenance
     }
 }
 
-fn bind_pattern(pattern: &TypedPattern, value: &Provenances, env: &mut Environment) {
+fn bind_pattern(pattern: &TypedPattern, value: &ValueProvenance, env: &mut Environment) {
     match &pattern.kind {
         TypedPatternKind::Bind { local_id, .. } => {
             env.insert(*local_id, value.clone());
         }
         TypedPatternKind::Pointer(inner)
         | TypedPatternKind::MutPointer(inner)
-        | TypedPatternKind::OptionalSome(inner)
-        | TypedPatternKind::ErrorOk(inner)
-        | TypedPatternKind::ErrorErr(inner) => bind_pattern(inner, value, env),
+        | TypedPatternKind::OptionalSome(inner) => {
+            bind_pattern(inner, &ValueProvenance::from_value(value.all()), env)
+        }
+        TypedPatternKind::ErrorOk(inner) => bind_pattern(
+            inner,
+            &ValueProvenance::from_value(value.value.clone()),
+            env,
+        ),
+        TypedPatternKind::ErrorErr(inner) => bind_pattern(
+            inner,
+            &ValueProvenance::from_value(value.error.clone()),
+            env,
+        ),
         TypedPatternKind::Tuple(patterns) => {
             for pattern in patterns {
-                bind_pattern(pattern, value, env);
+                bind_pattern(pattern, &ValueProvenance::from_value(value.all()), env);
             }
         }
         TypedPatternKind::EnumVariant { fields, .. } => {
             for pattern in fields {
-                bind_pattern(pattern, value, env);
+                bind_pattern(pattern, &ValueProvenance::from_value(value.all()), env);
             }
         }
         TypedPatternKind::Wildcard
@@ -1024,7 +1227,7 @@ fn bind_pattern(pattern: &TypedPattern, value: &Provenances, env: &mut Environme
 
 fn join_environment(target: &mut Environment, source: &Environment) {
     for (local_id, origins) in source {
-        target.entry(*local_id).or_default().extend(origins);
+        target.entry(*local_id).or_default().extend(origins.clone());
     }
 }
 

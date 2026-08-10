@@ -1571,8 +1571,13 @@ joins, and nested closure scopes. Diagnostics retain their owning
 guessing from a potentially reused span. Unknown calls and dynamic dispatch are
 conservative by design. This is a bounded callable-view escape check, not a
 general borrow checker. Captured local addresses use a separate provenance
-category and are rejected only when the containing closure state can escape;
-explicit heap ownership remains a separately staged rule.
+category and are rejected only when the containing closure state can escape.
+Explicit allocator-backed ownership remains outside this crate: the standard
+library's `Allocated[T]` and `CallableAllocation[V]` APIs use ordinary typed
+pointers, layout values, integer/raw-address boundaries, and explicit `deinit`;
+the compiler does not know about allocators or heap policy. Success and error
+payload provenance are tracked separately so an error-only stack address cannot
+contaminate a successfully allocated value.
 
 ### 9.5 `nia-function-lower`
 

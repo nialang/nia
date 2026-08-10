@@ -2788,6 +2788,9 @@ impl TraitSolver<'_> {
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Callable { .. },
             ) => true,
+            Some(TyKind::ClosureState { captures, .. }) => captures
+                .iter()
+                .all(|capture| self.intrinsic_sized_shape(*capture) || self.layout_of(*capture)),
             Some(
                 TyKind::Pointer { .. }
                 | TyKind::VolatilePointer { .. }

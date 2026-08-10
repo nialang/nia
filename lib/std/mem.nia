@@ -1,4 +1,5 @@
 pub(pkg) module arena_allocator;
+pub(pkg) module allocation;
 pub(pkg) module allocator;
 pub(pkg) module fixed_buffer_allocator;
 pub(pkg) module general_purpose_allocator;
@@ -6,11 +7,13 @@ pub(pkg) module page_allocator;
 pub(pkg) module types;
 
 using pkg::mem::arena_allocator;
+using pkg::mem::allocation;
 using pkg::mem::fixed_buffer_allocator;
 using pkg::mem::general_purpose_allocator;
 using pkg::mem::page_allocator;
 
 pub using types::{Block, Error, Layout};
+pub using allocation::{Allocated, CallableAllocation};
 pub using arena_allocator::ArenaAllocator;
 pub using allocator::Allocator;
 pub using fixed_buffer_allocator::FixedBufferAllocator;

@@ -117,3 +117,23 @@ fn main(base: i32) () {
     assert_eq!(params.len(), 1);
     assert!(body.tail.is_some());
 }
+
+#[test]
+fn generic_inference_reuses_closure_identity_for_one_source_node() {
+    let checked = pipeline(
+        r#"
+fn identity[T](value: T) T
+where T: Sized
+{
+    value
+}
+
+fn main(base: i32) i32 {
+    let callback = identity([base](value: i32) i32 { base + value });
+    callback(1)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

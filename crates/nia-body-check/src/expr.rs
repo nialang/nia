@@ -404,11 +404,22 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let closure_id = nia_ids::ClosureId {
-            owner,
-            ordinal: self.next_closure_ordinal,
-        };
-        self.next_closure_ordinal = self.next_closure_ordinal.saturating_add(1);
+        let closure_id = self
+            .expr_ty(expr)
+            .and_then(|ty| match self.interner.get(ty) {
+                Some(TyKind::ClosureState { closure_id, .. }) if closure_id.owner == owner => {
+                    Some(*closure_id)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                let closure_id = nia_ids::ClosureId {
+                    owner,
+                    ordinal: self.next_closure_ordinal,
+                };
+                self.next_closure_ordinal = self.next_closure_ordinal.saturating_add(1);
+                closure_id
+            });
 
         let mut capture_types = Vec::with_capacity(captures.len());
         for capture in captures {
