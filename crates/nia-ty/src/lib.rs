@@ -2,7 +2,7 @@
 use nia_hash::FastHashMap;
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
-    GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TypeStoreId, TypeStoreIndex,
+    ClosureId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TypeStoreId, TypeStoreIndex,
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -214,6 +214,12 @@ pub enum TyKind {
         return_type: InternedTyId,
         is_variadic: bool,
     },
+    ClosureState {
+        closure_id: ClosureId,
+        captures: Vec<InternedTyId>,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
+    },
     Optional {
         elem: InternedTyId,
     },
@@ -293,6 +299,20 @@ impl TyKind {
                 return_type,
                 ..
             } => {
+                for param in params {
+                    visit(*param);
+                }
+                visit(*return_type);
+            }
+            Self::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            } => {
+                for capture in captures {
+                    visit(*capture);
+                }
                 for param in params {
                     visit(*param);
                 }

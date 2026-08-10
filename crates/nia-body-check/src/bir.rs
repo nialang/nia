@@ -7,11 +7,12 @@ use nia_ast::{
 use nia_body_ir::{
     AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinMethod, BuiltinOperator, BuiltinPlaceMethod,
     LocalName, MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic,
-    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
-    TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternBinding, TypedPatternKind, TypedPlace,
-    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
-    TypedSwitchArmBody, TypedTryErrorConversion, TypedUnionRelocation, TypedWhile,
+    TypedBinding, TypedBody, TypedCallee, TypedClosureCapture, TypedExpr, TypedExprKind,
+    TypedFieldInit, TypedForIn, TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop,
+    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternBinding,
+    TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
+    TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedTryErrorConversion, TypedUnionRelocation,
+    TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
@@ -699,7 +700,47 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Tuple(elems) => {
                 TypedExprKind::Tuple(elems.iter().map(|elem| self.lower_expr(elem)).collect())
             }
-            ExprKind::Closure { .. } => TypedExprKind::Error,
+            ExprKind::Closure {
+                captures,
+                params,
+                body,
+                ..
+            } => {
+                let closure_id = match self.interner.get(ty) {
+                    Some(TyKind::ClosureState { closure_id, .. }) => *closure_id,
+                    _ => {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::Error,
+                        };
+                    }
+                };
+                let captures = captures
+                    .iter()
+                    .filter_map(|capture| {
+                        self.local_def(&capture.node_key)
+                            .map(|local_id| TypedClosureCapture {
+                                local_id,
+                                value: self.lower_expr(&capture.value),
+                            })
+                    })
+                    .collect();
+                let params = params
+                    .iter()
+                    .filter_map(|param| self.local_def(&param.node_key))
+                    .collect::<Vec<_>>();
+                let previous_params =
+                    std::mem::replace(&mut self.current_param_locals, params.clone());
+                let body = self.lower_body(body);
+                self.current_param_locals = previous_params;
+                TypedExprKind::Closure {
+                    closure_id,
+                    captures,
+                    params,
+                    body,
+                }
+            }
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_const_use(expr) {

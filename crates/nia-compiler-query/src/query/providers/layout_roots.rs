@@ -155,6 +155,16 @@ impl<'a> LayoutRootCollector<'a> {
                     self.add(elem);
                 }
             }
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                for ty in captures.into_iter().chain(params).chain([return_type]) {
+                    self.add(ty);
+                }
+            }
             Some(TyKind::Nominal {
                 def_id,
                 args,
@@ -255,6 +265,28 @@ impl<'a> LayoutRootCollector<'a> {
                     .map(|elem| self.substitute_generics(elem, substitutions))
                     .collect();
                 self.intern(TyKind::Tuple(elems))
+            }
+            Some(TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            }) => {
+                let captures = captures
+                    .into_iter()
+                    .map(|ty| self.substitute_generics(ty, substitutions))
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|ty| self.substitute_generics(ty, substitutions))
+                    .collect();
+                let return_type = self.substitute_generics(return_type, substitutions);
+                self.intern(TyKind::ClosureState {
+                    closure_id,
+                    captures,
+                    params,
+                    return_type,
+                })
             }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_generics(elem, substitutions);

@@ -662,6 +662,16 @@ fn collect_array_len_const_exprs_in_ty(
                 collect_array_len_const_exprs_in_ty(type_store, *elem, candidate_ids, out, seen);
             }
         }
+        Some(TyKind::ClosureState {
+            captures,
+            params,
+            return_type,
+            ..
+        }) => {
+            for ty in captures.iter().chain(params).chain([return_type]) {
+                collect_array_len_const_exprs_in_ty(type_store, *ty, candidate_ids, out, seen);
+            }
+        }
         Some(TyKind::Range {
             bound: Some(bound), ..
         }) => {

@@ -212,6 +212,7 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default();
         self.current_return = signature.return_type;
         self.current_def_id = Some(global_def_id);
+        self.next_closure_ordinal = 0;
         self.current_param_locals = function
             .params
             .iter()

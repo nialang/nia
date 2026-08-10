@@ -742,7 +742,9 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = self.self_substitution(substitutions).unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
-            Some(TyKind::Opaque) => self.finish_type_instantiation(key, ty, can_use_cache),
+            Some(TyKind::Opaque | TyKind::ClosureState { .. }) => {
+                self.finish_type_instantiation(key, ty, can_use_cache)
+            }
             Some(TyKind::Tuple(elems)) => {
                 let elems = elems
                     .into_iter()
@@ -1697,7 +1699,7 @@ impl<'a> ModuleLowerer<'a> {
                 _ => false,
             },
             Some(TyKind::Primitive(_) | TyKind::Vector { .. })
-            | Some(TyKind::ConstOnly | TyKind::Error)
+            | Some(TyKind::ConstOnly | TyKind::Error | TyKind::ClosureState { .. })
             | None => self.types_match(pattern, actual),
         }
     }
@@ -1791,7 +1793,8 @@ impl<'a> ModuleLowerer<'a> {
                 | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
-                | TyKind::Vector { .. },
+                | TyKind::Vector { .. }
+                | TyKind::ClosureState { .. },
             )
             | None => true,
         }
@@ -1881,7 +1884,8 @@ impl<'a> ModuleLowerer<'a> {
                 | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
-                | TyKind::Vector { .. },
+                | TyKind::Vector { .. }
+                | TyKind::ClosureState { .. },
             )
             | None => false,
         }

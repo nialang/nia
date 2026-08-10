@@ -103,6 +103,18 @@ pub struct GlobalConstExprId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalId(pub u32);
 
+/// Stable semantic identity for an anonymous closure state within a function.
+///
+/// The owner identifies the containing source function and the ordinal is
+/// assigned by deterministic body traversal. It is intentionally distinct
+/// from a function definition id: a closure has state and an eventual entry
+/// function, but is not itself a source-level item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ClosureId {
+    pub owner: GlobalDefId,
+    pub ordinal: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeStoreIndex(u32);
 

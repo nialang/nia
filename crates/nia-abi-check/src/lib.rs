@@ -335,6 +335,11 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use error union by value"),
             )),
+            Some(TyKind::ClosureState { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                span,
+                format!("{context_desc} cannot use closure state directly"),
+            )),
             Some(TyKind::Nominal { def_id, .. }) => {
                 if self.is_enum_def(*def_id) {
                     self.diagnostics.push(Diagnostic::user_error_at(

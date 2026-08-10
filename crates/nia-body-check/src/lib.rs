@@ -198,6 +198,7 @@ struct BodyChecker<'a> {
     timing_module_id: ModuleId,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
+    next_closure_ordinal: u32,
     current_param_locals: Vec<LocalId>,
     const_context_depth: usize,
     const_call_locals: Vec<ConstCallFrame>,

@@ -1648,6 +1648,7 @@ fn is_extendable_target(interner: &TypeStore, ty: nia_ids::InternedTyId) -> bool
             | TyKind::Range { .. }
             | TyKind::Optional { .. }
             | TyKind::ErrorUnion { .. }
+            | TyKind::ClosureState { .. }
             | TyKind::GenericParam(_)
             | TyKind::SelfParam,
         ) => true,

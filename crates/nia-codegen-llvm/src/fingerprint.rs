@@ -1537,6 +1537,19 @@ impl<'a> Encoder<'a> {
                 self.tag(22);
                 self.types(elems);
             }
+            TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            } => {
+                self.tag(23);
+                self.global_def(closure_id.owner);
+                self.u32(closure_id.ordinal);
+                self.types(captures);
+                self.types(params);
+                self.ty(*return_type);
+            }
         }
     }
 

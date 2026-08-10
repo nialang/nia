@@ -131,7 +131,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::TraitObject { .. }
                 | TyKind::TraitObjectPointee { .. }
                 | TyKind::Optional { .. }
-                | TyKind::ErrorUnion { .. },
+                | TyKind::ErrorUnion { .. }
+                | TyKind::ClosureState { .. },
             ) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,

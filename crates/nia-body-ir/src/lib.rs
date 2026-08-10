@@ -210,6 +210,12 @@ pub enum TypedExprKind {
         fields: Vec<TypedExpr>,
     },
     Tuple(Vec<TypedExpr>),
+    Closure {
+        closure_id: nia_ids::ClosureId,
+        captures: Vec<TypedClosureCapture>,
+        params: Vec<LocalId>,
+        body: TypedBody,
+    },
     BuiltinValue(BuiltinConst),
     Trap,
     Range(TypedRange),
@@ -333,6 +339,12 @@ pub enum TypedExprKind {
     },
     IfPattern(Box<TypedIfPattern>),
     Switch(Box<TypedSwitch>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedClosureCapture {
+    pub local_id: LocalId,
+    pub value: TypedExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]

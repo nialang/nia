@@ -218,6 +218,67 @@ fn match_type_pattern<'a>(
             }
             _ => false,
         },
+        TyKind::ClosureState {
+            closure_id,
+            captures,
+            params,
+            return_type,
+        } => match actual.kind() {
+            Some(TyKind::ClosureState {
+                closure_id: actual_id,
+                captures: actual_captures,
+                params: actual_params,
+                return_type: actual_return,
+            }) if closure_id == actual_id
+                && captures.len() == actual_captures.len()
+                && params.len() == actual_params.len() =>
+            {
+                captures
+                    .iter()
+                    .zip(actual_captures)
+                    .all(|(pattern_ty, actual_ty)| {
+                        match_type_pattern(
+                            TypedTyRef {
+                                store: pattern.store,
+                                ty: *pattern_ty,
+                            },
+                            TypedTyRef {
+                                store: actual.store,
+                                ty: *actual_ty,
+                            },
+                            substitutions,
+                        )
+                    })
+                    && params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern_ty, actual_ty)| {
+                            match_type_pattern(
+                                TypedTyRef {
+                                    store: pattern.store,
+                                    ty: *pattern_ty,
+                                },
+                                TypedTyRef {
+                                    store: actual.store,
+                                    ty: *actual_ty,
+                                },
+                                substitutions,
+                            )
+                        })
+                    && match_type_pattern(
+                        TypedTyRef {
+                            store: pattern.store,
+                            ty: *return_type,
+                        },
+                        TypedTyRef {
+                            store: actual.store,
+                            ty: *actual_return,
+                        },
+                        substitutions,
+                    )
+            }
+            _ => false,
+        },
         TyKind::Primitive(pattern_primitive) => {
             matches!(actual.kind(), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
         }
@@ -1236,7 +1297,8 @@ pub(super) fn substitute_ty(
         | TyKind::ConstOnly
         | TyKind::Primitive(_)
         | TyKind::BuiltinType(_)
-        | TyKind::Vector { .. } => Some(ty),
+        | TyKind::Vector { .. }
+        | TyKind::ClosureState { .. } => Some(ty),
     }
 }
 

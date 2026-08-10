@@ -1818,6 +1818,49 @@ impl TraitSolver<'_> {
                 }
                 _ => false,
             },
+            Some(TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::ClosureState {
+                    closure_id: actual_id,
+                    captures: actual_captures,
+                    params: actual_params,
+                    return_type: actual_return,
+                }) if closure_id == actual_id
+                    && captures.len() == actual_captures.len()
+                    && params.len() == actual_params.len() =>
+                {
+                    captures
+                        .iter()
+                        .zip(actual_captures)
+                        .all(|(pattern, actual)| {
+                            self.match_impl_pattern_with_consts(
+                                *pattern,
+                                actual,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && params.iter().zip(actual_params).all(|(pattern, actual)| {
+                            self.match_impl_pattern_with_consts(
+                                *pattern,
+                                actual,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && self.match_impl_pattern_with_consts(
+                            return_type,
+                            actual_return,
+                            substitutions,
+                            const_substitutions,
+                        )
+                }
+                _ => false,
+            },
             Some(TyKind::Pointer { is_readonly, elem }) => matches!(
                 self.interner.get(actual).cloned(),
                 Some(TyKind::Pointer {
@@ -2276,6 +2319,28 @@ impl TraitSolver<'_> {
                     .map(|elem| self.substitute_ty(elem, substitutions))
                     .collect();
                 self.interner.intern(TyKind::Tuple(elems))
+            }
+            Some(TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            }) => {
+                let captures = captures
+                    .into_iter()
+                    .map(|capture| self.substitute_ty(capture, substitutions))
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::ClosureState {
+                    closure_id,
+                    captures,
+                    params,
+                    return_type,
+                })
             }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);

@@ -82,7 +82,7 @@ fn main(value: (), ptr: &u8) () {
 }
 
 #[test]
-fn reports_closure_type_check_boundary_without_panicking() {
+fn type_checks_closure_state_and_body_without_panicking() {
     let checked = pipeline(
         r#"
 fn main(base: i32) () {
@@ -91,9 +91,29 @@ fn main(base: i32) () {
 }
 "#,
     );
-    assert!(checked.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .summary
-            .contains("closure expressions are not type-checked yet")
-    }));
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let nia_body_ir::TypedStmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let Some(value) = &binding.value else {
+        panic!("expected closure value");
+    };
+    let nia_body_ir::TypedExprKind::Closure {
+        captures,
+        params,
+        body,
+        ..
+    } = &value.kind
+    else {
+        panic!("expected typed closure");
+    };
+    assert_eq!(captures.len(), 1);
+    assert_eq!(params.len(), 1);
+    assert!(body.tail.is_some());
 }

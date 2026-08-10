@@ -209,6 +209,10 @@ impl BodyInputValidator {
                 }
                 Ok(())
             }
+            TypedExprKind::Closure { .. } => Err(FunctionLoweringDiagnostic {
+                span: expr.span,
+                message: "closure lowering is not implemented yet".to_string(),
+            }),
             TypedExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.validate_value_expr(&field.value)?;
