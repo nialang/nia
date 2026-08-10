@@ -1361,6 +1361,8 @@ it must be viewed through `&Fn(...)` or `&mut Fn(...)`.
 callable view. Both are `Sized`, non-owning two-word values containing state and
 entry metadata. Readonly and writable views have distinct type identity. They
 never allocate, free, or extend the lifetime of the referenced closure state.
+The concrete field and entry ABI is documented in
+[`docs/nia-abi.md`](nia-abi.md#81-callable-interface-and-closure-entry-representation).
 
 A callable view is constructed explicitly by taking the address of a concrete
 closure while a callable-view type supplies the expected signature:
@@ -3856,7 +3858,8 @@ this document:
 - payload-carrying algebraic data types beyond current enums;
 - aggregate destructuring patterns beyond current optional and error-union
   patterns;
-- closures (design and staged implementation are tracked in
+- allocator-backed closure ownership, explicit destruction, and final executable
+  entry materialization (the staged closure implementation is tracked in
   [closure-roadmap.md](closure-roadmap.md));
 - package management semantics;
 - LSP semantics;
