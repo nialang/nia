@@ -119,6 +119,26 @@ impl<'a> BodyChecker<'a> {
                     self.record_expr_node_type(expr, function_ptr_ty);
                     return function_ptr_ty;
                 }
+                if matches!(op, UnaryOp::RefReadOnly)
+                    && let Some(expected) = expected
+                    && let Some(inner_ty) = self.expr_ty(inner)
+                {
+                    match self.closure_to_function_pointer(expected, inner_ty) {
+                        crate::callable_views::ClosureFunctionPointerCoercion::Compatible => {
+                            self.record_expr_node_type(expr, expected);
+                            return expected;
+                        }
+                        crate::callable_views::ClosureFunctionPointerCoercion::Capturing => {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_CHECK,
+                                expr.span,
+                                "capturing closures cannot be converted to thin function pointers; use `&Fn(...)`",
+                            ));
+                            return self.error();
+                        }
+                        crate::callable_views::ClosureFunctionPointerCoercion::Mismatch => {}
+                    }
+                }
                 if let ExprKind::Index {
                     lhs,
                     index: IndexArg::Range(range),

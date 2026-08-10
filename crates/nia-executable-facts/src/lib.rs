@@ -730,7 +730,8 @@ fn collect_typed_expr_refs(
         | TypedExprKind::Bool(_)
         | TypedExprKind::Null
         | TypedExprKind::ConstGeneric(_)
-        | TypedExprKind::Local(_) => {}
+        | TypedExprKind::Local(_)
+        | TypedExprKind::ClosureFunctionPointer { .. } => {}
         TypedExprKind::UnionStorageLiteral { relocations, .. } => {
             for relocation in relocations {
                 collect_typed_expr_refs(module, &relocation.pointee, refs);

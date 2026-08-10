@@ -193,6 +193,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
+            | FunctionExprKind::ClosureFunctionPointer { .. }
             | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {

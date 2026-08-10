@@ -504,6 +504,9 @@ impl<'a> ModuleLowerer<'a> {
                         closure_id,
                     }
                 }
+                FunctionExprKind::ClosureFunctionPointer { closure_id } => {
+                    FunctionExprKind::ClosureFunctionPointer { closure_id }
+                }
                 FunctionExprKind::Call { callee, args } => {
                     let args = args
                         .into_iter()

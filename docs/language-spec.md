@@ -1384,8 +1384,24 @@ intermediate pointer and later assigning that pointer to `&Fn(...)` does not
 perform an implicit conversion. Calling a view uses ordinary call syntax.
 
 Callable views are distinct from `&fn(...)`. The latter is the existing thin,
-one-word function pointer and carries no state. No representation or coercion
-equivalence exists between the two type families.
+one-word function pointer and carries no state. A no-capture closure may be
+converted directly to that thin pointer when a matching `&fn(...)` expected
+type guides a readonly address expression:
+
+```nia
+let increment = [](value: i32) i32 { value + 1 };
+let pointer: &fn(i32) i32 = &increment;
+
+pointer(2);
+```
+
+The parameter and return types must match structurally. Only the direct
+`&closure` form performs this conversion; `&mut closure` and an intermediate
+closure-state pointer do not. A closure with any capture cannot become a thin
+function pointer because its entry requires state. Such a conversion is an
+error and should instead use a matching `&Fn(...)` callable view. This bounded
+no-capture conversion does not make `&fn(...)` and `&Fn(...)`
+representation-equivalent type families.
 
 A function declaration name is a function item, not an ordinary runtime value.
 Function items cannot be used bare:

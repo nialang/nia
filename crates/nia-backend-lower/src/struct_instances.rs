@@ -388,6 +388,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.collect_struct_instances_expr(state, seen, out);
             }
+            FunctionExprKind::ClosureFunctionPointer { .. } => {}
             FunctionExprKind::AddrOf(place) => {
                 self.collect_struct_instances_place(place, seen, out);
             }
@@ -1064,6 +1065,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.collect_union_instances_expr(state, seen, out);
             }
+            FunctionExprKind::ClosureFunctionPointer { .. } => {}
             FunctionExprKind::AddrOf(place) => {
                 self.collect_union_instances_place(place, seen, out);
             }

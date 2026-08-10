@@ -310,6 +310,11 @@ impl FunctionLowerer<'_> {
                     closure_id: *closure_id,
                 }
             }
+            TypedExprKind::ClosureFunctionPointer { closure_id } => {
+                FunctionExprKind::ClosureFunctionPointer {
+                    closure_id: *closure_id,
+                }
+            }
             TypedExprKind::Call { callee, args } => FunctionExprKind::Call {
                 callee: self.lower_callee(callee, scope, current, ops, blocks),
                 args: args

@@ -338,6 +338,13 @@ impl BackendValidator<'_> {
                     "callable view construction reached LLVM before closure entry materialization",
                 ));
             }
+            FunctionExprKind::ClosureFunctionPointer { .. } => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    expr.span,
+                    "closure function pointer reached LLVM before closure entry materialization",
+                ));
+            }
             FunctionExprKind::AddrOf(place) => self.validate_place(place),
             FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.validate_expr(lhs);

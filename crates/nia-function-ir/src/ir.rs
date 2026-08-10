@@ -376,6 +376,9 @@ pub enum FunctionExprKind {
         state: Box<FunctionExpr>,
         closure_id: ClosureId,
     },
+    ClosureFunctionPointer {
+        closure_id: ClosureId,
+    },
     Call {
         callee: FunctionCallee,
         args: Vec<FunctionExpr>,

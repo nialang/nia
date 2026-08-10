@@ -491,6 +491,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "callable view construction reached LLVM before closure entry materialization",
             )),
+            FunctionExprKind::ClosureFunctionPointer { .. } => Err(self.error(
+                expr.span,
+                "closure function pointer reached LLVM before closure entry materialization",
+            )),
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {

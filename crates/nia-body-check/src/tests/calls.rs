@@ -156,6 +156,104 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn decays_no_capture_closure_to_thin_function_pointer() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    let callback = [](value: i32) i32 { value + 1 };
+    let pointer: &fn(i32) i32 = &callback;
+    pointer(2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let nia_body_ir::TypedStmtKind::Binding(binding) = &body.stmts[1].kind else {
+        panic!("expected function pointer binding");
+    };
+    assert!(matches!(
+        binding.value.as_ref().map(|value| &value.kind),
+        Some(nia_body_ir::TypedExprKind::ClosureFunctionPointer { .. })
+    ));
+    assert!(matches!(
+        body.tail.as_deref().map(|tail| &tail.kind),
+        Some(nia_body_ir::TypedExprKind::Call {
+            callee: nia_body_ir::TypedCallee::FunctionPointer(_),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn rejects_capturing_closure_to_thin_function_pointer_with_dedicated_diagnostic() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    let pointer: &fn(i32) i32 = &callback;
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("capturing closures cannot be converted to thin function pointers")
+    }));
+}
+
+#[test]
+fn rejects_no_capture_closure_function_pointer_signature_mismatch() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    let callback = [](value: i32) i32 { value + 1 };
+    let pointer: &fn(i64) i32 = &callback;
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("type mismatch in binding initializer")
+    }));
+}
+
+#[test]
+fn thin_function_pointer_decay_requires_direct_readonly_closure_address() {
+    for source in [
+        r#"
+fn main() i32 {
+    let mut callback = [](value: i32) i32 { value + 1 };
+    let pointer: &fn(i32) i32 = &mut callback;
+    0
+}
+"#,
+        r#"
+fn main() i32 {
+    let callback = [](value: i32) i32 { value + 1 };
+    let state = &callback;
+    let pointer: &fn(i32) i32 = state;
+    0
+}
+"#,
+    ] {
+        let checked = pipeline(source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("type mismatch in binding initializer")
+        }));
+    }
+}
+
+#[test]
 fn checks_simple_calls_to_module_functions() {
     let checked = pipeline(
         r#"

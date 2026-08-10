@@ -1063,6 +1063,11 @@ impl<'a> Encoder<'a> {
                 self.global_def(closure_id.owner);
                 self.u32(closure_id.ordinal);
             }
+            FunctionExprKind::ClosureFunctionPointer { closure_id } => {
+                self.tag(58);
+                self.global_def(closure_id.owner);
+                self.u32(closure_id.ordinal);
+            }
             FunctionExprKind::Call { callee, args } => {
                 self.tag(47);
                 self.callee(callee);

@@ -1011,6 +1011,17 @@ impl<'a> BodyChecker<'a> {
                             closure_id,
                         }
                     }
+                } else if matches!(op, UnaryOp::RefReadOnly)
+                    && matches!(self.interner.get(ty), Some(TyKind::FunctionPointer { .. }))
+                    && let Some(inner_ty) = self.expr_ty(inner)
+                    && let Some(TyKind::ClosureState { closure_id, .. }) =
+                        self.interner.get(inner_ty).cloned()
+                    && matches!(
+                        self.closure_to_function_pointer(ty, inner_ty),
+                        crate::callable_views::ClosureFunctionPointerCoercion::Compatible
+                    )
+                {
+                    TypedExprKind::ClosureFunctionPointer { closure_id }
                 } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly) {
                     let inner = self.lower_expr_with_ty(inner, inner_ty);
                     lowered_ty = self.interner.intern(TyKind::Pointer {

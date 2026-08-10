@@ -486,6 +486,9 @@ impl<'a> ModuleLowerer<'a> {
                         closure_id,
                     }
                 }
+                FunctionExprKind::ClosureFunctionPointer { closure_id } => {
+                    FunctionExprKind::ClosureFunctionPointer { closure_id }
+                }
                 FunctionExprKind::Call { callee, args } => {
                     let callee = self.resolve_builtin_operator_calls_in_callee(callee);
                     let args = args

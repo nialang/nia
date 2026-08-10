@@ -314,6 +314,9 @@ pub enum TypedExprKind {
         state: Box<TypedExpr>,
         closure_id: nia_ids::ClosureId,
     },
+    ClosureFunctionPointer {
+        closure_id: nia_ids::ClosureId,
+    },
     Call {
         callee: TypedCallee,
         args: Vec<TypedExpr>,
