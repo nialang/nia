@@ -487,6 +487,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 target_ty,
                 self_ty,
             } => self.emit_trait_object_coercion(expr.span, inner, *self_ty, *target_ty),
+            FunctionExprKind::CallableCoercion { .. } => Err(self.error(
+                expr.span,
+                "callable view construction reached LLVM before closure entry materialization",
+            )),
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {
@@ -1310,7 +1314,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
                     .is_some_and(|function| function.is_extern)
             }
         }
-        FunctionCallee::FunctionPointer(_) => false,
+        FunctionCallee::Callable(_) | FunctionCallee::FunctionPointer(_) => false,
         FunctionCallee::DynamicTraitMethod { .. } => false,
         FunctionCallee::TraitMethod { .. }
         | FunctionCallee::TraitAssociatedFunction { .. }

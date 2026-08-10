@@ -202,7 +202,10 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
-            | FunctionExprKind::TraitObjectCoercion { expr, .. } => self.collect_expr(index, expr),
+            | FunctionExprKind::TraitObjectCoercion { expr, .. }
+            | FunctionExprKind::CallableCoercion { state: expr, .. } => {
+                self.collect_expr(index, expr)
+            }
             FunctionExprKind::AddrOf(place) => self.collect_place(index, place),
             FunctionExprKind::ExtractElement {
                 vector,
@@ -337,6 +340,7 @@ impl CompilerBuiltinCollector {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => self.collect_expr(index, receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }

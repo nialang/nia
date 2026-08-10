@@ -932,6 +932,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::TraitObjectCoercion { expr: inner, .. } => {
                     visit_expr(inner, max_id)
                 }
+                TypedExprKind::CallableCoercion { state, .. } => visit_expr(state, max_id),
                 TypedExprKind::Range(range) => {
                     if let Some(start) = &range.start {
                         visit_expr(start, max_id);
@@ -1169,6 +1170,7 @@ impl FunctionLowerer<'_> {
                 | TypedCallee::DynamicTraitMethod { receiver, .. }
                 | TypedCallee::BuiltinMethod { receiver, .. }
                 | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
+                | TypedCallee::Callable(receiver)
                 | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);
                 }

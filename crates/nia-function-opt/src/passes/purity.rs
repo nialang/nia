@@ -100,6 +100,7 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::CallableCoercion { .. }
         | FunctionExprKind::Call { .. } => false,
     }
 }

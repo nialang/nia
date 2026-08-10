@@ -9,6 +9,7 @@ use std::{
 
 mod aggregates;
 mod bir;
+mod callable_views;
 mod calls;
 mod expr;
 mod extension_lookup;

@@ -138,6 +138,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::RangeBound { range: expr, .. }
             | FunctionExprKind::Field { lhs: expr, .. }
             | FunctionExprKind::TupleField { value: expr, .. } => self.collect_expr(expr),
+            FunctionExprKind::CallableCoercion { state, .. } => self.collect_expr(state),
             FunctionExprKind::AddrOf(place) => self.collect_place(place),
             FunctionExprKind::Binary { lhs, rhs, .. }
             | FunctionExprKind::Index { lhs, index: rhs } => {
@@ -254,6 +255,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
+            | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => self.collect_expr(receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }

@@ -385,6 +385,9 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::RangeBound { range: expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
+            FunctionExprKind::CallableCoercion { state, .. } => {
+                self.collect_struct_instances_expr(state, seen, out);
+            }
             FunctionExprKind::AddrOf(place) => {
                 self.collect_struct_instances_place(place, seen, out);
             }
@@ -617,7 +620,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instances_expr(receiver, seen, out);
             }
             FunctionCallee::BuiltinOperator(_) => {}
-            FunctionCallee::FunctionPointer(expr) => {
+            FunctionCallee::Callable(expr) | FunctionCallee::FunctionPointer(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
         }
@@ -1058,6 +1061,9 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::RangeBound { range: expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
+            FunctionExprKind::CallableCoercion { state, .. } => {
+                self.collect_union_instances_expr(state, seen, out);
+            }
             FunctionExprKind::AddrOf(place) => {
                 self.collect_union_instances_place(place, seen, out);
             }
@@ -1290,7 +1296,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_union_instances_expr(receiver, seen, out);
             }
             FunctionCallee::BuiltinOperator(_) => {}
-            FunctionCallee::FunctionPointer(expr) => {
+            FunctionCallee::Callable(expr) | FunctionCallee::FunctionPointer(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
         }

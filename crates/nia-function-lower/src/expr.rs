@@ -304,6 +304,12 @@ impl FunctionLowerer<'_> {
                 target_ty: *target_ty,
                 self_ty: *self_ty,
             },
+            TypedExprKind::CallableCoercion { state, closure_id } => {
+                FunctionExprKind::CallableCoercion {
+                    state: Box::new(self.lower_value_expr(state, scope, current, ops, blocks)),
+                    closure_id: *closure_id,
+                }
+            }
             TypedExprKind::Call { callee, args } => FunctionExprKind::Call {
                 callee: self.lower_callee(callee, scope, current, ops, blocks),
                 args: args
@@ -1419,6 +1425,9 @@ impl FunctionLowerer<'_> {
                     },
                 })
             }
+            TypedCallee::Callable(expr) => FunctionCallee::Callable(Box::new(
+                self.lower_value_expr(expr, scope, current, ops, blocks),
+            )),
             TypedCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.lower_value_expr(expr, scope, current, ops, blocks),
             )),

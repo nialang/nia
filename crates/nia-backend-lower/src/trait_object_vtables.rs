@@ -162,6 +162,9 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
             }
+            FunctionExprKind::CallableCoercion { state, .. } => {
+                self.collect_trait_object_vtables_from_expr(state, out, seen);
+            }
             FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
@@ -350,6 +353,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
+            | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => {
                 self.collect_trait_object_vtables_from_expr(receiver, out, seen);
             }

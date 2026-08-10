@@ -462,6 +462,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "builtin operator cannot be emitted as a raw call",
             )),
+            FunctionCallee::Callable(_) => Err(self.error(
+                expr.span,
+                "callable view call reached LLVM before closure entry materialization",
+            )),
             FunctionCallee::FunctionPointer(callee) => {
                 let Some(TyKind::FunctionPointer {
                     params,

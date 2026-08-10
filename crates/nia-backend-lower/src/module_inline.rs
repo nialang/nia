@@ -351,6 +351,9 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
                 self.inline_leaf_calls_in_expr(array, function_candidates, instance_candidates);
             }
+            FunctionExprKind::CallableCoercion { state, .. } => {
+                self.inline_leaf_calls_in_expr(state, function_candidates, instance_candidates);
+            }
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {
@@ -514,6 +517,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
+            | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => {
                 self.inline_leaf_calls_in_expr(receiver, function_candidates, instance_candidates);
             }
@@ -611,6 +615,7 @@ fn inline_candidate_for_callee<'a>(
         | FunctionCallee::BuiltinPlaceMethod { .. }
         | FunctionCallee::BuiltinMethod { .. }
         | FunctionCallee::BuiltinOperator(_)
+        | FunctionCallee::Callable(_)
         | FunctionCallee::FunctionPointer(_) => None,
     }
 }
@@ -991,6 +996,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Assign { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::CallableCoercion { .. }
         | FunctionExprKind::Call { .. } => return None,
     }
     Some(())
@@ -1195,6 +1201,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::CallableCoercion { .. }
         | FunctionExprKind::Call { .. } => return None,
     };
     (cost <= budget).then_some(cost)

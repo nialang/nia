@@ -235,6 +235,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
+        | FunctionExprKind::CallableCoercion { state: expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. }
         | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }

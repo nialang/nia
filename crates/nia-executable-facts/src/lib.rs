@@ -471,6 +471,7 @@ fn collect_resolved_call_refs(
         }
         ResolvedCall::BuiltinFunction { .. }
         | ResolvedCall::Closure
+        | ResolvedCall::Callable
         | ResolvedCall::FunctionPointer => {}
     }
 }
@@ -624,6 +625,9 @@ fn collect_typed_expr_refs(
         } => {
             collect_typed_expr_refs(module, value, refs);
             collect_trait_object_vtable_ref(module, *target_ty, *self_ty, refs);
+        }
+        TypedExprKind::CallableCoercion { state, .. } => {
+            collect_typed_expr_refs(module, state, refs);
         }
         TypedExprKind::ArrayLiteral { elems } => match elems {
             TypedArrayElements::List(elems) => {
@@ -854,7 +858,7 @@ fn collect_typed_callee_refs(
             }
             collect_typed_expr_refs(module, receiver, refs);
         }
-        TypedCallee::FunctionPointer(receiver) => {
+        TypedCallee::Callable(receiver) | TypedCallee::FunctionPointer(receiver) => {
             collect_typed_expr_refs(module, receiver, refs);
         }
         TypedCallee::BuiltinOperator(operator) => {

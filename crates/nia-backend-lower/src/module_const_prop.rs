@@ -407,6 +407,13 @@ fn propagate_cross_function_constants_in_expr(
                 instance_constants,
             );
         }
+        FunctionExprKind::CallableCoercion { state, .. } => {
+            changed |= propagate_cross_function_constants_in_expr(
+                state,
+                function_constants,
+                instance_constants,
+            );
+        }
         FunctionExprKind::ArrayLiteral { elems } => match elems {
             FunctionArrayElements::List(elems) => {
                 for elem in elems {
@@ -664,6 +671,7 @@ fn propagate_cross_function_constants_in_callee(
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
         | FunctionCallee::BuiltinMethod { receiver, .. }
+        | FunctionCallee::Callable(receiver)
         | FunctionCallee::FunctionPointer(receiver) => propagate_cross_function_constants_in_expr(
             receiver,
             function_constants,
@@ -760,6 +768,7 @@ fn cross_function_constant_for_callee<'a>(
         | FunctionCallee::BuiltinPlaceMethod { .. }
         | FunctionCallee::BuiltinMethod { .. }
         | FunctionCallee::BuiltinOperator(_)
+        | FunctionCallee::Callable(_)
         | FunctionCallee::FunctionPointer(_) => None,
     }
 }

@@ -372,6 +372,10 @@ pub enum FunctionExprKind {
         target_ty: InternedTyId,
         self_ty: InternedTyId,
     },
+    CallableCoercion {
+        state: Box<FunctionExpr>,
+        closure_id: ClosureId,
+    },
     Call {
         callee: FunctionCallee,
         args: Vec<FunctionExpr>,
@@ -610,6 +614,7 @@ pub enum FunctionCallee {
         receiver: Box<FunctionExpr>,
     },
     BuiltinOperator(FunctionBuiltinOperator),
+    Callable(Box<FunctionExpr>),
     FunctionPointer(Box<FunctionExpr>),
 }
 

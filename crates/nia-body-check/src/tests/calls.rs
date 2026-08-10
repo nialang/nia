@@ -27,6 +27,135 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn constructs_and_calls_readonly_and_mutable_callable_views() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    let view: &Fn(i32) i32 = &callback;
+    let mut mutable_callback = [base](value: i32) i32 { base + value };
+    let mutable_view: &mut Fn(i32) i32 = &mut mutable_callback;
+    view(1) + mutable_view(2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    for binding in [&body.stmts[1], &body.stmts[3]] {
+        let nia_body_ir::TypedStmtKind::Binding(binding) = &binding.kind else {
+            panic!("expected callable view binding");
+        };
+        assert!(matches!(
+            binding.value.as_ref().map(|value| &value.kind),
+            Some(nia_body_ir::TypedExprKind::CallableCoercion { .. })
+        ));
+    }
+    let tail = body.tail.as_deref().expect("main tail");
+    let nia_body_ir::TypedExprKind::Call { callee, args } = &tail.kind else {
+        panic!("expected outer operator call");
+    };
+    let nia_body_ir::TypedCallee::BuiltinOperator(_) = callee else {
+        panic!("expected addition operator");
+    };
+    assert_eq!(args.len(), 2);
+    for call in args {
+        let nia_body_ir::TypedExprKind::Call { callee, .. } = &call.kind else {
+            panic!("expected callable view call");
+        };
+        assert!(matches!(callee, nia_body_ir::TypedCallee::Callable(_)));
+    }
+}
+
+#[test]
+fn constructs_readonly_callable_view_from_mutable_closure_state() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) i32 {
+    let mut callback = [base](value: i32) i32 { base + value };
+    let view: &Fn(i32) i32 = &mut callback;
+    view(1)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let nia_body_ir::TypedStmtKind::Binding(binding) = &body.stmts[1].kind else {
+        panic!("expected callable view binding");
+    };
+    assert!(matches!(
+        binding.value.as_ref().map(|value| &value.kind),
+        Some(nia_body_ir::TypedExprKind::CallableCoercion { .. })
+    ));
+}
+
+#[test]
+fn rejects_callable_views_with_mismatched_signatures() {
+    for target in ["&Fn(i64) i32", "&Fn(i32) i64"] {
+        let checked = pipeline(&format!(
+            r#"
+fn main(base: i32) i32 {{
+    let callback = [base](value: i32) i32 {{ base + value }};
+    let view: {target} = &callback;
+    0
+}}
+"#,
+        ));
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("type mismatch in binding initializer")
+        }));
+    }
+}
+
+#[test]
+fn rejects_readonly_closure_state_for_mutable_callable_view() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    let view: &mut Fn(i32) i32 = &callback;
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("type mismatch in binding initializer")
+    }));
+}
+
+#[test]
+fn callable_view_construction_requires_explicit_closure_address_syntax() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    let state = &callback;
+    let view: &Fn(i32) i32 = state;
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("type mismatch in binding initializer")
+    }));
+}
+
+#[test]
 fn checks_simple_calls_to_module_functions() {
     let checked = pipeline(
         r#"

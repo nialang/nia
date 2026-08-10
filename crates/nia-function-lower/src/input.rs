@@ -230,6 +230,7 @@ impl BodyInputValidator {
             | TypedExprKind::Cast { expr, .. }
             | TypedExprKind::TraitObjectUpcast { expr, .. }
             | TypedExprKind::TraitObjectCoercion { expr, .. } => self.validate_value_expr(expr),
+            TypedExprKind::CallableCoercion { state, .. } => self.validate_value_expr(state),
             TypedExprKind::Binary { lhs, rhs, .. } | TypedExprKind::Index { lhs, index: rhs } => {
                 self.validate_value_expr(lhs)?;
                 self.validate_value_expr(rhs)
@@ -404,6 +405,7 @@ impl BodyInputValidator {
             | TypedCallee::DynamicTraitMethod { receiver, .. }
             | TypedCallee::BuiltinMethod { receiver, .. }
             | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
+            | TypedCallee::Callable(receiver)
             | TypedCallee::FunctionPointer(receiver) => self.validate_value_expr(receiver),
             TypedCallee::Function(_)
             | TypedCallee::FunctionInstance { .. }

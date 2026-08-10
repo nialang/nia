@@ -1361,8 +1361,27 @@ it must be viewed through `&Fn(...)` or `&mut Fn(...)`.
 callable view. Both are `Sized`, non-owning two-word values containing state and
 entry metadata. Readonly and writable views have distinct type identity. They
 never allocate, free, or extend the lifetime of the referenced closure state.
-Construction of these views and indirect calls through them are specified by
-the closure project; the callable type itself does not imply either operation.
+
+A callable view is constructed explicitly by taking the address of a concrete
+closure while a callable-view type supplies the expected signature:
+
+```nia
+let offset = [base](value: i32) i32 { base + value };
+let view: &Fn(i32) i32 = &offset;
+
+let mut counter = [base](value: i32) i32 { base + value };
+let mutableView: &mut Fn(i32) i32 = &mut counter;
+
+view(1);
+mutableView(2);
+```
+
+The parameter and return types must match the closure signature structurally.
+Taking a mutable address may construct either a writable or readonly view;
+taking a readonly address cannot construct a writable view. The conversion is
+attached to the address expression itself: storing `&closure` in an
+intermediate pointer and later assigning that pointer to `&Fn(...)` does not
+perform an implicit conversion. Calling a view uses ordinary call syntax.
 
 Callable views are distinct from `&fn(...)`. The latter is the existing thin,
 one-word function pointer and carries no state. No representation or coercion

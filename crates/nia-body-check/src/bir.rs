@@ -983,6 +983,34 @@ impl<'a> BodyChecker<'a> {
                         op: *op,
                         expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
                     }
+                } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
+                    && matches!(self.interner.get(ty), Some(TyKind::Callable { .. }))
+                    && let Some(inner_ty) = self.expr_ty(inner)
+                    && let Some(TyKind::ClosureState { closure_id, .. }) =
+                        self.interner.get(inner_ty).cloned()
+                {
+                    let state_ty = self.interner.intern(TyKind::Pointer {
+                        is_readonly: matches!(op, UnaryOp::RefReadOnly),
+                        elem: inner_ty,
+                    });
+                    if self
+                        .coerce_closure_pointer_to_callable(ty, state_ty)
+                        .is_none()
+                    {
+                        TypedExprKind::Error
+                    } else {
+                        TypedExprKind::CallableCoercion {
+                            state: Box::new(TypedExpr {
+                                span: expr.span,
+                                ty: state_ty,
+                                kind: TypedExprKind::Unary {
+                                    op: *op,
+                                    expr: Box::new(self.lower_expr_with_ty(inner, Some(inner_ty))),
+                                },
+                            }),
+                            closure_id,
+                        }
+                    }
                 } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly) {
                     let inner = self.lower_expr_with_ty(inner, inner_ty);
                     lowered_ty = self.interner.intern(TyKind::Pointer {
@@ -2477,9 +2505,11 @@ impl<'a> BodyChecker<'a> {
         let callee_ty = self.expr_ty(callee)?;
         let callee_ty = self.normalize_projection(callee_ty);
         match self.interner.get(callee_ty).cloned() {
-            Some(TyKind::FunctionPointer { params, .. } | TyKind::ClosureState { params, .. }) => {
-                Some(params)
-            }
+            Some(
+                TyKind::FunctionPointer { params, .. }
+                | TyKind::ClosureState { params, .. }
+                | TyKind::Callable { params, .. },
+            ) => Some(params),
             _ => None,
         }
     }
@@ -2873,6 +2903,7 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             ResolvedCall::Closure => TypedCallee::Closure(Box::new(self.lower_expr(callee))),
+            ResolvedCall::Callable => TypedCallee::Callable(Box::new(self.lower_expr(callee))),
             ResolvedCall::FunctionPointer => {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }

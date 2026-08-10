@@ -330,6 +330,14 @@ impl BackendValidator<'_> {
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. } => self.validate_expr(expr),
+            FunctionExprKind::CallableCoercion { state, .. } => {
+                self.validate_expr(state);
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    expr.span,
+                    "callable view construction reached LLVM before closure entry materialization",
+                ));
+            }
             FunctionExprKind::AddrOf(place) => self.validate_place(place),
             FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.validate_expr(lhs);
@@ -601,7 +609,9 @@ impl BackendValidator<'_> {
                     ),
                 ));
             }
-            FunctionCallee::FunctionPointer(expr) => self.validate_expr(expr),
+            FunctionCallee::Callable(expr) | FunctionCallee::FunctionPointer(expr) => {
+                self.validate_expr(expr);
+            }
             // Intrinsic value operators are intentionally selected in LLVM codegen; backend
             // lowering only rewrites them when a source-level extension method wins dispatch.
             FunctionCallee::BuiltinOperator(_) => {}
