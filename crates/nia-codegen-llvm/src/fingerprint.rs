@@ -1556,6 +1556,24 @@ impl<'a> Encoder<'a> {
                 self.types(params);
                 self.ty(*return_type);
             }
+            TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            } => {
+                self.tag(24);
+                self.bool(*is_readonly);
+                self.types(params);
+                self.ty(*return_type);
+            }
+            TyKind::CallablePointee {
+                params,
+                return_type,
+            } => {
+                self.tag(25);
+                self.types(params);
+                self.ty(*return_type);
+            }
         }
     }
 

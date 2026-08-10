@@ -476,6 +476,54 @@ pub(super) fn substitute_type(
                 is_variadic: *is_variadic,
             })
         }
+        Some(TyKind::Callable {
+            is_readonly,
+            params,
+            return_type,
+        }) => {
+            let substitute = |ty| {
+                substitute_type(
+                    append,
+                    module,
+                    type_store,
+                    ty,
+                    substitutions,
+                    const_substitutions,
+                    TypeSubstitutionTarget {
+                        projection: projection_context,
+                        self_ty: self_substitution,
+                    },
+                )
+            };
+            append.intern(TyKind::Callable {
+                is_readonly: *is_readonly,
+                params: params.iter().copied().map(substitute).collect(),
+                return_type: substitute(*return_type),
+            })
+        }
+        Some(TyKind::CallablePointee {
+            params,
+            return_type,
+        }) => {
+            let substitute = |ty| {
+                substitute_type(
+                    append,
+                    module,
+                    type_store,
+                    ty,
+                    substitutions,
+                    const_substitutions,
+                    TypeSubstitutionTarget {
+                        projection: projection_context,
+                        self_ty: self_substitution,
+                    },
+                )
+            };
+            append.intern(TyKind::CallablePointee {
+                params: params.iter().copied().map(substitute).collect(),
+                return_type: substitute(*return_type),
+            })
+        }
         Some(TyKind::Nominal {
             def_id,
             args,

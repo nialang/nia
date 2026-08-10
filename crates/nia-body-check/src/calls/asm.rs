@@ -130,6 +130,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObject { .. }
                 | TyKind::TraitObjectPointee { .. }
+                | TyKind::Callable { .. }
+                | TyKind::CallablePointee { .. }
                 | TyKind::Optional { .. }
                 | TyKind::ErrorUnion { .. }
                 | TyKind::ClosureState { .. },

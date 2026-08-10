@@ -377,6 +377,67 @@ fn make() Header {
 }
 
 #[test]
+fn parses_callable_interface_types() {
+    let (module, errors) = parse_module(
+        r#"
+type Callback = Fn(i32, bool) i32;
+type CallbackRef = &Fn(i32) i32;
+type CallbackMut = &mut Fn(i32) i32;
+type UnitCallback = Fn();
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let aliases = module
+        .items
+        .iter()
+        .map(|item| match &item.kind {
+            ItemKind::TypeAlias(alias) => alias.ty.as_ref().expect("alias target"),
+            _ => panic!("expected type alias"),
+        })
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        &aliases[0].kind,
+        TypeKind::Callable {
+            params,
+            return_type: Some(_),
+        } if params.len() == 2
+    ));
+    assert!(matches!(
+        &aliases[1].kind,
+        TypeKind::Pointer {
+            is_readonly: true,
+            elem,
+        } if matches!(elem.kind, TypeKind::Callable { .. })
+    ));
+    assert!(matches!(
+        &aliases[2].kind,
+        TypeKind::Pointer {
+            is_readonly: false,
+            elem,
+        } if matches!(elem.kind, TypeKind::Callable { .. })
+    ));
+    assert!(matches!(
+        &aliases[3].kind,
+        TypeKind::Callable {
+            params,
+            return_type: None,
+        } if params.is_empty()
+    ));
+}
+
+#[test]
+fn rejects_variadic_callable_interface_types() {
+    let (_, errors) = parse_module("type Callback = Fn(i32, ...);");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("callable interface types cannot be variadic")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn parses_casts_builtins_and_struct_literals() {
     let (module, errors) = parse_module(
         r#"

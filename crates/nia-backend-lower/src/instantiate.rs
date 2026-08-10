@@ -775,6 +775,14 @@ impl<'a> ModuleLowerer<'a> {
                         trait_const_args,
                         associated_type_bindings,
                     }),
+                    Some(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                    }) => self.type_context.append.intern(TyKind::Callable {
+                        is_readonly,
+                        params,
+                        return_type,
+                    }),
                     _ => self
                         .type_context
                         .append
@@ -847,6 +855,50 @@ impl<'a> ModuleLowerer<'a> {
                     params,
                     return_type,
                     is_variadic,
+                });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.instantiate_ty_with_id_inner(param, substitutions, active_projections)
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_with_id_inner(
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                let instantiated = self.type_context.append.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.instantiate_ty_with_id_inner(param, substitutions, active_projections)
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_with_id_inner(
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                let instantiated = self.type_context.append.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -1535,6 +1587,44 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::Callable {
+                is_readonly: pattern_readonly,
+                params: pattern_params,
+                return_type: pattern_return,
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                }) if pattern_readonly == is_readonly && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_extension_type_pattern(*pattern, actual, substitutions)
+                    }) && self.match_extension_type_pattern(
+                        pattern_return,
+                        return_type,
+                        substitutions,
+                    )
+                }
+                _ => false,
+            },
+            Some(TyKind::CallablePointee {
+                params: pattern_params,
+                return_type: pattern_return,
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                }) if pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_extension_type_pattern(*pattern, actual, substitutions)
+                    }) && self.match_extension_type_pattern(
+                        pattern_return,
+                        return_type,
+                        substitutions,
+                    )
+                }
+                _ => false,
+            },
             Some(TyKind::Optional { elem: pattern_elem }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Optional { elem }) => {
                     self.match_extension_type_pattern(pattern_elem, elem, substitutions)
@@ -1732,6 +1822,15 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 params
                     .iter()
@@ -1820,6 +1919,15 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 params
                     .iter()
@@ -1943,6 +2051,43 @@ impl<'a> ModuleLowerer<'a> {
             ) => {
                 left_variadic == right_variadic
                     && left_params.len() == right_params.len()
+                    && left_params
+                        .iter()
+                        .zip(&right_params)
+                        .all(|(left, right)| self.types_match(*left, *right))
+                    && self.types_match(left_return, right_return)
+            }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: left_readonly,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: right_readonly,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && left_params.len() == right_params.len()
+                    && left_params
+                        .iter()
+                        .zip(&right_params)
+                        .all(|(left, right)| self.types_match(*left, *right))
+                    && self.types_match(left_return, right_return)
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_params.len() == right_params.len()
                     && left_params
                         .iter()
                         .zip(&right_params)

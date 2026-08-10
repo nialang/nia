@@ -1012,6 +1012,10 @@ impl<'a> LocalResolver<'a> {
                 params,
                 return_type,
                 ..
+            }
+            | TypeKind::Callable {
+                params,
+                return_type,
             } => {
                 for param in params {
                     self.resolve_type(param);

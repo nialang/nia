@@ -685,6 +685,15 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.collect_struct_instance_ty(param, seen, out);
@@ -1349,6 +1358,15 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.collect_union_instance_ty(param, seen, out);

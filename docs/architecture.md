@@ -436,6 +436,14 @@ that every referenced child already exists in the same canonical store. The
 canonicalization lock covers only one lookup-or-insert operation and is never
 held across compiler algorithms.
 
+Callable interfaces have an additional canonicalization invariant.
+`TyKind::CallablePointee` is the unsized signature-bearing pointee, while
+`TyKind::Callable { is_readonly, .. }` is its sized dynamic view. Publishing an
+ordinary `TyKind::Pointer` whose element is a callable pointee canonicalizes to
+the corresponding callable view. This prevents alias normalization, generic
+substitution, or another structural reconstruction path from manufacturing an
+incorrect one-word pointer to the unsized interface.
+
 The direct `InternedTyId::owner()` operation and the former physical-origin
 table are deleted. Const normalization and trait visibility use the current
 execution module while nominal layout ownership comes from `GlobalDefId`. The
@@ -780,8 +788,11 @@ migration storage API.
 ### 6.3 `nia-type-lower`
 
 Lowers active item-tree type references into interned type ids. It handles
-primitive types, pointers, arrays, slices, function pointer types, nominal
-types, generics, enum backing types, and inferred array lengths.
+primitive types, pointers, arrays, slices, thin function pointer types,
+unsized callable interfaces and their sized views, nominal types, generics,
+enum backing types, and inferred array lengths. Source `TypeKind::Callable`
+lowers to `TyKind::CallablePointee` when bare and to `TyKind::Callable` when it
+is the direct target of `&` or `&mut`.
 
 It also validates type-level restrictions such as invalid use of `()` or `never`
 in value positions. Its semantic product exposes deterministic, deduplicated
@@ -1308,6 +1319,12 @@ points derive the same data layout from the `TargetConfig` in scope; the
 host-only convenience entry constructs `TargetConfig::host()` once and uses it
 for both checking and layout rather than assuming LP64 independently.
 
+Callable pointees are unsized and have no `TypeLayout`. A callable view is
+`Sized`, with size equal to two target pointer words and target pointer
+alignment. The builtin trait solver follows the same split:
+`CallablePointee: Unsized`, callable views are `Sized`, and callable pointees
+do not satisfy `Sized`.
+
 `nia-layout::vector_layout` is the single vector storage owner used by frontend
 layout, backend validation, and LLVM lowering. It computes the byte-rounded
 native store width from lane bit width, including packed `bool` lanes, chooses
@@ -1492,6 +1509,14 @@ rewritten to ordered state-field projections, so parent-function `LocalId`
 values never cross into the entry body. Stable symbols and backend ABI records
 are a later materialization boundary, not part of source definition identity.
 
+The callable interface type is deliberately separate from generated closure
+entry materialization. `Fn(Args...) Return` is represented semantically by the
+unsized `TyKind::CallablePointee`; `&Fn(...)` and `&mut Fn(...)` are
+`TyKind::Callable` values whose readonly bit is part of type identity. The
+interface signature participates in normalization, substitution, structural
+equivalence, reachability, monomorphization, persistent signature caching, and
+mangling even before dynamic construction and calls are enabled.
+
 ### 9.5 `nia-function-lower`
 
 Lowers `nia-body-ir::TypedBody` from `BodyIr` into
@@ -1569,6 +1594,11 @@ append capabilities.
 Builds deterministic internal symbol names from module ids, definition ids, and
 type encodings. It is not C++ or Rust mangling. It should stay readable and
 debuggable.
+
+Callable encodings include parameter arity and ordered parameter/return type
+encodings. Readonly views use `callable_read`, writable views use `callable`,
+and unsized interface pointees use `callable_pointee`, keeping all three
+semantic identities distinct.
 
 Extern symbols bypass internal mangling and use their source names.
 
@@ -1913,6 +1943,11 @@ Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
 - aggregate operations;
 - inline assembly emission;
 - object emission.
+
+LLVM physical type lowering represents a callable view as the literal
+two-field aggregate `{ ptr, ptr }`. Bare `CallablePointee` types never reach
+physical lowering because they have no runtime layout. This representation is
+distinct from the single LLVM pointer used for `TyKind::FunctionPointer`.
 
 Backend lowering caches generic type instantiations while expanding function
 instances so repeated uses of the same type under the same substitutions do not

@@ -1188,6 +1188,15 @@ impl ReachableAggregateRoots {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.add_ty(lowerer, param);

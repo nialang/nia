@@ -140,6 +140,15 @@ impl<'a> LayoutRootCollector<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.add(param);
@@ -327,6 +336,36 @@ impl<'a> LayoutRootCollector<'a> {
                     params,
                     return_type,
                     is_variadic,
+                })
+            }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_generics(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_generics(return_type, substitutions);
+                self.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_generics(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_generics(return_type, substitutions);
+                self.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
                 })
             }
             Some(TyKind::Optional { elem }) => {

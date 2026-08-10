@@ -1638,6 +1638,8 @@ fn is_extendable_target(interner: &TypeStore, ty: nia_ids::InternedTyId) -> bool
             | TyKind::VolatilePointer { .. }
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
+            | TyKind::Callable { .. }
+            | TyKind::CallablePointee { .. }
             | TyKind::Nominal { .. }
             | TyKind::BuiltinType(_)
             | TyKind::BuiltinTrait { .. }

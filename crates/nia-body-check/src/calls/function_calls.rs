@@ -821,6 +821,15 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 params
                     .iter()
@@ -1001,6 +1010,51 @@ impl<'a> BodyChecker<'a> {
                 }) = self.interner.get(actual).cloned()
                     && pattern_params.len() == actual_params.len()
                     && pattern_variadic == actual_variadic
+                {
+                    for (pattern, actual) in pattern_params.iter().zip(actual_params.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    self.infer_generics_from_type(
+                        pattern_return,
+                        actual_return,
+                        substitutions,
+                        span,
+                    );
+                }
+            }
+            Some(TyKind::Callable {
+                is_readonly: pattern_readonly,
+                params: pattern_params,
+                return_type: pattern_return,
+            }) => {
+                if let Some(TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_readonly == actual_readonly
+                    && pattern_params.len() == actual_params.len()
+                {
+                    for (pattern, actual) in pattern_params.iter().zip(actual_params.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    self.infer_generics_from_type(
+                        pattern_return,
+                        actual_return,
+                        substitutions,
+                        span,
+                    );
+                }
+            }
+            Some(TyKind::CallablePointee {
+                params: pattern_params,
+                return_type: pattern_return,
+            }) => {
+                if let Some(TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_params.len() == actual_params.len()
                 {
                     for (pattern, actual) in pattern_params.iter().zip(actual_params.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);

@@ -296,6 +296,15 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
                 ..
+            }
+            | TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }
+            | TyKind::CallablePointee {
+                params,
+                return_type,
             } => {
                 params
                     .iter()
@@ -740,6 +749,15 @@ pub(crate) fn contains_generic_param(
             params,
             return_type,
             ..
+        })
+        | Some(TyKind::Callable {
+            params,
+            return_type,
+            ..
+        })
+        | Some(TyKind::CallablePointee {
+            params,
+            return_type,
         }) => {
             params
                 .iter()
@@ -827,6 +845,15 @@ pub(crate) fn contains_unresolved_projection(
             params,
             return_type,
             ..
+        })
+        | Some(TyKind::Callable {
+            params,
+            return_type,
+            ..
+        })
+        | Some(TyKind::CallablePointee {
+            params,
+            return_type,
         }) => {
             params
                 .into_iter()
@@ -906,6 +933,15 @@ pub(crate) fn contains_error(
             params,
             return_type,
             ..
+        })
+        | Some(TyKind::Callable {
+            params,
+            return_type,
+            ..
+        })
+        | Some(TyKind::CallablePointee {
+            params,
+            return_type,
         }) => {
             params
                 .into_iter()

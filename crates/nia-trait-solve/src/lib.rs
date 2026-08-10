@@ -1367,6 +1367,49 @@ impl TraitSolver<'_> {
                         active,
                     )
             }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: left_readonly,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: right_readonly,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && left_params.len() == right_params.len()
+                    && left_params.iter().zip(&right_params).all(|(left, right)| {
+                        self.types_equivalent_resolving_projections(*left, *right, active)
+                    })
+                    && self.types_equivalent_resolving_projections(
+                        left_return,
+                        right_return,
+                        active,
+                    )
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_params.len() == right_params.len()
+                    && left_params.iter().zip(&right_params).all(|(left, right)| {
+                        self.types_equivalent_resolving_projections(*left, *right, active)
+                    })
+                    && self.types_equivalent_resolving_projections(
+                        left_return,
+                        right_return,
+                        active,
+                    )
+            }
             (Some(TyKind::Optional { elem: left }), Some(TyKind::Optional { elem: right })) => {
                 self.types_equivalent_resolving_projections(left, right, active)
             }
@@ -1954,6 +1997,64 @@ impl TraitSolver<'_> {
                 }
                 _ => false,
             },
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                }) if is_readonly == actual_readonly && params.len() == actual_params.len() => {
+                    params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(param, actual_param)| {
+                            self.match_impl_pattern_with_consts(
+                                *param,
+                                actual_param,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && self.match_impl_pattern_with_consts(
+                            return_type,
+                            actual_return,
+                            substitutions,
+                            const_substitutions,
+                        )
+                }
+                _ => false,
+            },
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                }) if params.len() == actual_params.len() => {
+                    params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(param, actual_param)| {
+                            self.match_impl_pattern_with_consts(
+                                *param,
+                                actual_param,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && self.match_impl_pattern_with_consts(
+                            return_type,
+                            actual_return,
+                            substitutions,
+                            const_substitutions,
+                        )
+                }
+                _ => false,
+            },
             Some(TyKind::Optional { elem }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::Optional { elem: actual_elem }) => self
                     .match_impl_pattern_with_consts(
@@ -2383,6 +2484,36 @@ impl TraitSolver<'_> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Optional { elem })
@@ -2651,16 +2782,24 @@ impl TraitSolver<'_> {
     fn intrinsic_sized_shape(&self, ty: InternedTyId) -> bool {
         match self.kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
-            Some(TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::FunctionPointer { .. }) => {
-                true
-            }
+            Some(
+                TyKind::Primitive(_)
+                | TyKind::Vector { .. }
+                | TyKind::FunctionPointer { .. }
+                | TyKind::Callable { .. },
+            ) => true,
             Some(
                 TyKind::Pointer { .. }
                 | TyKind::VolatilePointer { .. }
                 | TyKind::Slice { .. }
                 | TyKind::Range { bound: None, .. },
             ) => true,
-            Some(TyKind::SlicePointee { .. } | TyKind::GenericParam(_)) => false,
+            Some(
+                TyKind::SlicePointee { .. }
+                | TyKind::TraitObjectPointee { .. }
+                | TyKind::CallablePointee { .. }
+                | TyKind::GenericParam(_),
+            ) => false,
             Some(TyKind::Array {
                 len: ArrayLenTy::ConstValue(_),
                 elem,
@@ -2806,6 +2945,54 @@ impl TraitSolver<'_> {
                         seen,
                     )
             }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: left_readonly,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: right_readonly,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && self.type_slices_equivalent_in_layout_interner(
+                        left_params,
+                        right_params,
+                        layouts,
+                        seen,
+                    )
+                    && self.types_equivalent_in_layout_interner(
+                        *left_return,
+                        *right_return,
+                        layouts,
+                        seen,
+                    )
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                self.type_slices_equivalent_in_layout_interner(
+                    left_params,
+                    right_params,
+                    layouts,
+                    seen,
+                ) && self.types_equivalent_in_layout_interner(
+                    *left_return,
+                    *right_return,
+                    layouts,
+                    seen,
+                )
+            }
             (Some(TyKind::Optional { elem: left }), Some(TyKind::Optional { elem: right })) => {
                 self.types_equivalent_in_layout_interner(*left, *right, layouts, seen)
             }
@@ -2912,7 +3099,11 @@ impl TraitSolver<'_> {
     fn is_unsized_pointee(&self, ty: InternedTyId) -> bool {
         matches!(
             self.kind(ty),
-            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. })
+            Some(
+                TyKind::SlicePointee { .. }
+                    | TyKind::TraitObjectPointee { .. }
+                    | TyKind::CallablePointee { .. }
+            )
         )
     }
 

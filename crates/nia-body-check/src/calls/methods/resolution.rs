@@ -1212,6 +1212,54 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::Callable {
+                is_readonly: general_readonly,
+                params: general_params,
+                return_type: general_return,
+            }) => match self.interner.get(specific).cloned() {
+                Some(TyKind::Callable {
+                    is_readonly: specific_readonly,
+                    params: specific_params,
+                    return_type: specific_return,
+                }) if general_readonly == specific_readonly
+                    && general_params.len() == specific_params.len() =>
+                {
+                    general_params
+                        .iter()
+                        .zip(&specific_params)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                        && self.pattern_subsumes_inner(
+                            general_return,
+                            specific_return,
+                            substitutions,
+                        )
+                }
+                _ => false,
+            },
+            Some(TyKind::CallablePointee {
+                params: general_params,
+                return_type: general_return,
+            }) => match self.interner.get(specific).cloned() {
+                Some(TyKind::CallablePointee {
+                    params: specific_params,
+                    return_type: specific_return,
+                }) if general_params.len() == specific_params.len() => {
+                    general_params
+                        .iter()
+                        .zip(&specific_params)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                        && self.pattern_subsumes_inner(
+                            general_return,
+                            specific_return,
+                            substitutions,
+                        )
+                }
+                _ => false,
+            },
             Some(TyKind::Optional { elem: general_elem }) => {
                 match self.interner.get(specific).cloned() {
                     Some(TyKind::Optional {
@@ -1666,6 +1714,56 @@ impl<'a> BodyChecker<'a> {
                     return_type,
                     is_variadic,
                 }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_type_pattern_with_consts(
+                            *pattern,
+                            actual,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && self.match_type_pattern_with_consts(
+                        pattern_return,
+                        return_type,
+                        substitutions,
+                        const_substitutions,
+                    )
+                }
+                _ => false,
+            },
+            Some(TyKind::Callable {
+                is_readonly: pattern_readonly,
+                params: pattern_params,
+                return_type: pattern_return,
+            }) => match actual_kind {
+                Some(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                }) if pattern_readonly == is_readonly && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_type_pattern_with_consts(
+                            *pattern,
+                            actual,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && self.match_type_pattern_with_consts(
+                        pattern_return,
+                        return_type,
+                        substitutions,
+                        const_substitutions,
+                    )
+                }
+                _ => false,
+            },
+            Some(TyKind::CallablePointee {
+                params: pattern_params,
+                return_type: pattern_return,
+            }) => match actual_kind {
+                Some(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                }) if pattern_params.len() == params.len() => {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
                         self.match_type_pattern_with_consts(
                             *pattern,

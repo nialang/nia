@@ -414,6 +414,8 @@ where
 Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, and `never`,
 plus the `opaque` incomplete pointer target, are reserved type names. `()` is
 the built-in unit type and zero-element tuple; it has no identifier spelling.
+A capitalized `Fn` followed by `(` is the contextual callable-interface type
+constructor, not an ordinary type path.
 A standalone `!` is reserved for error-union syntax, not logical negation or
 the never type.
 
@@ -1340,6 +1342,31 @@ Function pointer type:
 ```nia
 &fn(i32, i32) i32
 ```
+
+Callable interface types use a capitalized `Fn`:
+
+```nia
+Fn(i32, i32) i32
+&Fn(i32, i32) i32
+&mut Fn(i32, i32) i32
+```
+
+`Fn(Args...) Return` describes the unsized interface shared by concrete closure
+states with the same parameter and return types. Omitting `Return` means `()`.
+Callable interfaces cannot be variadic. A bare `Fn(...)` has no value layout
+and cannot be used as an ordinary value, field, parameter, or array element;
+it must be viewed through `&Fn(...)` or `&mut Fn(...)`.
+
+`&Fn(...)` is a readonly callable view and `&mut Fn(...)` is a writable
+callable view. Both are `Sized`, non-owning two-word values containing state and
+entry metadata. Readonly and writable views have distinct type identity. They
+never allocate, free, or extend the lifetime of the referenced closure state.
+Construction of these views and indirect calls through them are specified by
+the closure project; the callable type itself does not imply either operation.
+
+Callable views are distinct from `&fn(...)`. The latter is the existing thin,
+one-word function pointer and carries no state. No representation or coercion
+equivalence exists between the two type families.
 
 A function declaration name is a function item, not an ordinary runtime value.
 Function items cannot be used bare:
@@ -3489,6 +3516,11 @@ Type encoding rules:
 - `[N]T` encodes as `arr__<len>__<elem>`;
 - function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
   `__variadic` appended for variadic function pointers;
+- readonly callable views encode as
+  `callable_read__pc<N>__<p1>__...__ret__<ret>` and writable callable views as
+  `callable__pc<N>__<p1>__...__ret__<ret>`;
+- unsized callable interfaces encode as
+  `callable_pointee__pc<N>__<p1>__...__ret__<ret>`;
 - optional types encode as `opt__<T>`;
 - error union types encode as `err_union__<E>__<T>`;
 - nominal types encode as `nom__<base>` and, with arguments, as

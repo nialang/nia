@@ -335,6 +335,15 @@ fn collect_ty_owner_modules<'a>(
             params,
             return_type,
             ..
+        }
+        | TyKind::Callable {
+            params,
+            return_type,
+            ..
+        }
+        | TyKind::CallablePointee {
+            params,
+            return_type,
         } => {
             type_ids.extend(params.iter().copied());
             type_ids.push_back(*return_type);

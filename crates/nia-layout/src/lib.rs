@@ -629,12 +629,17 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size,
                 align: self.target.pointer_align,
             }),
-            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. }) => Some(TypeLayout {
-                size: self.target.pointer_size * 2,
-                align: self.target.pointer_align,
-            }),
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. }) => {
+                Some(TypeLayout {
+                    size: self.target.pointer_size * 2,
+                    align: self.target.pointer_align,
+                })
+            }
             Some(
-                TyKind::Opaque | TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. },
+                TyKind::Opaque
+                | TyKind::SlicePointee { .. }
+                | TyKind::TraitObjectPointee { .. }
+                | TyKind::CallablePointee { .. },
             ) => None,
             Some(TyKind::Range { kind, bound }) => self.range_layout(span, kind, bound),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
@@ -732,11 +737,22 @@ impl<'a> LayoutComputer<'a> {
                 self.is_open_generic_type_inner(*error, seen)
                     || self.is_open_generic_type_inner(*value, seen)
             }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            }) => {
+            Some(
+                TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    ..
+                }
+                | TyKind::Callable {
+                    params,
+                    return_type,
+                    ..
+                }
+                | TyKind::CallablePointee {
+                    params,
+                    return_type,
+                },
+            ) => {
                 params
                     .iter()
                     .any(|param| self.is_open_generic_type_inner(*param, seen))

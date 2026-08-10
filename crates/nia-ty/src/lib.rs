@@ -124,6 +124,18 @@ pub struct TypeStoreAppend {
 
 impl TypeStoreAppend {
     pub fn intern(&self, kind: TyKind) -> InternedTyId {
+        if let TyKind::Pointer { is_readonly, elem } = &kind
+            && let Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) = self.core.get(*elem)
+        {
+            return self.core.intern(&TyKind::Callable {
+                is_readonly: *is_readonly,
+                params: params.clone(),
+                return_type: *return_type,
+            });
+        }
         self.core.intern(&kind)
     }
 
@@ -214,6 +226,15 @@ pub enum TyKind {
         return_type: InternedTyId,
         is_variadic: bool,
     },
+    Callable {
+        is_readonly: bool,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
+    },
+    CallablePointee {
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
+    },
     ClosureState {
         closure_id: ClosureId,
         captures: Vec<InternedTyId>,
@@ -298,6 +319,20 @@ impl TyKind {
                 params,
                 return_type,
                 ..
+            } => {
+                for param in params {
+                    visit(*param);
+                }
+                visit(*return_type);
+            }
+            Self::Callable {
+                params,
+                return_type,
+                ..
+            }
+            | Self::CallablePointee {
+                params,
+                return_type,
             } => {
                 for param in params {
                     visit(*param);
@@ -648,6 +683,35 @@ pub trait TypeEquivalence {
             ) => {
                 left_variadic == right_variadic
                     && self.same_type_args_for_equiv(left_params, right_params)
+                    && self.same_type_for_equiv(*left_return, *right_return)
+            }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: left_readonly,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: right_readonly,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && self.same_type_args_for_equiv(left_params, right_params)
+                    && self.same_type_for_equiv(*left_return, *right_return)
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                self.same_type_args_for_equiv(left_params, right_params)
                     && self.same_type_for_equiv(*left_return, *right_return)
             }
             (
@@ -1102,6 +1166,31 @@ mod tests {
 
         assert_eq!(first_elem, second_elem);
         assert_eq!(first_pointer, second_pointer);
+    }
+
+    #[test]
+    fn pointers_to_callable_pointees_canonicalize_to_callable_views() {
+        let store = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let pointee = append.intern(TyKind::CallablePointee {
+            params: vec![i32_ty],
+            return_type: i32_ty,
+        });
+        let view = append.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: pointee,
+        });
+
+        assert_eq!(
+            store.get(view),
+            Some(&TyKind::Callable {
+                is_readonly: true,
+                params: vec![i32_ty],
+                return_type: i32_ty,
+            })
+        );
     }
 
     #[test]

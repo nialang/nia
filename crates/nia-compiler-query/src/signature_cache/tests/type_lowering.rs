@@ -141,6 +141,15 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
             trait_const_args: Vec::new(),
             associated_type_bindings: Vec::new(),
         }),
+        append.intern(TyKind::Callable {
+            is_readonly: false,
+            params: vec![primitive, nominal],
+            return_type: array,
+        }),
+        append.intern(TyKind::CallablePointee {
+            params: vec![nominal, primitive],
+            return_type: tuple,
+        }),
     ];
     let type_uses = roots
         .into_iter()

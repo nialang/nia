@@ -55,7 +55,7 @@ The type taxonomy is deliberately split:
 
 ### 3. Callable views and coercions
 
-- [ ] Add the unsized `Fn(Args...) Return` callable interface type.
+- [x] Add the unsized `Fn(Args...) Return` callable interface type.
 - [ ] Add explicit `&Fn`/`&mut Fn` fat-pointer construction and dynamic calls.
 - [ ] Permit no-capture decay to the existing `&fn` pointer only.
 - [ ] Reject capturing-to-thin-pointer coercions with a dedicated diagnostic.

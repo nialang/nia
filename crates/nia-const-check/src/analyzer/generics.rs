@@ -249,6 +249,65 @@ impl Analyzer<'_> {
                     )?;
                 }
             }
+            TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            } => {
+                if let Some(TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return_type,
+                }) = self.ty_kind(actual_ty)
+                    && is_readonly == actual_readonly
+                    && params.len() == actual_params.len()
+                {
+                    for (param, actual_param) in params.into_iter().zip(actual_params) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            param,
+                            actual_param,
+                            substitutions,
+                        )?;
+                    }
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        return_type,
+                        actual_return_type,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::CallablePointee {
+                params,
+                return_type,
+            } => {
+                if let Some(TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return_type,
+                }) = self.ty_kind(actual_ty)
+                    && params.len() == actual_params.len()
+                {
+                    for (param, actual_param) in params.into_iter().zip(actual_params) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            param,
+                            actual_param,
+                            substitutions,
+                        )?;
+                    }
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        return_type,
+                        actual_return_type,
+                        substitutions,
+                    )?;
+                }
+            }
             TyKind::Optional { elem } => {
                 if let Some(TyKind::Optional { elem: actual_elem }) = self.ty_kind(actual_ty) {
                     self.infer_generics_from_tys(
@@ -535,6 +594,64 @@ impl Analyzer<'_> {
             ) if pattern_variadic == actual_variadic
                 && pattern_params.len() == actual_params.len() =>
             {
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_tys(
+                        span,
+                        target_module_id,
+                        pattern,
+                        actual,
+                        substitutions,
+                    )?;
+                }
+                self.infer_const_generics_from_tys(
+                    span,
+                    target_module_id,
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                )?;
+            }
+            (
+                TyKind::Callable {
+                    is_readonly: pattern_readonly,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) if pattern_readonly == actual_readonly
+                && pattern_params.len() == actual_params.len() =>
+            {
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_tys(
+                        span,
+                        target_module_id,
+                        pattern,
+                        actual,
+                        substitutions,
+                    )?;
+                }
+                self.infer_const_generics_from_tys(
+                    span,
+                    target_module_id,
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                )?;
+            }
+            (
+                TyKind::CallablePointee {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) if pattern_params.len() == actual_params.len() => {
                 for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
                     self.infer_const_generics_from_tys(
                         span,

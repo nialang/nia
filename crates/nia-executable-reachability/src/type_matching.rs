@@ -436,6 +436,84 @@ fn match_type_pattern<'a>(
             }
             _ => false,
         },
+        TyKind::Callable {
+            is_readonly,
+            params,
+            return_type,
+        } => match actual.kind() {
+            Some(TyKind::Callable {
+                is_readonly: actual_readonly,
+                params: actual_params,
+                return_type: actual_return,
+            }) if is_readonly == actual_readonly && params.len() == actual_params.len() => {
+                params
+                    .iter()
+                    .zip(actual_params)
+                    .all(|(param, actual_param)| {
+                        match_type_pattern(
+                            TypedTyRef {
+                                store: pattern.store,
+                                ty: *param,
+                            },
+                            TypedTyRef {
+                                store: actual.store,
+                                ty: *actual_param,
+                            },
+                            substitutions,
+                        )
+                    })
+                    && match_type_pattern(
+                        TypedTyRef {
+                            store: pattern.store,
+                            ty: *return_type,
+                        },
+                        TypedTyRef {
+                            store: actual.store,
+                            ty: *actual_return,
+                        },
+                        substitutions,
+                    )
+            }
+            _ => false,
+        },
+        TyKind::CallablePointee {
+            params,
+            return_type,
+        } => match actual.kind() {
+            Some(TyKind::CallablePointee {
+                params: actual_params,
+                return_type: actual_return,
+            }) if params.len() == actual_params.len() => {
+                params
+                    .iter()
+                    .zip(actual_params)
+                    .all(|(param, actual_param)| {
+                        match_type_pattern(
+                            TypedTyRef {
+                                store: pattern.store,
+                                ty: *param,
+                            },
+                            TypedTyRef {
+                                store: actual.store,
+                                ty: *actual_param,
+                            },
+                            substitutions,
+                        )
+                    })
+                    && match_type_pattern(
+                        TypedTyRef {
+                            store: pattern.store,
+                            ty: *return_type,
+                        },
+                        TypedTyRef {
+                            store: actual.store,
+                            ty: *actual_return,
+                        },
+                        substitutions,
+                    )
+            }
+            _ => false,
+        },
         TyKind::Optional { elem } => match actual.kind() {
             Some(TyKind::Optional { elem: actual_elem }) => match_type_pattern(
                 TypedTyRef {
@@ -696,6 +774,53 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
         ) => {
             left_variadic == right_variadic
                 && typed_ref_slices_equivalent(left.store, left_params, right.store, right_params)
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        store: left.store,
+                        ty: *left_return,
+                    },
+                    TypedTyRef {
+                        store: right.store,
+                        ty: *right_return,
+                    },
+                )
+        }
+        (
+            Some(TyKind::Callable {
+                is_readonly: left_readonly,
+                params: left_params,
+                return_type: left_return,
+            }),
+            Some(TyKind::Callable {
+                is_readonly: right_readonly,
+                params: right_params,
+                return_type: right_return,
+            }),
+        ) => {
+            left_readonly == right_readonly
+                && typed_ref_slices_equivalent(left.store, left_params, right.store, right_params)
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        store: left.store,
+                        ty: *left_return,
+                    },
+                    TypedTyRef {
+                        store: right.store,
+                        ty: *right_return,
+                    },
+                )
+        }
+        (
+            Some(TyKind::CallablePointee {
+                params: left_params,
+                return_type: left_return,
+            }),
+            Some(TyKind::CallablePointee {
+                params: right_params,
+                return_type: right_return,
+            }),
+        ) => {
+            typed_ref_slices_equivalent(left.store, left_params, right.store, right_params)
                 && typed_refs_equivalent(
                     TypedTyRef {
                         store: left.store,
@@ -1166,6 +1291,36 @@ pub(super) fn substitute_ty(
                 params,
                 return_type,
                 is_variadic,
+            }))
+        }
+        TyKind::Callable {
+            is_readonly,
+            params,
+            return_type,
+        } => {
+            let params = params
+                .into_iter()
+                .map(|param| substitute_ty(types, param, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let return_type = substitute_ty(types, return_type, substitutions)?;
+            Some(types.intern(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }))
+        }
+        TyKind::CallablePointee {
+            params,
+            return_type,
+        } => {
+            let params = params
+                .into_iter()
+                .map(|param| substitute_ty(types, param, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let return_type = substitute_ty(types, return_type, substitutions)?;
+            Some(types.intern(TyKind::CallablePointee {
+                params,
+                return_type,
             }))
         }
         TyKind::Optional { elem } => {

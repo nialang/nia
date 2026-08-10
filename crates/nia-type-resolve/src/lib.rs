@@ -626,6 +626,10 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                 params,
                 return_type,
                 ..
+            }
+            | TypeKind::Callable {
+                params,
+                return_type,
             } => {
                 for param in params {
                     self.visit_type(param);
@@ -871,6 +875,10 @@ impl<'a> TypeResolver<'a> {
                 params,
                 return_type,
                 ..
+            }
+            | TypeKind::Callable {
+                params,
+                return_type,
             } => {
                 for param in params {
                     self.resolve_type_candidate(param);

@@ -277,3 +277,81 @@ fn len2(& self) usize {
         Some(TyKind::SlicePointee { .. })
     ));
 }
+
+#[test]
+fn lowers_callable_interfaces_and_views_with_distinct_identity() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+type Callback = Fn(i32, bool) i32;
+type Reordered = Fn(bool, i32) i32;
+type CallbackRef = &Fn(i32, bool) i32;
+type CallbackMut = &mut Fn(i32, bool) i32;
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_types(&module, &defs);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+
+    let callable_pointees = lowered
+        .type_uses
+        .values()
+        .copied()
+        .filter(|ty| matches!(type_store.get(*ty), Some(TyKind::CallablePointee { .. })))
+        .collect::<Vec<_>>();
+    assert_eq!(callable_pointees.len(), 2);
+    assert_ne!(callable_pointees[0], callable_pointees[1]);
+
+    let callable_views = lowered
+        .type_uses
+        .values()
+        .copied()
+        .filter(|ty| matches!(type_store.get(*ty), Some(TyKind::Callable { .. })))
+        .collect::<Vec<_>>();
+    assert_eq!(callable_views.len(), 2);
+    assert_ne!(callable_views[0], callable_views[1]);
+    assert!(callable_views.iter().any(|ty| matches!(
+        type_store.get(*ty),
+        Some(TyKind::Callable {
+            is_readonly: true,
+            ..
+        })
+    )));
+    assert!(callable_views.iter().any(|ty| matches!(
+        type_store.get(*ty),
+        Some(TyKind::Callable {
+            is_readonly: false,
+            ..
+        })
+    )));
+}
+
+#[test]
+fn rejects_bare_callable_interfaces_in_value_positions() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module("fn invoke(callback: Fn(i32) i32) {}");
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_types(&module, &defs);
+    let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
+    assert!(lowered.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("callable interface types are unsized")
+    }));
+    assert!(
+        lowered
+            .type_uses
+            .values()
+            .any(|ty| matches!(type_store.get(*ty), Some(TyKind::CallablePointee { .. })))
+    );
+}

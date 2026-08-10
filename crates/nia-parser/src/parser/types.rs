@@ -181,6 +181,8 @@ impl Parser {
                 self.expect(TokenKind::RParen, "expected `)` after tuple type")?;
                 TypeKind::Tuple { elems }
             }
+        } else if self.at_callable_type() {
+            self.parse_callable_type_with_mode(mode)?
         } else if self.eat(TokenKind::Underscore).is_some() {
             TypeKind::Infer
         } else if self.at(TokenKind::Fn) {
@@ -369,6 +371,38 @@ impl Parser {
         Some(TypeKind::VolatilePointer {
             is_readonly,
             elem: Box::new(elem),
+        })
+    }
+
+    fn at_callable_type(&self) -> bool {
+        self.at(TokenKind::Ident)
+            && self.token_text(self.peek()) == "Fn"
+            && matches!(self.tokens.nth_kind(1), Some(TokenKind::LParen))
+    }
+
+    fn parse_callable_type_with_mode(&mut self, mode: TypeParseMode) -> Option<TypeKind> {
+        self.bump();
+        self.expect(TokenKind::LParen, "expected `(` in callable type")?;
+        let mut params = Vec::new();
+        while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+            if self.eat(TokenKind::Ellipsis).is_some() {
+                self.error_here("callable interface types cannot be variadic");
+                break;
+            }
+            params.push(self.parse_type_with_mode(mode)?);
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "expected `)` in callable type")?;
+        let return_type = if self.type_can_start() {
+            Some(Box::new(self.parse_type_with_mode(mode)?))
+        } else {
+            None
+        };
+        Some(TypeKind::Callable {
+            params,
+            return_type,
         })
     }
 
