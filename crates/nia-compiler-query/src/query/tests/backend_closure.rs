@@ -144,6 +144,94 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn incremental_closure_entry_identity_matches_clean_recomputation() {
+    let source_v1 = r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    callback(1)
+}
+"#;
+    let source_v2 = r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value + 1 };
+    callback(1)
+}
+"#;
+    let mut fixture = LoadedProgramFixture::new("main.nia", source_v1);
+    let module_id = fixture.entry_id();
+    let database = fixture.database();
+    let first = database.codegen_program();
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    let first_entry = first
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .and_then(|module| module.closure_entries.first())
+        .expect("initial closure entry")
+        .clone();
+
+    fixture.update_module_source(module_id, source_v2, SourceRevision(1));
+    database.update(CompileRequest::new(fixture.program()));
+    let incremental = database.codegen_program();
+    assert!(
+        incremental.diagnostics.is_empty(),
+        "{:?}",
+        incremental.diagnostics
+    );
+    let incremental_entry = incremental
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .and_then(|module| module.closure_entries.first())
+        .expect("incremental closure entry")
+        .clone();
+
+    let clean_fixture = LoadedProgramFixture::new("main.nia", source_v2);
+    let clean_module_id = clean_fixture.entry_id();
+    let clean = clean_fixture.database().codegen_program();
+    assert!(clean.diagnostics.is_empty(), "{:?}", clean.diagnostics);
+    let clean_entry = clean
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == clean_module_id)
+        .and_then(|module| module.closure_entries.first())
+        .expect("clean closure entry")
+        .clone();
+
+    assert_eq!(
+        incremental_entry.key.closure_id.ordinal,
+        clean_entry.key.closure_id.ordinal
+    );
+    assert_eq!(
+        incremental_entry.abi.params.len(),
+        clean_entry.abi.params.len()
+    );
+    assert_eq!(
+        incremental
+            .type_store
+            .get(incremental_entry.abi.return_type),
+        clean.type_store.get(clean_entry.abi.return_type)
+    );
+    assert_eq!(
+        incremental_entry.function_body.blocks.len(),
+        clean_entry.function_body.blocks.len()
+    );
+    assert_eq!(
+        incremental_entry.function_body.locals.len(),
+        clean_entry.function_body.locals.len()
+    );
+    assert_eq!(incremental_entry.key, first_entry.key);
+    assert_eq!(incremental_entry.symbol, first_entry.symbol);
+    assert_ne!(incremental_entry.function_body, first_entry.function_body);
+}
+
+#[test]
 fn no_capture_function_pointer_retains_its_owned_closure_entry_identity() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
