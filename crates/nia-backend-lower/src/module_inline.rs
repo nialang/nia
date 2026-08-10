@@ -506,7 +506,10 @@ impl<'a> ModuleLowerer<'a> {
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         match callee {
-            FunctionCallee::Method { receiver, .. }
+            FunctionCallee::ClosureEntry {
+                state: receiver, ..
+            }
+            | FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
@@ -600,7 +603,8 @@ fn inline_candidate_for_callee<'a>(
             args: args.clone(),
             const_args: const_args.clone(),
         }),
-        FunctionCallee::Method { .. }
+        FunctionCallee::ClosureEntry { .. }
+        | FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::DynamicTraitMethod { .. }

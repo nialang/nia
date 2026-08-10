@@ -1205,6 +1205,12 @@ impl<'a> Encoder<'a> {
 
     fn callee(&mut self, callee: &FunctionCallee) {
         match callee {
+            FunctionCallee::ClosureEntry { closure_id, state } => {
+                self.tag(10);
+                self.global_def(closure_id.owner);
+                self.u32(closure_id.ordinal);
+                self.expr(state);
+            }
             FunctionCallee::Function(def_id) => {
                 self.tag(0);
                 self.global_def(*def_id);

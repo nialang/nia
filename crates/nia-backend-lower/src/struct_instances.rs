@@ -541,6 +541,9 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendStructInstance>,
     ) {
         match callee {
+            FunctionCallee::ClosureEntry { state, .. } => {
+                self.collect_struct_instances_expr(state, seen, out);
+            }
             FunctionCallee::Function(_) => {}
             FunctionCallee::FunctionInstance { args, .. } => {
                 for arg in args {
@@ -1202,6 +1205,9 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match callee {
+            FunctionCallee::ClosureEntry { state, .. } => {
+                self.collect_union_instances_expr(state, seen, out);
+            }
             FunctionCallee::Function(_) => {}
             FunctionCallee::FunctionInstance { args, .. } => {
                 for arg in args {

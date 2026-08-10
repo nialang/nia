@@ -444,6 +444,9 @@ fn collect_function_refs_from_callee(
     refs: &mut FunctionBodyRefs,
 ) {
     match callee {
+        FunctionCallee::ClosureEntry { state, .. } => {
+            collect_function_refs_from_expr(state, types, refs);
+        }
         FunctionCallee::Function(def_id) => {
             refs.functions.insert(*def_id);
         }

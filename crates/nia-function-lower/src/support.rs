@@ -50,11 +50,27 @@ impl FunctionLowerer<'_> {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionPlace {
-        FunctionPlace {
+        let mut lowered = FunctionPlace {
             span: place.span,
             ty: place.ty,
             base: match &place.base {
-                PlaceBase::Local(local_id) => FunctionPlaceBase::Local(*local_id),
+                PlaceBase::Local(local_id) => {
+                    if let Some(capture) = self.closure_capture_place(*local_id, place.span) {
+                        return FunctionPlace {
+                            elems: capture
+                                .elems
+                                .into_iter()
+                                .chain(place.elems.iter().map(|elem| {
+                                    self.lower_place_elem(elem, scope, current, ops, blocks)
+                                }))
+                                .collect(),
+                            ty: place.ty,
+                            span: place.span,
+                            base: capture.base,
+                        };
+                    }
+                    FunctionPlaceBase::Local(*local_id)
+                }
                 PlaceBase::Global(def_id) => FunctionPlaceBase::Global(*def_id),
                 PlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.lower_value_expr(expr, scope, current, ops, blocks),
@@ -63,21 +79,15 @@ impl FunctionLowerer<'_> {
                     "function lowering input validation rejects error places before lowering"
                 ),
             },
-            elems: place
+            elems: Vec::new(),
+        };
+        lowered.elems.extend(
+            place
                 .elems
                 .iter()
-                .map(|elem| match elem {
-                    PlaceElem::Field(field) => FunctionPlaceElem::Field(*field),
-                    PlaceElem::TupleField(index) => FunctionPlaceElem::TupleField(*index),
-                    PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
-                        self.lower_value_expr(index, scope, current, ops, blocks),
-                    )),
-                    PlaceElem::Error => unreachable!(
-                        "function lowering input validation rejects error place elements before lowering"
-                    ),
-                })
-                .collect(),
-        }
+                .map(|elem| self.lower_place_elem(elem, scope, current, ops, blocks)),
+        );
+        lowered
     }
 
     pub(super) fn lower_expr_place(
@@ -95,12 +105,14 @@ impl FunctionLowerer<'_> {
                 base: FunctionPlaceBase::Global(*def_id),
                 elems: Vec::new(),
             },
-            TypedExprKind::Local(local_id) => FunctionPlace {
-                span: expr.span,
-                ty: expr.ty,
-                base: FunctionPlaceBase::Local(*local_id),
-                elems: Vec::new(),
-            },
+            TypedExprKind::Local(local_id) => self
+                .closure_capture_place(*local_id, expr.span)
+                .unwrap_or(FunctionPlace {
+                    span: expr.span,
+                    ty: expr.ty,
+                    base: FunctionPlaceBase::Local(*local_id),
+                    elems: Vec::new(),
+                }),
             TypedExprKind::Unary {
                 op: UnaryOp::Deref,
                 expr: inner,
@@ -137,6 +149,41 @@ impl FunctionLowerer<'_> {
             }
             _ => self.materialize_expr_place(expr, scope, current, ops, blocks),
         }
+    }
+
+    fn lower_place_elem(
+        &mut self,
+        elem: &PlaceElem,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionPlaceElem {
+        match elem {
+            PlaceElem::Field(field) => FunctionPlaceElem::Field(*field),
+            PlaceElem::TupleField(index) => FunctionPlaceElem::TupleField(*index),
+            PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
+                self.lower_value_expr(index, scope, current, ops, blocks),
+            )),
+            PlaceElem::Error => unreachable!(
+                "function lowering input validation rejects error place elements before lowering"
+            ),
+        }
+    }
+
+    fn closure_capture_place(&self, local_id: LocalId, span: Span) -> Option<FunctionPlace> {
+        let context = self.closure_state.as_ref()?;
+        let capture = context.captures.get(&local_id)?;
+        Some(FunctionPlace {
+            span,
+            ty: capture.ty,
+            base: FunctionPlaceBase::Deref(Box::new(FunctionExpr {
+                span,
+                ty: context.state_ptr_ty,
+                kind: FunctionExprKind::Local(context.state_param),
+            })),
+            elems: vec![FunctionPlaceElem::TupleField(capture.index)],
+        })
     }
 
     fn materialize_expr_place(

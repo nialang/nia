@@ -585,7 +585,10 @@ impl<'a> FunctionIrValidator<'a> {
 
     fn validate_callee(&self, callee: &FunctionCallee) -> Result<(), FunctionIrError> {
         match callee {
-            FunctionCallee::Method { receiver, .. }
+            FunctionCallee::ClosureEntry {
+                state: receiver, ..
+            }
+            | FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }

@@ -1482,10 +1482,21 @@ storage id, session arena, or second semantic identity. Dropping a retired
 query product releases that function's payload without retaining revision
 history.
 
+Generated closure entries remain children of that same source-body query.
+Their identity is `ClosureId { owner, ordinal }`, not a synthetic
+`GlobalDefId`. Function IR records each entry body beside its owning source
+body and represents a direct call with a dedicated callee carrying the closure
+identity and an explicit readonly state-pointer expression. The generated body
+receives that pointer as its first ABI parameter; captured local references are
+rewritten to ordered state-field projections, so parent-function `LocalId`
+values never cross into the entry body. Stable symbols and backend ABI records
+are a later materialization boundary, not part of source definition identity.
+
 ### 9.5 `nia-function-lower`
 
 Lowers `nia-body-ir::TypedBody` from `BodyIr` into
-`nia-function-ir::FunctionBody`. This crate owns the translation from
+`nia-function-ir::FunctionBody` plus any generated closure entry bodies owned
+by that source body. This crate owns the translation from
 source-shaped checked runtime bodies into explicit function blocks, scope
 edges, terminators, defer bodies, locals, builtin values, and inline assembly
 options.

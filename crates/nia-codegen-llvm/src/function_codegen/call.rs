@@ -249,6 +249,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
         match callee {
+            FunctionCallee::ClosureEntry { .. } => Err(self.error(
+                expr.span,
+                "generated closure entry reached LLVM before backend materialization",
+            )),
             FunctionCallee::Function(def_id) => {
                 let Some(function) = self.module.function(*def_id) else {
                     return Err(self.error(expr.span, "missing callee function"));

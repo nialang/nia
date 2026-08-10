@@ -3,6 +3,84 @@ use super::support::{LoweringContext, PatternConditionContext, SwitchValueArmCon
 use super::*;
 
 impl FunctionLowerer<'_> {
+    fn ensure_closure_entry(
+        &mut self,
+        closure_id: ClosureId,
+        state_ty: InternedTyId,
+        captures: &[nia_body_ir::TypedClosureCapture],
+        params: &[LocalId],
+        body: &TypedBody,
+    ) {
+        if self
+            .closure_entries
+            .iter()
+            .any(|entry| entry.closure_id == closure_id)
+        {
+            return;
+        }
+        let (capture_types, param_types, return_type) = match self.types.get(state_ty) {
+            Some(TyKind::ClosureState {
+                closure_id: actual_id,
+                captures,
+                params,
+                return_type,
+            }) if *actual_id == closure_id => (captures.clone(), params.clone(), *return_type),
+            _ => unreachable!("typed closure expression must have its closure-state type"),
+        };
+        debug_assert_eq!(capture_types.len(), captures.len());
+        debug_assert_eq!(param_types.len(), params.len());
+
+        let state_ptr_ty = self.types.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: state_ty,
+        });
+        let state_param = LocalId(self.next_available_local(body));
+        let capture_fields = captures
+            .iter()
+            .zip(capture_types)
+            .enumerate()
+            .map(|(index, (capture, ty))| (capture.local_id, ClosureCaptureField { index, ty }))
+            .collect();
+        let mut entry_lowerer = FunctionLowerer::new(self.module_id, self.types.clone());
+        entry_lowerer.closure_state = Some(ClosureStateContext {
+            state_ty,
+            state_ptr_ty,
+            state_param,
+            captures: capture_fields,
+        });
+        let entry_body = entry_lowerer.lower_body(body);
+        self.closure_entries.extend(entry_lowerer.closure_entries);
+        self.closure_entries.push(FunctionClosureEntry {
+            closure_id,
+            state_ty,
+            state_param,
+            params: params.to_vec(),
+            return_type,
+            body: entry_body,
+        });
+    }
+
+    fn closure_capture_expr(&self, local_id: LocalId, span: Span) -> Option<FunctionExprKind> {
+        let context = self.closure_state.as_ref()?;
+        let capture = context.captures.get(&local_id)?;
+        let state = FunctionExpr {
+            span,
+            ty: context.state_ty,
+            kind: FunctionExprKind::Unary {
+                op: UnaryOp::Deref,
+                expr: Box::new(FunctionExpr {
+                    span,
+                    ty: context.state_ptr_ty,
+                    kind: FunctionExprKind::Local(context.state_param),
+                }),
+            },
+        };
+        Some(FunctionExprKind::TupleField {
+            value: Box::new(state),
+            index: capture.index,
+        })
+    }
+
     pub(super) fn lower_value_expr(
         &mut self,
         expr: &TypedExpr,
@@ -260,9 +338,22 @@ impl FunctionLowerer<'_> {
             TypedExprKind::Error => unreachable!(
                 "function lowering input validation rejects error expressions before lowering"
             ),
-            TypedExprKind::Closure { .. } => unreachable!(
-                "closure lowering is gated until closure entry/state lowering is implemented"
-            ),
+            TypedExprKind::Closure {
+                closure_id,
+                captures,
+                params,
+                body,
+            } => {
+                self.ensure_closure_entry(*closure_id, expr.ty, captures, params, body);
+                FunctionExprKind::Tuple(
+                    captures
+                        .iter()
+                        .map(|capture| {
+                            self.lower_value_expr(&capture.value, scope, current, ops, blocks)
+                        })
+                        .collect(),
+                )
+            }
             TypedExprKind::Integer(text) => FunctionExprKind::Integer(text.clone()),
             TypedExprKind::Float(text) => FunctionExprKind::Float(text.clone()),
             TypedExprKind::String(scalars) => FunctionExprKind::String(scalars.clone()),
@@ -271,7 +362,13 @@ impl FunctionLowerer<'_> {
             TypedExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text.clone()),
             TypedExprKind::Bool(value) => FunctionExprKind::Bool(*value),
             TypedExprKind::Null => FunctionExprKind::Null,
-            TypedExprKind::Local(local_id) => FunctionExprKind::Local(*local_id),
+            TypedExprKind::Local(local_id) => {
+                if let Some(capture) = self.closure_capture_expr(*local_id, expr.span) {
+                    capture
+                } else {
+                    FunctionExprKind::Local(*local_id)
+                }
+            }
             TypedExprKind::Global(def_id) => FunctionExprKind::Global(*def_id),
             TypedExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg.clone()),
             TypedExprKind::Function(def_id) => FunctionExprKind::Function(*def_id),
@@ -1182,9 +1279,27 @@ impl FunctionLowerer<'_> {
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionCallee {
         match callee {
-            TypedCallee::Closure(_) => unreachable!(
-                "function lowering input validation rejects closure calls before lowering"
-            ),
+            TypedCallee::Closure(callee) => {
+                let closure_id = match self.types.get(callee.ty) {
+                    Some(TyKind::ClosureState { closure_id, .. }) => *closure_id,
+                    _ => unreachable!("typed closure callee must have closure-state type"),
+                };
+                let state_ptr_ty = self.types.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: callee.ty,
+                });
+                let state = FunctionExpr {
+                    span: callee.span,
+                    ty: state_ptr_ty,
+                    kind: FunctionExprKind::AddrOf(
+                        self.lower_expr_place(callee, scope, current, ops, blocks),
+                    ),
+                };
+                FunctionCallee::ClosureEntry {
+                    closure_id,
+                    state: Box::new(state),
+                }
+            }
             TypedCallee::Function(def_id) => FunctionCallee::Function(*def_id),
             TypedCallee::FunctionInstance {
                 def_id,

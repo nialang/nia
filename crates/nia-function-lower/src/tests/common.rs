@@ -11,7 +11,9 @@ pub(super) use nia_function_ir::{
     FunctionExprKind, FunctionForHeader, FunctionLocalKind, FunctionOp, FunctionPlaceBase,
     FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
 };
-pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, ModuleIdAllocator};
+pub(super) use nia_ids::{
+    ClosureId, DefId, GlobalDefId, InternedTyId, LocalId, ModuleId, ModuleIdAllocator,
+};
 pub(super) use nia_span::Span;
 pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_ty::{PrimitiveTy, TyKind, TypeStore};

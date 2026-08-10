@@ -82,15 +82,22 @@ pub(super) fn materialize_executable_checked_modules(
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum LoweredFunctionBodyValue {
-    Body(nia_function_ir::FunctionBody),
+    Body(nia_function_lower::LoweredFunctionBody),
     Diagnostic(nia_function_lower::FunctionLoweringDiagnostic),
 }
 
 impl LoweredFunctionBodyValue {
     pub(super) fn body(&self) -> Option<&nia_function_ir::FunctionBody> {
         match self {
-            Self::Body(body) => Some(body),
+            Self::Body(lowered) => Some(&lowered.body),
             Self::Diagnostic(_) => None,
+        }
+    }
+
+    pub(super) fn closure_entries(&self) -> &[nia_function_ir::FunctionClosureEntry] {
+        match self {
+            Self::Body(lowered) => &lowered.closure_entries,
+            Self::Diagnostic(_) => &[],
         }
     }
 

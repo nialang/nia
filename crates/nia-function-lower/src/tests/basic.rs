@@ -35,6 +35,188 @@ fn lowers_body_to_entry_block_with_tail() {
 }
 
 #[test]
+fn lowers_closure_state_and_direct_call_to_generated_entry() {
+    let span = Span::default();
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let closure_id = ClosureId {
+        owner: GlobalDefId {
+            module_id,
+            def_id: DefId(7),
+        },
+        ordinal: 0,
+    };
+    let closure_ty = append.intern(TyKind::ClosureState {
+        closure_id,
+        captures: vec![i32_ty],
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let base = LocalId(0);
+    let callback = LocalId(1);
+    let captured_base = LocalId(2);
+    let value = LocalId(3);
+    let closure_body = TypedBody {
+        span,
+        locals: vec![
+            TypedLocal {
+                id: captured_base,
+                name: local_name("base"),
+                kind: TypedLocalKind::ImmutableBinding,
+                ty: i32_ty,
+                span,
+            },
+            TypedLocal {
+                id: value,
+                name: local_name("value"),
+                kind: TypedLocalKind::Param,
+                ty: i32_ty,
+                span,
+            },
+        ],
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty: i32_ty,
+            kind: TypedExprKind::Binary {
+                lhs: Box::new(TypedExpr {
+                    span,
+                    ty: i32_ty,
+                    kind: TypedExprKind::Local(captured_base),
+                }),
+                op: nia_ast::BinaryOp::Add,
+                rhs: Box::new(TypedExpr {
+                    span,
+                    ty: i32_ty,
+                    kind: TypedExprKind::Local(value),
+                }),
+            },
+        })),
+        ty: i32_ty,
+    };
+    let body = TypedBody {
+        span,
+        locals: vec![
+            TypedLocal {
+                id: base,
+                name: local_name("base"),
+                kind: TypedLocalKind::Param,
+                ty: i32_ty,
+                span,
+            },
+            TypedLocal {
+                id: callback,
+                name: local_name("callback"),
+                kind: TypedLocalKind::ImmutableBinding,
+                ty: closure_ty,
+                span,
+            },
+        ],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Binding(TypedBinding {
+                local_id: callback,
+                name: local_name("callback"),
+                ty: closure_ty,
+                value: Some(TypedExpr {
+                    span,
+                    ty: closure_ty,
+                    kind: TypedExprKind::Closure {
+                        closure_id,
+                        captures: vec![nia_body_ir::TypedClosureCapture {
+                            local_id: captured_base,
+                            value: TypedExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: TypedExprKind::Local(base),
+                            },
+                        }],
+                        params: vec![value],
+                        body: closure_body,
+                    },
+                }),
+                is_mutable: false,
+            }),
+        }],
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty: i32_ty,
+            kind: TypedExprKind::Call {
+                callee: TypedCallee::Closure(Box::new(TypedExpr {
+                    span,
+                    ty: closure_ty,
+                    kind: TypedExprKind::Local(callback),
+                })),
+                args: vec![TypedExpr {
+                    span,
+                    ty: i32_ty,
+                    kind: TypedExprKind::Integer("2".to_string()),
+                }],
+            },
+        })),
+        ty: i32_ty,
+    };
+
+    let lowered = lower_function_body(
+        module_id,
+        &body,
+        FunctionTypeContext::for_module(&type_store, module_id),
+    )
+    .expect("closure function IR");
+
+    assert_eq!(lowered.closure_entries.len(), 1);
+    let entry = &lowered.closure_entries[0];
+    assert_eq!(entry.closure_id, closure_id);
+    assert_eq!(entry.params, vec![value]);
+    assert!(
+        !entry
+            .body
+            .locals
+            .iter()
+            .any(|local| local.id == captured_base)
+    );
+    assert!(matches!(
+        type_store.get(entry.body.locals[0].ty),
+        Some(TyKind::Pointer {
+            is_readonly: true,
+            elem,
+        }) if *elem == closure_ty
+    ));
+    assert!(matches!(
+        &entry.body.blocks[0].terminator,
+        FunctionTerminator::Tail {
+            value: Some(FunctionExpr {
+                kind: FunctionExprKind::Binary { lhs, .. },
+                ..
+            }),
+            ..
+        } if matches!(
+            lhs.kind,
+            FunctionExprKind::TupleField {
+                index: 0,
+                ..
+            }
+        )
+    ));
+    assert!(lowered.body.blocks.iter().any(|block| matches!(
+        &block.terminator,
+        FunctionTerminator::Tail {
+            value: Some(FunctionExpr {
+                kind: FunctionExprKind::Call {
+                    callee: FunctionCallee::ClosureEntry { closure_id: id, state },
+                    ..
+                },
+                ..
+            }),
+            ..
+        } if *id == closure_id && matches!(state.kind, FunctionExprKind::AddrOf(_))
+    )));
+}
+
+#[test]
 fn non_terminal_ops_branch_to_tail_block() {
     let span = Span::default();
     let ty = test_ty();

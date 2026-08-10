@@ -714,6 +714,10 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
     ) -> FunctionCallee {
         match callee {
+            FunctionCallee::ClosureEntry { closure_id, state } => FunctionCallee::ClosureEntry {
+                closure_id,
+                state: Box::new(self.instantiate_expr(*state, substitutions)),
+            },
             FunctionCallee::Function(def_id) => {
                 if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
                     && !args.is_empty()

@@ -2,6 +2,81 @@
 use super::*;
 
 #[test]
+fn lowered_closure_entries_remain_owned_by_the_source_body_query() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    callback(2)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+    let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
+    let module = facts
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry module facts");
+    let main = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.name == sym("main")).then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("main definition");
+
+    let lowered = db.expect_get(LoweredFunctionBodyQuery(main));
+    assert!(lowered.diagnostic().is_none());
+    assert_eq!(lowered.closure_entries().len(), 1);
+    let entry = &lowered.closure_entries()[0];
+    assert_eq!(entry.closure_id.owner, main);
+    assert!(matches!(
+        db.context().type_store.get(entry.body.locals[0].ty),
+        Some(nia_ty::TyKind::Pointer {
+            is_readonly: true,
+            elem,
+        }) if *elem == entry.state_ty
+    ));
+    assert!(
+        lowered
+            .body()
+            .expect("source body")
+            .blocks
+            .iter()
+            .any(|block| {
+                matches!(
+                    &block.terminator,
+                    nia_function_ir::FunctionTerminator::Tail {
+                        value: Some(nia_function_ir::FunctionExpr {
+                            kind: nia_function_ir::FunctionExprKind::Call {
+                                callee: nia_function_ir::FunctionCallee::ClosureEntry { .. },
+                                ..
+                            },
+                            ..
+                        }),
+                        ..
+                    }
+                )
+            })
+    );
+
+    let backend_inputs = db.expect_get(BackendLoweringInputsQuery);
+    assert!(backend_inputs.semantic.is_none());
+    let diagnostics = resolve_diagnostic_bundle(db.context(), &backend_inputs.diagnostics);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("generated closure entries have not reached backend materialization yet")
+    }));
+}
+
+#[test]
 fn executable_backend_lowering_skips_unreachable_recursive_aggregates() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

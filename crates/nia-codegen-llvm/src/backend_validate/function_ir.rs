@@ -457,6 +457,14 @@ impl BackendValidator<'_> {
 
     fn validate_callee(&mut self, callee: &FunctionCallee, span: Span) {
         match callee {
+            FunctionCallee::ClosureEntry { state, .. } => {
+                self.validate_expr(state);
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "generated closure entry reached LLVM before backend materialization",
+                ));
+            }
             FunctionCallee::Function(def_id) => self.validate_function_ref(
                 *def_id,
                 span,
