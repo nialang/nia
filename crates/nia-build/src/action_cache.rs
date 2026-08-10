@@ -329,6 +329,9 @@ impl GeneratedFileCache {
                 corrupt = true;
                 continue;
             }
+            if entry_matches(&entry, expected) {
+                return Ok(GeneratedFileCacheLookup::Hit(entry.payload));
+            }
             let reasons = invalidations(
                 entry.fingerprints.components,
                 expected.fingerprints.components,
@@ -909,6 +912,23 @@ mod tests {
         assert_eq!(
             cache.lookup(&identity).expect("accepted lookup"),
             GeneratedFileCacheLookup::Hit(payload)
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalidation_scan_recovers_an_entry_published_after_direct_miss() {
+        let root = test_root("invalidation-scan-publish-race");
+        let cache = GeneratedFileCache::new(root.clone());
+        let identity = identity(&output("generated/source.nia"), b"source", toolchain());
+        cache.publish(&identity, b"source").expect("publish");
+
+        assert_eq!(
+            cache
+                .lookup_invalidation(&identity)
+                .expect("invalidation scan"),
+            GeneratedFileCacheLookup::Hit(b"source".to_vec())
         );
 
         let _ = fs::remove_dir_all(root);
