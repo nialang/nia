@@ -228,6 +228,10 @@ impl<'a> Encoder<'a> {
             let item = &module.function_instances[index];
             self.function_instance(item, item.function_body.as_ref());
         }
+        self.len(partition.closure_entry_definitions().len());
+        for &index in partition.closure_entry_definitions() {
+            self.closure_entry(&module.closure_entries[index]);
+        }
         self.len(partition.vtable_definitions().len());
         for &index in partition.vtable_definitions() {
             self.trait_object_vtable(&module.trait_object_vtables[index]);
@@ -451,6 +455,36 @@ impl<'a> Encoder<'a> {
         self.bool(item.is_variadic);
         self.function_attributes(&item.attributes);
         self.optional_function_body(body);
+    }
+
+    fn closure_entry(&mut self, item: &BackendClosureEntry) {
+        self.global_def(item.key.closure_id.owner);
+        self.u32(item.key.closure_id.ordinal);
+        match &item.key.owner {
+            BackendClosureEntryOwner::Source(def_id) => {
+                self.tag(0);
+                self.global_def(*def_id);
+            }
+            BackendClosureEntryOwner::FunctionInstance(owner) => {
+                self.tag(1);
+                self.global_def(owner.def_id);
+                self.module_id(owner.arg_module_id);
+                self.optional_ty(owner.self_arg);
+                self.types(&owner.args);
+                self.const_args(&owner.const_args);
+            }
+        }
+        self.builder.write_str(&item.symbol);
+        self.ty(item.abi.state_type);
+        self.ty(item.abi.state_pointer_type);
+        self.types(&item.abi.params);
+        self.ty(item.abi.return_type);
+        self.local(item.state_param);
+        self.len(item.params.len());
+        for param in &item.params {
+            self.local(*param);
+        }
+        self.function_body(&item.function_body);
     }
 
     fn trait_object_vtable(&mut self, item: &BackendTraitObjectVtable) {
@@ -2013,7 +2047,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::declaration_membership::CodegenDeclarationMembershipBuild;
-    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+    use nia_ids::{ClosureId, DefId, GlobalDefId, LocalId, ModuleIdAllocator};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_source::SourceIdentity;
     use nia_span::Span;
@@ -2069,6 +2103,7 @@ mod tests {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }
@@ -2119,6 +2154,7 @@ mod tests {
                 span: Span::default(),
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }
@@ -2501,6 +2537,112 @@ mod tests {
             changed.components.declarations
         );
         assert_eq!(baseline.components.target, changed.components.target);
+    }
+
+    #[test]
+    fn source_unit_fingerprint_tracks_closure_entry_abi_and_body() {
+        fn make(value: &str, span: Span) -> Fixture {
+            let module_id = ModuleIdAllocator::new().allocate();
+            let store = TypeStore::new();
+            let append = store.append_for_module(module_id);
+            let i32_ty = append.primitive(PrimitiveTy::I32);
+            let state_ty = append.intern(TyKind::ClosureState {
+                closure_id: ClosureId {
+                    owner: GlobalDefId {
+                        module_id,
+                        def_id: DefId(7),
+                    },
+                    ordinal: 0,
+                },
+                captures: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+            });
+            let state_pointer_ty = append.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: state_ty,
+            });
+            let closure_id = ClosureId {
+                owner: GlobalDefId {
+                    module_id,
+                    def_id: DefId(7),
+                },
+                ordinal: 0,
+            };
+            let state_param = LocalId(0);
+            let body = FunctionBody {
+                span,
+                locals: vec![FunctionLocal {
+                    id: state_param,
+                    name: LocalName::Anonymous,
+                    kind: FunctionLocalKind::Param,
+                    ty: state_pointer_ty,
+                    span,
+                }],
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![FunctionBlock {
+                    id: FunctionBlockId(0),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Tail {
+                        value: Some(FunctionExpr {
+                            span,
+                            ty: i32_ty,
+                            kind: FunctionExprKind::Integer(value.to_string()),
+                        }),
+                        span,
+                    },
+                }],
+                entry: FunctionBlockId(0),
+                ty: i32_ty,
+            };
+            let mut module = module_with_global(module_id, "main.nia", i32_ty, 1);
+            module.closure_entries.push(BackendClosureEntry {
+                key: BackendClosureEntryKey {
+                    closure_id,
+                    owner: BackendClosureEntryOwner::Source(closure_id.owner),
+                },
+                symbol: "main__closure_entry__ord__0".to_string(),
+                abi: BackendClosureEntryAbi {
+                    state_type: state_ty,
+                    state_pointer_type: state_pointer_ty,
+                    params: Vec::new(),
+                    return_type: i32_ty,
+                },
+                state_param,
+                params: Vec::new(),
+                local_names: Default::default(),
+                function_body: body,
+                span,
+            });
+            fixture(
+                BackendProgram {
+                    modules: vec![module].into(),
+                },
+                store,
+                "main.nia",
+            )
+        }
+
+        let baseline = make("1", Span::default());
+        assert_eq!(baseline.partition.closure_entry_definitions(), &[0]);
+        let baseline = ir_fingerprints(&baseline, LlvmCodegenOptions::default());
+        let span_only =
+            ir_fingerprints(&make("1", Span::new(10, 20)), LlvmCodegenOptions::default());
+        let changed = ir_fingerprints(&make("2", Span::default()), LlvmCodegenOptions::default());
+
+        assert_eq!(baseline, span_only);
+        assert_ne!(baseline.fingerprint, changed.fingerprint);
+        assert_ne!(
+            baseline.components.definition,
+            changed.components.definition
+        );
+        assert_eq!(baseline.components.policy, changed.components.policy);
     }
 
     #[test]

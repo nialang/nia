@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{ClosureId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_symbol::{SymbolId, stable_hash};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TraitId, TyKind,
     TypeStore,
 };
 
-pub const MANGLE_ABI_VERSION: u64 = 2;
+pub const MANGLE_ABI_VERSION: u64 = 3;
 
 pub struct MangleResolvers<F, G, H> {
     module_id: F,
@@ -73,6 +73,18 @@ pub fn mangle_base_symbol_id(
     name: SymbolId,
 ) -> String {
     mangle_base_symbol(def_id, module, &mangle_symbol_id(name))
+}
+
+/// Derives the generated entry symbol for a closure from its concrete owner
+/// symbol. Passing the already-instantiated owner symbol keeps entries from
+/// distinct generic function instances disjoint without inventing synthetic
+/// source definition ids.
+pub fn mangle_closure_entry_symbol(owner_symbol: &str, closure_id: ClosureId) -> String {
+    format!(
+        "{}__closure_entry__ord__{}",
+        sanitize_symbol_part(owner_symbol),
+        closure_id.ordinal
+    )
 }
 
 pub fn mangle_instance_symbol_id<F, G, H>(
@@ -831,6 +843,36 @@ mod tests {
             ),
         );
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn closure_entry_mangling_uses_concrete_owner_symbol_and_ordinal() {
+        use nia_ids::{DefId, ModuleIdAllocator};
+
+        let module_id = ModuleIdAllocator::new().allocate();
+        let closure_id = ClosureId {
+            owner: GlobalDefId {
+                module_id,
+                def_id: DefId(7),
+            },
+            ordinal: 2,
+        };
+        let source = mangle_closure_entry_symbol("nia__owner", closure_id);
+        let instance = mangle_closure_entry_symbol("nia__owner__inst__t_i32", closure_id);
+
+        assert_eq!(source, "nia__owner__closure_entry__ord__2");
+        assert_eq!(instance, "nia__owner__inst__t_i32__closure_entry__ord__2");
+        assert_ne!(source, instance);
+        assert_ne!(
+            source,
+            mangle_closure_entry_symbol(
+                "nia__owner",
+                ClosureId {
+                    ordinal: 3,
+                    ..closure_id
+                }
+            )
+        );
     }
 
     #[test]

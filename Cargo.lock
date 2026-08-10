@@ -328,6 +328,7 @@ dependencies = [
  "nia-item-tree",
  "nia-layout",
  "nia-local-resolve",
+ "nia-mangle",
  "nia-monomorphize",
  "nia-node-id",
  "nia-opt",

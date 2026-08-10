@@ -97,13 +97,50 @@ fn main(base: i32) i32 {
     ));
 
     let backend_inputs = db.expect_get(BackendLoweringInputsQuery);
-    assert!(backend_inputs.semantic.is_none());
-    let diagnostics = resolve_diagnostic_bundle(db.context(), &backend_inputs.diagnostics);
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .summary
-            .contains("generated closure entries have not reached backend materialization yet")
-    }));
+    assert!(backend_inputs.semantic.is_some());
+    assert!(resolve_diagnostic_bundle(db.context(), &backend_inputs.diagnostics).is_empty());
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty());
+    let backend_module = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    assert_eq!(backend_module.closure_entries.len(), 1);
+    let backend_entry = &backend_module.closure_entries[0];
+    assert_eq!(backend_entry.key.closure_id, entry.closure_id);
+    assert_eq!(
+        backend_entry.key.owner,
+        nia_backend_ir::BackendClosureEntryOwner::Source(main)
+    );
+    let owner_symbol = nia_mangle::mangle_base_symbol_id(
+        main,
+        nia_mangle::MangleModuleId::from_normalized_source_path("main.nia"),
+        sym("main"),
+    );
+    assert_eq!(
+        backend_entry.symbol,
+        nia_mangle::mangle_closure_entry_symbol(&owner_symbol, entry.closure_id)
+    );
+    assert_eq!(backend_entry.abi.state_type, entry.state_ty);
+    assert_eq!(backend_entry.abi.params.len(), 1);
+    assert_eq!(backend_entry.abi.params[0], entry.body.locals[1].ty);
+    assert_eq!(backend_entry.abi.return_type, entry.return_type);
+    assert_eq!(backend_entry.state_param, entry.state_param);
+    assert_eq!(backend_entry.params, entry.params);
+    assert_eq!(backend_entry.function_body, entry.body);
+    assert!(matches!(
+        db.context()
+            .type_store
+            .get(backend_entry.abi.state_pointer_type),
+        Some(nia_ty::TyKind::Pointer {
+            is_readonly: true,
+            elem,
+        }) if *elem == backend_entry.abi.state_type
+    ));
 }
 
 #[test]
@@ -158,6 +195,117 @@ fn main() i32 {
                 ..
             }) if *closure_id == entry.closure_id
         )));
+}
+
+#[test]
+fn generic_function_instances_materialize_distinct_concrete_closure_entries() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn apply[T](value: T) T {
+    let callback = [value]() T { value };
+    callback()
+}
+
+fn main() i32 {
+    apply[i32](7)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty());
+    let module = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    let apply_instance = module
+        .function_instances
+        .iter()
+        .find(|instance| instance.name == sym("apply"))
+        .expect("apply[i32] instance");
+    let entry = module
+        .closure_entries
+        .iter()
+        .find(|entry| {
+            matches!(
+                &entry.key.owner,
+                nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(owner)
+                    if owner.def_id == apply_instance.def_id
+                        && owner.arg_module_id == apply_instance.arg_module_id
+                        && owner.args == apply_instance.args
+                        && owner.const_args == apply_instance.const_args
+            )
+        })
+        .expect("concrete apply closure entry");
+
+    assert_eq!(
+        entry.symbol,
+        nia_mangle::mangle_closure_entry_symbol(&apply_instance.symbol, entry.key.closure_id)
+    );
+    let Some(nia_ty::TyKind::ClosureState {
+        captures,
+        params,
+        return_type,
+        ..
+    }) = db.context().type_store.get(entry.abi.state_type)
+    else {
+        panic!("expected instantiated closure-state ABI type");
+    };
+    let i32_ty = db
+        .context()
+        .type_store
+        .append_for_module(module_id)
+        .primitive(nia_ty::PrimitiveTy::I32);
+    assert_eq!(captures, &[i32_ty]);
+    assert!(params.is_empty());
+    assert_eq!(*return_type, i32_ty);
+    assert_eq!(entry.abi.return_type, i32_ty);
+    assert!(entry.abi.params.is_empty());
+}
+
+#[test]
+fn closure_entry_bodies_participate_in_backend_reachability() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn helper(value: i32) i32 { value + 1 }
+
+fn main() i32 {
+    let callback = [](value: i32) i32 { helper(value) };
+    callback(1)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty());
+    let module = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    assert_eq!(module.closure_entries.len(), 1);
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == sym("helper")),
+        "helper referenced only by the closure entry must remain reachable"
+    );
 }
 
 #[test]

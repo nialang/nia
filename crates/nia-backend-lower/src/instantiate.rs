@@ -742,8 +742,41 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = self.self_substitution(substitutions).unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
-            Some(TyKind::Opaque | TyKind::ClosureState { .. }) => {
-                self.finish_type_instantiation(key, ty, can_use_cache)
+            Some(TyKind::Opaque) => self.finish_type_instantiation(key, ty, can_use_cache),
+            Some(TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            }) => {
+                let captures = captures
+                    .into_iter()
+                    .map(|capture| {
+                        self.instantiate_ty_with_id_inner(
+                            capture,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.instantiate_ty_with_id_inner(param, substitutions, active_projections)
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_with_id_inner(
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                let instantiated = self.type_context.append.intern(TyKind::ClosureState {
+                    closure_id,
+                    captures,
+                    params,
+                    return_type,
+                });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Tuple(elems)) => {
                 let elems = elems

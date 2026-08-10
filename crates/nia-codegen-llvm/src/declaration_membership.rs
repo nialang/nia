@@ -118,6 +118,9 @@ impl<'a> MembershipBuilder<'a> {
         for &index in partition.function_instance_definitions() {
             self.add_function_instance_definition(&owner.function_instances[index]);
         }
+        for &index in partition.closure_entry_definitions() {
+            self.add_closure_entry_definition(&owner.closure_entries[index]);
+        }
         for &index in partition.vtable_definitions() {
             self.add_vtable_definition(&owner.trait_object_vtables[index]);
         }
@@ -151,6 +154,14 @@ impl<'a> MembershipBuilder<'a> {
         if let Some(body) = &item.function_body {
             self.add_refs(body.value_refs(self.index.type_store()));
         }
+    }
+
+    fn add_closure_entry_definition(&mut self, item: &nia_backend_ir::BackendClosureEntry) {
+        self.add_type(item.abi.state_type);
+        self.add_type(item.abi.state_pointer_type);
+        self.add_types(item.abi.params.iter().copied());
+        self.add_type(item.abi.return_type);
+        self.add_refs(item.function_body.value_refs(self.index.type_store()));
     }
 
     fn add_global(&mut self, item: &BackendGlobal) {
@@ -695,6 +706,7 @@ mod tests {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }

@@ -26,6 +26,7 @@ fn single_module_program(
             global_instances: Vec::new(),
             functions,
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -105,6 +106,7 @@ fn emits_function_body_from_function_ir_when_available() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -440,6 +442,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 span: Span::default(),
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -515,6 +518,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
         global_instances: Vec::new(),
         functions: Vec::new(),
         function_instances: Vec::new(),
+        closure_entries: Vec::new(),
         trait_object_vtables: Vec::new(),
         generic_instantiations: Vec::new(),
     };
@@ -613,6 +617,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -689,6 +694,7 @@ fn validates_backend_ir_error_type_before_llvm() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -794,6 +800,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -971,6 +978,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 }),
                 span,
             }],
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -1030,6 +1038,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: vec![BackendTraitObjectVtable {
                 key: BackendTraitObjectVtableKey {
                     self_ty: i32_ty,
@@ -1128,6 +1137,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -1236,6 +1246,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -1352,6 +1363,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -1430,6 +1442,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -1528,6 +1541,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
                 span,
             }],
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]

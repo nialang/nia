@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
+    BackendClosureEntry, BackendClosureEntryAbi, BackendClosureEntryKey, BackendClosureEntryOwner,
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
     BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendModuleReadiness,
     BackendModuleStore, BackendProgram, BackendStruct, BackendStructInstanceKey,
@@ -43,7 +44,10 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
-use nia_mangle::{MangleModuleId, MangleResolvers, mangle_instance_symbol_id, mangle_symbol_id};
+use nia_mangle::{
+    MangleModuleId, MangleResolvers, mangle_closure_entry_symbol, mangle_instance_symbol_id,
+    mangle_symbol_id,
+};
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
@@ -335,6 +339,9 @@ pub trait BackendProgramFacts: Sync {
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
     fn function_body_ids(&self) -> &[GlobalDefId];
     fn function_body(&self, def_id: GlobalDefId) -> Option<&FunctionBody>;
+    fn closure_entries(&self, _def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
+        &[]
+    }
     fn static_init_ids(&self) -> &[GlobalDefId];
     fn static_init(&self, def_id: GlobalDefId) -> Option<&nia_static_ir::StaticInit>;
     fn extension_methods(&self) -> &ExtensionMethods;
@@ -1036,6 +1043,7 @@ struct ReachabilityWorklist {
 
 struct FunctionInstanceMaterialization {
     instances: Vec<BackendFunctionInstance>,
+    closure_entries: Vec<BackendClosureEntry>,
     discovery: BackendItemDiscovery,
 }
 
@@ -1080,6 +1088,7 @@ struct ReachableAggregateInputs<'a> {
     globals: &'a [BackendGlobal],
     functions: &'a [BackendFunction],
     function_instances: &'a [BackendFunctionInstance],
+    closure_entries: &'a [BackendClosureEntry],
     struct_instances: &'a [nia_backend_ir::BackendStructInstance],
     union_instances: &'a [nia_backend_ir::BackendUnionInstance],
     trait_object_vtables: &'a [BackendTraitObjectVtable],
@@ -1117,6 +1126,20 @@ impl ReachableAggregateRoots {
         if let Some(body) = &function.function_body {
             self.add_function_body(lowerer, body);
         }
+    }
+
+    fn add_backend_closure_entry(
+        &mut self,
+        lowerer: &mut ModuleLowerer<'_>,
+        entry: &BackendClosureEntry,
+    ) {
+        self.add_ty(lowerer, entry.abi.state_type);
+        self.add_ty(lowerer, entry.abi.state_pointer_type);
+        self.add_ty(lowerer, entry.abi.return_type);
+        for param in &entry.abi.params {
+            self.add_ty(lowerer, *param);
+        }
+        self.add_function_body(lowerer, &entry.function_body);
     }
 
     fn add_function_body(&mut self, lowerer: &mut ModuleLowerer<'_>, body: &FunctionBody) {
@@ -1473,6 +1496,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut global_instances = Vec::new();
         let mut functions = Vec::new();
         let mut function_templates = Vec::new();
+        let mut closure_entries = Vec::new();
         let mut worklist = ReachabilityWorklist::default();
         let mut trait_object_vtables = Vec::new();
 
@@ -1590,11 +1614,13 @@ impl<'a> ModuleLowerer<'a> {
         self.lower_reachable_instances_and_vtables(
             &mut functions,
             &mut function_templates,
-            &mut function_instances,
+            (&mut function_instances, &mut closure_entries),
             &mut global_instances,
             &mut worklist,
             &mut trait_object_vtables,
         );
+        closure_entries.extend(self.lower_source_closure_entries(&functions));
+        closure_entries.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
         BackendModule {
             id: self.input.module_id,
             source_identity: self.input.source_identity.clone(),
@@ -1612,6 +1638,7 @@ impl<'a> ModuleLowerer<'a> {
             global_instances,
             functions,
             function_instances,
+            closure_entries,
             trait_object_vtables,
             generic_instantiations: self
                 .input
@@ -1630,6 +1657,70 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn lower_source_closure_entries(
+        &mut self,
+        functions: &[BackendFunction],
+    ) -> Vec<BackendClosureEntry> {
+        let mut lowered = Vec::new();
+        for function in functions {
+            if !function.generics.is_empty() || function.function_body.is_none() {
+                continue;
+            }
+            let owner_symbol =
+                self.mangle_instance_symbol(function.def_id, function.name, None, &[], &[]);
+            for entry in self.input.program.closure_entries(function.def_id) {
+                let state_local = entry
+                    .body
+                    .locals
+                    .iter()
+                    .find(|local| local.id == entry.state_param)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Nia ICE: closure entry {:?} is missing state parameter {:?}",
+                            entry.closure_id, entry.state_param
+                        )
+                    });
+                let params = entry
+                    .params
+                    .iter()
+                    .map(|param| {
+                        entry
+                            .body
+                            .locals
+                            .iter()
+                            .find(|local| local.id == *param)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Nia ICE: closure entry {:?} is missing parameter {:?}",
+                                    entry.closure_id, param
+                                )
+                            })
+                            .ty
+                    })
+                    .collect();
+                lowered.push(BackendClosureEntry {
+                    key: BackendClosureEntryKey {
+                        closure_id: entry.closure_id,
+                        owner: BackendClosureEntryOwner::Source(function.def_id),
+                    },
+                    symbol: mangle_closure_entry_symbol(&owner_symbol, entry.closure_id),
+                    abi: BackendClosureEntryAbi {
+                        state_type: entry.state_ty,
+                        state_pointer_type: state_local.ty,
+                        params,
+                        return_type: entry.return_type,
+                    },
+                    state_param: entry.state_param,
+                    params: entry.params.clone(),
+                    local_names: self.function_local_names(&entry.body),
+                    function_body: entry.body.clone(),
+                    span: entry.body.span,
+                });
+            }
+        }
+        lowered
+    }
+
     fn finish_module(&mut self, module: &mut BackendModule) {
         self.devirtualize_direct_trait_calls(&mut module.functions, &mut module.function_instances);
         self.propagate_cross_function_constants(
@@ -1640,6 +1731,7 @@ impl<'a> ModuleLowerer<'a> {
         self.remove_unused_private_functions(
             &mut module.functions,
             &mut module.function_instances,
+            &mut module.closure_entries,
             &module.globals,
             &module.trait_object_vtables,
         );
@@ -1647,6 +1739,9 @@ impl<'a> ModuleLowerer<'a> {
             BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
         self.extend_backend_layouts_for_finalized_module(&mut layouts, module);
         module.layouts = layouts;
+        module
+            .closure_entries
+            .sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
     }
 
     fn complete_definition_membership(&mut self, module: &mut BackendModule) {
@@ -1663,6 +1758,7 @@ impl<'a> ModuleLowerer<'a> {
                 globals: &module.globals,
                 functions: &module.functions,
                 function_instances: &module.function_instances,
+                closure_entries: &module.closure_entries,
                 struct_instances: &module.struct_instances,
                 union_instances: &module.union_instances,
                 trait_object_vtables: &module.trait_object_vtables,
@@ -1963,6 +2059,9 @@ impl<'a> ModuleLowerer<'a> {
         for instance in input.function_instances {
             roots.add_backend_function_instance(self, instance);
         }
+        for entry in input.closure_entries {
+            roots.add_backend_closure_entry(self, entry);
+        }
         for instance in input.struct_instances {
             roots.add_struct(instance.def_id);
             for arg in &instance.args {
@@ -2103,8 +2202,11 @@ impl<'a> ModuleLowerer<'a> {
             };
             lowered.insert(def_id);
             if function.generics.is_empty() {
-                let discovery =
+                let mut discovery =
                     self.discover_backend_items_from_optional_body(&function.function_body);
+                for entry in self.input.program.closure_entries(function.def_id) {
+                    discovery.extend(self.discover_backend_items_from_body(&entry.body));
+                }
                 worklist.enqueue_refs(discovery.refs);
                 self.append_trait_object_vtable_delta(
                     trait_object_vtables,
@@ -2127,7 +2229,7 @@ impl<'a> ModuleLowerer<'a> {
         self.lower_reachable_instances_and_vtables(
             &mut module.functions,
             &mut function_templates,
-            &mut module.function_instances,
+            (&mut module.function_instances, &mut module.closure_entries),
             &mut module.global_instances,
             &mut worklist,
             &mut module.trait_object_vtables,
@@ -2146,12 +2248,14 @@ impl<'a> ModuleLowerer<'a> {
         );
         let FunctionInstanceMaterialization {
             instances,
+            closure_entries,
             discovery,
         } = materialized;
         if instances.is_empty() {
             return;
         }
         module.function_instances.extend(instances);
+        module.closure_entries.extend(closure_entries);
         self.lower_additional_reachable_items(discovery, module);
     }
 
@@ -2188,7 +2292,7 @@ impl<'a> ModuleLowerer<'a> {
         self.lower_reachable_instances_and_vtables(
             &mut module.functions,
             &mut function_templates,
-            &mut module.function_instances,
+            (&mut module.function_instances, &mut module.closure_entries),
             &mut module.global_instances,
             &mut worklist,
             &mut module.trait_object_vtables,
@@ -2227,11 +2331,15 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions: &mut Vec<BackendFunction>,
         function_templates: &mut Vec<BackendFunction>,
-        function_instances: &mut Vec<BackendFunctionInstance>,
+        callable_instances: (
+            &mut Vec<BackendFunctionInstance>,
+            &mut Vec<BackendClosureEntry>,
+        ),
         global_instances: &mut Vec<BackendGlobalInstance>,
         worklist: &mut ReachabilityWorklist,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
     ) {
+        let (function_instances, closure_entries) = callable_instances;
         loop {
             let mut changed =
                 self.lower_reachable_function_closure(functions, worklist, trait_object_vtables);
@@ -2248,6 +2356,7 @@ impl<'a> ModuleLowerer<'a> {
                 );
                 let FunctionInstanceMaterialization {
                     instances,
+                    closure_entries: additional_closure_entries,
                     discovery,
                 } = additional;
                 worklist.enqueue_refs(discovery.refs);
@@ -2258,6 +2367,7 @@ impl<'a> ModuleLowerer<'a> {
                 );
                 changed |= !instances.is_empty();
                 function_instances.extend(instances);
+                closure_entries.extend(additional_closure_entries);
             }
             if !worklist.pending_global_instances.is_empty() {
                 let refs = std::mem::take(&mut worklist.pending_global_instances);
@@ -2500,13 +2610,16 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         body: &Option<FunctionBody>,
     ) -> BackendItemDiscovery {
-        let mut discovery = BackendItemDiscovery::default();
-        if let Some(body) = body {
-            discovery.refs = body.value_refs(self.type_store);
-            discovery.trait_object_vtables =
-                self.collect_trait_object_vtables_from_concrete_body(body);
+        body.as_ref()
+            .map(|body| self.discover_backend_items_from_body(body))
+            .unwrap_or_default()
+    }
+
+    fn discover_backend_items_from_body(&mut self, body: &FunctionBody) -> BackendItemDiscovery {
+        BackendItemDiscovery {
+            refs: body.value_refs(self.type_store),
+            trait_object_vtables: self.collect_trait_object_vtables_from_concrete_body(body),
         }
-        discovery
     }
 
     fn append_trait_object_vtable_delta(

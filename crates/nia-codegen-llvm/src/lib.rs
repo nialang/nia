@@ -303,7 +303,7 @@ fn emit_llvm_ir_with_options_inner(
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations
         .into_iter()
-        .map(LlvmIrTask::Partition)
+        .map(|preparation| LlvmIrTask::Partition(Box::new(preparation)))
         .collect::<Vec<_>>();
     tasks.extend(
         declaration_only_modules(&index, has_partitions)
@@ -315,12 +315,12 @@ fn emit_llvm_ir_with_options_inner(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
             move || match task {
-                LlvmIrTask::Partition(CodegenPartitionPreparation::Ready(prepared)) => {
-                    emit_llvm_ir_partition(prepared, index, options).map(Some)
-                }
-                LlvmIrTask::Partition(CodegenPartitionPreparation::Invalid {
-                    diagnostics, ..
-                }) => Err(diagnostics),
+                LlvmIrTask::Partition(preparation) => match *preparation {
+                    CodegenPartitionPreparation::Ready(prepared) => {
+                        emit_llvm_ir_partition(prepared, index, options).map(Some)
+                    }
+                    CodegenPartitionPreparation::Invalid { diagnostics, .. } => Err(diagnostics),
+                },
                 LlvmIrTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
                 }
@@ -389,7 +389,7 @@ fn emit_native_objects_inner(
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations
         .into_iter()
-        .map(NativeCodegenTask::Partition)
+        .map(|preparation| NativeCodegenTask::Partition(Box::new(preparation)))
         .collect::<Vec<_>>();
     tasks.extend(
         declaration_only_modules(&index, has_partitions)
@@ -405,14 +405,13 @@ fn emit_native_objects_inner(
             let index = Arc::clone(&index);
             let cache = cache.clone();
             move || match task {
-                NativeCodegenTask::Partition(CodegenPartitionPreparation::Ready(prepared)) => {
-                    emit_native_object_partition(prepared, index, options, cache.as_deref())
-                        .map(Some)
-                }
-                NativeCodegenTask::Partition(CodegenPartitionPreparation::Invalid {
-                    diagnostics,
-                    ..
-                }) => Err(diagnostics),
+                NativeCodegenTask::Partition(preparation) => match *preparation {
+                    CodegenPartitionPreparation::Ready(prepared) => {
+                        emit_native_object_partition(prepared, index, options, cache.as_deref())
+                            .map(Some)
+                    }
+                    CodegenPartitionPreparation::Invalid { diagnostics, .. } => Err(diagnostics),
+                },
                 NativeCodegenTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
                 }
@@ -450,13 +449,13 @@ fn emit_native_objects_inner(
 }
 
 enum NativeCodegenTask {
-    Partition(CodegenPartitionPreparation),
+    Partition(Box<CodegenPartitionPreparation>),
     DeclarationModule(ModuleId),
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
 }
 
 enum LlvmIrTask {
-    Partition(CodegenPartitionPreparation),
+    Partition(Box<CodegenPartitionPreparation>),
     DeclarationModule(ModuleId),
 }
 

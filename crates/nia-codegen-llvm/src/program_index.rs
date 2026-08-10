@@ -871,6 +871,7 @@ mod tests {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }
@@ -1056,6 +1057,7 @@ mod tests {
                 global_instances: Vec::new(),
                 functions: Vec::new(),
                 function_instances: vec![function_instance],
+                closure_entries: Vec::new(),
                 trait_object_vtables: vec![vtable],
                 generic_instantiations: Vec::<BackendGenericInstantiation>::new(),
             }]

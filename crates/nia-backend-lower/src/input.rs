@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use nia_diagnostic::{Diagnostic, codes};
 use nia_function_ir::validate_function_body;
-use nia_ids::GlobalDefId;
+use nia_ids::{ClosureId, GlobalDefId};
 
 use crate::BackendLowerModuleInput;
 
@@ -27,8 +27,57 @@ pub(crate) fn validate_backend_lowering_inputs(
             &mut validated,
             &mut diagnostics,
         );
+        validate_closure_entries(input, &mut diagnostics);
     }
     diagnostics
+}
+
+fn validate_closure_entries(
+    input: &BackendLowerModuleInput<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut validated = HashSet::<ClosureId>::new();
+    for def_id in input.program.function_body_ids() {
+        for entry in input.program.closure_entries(*def_id) {
+            if entry.closure_id.owner != *def_id {
+                diagnostics.push(
+                    Diagnostic::internal_error(
+                        codes::INVALID_FUNCTION_IR,
+                        "closure entry owner does not match its source function",
+                    )
+                    .primary(
+                        entry.body.span,
+                        "generated closure entry has an invalid owner",
+                    )
+                    .debug("function_def_id", def_id)
+                    .debug("closure_id", entry.closure_id)
+                    .finish(),
+                );
+            }
+            if !validated.insert(entry.closure_id) {
+                diagnostics.push(
+                    Diagnostic::internal_error(
+                        codes::INVALID_FUNCTION_IR,
+                        "duplicate closure entry identity passed to backend lowering",
+                    )
+                    .primary(entry.body.span, "closure identity is not unique")
+                    .debug("closure_id", entry.closure_id)
+                    .finish(),
+                );
+            }
+            if let Err(error) = validate_function_body(&entry.body) {
+                diagnostics.push(
+                    Diagnostic::internal_error(
+                        codes::INVALID_FUNCTION_IR,
+                        "invalid closure entry IR passed to backend lowering",
+                    )
+                    .primary(error.span, error.message)
+                    .debug("closure_id", entry.closure_id)
+                    .finish(),
+                );
+            }
+        }
+    }
 }
 
 pub(crate) fn unreachable_invalid_function_ir(node: &'static str) -> ! {

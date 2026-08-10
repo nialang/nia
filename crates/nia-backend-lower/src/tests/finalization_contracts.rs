@@ -38,6 +38,7 @@ fn module_finalizations_merge_in_program_order() {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
+            closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }
