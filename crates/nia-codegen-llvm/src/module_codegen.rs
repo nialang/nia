@@ -116,6 +116,8 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) function_instances_by_def: FunctionInstancesByDef<'ctx>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) closure_entries: HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>,
+    closure_function_pointer_adapters:
+        RefCell<HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
     promoted_allocations: RefCell<HashMap<PromotedAllocationId, InternedTyId>>,
@@ -163,6 +165,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances_by_def: HashMap::new(),
             function_instance_value_lookups: RefCell::new(HashMap::new()),
             closure_entries: HashMap::new(),
+            closure_function_pointer_adapters: RefCell::new(HashMap::new()),
             globals: HashMap::new(),
             global_instances: HashMap::new(),
             promoted_allocations: RefCell::new(HashMap::new()),

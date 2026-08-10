@@ -74,9 +74,8 @@ The type taxonomy is deliberately split:
 - [x] Generate stable symbols and backend ABI records for closure entries.
 - [x] Materialize direct entries and non-owning callable views in LLVM, with
   codegen, runtime, diagnostics, and clean/incremental identity coverage.
-- [ ] Materialize no-capture closure decay to `&fn` through a zero-state
-  adapter/thunk; the front end accepts the conversion, but entries use a hidden
-  state parameter and cannot yet be used as thin pointers by LLVM.
+- [x] Materialize no-capture closure decay to `&fn` through a zero-state
+  adapter/thunk.
 - [x] Document the current non-owning ABI and stack-backed memory model in the
   language and ABI specifications.
 - [ ] Extend the ABI and memory documentation when allocator-backed ownership
@@ -102,9 +101,9 @@ view directly from its stable backend ABI record. No-capture closures
 additionally support expected-signature-guided readonly `&closure` conversion
 to the existing thin `&fn` pointer. Body IR and Function IR preserve that
 operation with dedicated closure-function-pointer nodes carrying `ClosureId`;
-capturing closures are rejected with a diagnostic that directs the programmer to
-`&Fn(...)`. The frontend conversion currently stops at LLVM until a zero-state
-adapter thunk is introduced.
+capturing closures are rejected with a diagnostic that directs the programmer
+to `&Fn(...)`. LLVM materializes the compatible no-capture form as a thin
+adapter that supplies a private zero-state token to the ordinary closure entry.
 
 Wave 4 now runs as an independent `nia-closure-check` semantic stage after Body
 IR construction. It computes a cross-function fixed point of parameter return
@@ -131,5 +130,5 @@ ABI record against the generated entry body before codegen starts. LLVM
 declaration/body materialization emits every entry in the same partition as its
 source function or concrete generic instance. Direct calls use that entry
 directly, and callable views store its address for indirect calls. No-capture
-thin-pointer decay remains separately gated on a zero-state adapter because an
-entry's hidden state parameter is not part of the `&fn` ABI.
+thin-pointer decay uses a generated adapter because an entry's hidden state
+parameter is not part of the `&fn` ABI.

@@ -340,13 +340,16 @@ impl BackendValidator<'_> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.validate_expr(state);
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => {
-                self.diagnostics.push(Diagnostic::internal_error_at(
+            FunctionExprKind::ClosureFunctionPointer { .. } => match self.index.ty_kind(expr.ty) {
+                Some(TyKind::FunctionPointer {
+                    is_variadic: false, ..
+                }) => {}
+                _ => self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     expr.span,
-                    "closure function pointer reached LLVM before closure entry materialization",
-                ));
-            }
+                    "closure function pointer expression has a non-function-pointer type",
+                )),
+            },
             FunctionExprKind::AddrOf(place) => self.validate_place(place),
             FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.validate_expr(lhs);
