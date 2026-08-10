@@ -11,6 +11,11 @@ pub(super) fn provide_checked_program(
         let module_ids = db.get(CheckedModuleIdsQuery)?.as_ref().clone();
         let diagnostic_modules = materialize_checked_modules(db, module_ids)?;
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "checked_program.closure_safety",
+            || closure_safety_diagnostics(db, &diagnostic_modules),
+        ));
         Ok(CheckedProgramAnalysis {
             graph,
             optimization,
@@ -29,6 +34,11 @@ pub(super) fn provide_entry_checked_program(
         let mut diagnostics = early_program_diagnostics(db)?;
         let diagnostic_modules = checked_modules_for_diagnostics(db)?;
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "entry_checked_program.closure_safety",
+            || closure_safety_diagnostics(db, &diagnostic_modules),
+        ));
         Ok(CheckedProgramAnalysis {
             graph,
             optimization,
@@ -70,6 +80,11 @@ pub(in crate::query) fn provide_codegen_preparation(
             "codegen_preparation.checked_diagnostics",
             || checked_module_diagnostics(db, &modules),
         )?);
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "codegen_preparation.closure_safety",
+            || closure_safety_diagnostics(db, &modules),
+        ));
         if crate::has_error_diagnostics(&diagnostics) {
             return Ok(CodegenPreparation {
                 type_store: Arc::clone(&db.context().type_store),

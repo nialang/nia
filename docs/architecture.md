@@ -1545,6 +1545,21 @@ call. LLVM codegen does not synthesize an entry address or callable call ABI
 ahead of the stable closure-entry symbols and ABI records owned by the final
 closure product wave.
 
+`nia-closure-check` is the independent semantic stage for this escape boundary.
+It consumes stable `nia-body-ir::TypedBody` products and the session
+`TypeStore`; it does not depend on `nia-body-check`, compiler queries, Function
+IR, or LLVM. The stage first computes a monotone cross-function fixed point.
+Each function summary records which parameters may be returned and which may be
+retained by a store or call. Closure bodies use the same model with explicit
+capture inputs. A second pass propagates those summaries together with
+`ClosureId` stack-state provenance through aggregates, places, control-flow
+joins, and nested closure scopes. Diagnostics retain their owning
+`GlobalDefId`, so compiler-query maps them to the correct source module without
+guessing from a potentially reused span. Unknown calls and dynamic dispatch are
+conservative by design. This is a bounded callable-view escape check, not a
+general borrow checker; captured local addresses and explicit heap ownership
+are separately staged rules.
+
 ### 9.5 `nia-function-lower`
 
 Lowers `nia-body-ir::TypedBody` from `BodyIr` into

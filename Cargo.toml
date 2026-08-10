@@ -50,6 +50,7 @@ members = [
     "crates/nia-ir-names",
     "crates/nia-body-ir",
     "crates/nia-body-check",
+    "crates/nia-closure-check",
     "crates/nia-function-ir",
     "crates/nia-function-lower",
     "crates/nia-function-opt",
@@ -126,6 +127,7 @@ nia-static-ir = { path = "crates/nia-static-ir" }
 nia-ir-names = { path = "crates/nia-ir-names" }
 nia-body-ir = { path = "crates/nia-body-ir" }
 nia-body-check = { path = "crates/nia-body-check" }
+nia-closure-check = { path = "crates/nia-closure-check" }
 nia-function-ir = { path = "crates/nia-function-ir" }
 nia-function-lower = { path = "crates/nia-function-lower" }
 nia-function-opt = { path = "crates/nia-function-opt" }
