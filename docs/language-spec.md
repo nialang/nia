@@ -1422,6 +1422,39 @@ address, the closure state likewise cannot be returned, stored through memory,
 or passed to a retaining call. Ordinary raw-pointer flow is outside this rule;
 the restriction begins when the address becomes part of closure state.
 
+The standard library provides an explicit owner for callers that need a
+callable view to outlive the lexical scope of its closure state. `mem::Allocator`
+allocates raw storage, while `Allocator::allocValue[T](value)` constructs an
+`mem::Allocated[T]` handle containing the typed storage pointer and its layout.
+The operation is library code: the compiler does not select an allocator,
+insert heap operations, or attach an implicit destructor to `T`. A caller may
+obtain `valueMut()`, create the explicit callable view, and move that view into
+`Allocated::intoCallable`, producing `mem::CallableAllocation[V]` for a sized
+callable-view type such as `&mut Fn(i32) i32`:
+
+```nia
+let mut allocated = allocator.allocValue([base](value: i32) i32 { base + value }).?;
+let mut state = allocated.valueMut();
+let callback: &mut Fn(i32) i32 = &mut state.*;
+let mut owner = allocated.intoCallable(callback);
+let result = owner.callback()(8);
+owner.deinit(&mut allocator).?;
+```
+
+`CallableAllocation` is still an ordinary value. It does not make the callable
+view immortal, infer ownership for captured pointers, or make allocation
+failure disappear. `deinit` is explicit and must receive the allocator that
+produced the block; cleanup errors remain typed. Copying the owner does not
+duplicate the block: copies alias the same allocation, so callers must arrange
+that only one logical owner performs `deinit`. A view returned by `callback()`
+becomes invalid when that owner is released. The raw storage contract is
+caller-managed because Nia has no ownership checker. `allocValue`
+evaluates the value before the allocator call; this is an abstract
+value-construction rule, not a requirement to materialize a temporary closure
+object and copy it to the block. LLVM may keep captures in SSA and store them
+directly into the caller-provided destination, although no unoptimized ABI
+boundary promises zero-copy behavior.
+
 A function declaration name is a function item, not an ordinary runtime value.
 Function items cannot be used bare:
 
@@ -3862,9 +3895,6 @@ this document:
 - payload-carrying algebraic data types beyond current enums;
 - aggregate destructuring patterns beyond current optional and error-union
   patterns;
-- allocator-backed closure ownership and explicit destruction (the staged
-  closure implementation is tracked in
-  [closure-roadmap.md](closure-roadmap.md));
 - package management semantics;
 - LSP semantics;
 - large standard-library layering;

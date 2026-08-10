@@ -1,1 +1,13 @@
+using std::mem;
+
 pub fn marker() i32 { 1 }
+
+pub fn allocateOffset(
+    allocator: &mut mem::Allocator,
+    base: i32,
+) mem::Error!mem::CallableAllocation[&mut Fn(i32) i32] {
+    let mut allocated = allocator.allocValue([base](value: i32) i32 { base + value }).?;
+    let mut state = allocated.valueMut();
+    let callback: &mut Fn(i32) i32 = &mut state.*;
+    !allocated.intoCallable(callback)
+}

@@ -660,6 +660,34 @@ managed representation needs a concrete ownership role and workload that make
 its stored allocator correct. Batch ergonomics come from `reserve` plus
 allocator-free assume-capacity operations rather than hidden allocator state.
 
+### Explicit Allocated Values And Callable Owners
+
+`mem::Allocated[T]` is the explicit typed-storage handle for a value placed in
+raw storage obtained from an `Allocator`. `allocValue[T](value)` computes the
+layout, allocates a block, and writes the value through a typed pointer. It does
+not add allocator knowledge to the language, retain an allocator in `T`, or
+install implicit destruction. `Allocated::deinit` releases the block explicitly
+through the allocator that produced it.
+
+`Allocated::intoCallable` packages a sized callable view together with the
+original block metadata as `CallableAllocation[V]`. This is the standard
+library's escaping-callable owner. `CallableAllocation::callback` exposes the
+non-owning view for invocation and `deinit` is the sole release boundary. The
+owner does not infer ownership for captures, erase the callable type, or make a
+view safe after its block is released. Callers remain responsible for keeping
+the owner and allocator alive in the correct order. Copying either owner handle
+does not create a second allocation or a second release right: copies alias the
+same block, so callers must arrange that only one logical owner calls `deinit`.
+A copied callback view must not be used after that release.
+
+These APIs intentionally separate construction from storage policy. A closure
+expression is an abstract sized value and may remain in SSA; using
+`allocValue` does not semantically require a stack temporary followed by a
+memcpy. Conversely, no optimized zero-copy guarantee is promised at a general
+ABI boundary. Raw pointer/integer casts mark the point where the caller takes
+responsibility for externally managed storage, without naming heap behavior in
+compiler core.
+
 Borrowed views receive no inferred lifetime from Nia. A function-local string
 literal is an array value in that frame; returning `&[char]` obtained from it
 creates a dangling view after return even when the source text looks constant.

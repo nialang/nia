@@ -270,6 +270,33 @@ private non-null token for the empty closure state while it calls the generated
 entry. It forwards direct and indirect arguments and returns according to the
 same Nia ABI classification as an ordinary function.
 
+## 8.2 Allocator-Backed Callable Owners
+
+`mem::Allocated[T]` and `mem::CallableAllocation[V]` are standard-library
+aggregates, not compiler or ABI primitives. `Allocated[T]` stores a typed
+pointer to caller-provided raw storage together with the size and alignment
+needed to release that block. `CallableAllocation[V]` stores a sized callable
+view plus the original raw block metadata. The owner is therefore an ordinary
+Nia aggregate; its private field order is a standard-library implementation
+detail and may evolve independently of closure entry symbols.
+
+Construction and destruction are explicit:
+
+```text
+allocator.allocValue[T](value) -> Error!Allocated[T]
+allocated.intoCallable(view)  -> CallableAllocation[V]
+owner.deinit(allocator)       -> Error!()
+```
+
+The compiler only supplies closure state layout, entry metadata, and ordinary
+casts. It has no allocator hook, hidden heap, implicit move-to-heap operation,
+drop glue, or ownership extension associated with these types. The library
+round-trips raw pointers through an integer at storage and release boundaries
+to make the caller-managed, non-lexical address responsibility explicit to the
+bounded closure provenance analysis. This does not validate the address or
+provide a lifetime guarantee; the allocator and caller must uphold the block
+layout and lifetime contract.
+
 ## 9. Array Representation
 
 Arrays are contiguous repeated element storage:
