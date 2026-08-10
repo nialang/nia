@@ -1557,8 +1557,9 @@ joins, and nested closure scopes. Diagnostics retain their owning
 `GlobalDefId`, so compiler-query maps them to the correct source module without
 guessing from a potentially reused span. Unknown calls and dynamic dispatch are
 conservative by design. This is a bounded callable-view escape check, not a
-general borrow checker; captured local addresses and explicit heap ownership
-are separately staged rules.
+general borrow checker. Captured local addresses use a separate provenance
+category and are rejected only when the containing closure state can escape;
+explicit heap ownership remains a separately staged rule.
 
 ### 9.5 `nia-function-lower`
 

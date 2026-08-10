@@ -15,6 +15,8 @@ use nia_ty::{TyKind, TypeStore};
 pub struct ClosureEscapeSummary {
     pub returned_parameters: BTreeSet<usize>,
     pub escaping_parameters: BTreeSet<usize>,
+    pub returned_captured_address_parameters: BTreeSet<usize>,
+    pub escaping_captured_address_parameters: BTreeSet<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +59,9 @@ enum InputSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Provenance {
     Input(InputSource),
+    StackAddress { scope_depth: usize },
+    CapturedInputAddress(InputSource),
+    CapturedStackAddress { scope_depth: usize },
     StackClosure(ClosureId),
 }
 
@@ -67,6 +72,8 @@ type Environment = HashMap<LocalId, Provenances>;
 struct CallableSummary {
     returned_inputs: BTreeSet<InputSource>,
     escaping_inputs: BTreeSet<InputSource>,
+    returned_captured_addresses: BTreeSet<InputSource>,
+    escaping_captured_addresses: BTreeSet<InputSource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -164,6 +171,12 @@ pub fn check_closure_safety(
                             InputSource::Capture(_) => None,
                         })
                         .collect(),
+                    returned_captured_address_parameters: parameter_sources(
+                        summary.returned_captured_addresses,
+                    ),
+                    escaping_captured_address_parameters: parameter_sources(
+                        summary.escaping_captured_addresses,
+                    ),
                 },
             )),
             CallableKey::Closure(_) => None,
@@ -227,6 +240,8 @@ impl<'a> Analyzer<'a> {
         CallableSummary {
             returned_inputs: input_sources(&self.returned),
             escaping_inputs: input_sources(&self.escaped),
+            returned_captured_addresses: captured_input_sources(&self.returned),
+            escaping_captured_addresses: captured_input_sources(&self.escaped),
         }
     }
 
@@ -343,10 +358,12 @@ impl<'a> Analyzer<'a> {
                 self.closure_scopes
                     .entry(*closure_id)
                     .or_insert(self.scope_depth);
-                captures
-                    .iter()
-                    .map(|capture| self.analyze_expr(&capture.value, env))
-                    .fold(Provenances::new(), union)
+                capture_address_origins(
+                    captures
+                        .iter()
+                        .map(|capture| self.analyze_expr(&capture.value, env))
+                        .fold(Provenances::new(), union),
+                )
             }
             TypedExprKind::Range(range) => range
                 .start
@@ -387,8 +404,18 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::Discard(ptr)
             | TypedExprKind::Cast { expr: ptr, .. }
             | TypedExprKind::TraitObjectUpcast { expr: ptr, .. }
-            | TypedExprKind::TraitObjectCoercion { expr: ptr, .. }
-            | TypedExprKind::Unary { expr: ptr, .. } => self.analyze_expr(ptr, env),
+            | TypedExprKind::TraitObjectCoercion { expr: ptr, .. } => self.analyze_expr(ptr, env),
+            TypedExprKind::Unary { op, expr: inner } => {
+                let mut value = self.analyze_expr(inner, env);
+                if matches!(op, nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly)
+                    && address_uses_stack_storage(inner)
+                {
+                    value.insert(Provenance::StackAddress {
+                        scope_depth: self.scope_depth,
+                    });
+                }
+                value
+            }
             TypedExprKind::ExtractElement { vector, index } => union(
                 self.analyze_expr(vector, env),
                 self.analyze_expr(index, env),
@@ -631,7 +658,10 @@ impl<'a> Analyzer<'a> {
                     .iter()
                     .filter_map(|origin| match origin {
                         Provenance::StackClosure(closure_id) => Some(*closure_id),
-                        Provenance::Input(_) => None,
+                        Provenance::Input(_)
+                        | Provenance::StackAddress { .. }
+                        | Provenance::CapturedInputAddress(_)
+                        | Provenance::CapturedStackAddress { .. } => None,
                     })
                     .collect::<BTreeSet<_>>();
                 let mut result = Provenances::new();
@@ -699,6 +729,18 @@ impl<'a> Analyzer<'a> {
                 EscapeKind::Call,
             );
         }
+        for source in &summary.returned_captured_addresses {
+            result.extend(capture_address_origins(input_origins(
+                *source, captures, args,
+            )));
+        }
+        for source in &summary.escaping_captured_addresses {
+            self.record_escape(
+                &capture_address_origins(input_origins(*source, captures, args)),
+                span,
+                EscapeKind::Call,
+            );
+        }
         result
     }
 
@@ -746,21 +788,25 @@ impl<'a> Analyzer<'a> {
 
     fn record_return(&mut self, value: &Provenances, span: Span) {
         self.returned.extend(value);
-        self.report_stack_closures(value, span, EscapeKind::Return);
+        self.report_escaping_state(value, span, EscapeKind::Return);
     }
 
     fn record_escape(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
         self.escaped.extend(value);
-        self.report_stack_closures(value, span, kind);
+        self.report_escaping_state(value, span, kind);
     }
 
-    fn report_stack_closures(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
+    fn report_escaping_state(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
         let Some(sink) = &mut self.diagnostics else {
             return;
         };
-        if value
+        let stack_closure = value
             .iter()
-            .any(|origin| matches!(origin, Provenance::StackClosure(_)))
+            .any(|origin| matches!(origin, Provenance::StackClosure(_)));
+        let captured_stack_address = value
+            .iter()
+            .any(|origin| matches!(origin, Provenance::CapturedStackAddress { .. }));
+        if (stack_closure || captured_stack_address)
             && sink.reported.insert((sink.owner, span, kind))
         {
             let context = match kind {
@@ -769,15 +815,18 @@ impl<'a> Analyzer<'a> {
                 EscapeKind::Call => "passed to a call that may retain it",
                 EscapeKind::Scope => "moved beyond its closure state's lexical scope",
             };
+            let summary = if stack_closure {
+                format!(
+                    "stack-backed callable view cannot be {context}; use it only while its closure state is live"
+                )
+            } else {
+                format!(
+                    "closure state capturing a local address cannot be {context}; keep the state within the captured storage's lifetime"
+                )
+            };
             sink.diagnostics.push(ClosureCheckDiagnostic {
                 owner: sink.owner,
-                diagnostic: Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "stack-backed callable view cannot be {context}; use it only while its closure state is live"
-                    ),
-                ),
+                diagnostic: Diagnostic::user_error_at(codes::TYPE_CHECK, span, summary),
             });
         }
     }
@@ -794,10 +843,17 @@ impl<'a> Analyzer<'a> {
                 {
                     Some(*origin)
                 }
-                Provenance::Input(_) | Provenance::StackClosure(_) => None,
+                Provenance::CapturedStackAddress { scope_depth } if *scope_depth >= depth => {
+                    Some(*origin)
+                }
+                Provenance::Input(_)
+                | Provenance::StackAddress { .. }
+                | Provenance::CapturedInputAddress(_)
+                | Provenance::CapturedStackAddress { .. }
+                | Provenance::StackClosure(_) => None,
             })
             .collect();
-        self.report_stack_closures(&escaping, span, EscapeKind::Scope);
+        self.report_escaping_state(&escaping, span, EscapeKind::Scope);
     }
 
     fn filter_for_type(&self, origins: Provenances, ty: nia_ids::InternedTyId) -> Provenances {
@@ -865,9 +921,69 @@ fn input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
         .iter()
         .filter_map(|origin| match origin {
             Provenance::Input(source) => Some(*source),
-            Provenance::StackClosure(_) => None,
+            Provenance::StackAddress { .. }
+            | Provenance::CapturedInputAddress(_)
+            | Provenance::CapturedStackAddress { .. }
+            | Provenance::StackClosure(_) => None,
         })
         .collect()
+}
+
+fn captured_input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
+    origins
+        .iter()
+        .filter_map(|origin| match origin {
+            Provenance::CapturedInputAddress(source) => Some(*source),
+            Provenance::Input(_)
+            | Provenance::StackAddress { .. }
+            | Provenance::CapturedStackAddress { .. }
+            | Provenance::StackClosure(_) => None,
+        })
+        .collect()
+}
+
+fn parameter_sources(sources: BTreeSet<InputSource>) -> BTreeSet<usize> {
+    sources
+        .into_iter()
+        .filter_map(|source| match source {
+            InputSource::Parameter(index) => Some(index),
+            InputSource::Capture(_) => None,
+        })
+        .collect()
+}
+
+fn capture_address_origins(origins: Provenances) -> Provenances {
+    origins
+        .into_iter()
+        .map(|origin| match origin {
+            Provenance::Input(source) => Provenance::CapturedInputAddress(source),
+            Provenance::StackAddress { scope_depth } => {
+                Provenance::CapturedStackAddress { scope_depth }
+            }
+            Provenance::CapturedInputAddress(_)
+            | Provenance::CapturedStackAddress { .. }
+            | Provenance::StackClosure(_) => origin,
+        })
+        .collect()
+}
+
+fn address_uses_stack_storage(expr: &TypedExpr) -> bool {
+    match &expr.kind {
+        TypedExprKind::Local(_) => true,
+        TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
+            address_uses_stack_storage(lhs)
+        }
+        TypedExprKind::Index { lhs, .. } => address_uses_stack_storage(lhs),
+        TypedExprKind::Unary {
+            op: nia_ast::UnaryOp::Deref,
+            ..
+        } => false,
+        TypedExprKind::Global(_)
+        | TypedExprKind::Function(_)
+        | TypedExprKind::FunctionInstance { .. }
+        | TypedExprKind::ClosureFunctionPointer { .. } => false,
+        _ => true,
+    }
 }
 
 fn input_origins(source: InputSource, captures: &Provenances, args: &[Provenances]) -> Provenances {
