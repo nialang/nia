@@ -348,7 +348,8 @@ impl<'a> ModuleLowerer<'a> {
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
             | TyKind::ConstOnly
-            | TyKind::Error => false,
+            | TyKind::Error
+            | TyKind::ClosureState { .. } => false,
         }
     }
 
@@ -792,7 +793,8 @@ pub(crate) fn contains_generic_param(
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
             | TyKind::ConstOnly
-            | TyKind::Error,
+            | TyKind::Error
+            | TyKind::ClosureState { .. },
         )
         | None => false,
     };
@@ -868,7 +870,8 @@ pub(crate) fn contains_unresolved_projection(
             | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
-            | TyKind::Vector { .. },
+            | TyKind::Vector { .. }
+            | TyKind::ClosureState { .. },
         )
         | None => false,
     }
@@ -954,7 +957,8 @@ pub(crate) fn contains_error(
             | TyKind::Opaque
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
-            | TyKind::Vector { .. },
+            | TyKind::Vector { .. }
+            | TyKind::ClosureState { .. },
         )
         | None => false,
     };

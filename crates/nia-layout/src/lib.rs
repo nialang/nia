@@ -619,6 +619,7 @@ impl<'a> LayoutComputer<'a> {
         let layout = match self.type_context.get(ty_id).cloned() {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(primitive),
             Some(TyKind::Tuple(elems)) => self.tuple_layout(span, &elems),
+            Some(TyKind::ClosureState { captures, .. }) => self.tuple_layout(span, &captures),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(span, elem, lanes),
             Some(
                 TyKind::Pointer { .. }
@@ -702,6 +703,18 @@ impl<'a> LayoutComputer<'a> {
             Some(TyKind::Tuple(elems)) => elems
                 .iter()
                 .any(|elem| self.is_open_generic_type_inner(*elem, seen)),
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                captures
+                    .iter()
+                    .chain(params)
+                    .any(|ty| self.is_open_generic_type_inner(*ty, seen))
+                    || self.is_open_generic_type_inner(*return_type, seen)
+            }
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }

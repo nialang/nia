@@ -312,6 +312,16 @@ fn collect_ty_owner_modules<'a>(
             type_ids.push_back(*elem);
         }
         TyKind::Tuple(elems) => type_ids.extend(elems.iter().copied()),
+        TyKind::ClosureState {
+            captures,
+            params,
+            return_type,
+            ..
+        } => {
+            type_ids.extend(captures.iter().copied());
+            type_ids.extend(params.iter().copied());
+            type_ids.push_back(*return_type);
+        }
         TyKind::Array { len, elem } => {
             type_ids.push_back(*elem);
             collect_array_len_owner_modules(len, type_ids);

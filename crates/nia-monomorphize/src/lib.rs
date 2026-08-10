@@ -323,6 +323,18 @@ impl MonoCollector<'_> {
             TyKind::Tuple(elems) => elems
                 .iter()
                 .any(|elem| self.ty_contains_generic_param(*elem)),
+            TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            } => {
+                captures
+                    .iter()
+                    .chain(params.iter())
+                    .any(|ty| self.ty_contains_generic_param(*ty))
+                    || self.ty_contains_generic_param(return_type)
+            }
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -549,6 +561,18 @@ impl MonoCollector<'_> {
             TyKind::Tuple(elems) => elems
                 .iter()
                 .any(|elem| self.ty_exceeds_instance_depth(*elem, next)),
+            TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            } => {
+                captures
+                    .iter()
+                    .chain(params.iter())
+                    .any(|ty| self.ty_exceeds_instance_depth(*ty, next))
+                    || self.ty_exceeds_instance_depth(return_type, next)
+            }
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -690,6 +714,40 @@ impl MonoCollector<'_> {
                     })
                     .collect();
                 self.intern_working_ty(module_id, TyKind::Tuple(elems))
+            }
+            TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            } => {
+                let captures = captures
+                    .iter()
+                    .map(|ty| {
+                        self.instantiate_ty_inner(module_id, *ty, substitutions, active_projections)
+                    })
+                    .collect();
+                let params = params
+                    .iter()
+                    .map(|ty| {
+                        self.instantiate_ty_inner(module_id, *ty, substitutions, active_projections)
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_inner(
+                    module_id,
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::ClosureState {
+                        closure_id,
+                        captures,
+                        params,
+                        return_type,
+                    },
+                )
             }
             TyKind::Pointer { is_readonly, elem } => {
                 let elem =

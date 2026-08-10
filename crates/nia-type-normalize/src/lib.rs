@@ -55,6 +55,28 @@ impl<'a> TypeNormalizer<'a, '_> {
         }
         let normalized = match self.type_store.get(ty_id).cloned() {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
+            Some(TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            }) => {
+                let captures = captures
+                    .into_iter()
+                    .map(|capture| self.normalize_ty(capture, stack))
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty(param, stack))
+                    .collect();
+                let return_type = self.normalize_ty(return_type, stack);
+                self.interner.intern(TyKind::ClosureState {
+                    closure_id,
+                    captures,
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Tuple(elems)) => {
                 let elems = elems
                     .into_iter()
@@ -330,6 +352,31 @@ impl<'a> TypeNormalizer<'a, '_> {
     ) -> InternedTyId {
         match self.type_store.get(ty_id).cloned() {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
+            Some(TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            }) => {
+                let captures = captures
+                    .into_iter()
+                    .map(|capture| {
+                        self.normalize_ty_with_substitutions(capture, substitutions, stack)
+                    })
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty_with_substitutions(param, substitutions, stack))
+                    .collect();
+                let return_type =
+                    self.normalize_ty_with_substitutions(return_type, substitutions, stack);
+                self.interner.intern(TyKind::ClosureState {
+                    closure_id,
+                    captures,
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Tuple(elems)) => {
                 let elems = elems
                     .into_iter()

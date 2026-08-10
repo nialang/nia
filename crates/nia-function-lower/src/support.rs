@@ -1070,6 +1070,12 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::FunctionInstance { .. }
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::Trap => {}
+                TypedExprKind::Closure { captures, body, .. } => {
+                    for capture in captures {
+                        visit_expr(&capture.value, max_id);
+                    }
+                    visit_body(body, max_id);
+                }
                 TypedExprKind::UnionStorageLiteral { relocations, .. } => {
                     for relocation in relocations {
                         visit_expr(&relocation.pointee, max_id);

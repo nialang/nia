@@ -292,6 +292,10 @@ where
             }
             result
         }
+        Some(TyKind::ClosureState { closure_id, .. }) => {
+            let owner = mangle_source_def(closure_id.owner, module_id, nominal_name);
+            format!("closure__{owner}__ord__{}", closure_id.ordinal)
+        }
         Some(TyKind::Nominal {
             def_id,
             args,

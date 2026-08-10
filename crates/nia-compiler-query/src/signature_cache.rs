@@ -1956,6 +1956,19 @@ fn write_ty_kind(
             encoded.push(22);
             write_types(encoded, elems, graph)?;
         }
+        TyKind::ClosureState {
+            closure_id,
+            captures,
+            params,
+            return_type,
+        } => {
+            encoded.push(23);
+            write_global_def(encoded, closure_id.owner, graph.module_paths)?;
+            write_u32(encoded, closure_id.ordinal);
+            write_types(encoded, captures, graph)?;
+            write_types(encoded, params, graph)?;
+            write_type_index(encoded, graph.intern(*return_type)?);
+        }
     }
     Ok(())
 }
@@ -2043,6 +2056,15 @@ fn read_ty_kind(
         20 => TyKind::SelfParam,
         21 => TyKind::Opaque,
         22 => TyKind::Tuple(read_types(cursor, types)?),
+        23 => TyKind::ClosureState {
+            closure_id: nia_ids::ClosureId {
+                owner: read_global_def(cursor, modules)?,
+                ordinal: read_u32(cursor)?,
+            },
+            captures: read_types(cursor, types)?,
+            params: read_types(cursor, types)?,
+            return_type: read_type_index(cursor, types)?,
+        },
         _ => return None,
     })
 }

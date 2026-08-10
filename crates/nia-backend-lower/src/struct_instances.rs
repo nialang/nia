@@ -756,7 +756,8 @@ impl<'a> ModuleLowerer<'a> {
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::Primitive(_)
-                | TyKind::Vector { .. },
+                | TyKind::Vector { .. }
+                | TyKind::ClosureState { .. },
             )
             | None => {}
         }
@@ -1416,7 +1417,8 @@ impl<'a> ModuleLowerer<'a> {
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::Primitive(_)
-                | TyKind::Vector { .. },
+                | TyKind::Vector { .. }
+                | TyKind::ClosureState { .. },
             )
             | None => {}
         }

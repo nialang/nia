@@ -91,6 +91,17 @@ pub fn substitute_ty(
             return_type: substitute(*return_type),
             is_variadic: *is_variadic,
         }),
+        Some(TyKind::ClosureState {
+            closure_id,
+            captures,
+            params,
+            return_type,
+        }) => append.intern(TyKind::ClosureState {
+            closure_id: *closure_id,
+            captures: captures.iter().copied().map(substitute).collect(),
+            params: params.iter().copied().map(substitute).collect(),
+            return_type: substitute(*return_type),
+        }),
         Some(TyKind::Optional { elem }) => append.intern(TyKind::Optional {
             elem: substitute(*elem),
         }),

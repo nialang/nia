@@ -85,14 +85,12 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::Tuple(elem_types))
             }
-            ExprKind::Closure { .. } => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    expr.span,
-                    "closure expressions are not type-checked yet",
-                ));
-                self.error()
-            }
+            ExprKind::Closure {
+                captures,
+                params,
+                return_type,
+                body,
+            } => self.check_closure_expr(expr, captures, params, return_type.as_ref(), body),
             ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
                 Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
                 None if expected.is_some() => self.infer_array_literal_expr(expr),
@@ -368,6 +366,89 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_node_type(expr, ty);
         ty
+    }
+
+    fn check_closure_expr(
+        &mut self,
+        expr: &Expr,
+        captures: &[nia_ast::ClosureCapture],
+        params: &[nia_ast::Param],
+        return_type: Option<&nia_ast::TypeRef>,
+        body: &nia_ast::Block,
+    ) -> InternedTyId {
+        let Some(owner) = self.current_def_id else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                "closure expressions are only supported inside function bodies",
+            ));
+            return self.error();
+        };
+        let closure_id = nia_ids::ClosureId {
+            owner,
+            ordinal: self.next_closure_ordinal,
+        };
+        self.next_closure_ordinal = self.next_closure_ordinal.saturating_add(1);
+
+        let mut capture_types = Vec::with_capacity(captures.len());
+        for capture in captures {
+            let ty = self.check_expr(&capture.value);
+            capture_types.push(ty);
+            if let Some(local_id) = self.local_def(&capture.node_key) {
+                self.record_local_type(local_id, ty);
+            }
+        }
+        let mut param_types = Vec::with_capacity(params.len());
+        let mut param_locals = Vec::with_capacity(params.len());
+        for param in params {
+            if param.receiver.is_some() {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    param.span,
+                    "closure parameters cannot be receivers",
+                ));
+            }
+            let ty = param
+                .ty
+                .as_ref()
+                .map(|ty| self.ty_for_type(ty))
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        param.span,
+                        "closure parameters require explicit types",
+                    ));
+                    self.error()
+                });
+            param_types.push(ty);
+            if let Some(local_id) = self.local_def(&param.node_key) {
+                self.record_local_type(local_id, ty);
+                param_locals.push(local_id);
+            }
+        }
+        let return_type = return_type
+            .map(|ty| self.ty_for_type(ty))
+            .unwrap_or_else(|| self.unit());
+        let previous_return = self.current_return;
+        let previous_params = std::mem::replace(&mut self.current_param_locals, param_locals);
+        self.current_return = return_type;
+        let expected_tail = (!self.is_unit(return_type)).then_some(return_type);
+        let body_ty = self.check_block_with_expected(body, expected_tail);
+        if let Some(tail) = body.tail.as_deref() {
+            if !self.is_unit(return_type) {
+                self.expect_expr_type(tail, return_type, body_ty, "closure body");
+            }
+        } else if self.is_unit(return_type) {
+            self.expect_type(body.span, return_type, body_ty, "closure body");
+        }
+        self.current_return = previous_return;
+        self.current_param_locals = previous_params;
+        self.interner.intern(TyKind::ClosureState {
+            closure_id,
+            captures: capture_types,
+            params: param_types,
+            return_type,
+        })
     }
 
     fn check_associated_const_value_access(

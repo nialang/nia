@@ -1751,6 +1751,18 @@ impl Analyzer<'_> {
             Some(TyKind::Tuple(elems)) => elems
                 .into_iter()
                 .any(|elem| self.type_contains_generic_inner(elem, seen)),
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                captures
+                    .into_iter()
+                    .chain(params)
+                    .any(|ty| self.type_contains_generic_inner(ty, seen))
+                    || self.type_contains_generic_inner(return_type, seen)
+            }
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })

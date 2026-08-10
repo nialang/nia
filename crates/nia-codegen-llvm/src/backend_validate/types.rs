@@ -150,6 +150,13 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
             }
+            TyKind::ClosureState { .. } => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "closure state reached LLVM before closure lowering",
+                ));
+            }
             TyKind::ConstOnly => self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -303,6 +310,19 @@ impl BackendValidator<'_> {
                     let elem = self.layout_of_with_active(*elem, active)?;
                     size = align_to(size, elem.align).saturating_add(elem.size);
                     align = align.max(elem.align);
+                }
+                Some(TypeLayout {
+                    size: align_to(size, align),
+                    align,
+                })
+            }
+            TyKind::ClosureState { captures, .. } => {
+                let mut size = 0u64;
+                let mut align = 1u64;
+                for capture in captures {
+                    let capture = self.layout_of_with_active(*capture, active)?;
+                    size = align_to(size, capture.align).saturating_add(capture.size);
+                    align = align.max(capture.align);
                 }
                 Some(TypeLayout {
                     size: align_to(size, align),

@@ -546,6 +546,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
+                | TyKind::ClosureState { .. }
                 | TyKind::SelfParam,
             )
             | None => ty,

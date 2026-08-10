@@ -824,6 +824,18 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Tuple(elems)) => elems
                 .iter()
                 .any(|elem| self.type_contains_generic_param(*elem)),
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                captures
+                    .iter()
+                    .chain(params)
+                    .any(|ty| self.type_contains_generic_param(*ty))
+                    || self.type_contains_generic_param(*return_type)
+            }
             Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
                 .any(|arg| self.type_contains_generic_param(*arg)),
@@ -1162,7 +1174,11 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(
-                TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ConstOnly
+                | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
+                | TyKind::ClosureState { .. },
             )
             | None => {}
         }

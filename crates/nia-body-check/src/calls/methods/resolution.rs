@@ -1431,7 +1431,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::ConstOnly | TyKind::Error) => false,
+            Some(TyKind::ConstOnly | TyKind::Error | TyKind::ClosureState { .. }) => false,
             None => panic!(
                 "Nia ICE: method pattern type {:?} is missing from type store {:?}",
                 general,
@@ -1979,7 +1979,7 @@ impl<'a> BodyChecker<'a> {
                 _ => false,
             },
             Some(TyKind::Primitive(_) | TyKind::Vector { .. })
-            | Some(TyKind::ConstOnly | TyKind::Error)
+            | Some(TyKind::ConstOnly | TyKind::Error | TyKind::ClosureState { .. })
             | None => self.types_match(pattern, actual),
         }
     }

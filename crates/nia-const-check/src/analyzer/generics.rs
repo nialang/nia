@@ -75,6 +75,49 @@ impl Analyzer<'_> {
                     }
                 }
             }
+            TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            } => {
+                if let Some(TyKind::ClosureState {
+                    closure_id: actual_id,
+                    captures: actual_captures,
+                    params: actual_params,
+                    return_type: actual_return,
+                }) = self.ty_kind(actual_ty)
+                    && closure_id == actual_id
+                    && captures.len() == actual_captures.len()
+                    && params.len() == actual_params.len()
+                {
+                    for (pattern, actual) in captures.into_iter().zip(actual_captures) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            pattern,
+                            actual,
+                            substitutions,
+                        )?;
+                    }
+                    for (pattern, actual) in params.into_iter().zip(actual_params) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            pattern,
+                            actual,
+                            substitutions,
+                        )?;
+                    }
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        return_type,
+                        actual_return,
+                        substitutions,
+                    )?;
+                }
+            }
             TyKind::Pointer { is_readonly, elem } => {
                 if let Some(TyKind::Pointer {
                     is_readonly: actual_readonly,

@@ -354,6 +354,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     align,
                 })
             }
+            Some(TyKind::ClosureState { captures, .. }) => {
+                let mut size = 0u64;
+                let mut align = 1u64;
+                for capture in captures {
+                    let capture = self.layout_of(*capture)?;
+                    size = align_to(size, capture.align).saturating_add(capture.size);
+                    align = align.max(capture.align);
+                }
+                Some(TypeLayout {
+                    size: align_to(size, align),
+                    align,
+                })
+            }
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
             Some(

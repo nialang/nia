@@ -638,6 +638,12 @@ fn collect_typed_expr_refs(
                 collect_typed_expr_refs(module, elem, refs);
             }
         }
+        TypedExprKind::Closure { captures, body, .. } => {
+            for capture in captures {
+                collect_typed_expr_refs(module, &capture.value, refs);
+            }
+            collect_typed_executable_refs(module, body, refs);
+        }
         TypedExprKind::StructLiteral { fields, .. } => {
             for field in fields {
                 collect_typed_expr_refs(module, &field.value, refs);

@@ -46,10 +46,10 @@ The type taxonomy is deliberately split:
 
 ### 2. Concrete closure values
 
-- [ ] Introduce an anonymous closure-state semantic type and layout identity.
-- [ ] Resolve captures in the enclosing scope and parameters/body in a fresh
+- [x] Introduce an anonymous closure-state semantic type and layout identity.
+- [x] Resolve captures in the enclosing scope and parameters/body in a fresh
   closure scope.
-- [ ] Type-check closure bodies against their declared signature.
+- [x] Type-check closure bodies against their declared signature.
 - [ ] Lower direct calls to generated entry functions with an explicit state
   pointer.
 
@@ -77,7 +77,8 @@ The type taxonomy is deliberately split:
 - [ ] Retire this roadmap only after every acceptance item has evidence and the
   durable rules have moved to stable documentation.
 
-The first implementation batch intentionally stops after wave 1. Parsed
-closures currently produce a precise type-check diagnostic; accepting them as
-runtime values before the state/escape contracts exist would make memory
-safety depend on an accidental temporary lifetime.
+Wave 2 currently accepts concrete closure state values and preserves typed
+closure nodes through body IR. Direct invocation and backend entry generation
+remain gated until the explicit state-pointer ABI is implemented; a closure
+that reaches function lowering therefore produces a dedicated lowering
+diagnostic instead of being silently treated as a thin `&fn` pointer.

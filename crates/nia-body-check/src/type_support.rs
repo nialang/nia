@@ -374,6 +374,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
+                | TyKind::ClosureState { .. }
                 | TyKind::SelfParam,
             )
             | None => ty,
@@ -907,6 +908,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Vector { .. }
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
+                | TyKind::ClosureState { .. }
                 | TyKind::SelfParam
                 | TyKind::Error,
             )
@@ -1273,6 +1275,7 @@ impl<'a> BodyChecker<'a> {
             timing_module_id: self.timing_module_id,
             current_return: self.current_return,
             current_def_id: self.current_def_id,
+            next_closure_ordinal: self.next_closure_ordinal,
             current_param_locals: self.current_param_locals.clone(),
             const_context_depth: self.const_context_depth,
             const_call_locals: Vec::new(),
@@ -1554,6 +1557,10 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::SelfParam) => "Self".to_string(),
             Some(TyKind::ConstOnly) => "<const-only value>".to_string(),
             Some(TyKind::Error) => "<error type>".to_string(),
+            Some(TyKind::ClosureState { closure_id, .. }) => format!(
+                "<closure #{}:{}>",
+                closure_id.owner.def_id.0, closure_id.ordinal
+            ),
             None => "<unknown type>".to_string(),
         }
     }

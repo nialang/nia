@@ -218,9 +218,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             {
                 AbiParam::Direct(ty)
             }
-            Some(TyKind::Tuple(_) | TyKind::Array { .. } | TyKind::Nominal { .. }) => {
-                AbiParam::IndirectReadonly(ty)
-            }
+            Some(
+                TyKind::Tuple(_)
+                | TyKind::Array { .. }
+                | TyKind::Nominal { .. }
+                | TyKind::ClosureState { .. },
+            ) => AbiParam::IndirectReadonly(ty),
             Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => {
                 AbiParam::IndirectReadonly(ty)
             }
@@ -268,9 +271,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             {
                 AbiReturn::Direct(ty)
             }
-            Some(TyKind::Tuple(_) | TyKind::Array { .. } | TyKind::Nominal { .. }) => {
-                AbiReturn::IndirectOut(ty)
-            }
+            Some(
+                TyKind::Tuple(_)
+                | TyKind::Array { .. }
+                | TyKind::Nominal { .. }
+                | TyKind::ClosureState { .. },
+            ) => AbiReturn::IndirectOut(ty),
             Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => AbiReturn::IndirectOut(ty),
             Some(
                 TyKind::GenericParam(_)
@@ -346,6 +352,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 let fields = elems
                     .iter()
                     .map(|elem| self.llvm_basic_type_in(*elem, span))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(self.context.struct_type(&fields, false).into())
+            }
+            Some(TyKind::ClosureState { captures, .. }) => {
+                let fields = captures
+                    .iter()
+                    .map(|capture| self.llvm_basic_type_in(*capture, span))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(self.context.struct_type(&fields, false).into())
             }

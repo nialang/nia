@@ -271,6 +271,33 @@ pub(super) fn substitute_type(
                 .collect();
             append.intern(TyKind::Tuple(elems))
         }
+        Some(TyKind::ClosureState {
+            closure_id,
+            captures,
+            params,
+            return_type,
+        }) => {
+            let substitute = |ty| {
+                substitute_type(
+                    append,
+                    module,
+                    type_store,
+                    ty,
+                    substitutions,
+                    const_substitutions,
+                    TypeSubstitutionTarget {
+                        projection: projection_context,
+                        self_ty: self_substitution,
+                    },
+                )
+            };
+            append.intern(TyKind::ClosureState {
+                closure_id: *closure_id,
+                captures: captures.iter().copied().map(substitute).collect(),
+                params: params.iter().copied().map(substitute).collect(),
+                return_type: substitute(*return_type),
+            })
+        }
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
             let elem = substitute_type(

@@ -260,6 +260,9 @@ impl FunctionLowerer<'_> {
             TypedExprKind::Error => unreachable!(
                 "function lowering input validation rejects error expressions before lowering"
             ),
+            TypedExprKind::Closure { .. } => unreachable!(
+                "closure lowering is gated until closure entry/state lowering is implemented"
+            ),
             TypedExprKind::Integer(text) => FunctionExprKind::Integer(text.clone()),
             TypedExprKind::Float(text) => FunctionExprKind::Float(text.clone()),
             TypedExprKind::String(scalars) => FunctionExprKind::String(scalars.clone()),

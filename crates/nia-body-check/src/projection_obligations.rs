@@ -1050,6 +1050,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Opaque
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
+                | TyKind::ClosureState { .. }
                 | TyKind::SelfParam,
             )
             | None => ty,
@@ -1702,6 +1703,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
+                | TyKind::ClosureState { .. }
                 | TyKind::SelfParam,
             )
             | None => {}

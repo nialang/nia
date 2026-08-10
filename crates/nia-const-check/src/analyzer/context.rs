@@ -1118,6 +1118,16 @@ impl Analyzer<'_> {
                     self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
                 }
             }
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                for ty in captures.into_iter().chain(params).chain([return_type]) {
+                    self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
+                }
+            }
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.collect_array_len_const_exprs_in_ty_inner(error, out, seen);
                 self.collect_array_len_const_exprs_in_ty_inner(value, out, seen);
