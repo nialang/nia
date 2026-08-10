@@ -1545,6 +1545,14 @@ call. LLVM codegen does not synthesize an entry address or callable call ABI
 ahead of the stable closure-entry symbols and ABI records owned by the final
 closure product wave.
 
+The LLVM backend validator still treats generated entries as first-class
+backend products before that gate. It validates the hidden state parameter as a
+readonly pointer to the published closure-state type, checks user parameter
+order and local identities against the ABI record, and validates the generated
+Function IR body and return type. This keeps malformed closure products from
+reaching LLVM while preserving the deliberate materialization diagnostic for
+otherwise valid callable views and closure-entry calls.
+
 `nia-closure-check` is the independent semantic stage for this escape boundary.
 It consumes stable `nia-body-ir::TypedBody` products and the session
 `TypeStore`; it does not depend on `nia-body-check`, compiler queries, Function

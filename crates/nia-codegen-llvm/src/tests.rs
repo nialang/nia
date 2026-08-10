@@ -83,3 +83,33 @@ pub struct Point {
     );
     let _ = coordinator.finish();
 }
+
+#[test]
+fn closure_codegen_reports_the_materialization_boundary() {
+    let root = common::temp_dir("closure_codegen_materialization_boundary");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    callback(1)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("generated closure entry reached LLVM before backend materialization")
+        }),
+        "expected the closure materialization boundary diagnostic, got {:?}",
+        output.diagnostics
+    );
+}
