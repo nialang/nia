@@ -216,6 +216,54 @@ Function pointer type identity includes:
 
 Variadic function pointers are not accepted at C ABI boundaries.
 
+## 8.1 Callable Interface And Closure Entry Representation
+
+`Fn(Args...) Return` is an unsized callable interface. It has no standalone
+value representation and cannot be passed by value. A concrete closure creates
+an anonymous `ClosureState` type whose fields are the explicitly captured
+values in source order. Its size and alignment follow the ordinary aggregate
+layout rules; capture names do not affect the physical layout.
+
+`&Fn(Args...) Return` and `&mut Fn(Args...) Return` are Nia fat-pointer views:
+
+```text
+callable view = { state pointer, entry pointer }
+```
+
+Both fields are pointer-sized. On the current LP64 target a callable view is
+therefore 16 bytes with 8-byte alignment. The state pointer identifies the
+concrete closure state and the entry pointer identifies the generated callable
+entry. The readonly bit belongs to the view type: a `&mut Fn(...)` view may
+invoke a writable state, while `&Fn(...)` may only use the readonly callable
+capability. Neither view owns, allocates, frees, or extends the lifetime of
+the state.
+
+The generated entry has one hidden first parameter followed by the user
+parameters in source order:
+
+```text
+entry(&ClosureState, Args...) -> Return
+```
+
+The hidden state parameter is always a readonly pointer. Entries are never
+variadic. Their internal symbols include the concrete source or generic
+instance owner and the stable closure ordinal, so an instance cannot collide
+with its source template or with another instance.
+
+Nested pointer types retain both levels. For example, `&mut &Fn(i32) i32` is a
+pointer-sized writable pointer to a 16-byte readonly callable-view descriptor;
+it permits replacing the descriptor through `slot.*`, but does not turn the
+underlying readonly view into a writable callable. It is therefore distinct
+from `&mut Fn(i32) i32`, whose value is the 16-byte callable view itself.
+
+Callable entry symbols and ABI records are already produced by backend
+lowering, reachability, partitioning, and incremental fingerprinting. LLVM
+declaration/body materialization remains an explicit later boundary while the
+allocator-backed owner and destruction protocol are not yet part of the Nia
+language ABI. Valid callable programs currently stop at that boundary with a
+diagnostic rather than receiving an implicit heap owner or an incomplete
+runtime entry.
+
 ## 9. Array Representation
 
 Arrays are contiguous repeated element storage:
