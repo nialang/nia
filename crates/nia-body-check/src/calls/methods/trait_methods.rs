@@ -378,6 +378,38 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_dynamic_trait_object_projection(candidate, param))
+                    .collect();
+                let return_type =
+                    self.normalize_dynamic_trait_object_projection(candidate, return_type);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_dynamic_trait_object_projection(candidate, param))
+                    .collect();
+                let return_type =
+                    self.normalize_dynamic_trait_object_projection(candidate, return_type);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner.intern(TyKind::Optional { elem })

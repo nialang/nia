@@ -456,6 +456,7 @@ fn type_ref_is_generic_or_structural_provider_target(
         | TypeKind::Tuple { .. }
         | TypeKind::Range { .. }
         | TypeKind::FunctionPointer { .. }
+        | TypeKind::Callable { .. }
         | TypeKind::Optional { .. }
         | TypeKind::ErrorUnion { .. }
         | TypeKind::SelfType

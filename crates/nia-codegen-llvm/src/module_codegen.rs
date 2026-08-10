@@ -377,12 +377,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 size: target.pointer_size,
                 align: target.pointer_align,
             }),
-            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. }) => Some(TypeLayout {
-                size: target.pointer_size * 2,
-                align: target.pointer_align,
-            }),
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. }) => {
+                Some(TypeLayout {
+                    size: target.pointer_size * 2,
+                    align: target.pointer_align,
+                })
+            }
             Some(
-                TyKind::Opaque | TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. },
+                TyKind::Opaque
+                | TyKind::SlicePointee { .. }
+                | TyKind::TraitObjectPointee { .. }
+                | TyKind::CallablePointee { .. },
             ) => None,
             Some(TyKind::Range { bound: None, .. }) => Some(TypeLayout { size: 0, align: 1 }),
             Some(TyKind::Range {

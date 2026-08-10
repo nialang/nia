@@ -1969,6 +1969,24 @@ fn write_ty_kind(
             write_types(encoded, params, graph)?;
             write_type_index(encoded, graph.intern(*return_type)?);
         }
+        TyKind::Callable {
+            is_readonly,
+            params,
+            return_type,
+        } => {
+            encoded.push(24);
+            write_bool(encoded, *is_readonly);
+            write_types(encoded, params, graph)?;
+            write_type_index(encoded, graph.intern(*return_type)?);
+        }
+        TyKind::CallablePointee {
+            params,
+            return_type,
+        } => {
+            encoded.push(25);
+            write_types(encoded, params, graph)?;
+            write_type_index(encoded, graph.intern(*return_type)?);
+        }
     }
     Ok(())
 }
@@ -2062,6 +2080,15 @@ fn read_ty_kind(
                 ordinal: read_u32(cursor)?,
             },
             captures: read_types(cursor, types)?,
+            params: read_types(cursor, types)?,
+            return_type: read_type_index(cursor, types)?,
+        },
+        24 => TyKind::Callable {
+            is_readonly: read_bool(cursor)?,
+            params: read_types(cursor, types)?,
+            return_type: read_type_index(cursor, types)?,
+        },
+        25 => TyKind::CallablePointee {
             params: read_types(cursor, types)?,
             return_type: read_type_index(cursor, types)?,
         },

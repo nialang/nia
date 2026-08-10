@@ -570,6 +570,15 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.check_object_safe_type(span, param);
@@ -837,6 +846,36 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.object_safe_ty(check, param))
+                    .collect();
+                let return_type = self.object_safe_ty(check, return_type);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.object_safe_ty(check, param))
+                    .collect();
+                let return_type = self.object_safe_ty(check, return_type);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.object_safe_ty(check, elem);
                 self.interner.intern(TyKind::Optional { elem })
@@ -1031,6 +1070,15 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 params
                     .into_iter()

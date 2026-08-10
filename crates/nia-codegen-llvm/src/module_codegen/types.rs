@@ -208,6 +208,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Slice { .. }
                 | TyKind::TraitObject { .. }
+                | TyKind::Callable { .. }
                 | TyKind::Range { .. },
             ) => AbiParam::Direct(ty),
             Some(TyKind::Nominal { def_id, .. })
@@ -235,6 +236,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
+                | TyKind::CallablePointee { .. }
                 | TyKind::Projection { .. }
                 | TyKind::ConstOnly
                 | TyKind::Error,
@@ -261,6 +263,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Slice { .. }
                 | TyKind::TraitObject { .. }
+                | TyKind::Callable { .. }
                 | TyKind::Range { .. },
             ) => AbiReturn::Direct(ty),
             Some(TyKind::Nominal { def_id, .. })
@@ -286,6 +289,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
+                | TyKind::CallablePointee { .. }
                 | TyKind::Projection { .. }
                 | TyKind::ConstOnly
                 | TyKind::Error,
@@ -321,6 +325,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn trait_object_type(&self) -> StructType<'ctx> {
+        self.context.struct_type(
+            &[
+                self.context.ptr_type(Default::default()).into(),
+                self.context.ptr_type(Default::default()).into(),
+            ],
+            false,
+        )
+    }
+
+    pub(crate) fn callable_type(&self) -> StructType<'ctx> {
         self.context.struct_type(
             &[
                 self.context.ptr_type(Default::default()).into(),
@@ -371,6 +385,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             ) => Ok(self.context.ptr_type(Default::default()).into()),
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
             Some(TyKind::TraitObject { .. }) => Ok(self.trait_object_type().into()),
+            Some(TyKind::Callable { .. }) => Ok(self.callable_type().into()),
             Some(TyKind::Range { kind, bound }) => self.range_type(*kind, *bound, span),
             Some(TyKind::Optional { elem }) => self.optional_type(*elem, span),
             Some(TyKind::ErrorUnion { error, value }) => {
@@ -416,6 +431,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
+                | TyKind::CallablePointee { .. }
                 | TyKind::Projection { .. }
                 | TyKind::ConstOnly
                 | TyKind::Error,

@@ -91,6 +91,22 @@ pub fn substitute_ty(
             return_type: substitute(*return_type),
             is_variadic: *is_variadic,
         }),
+        Some(TyKind::Callable {
+            is_readonly,
+            params,
+            return_type,
+        }) => append.intern(TyKind::Callable {
+            is_readonly: *is_readonly,
+            params: params.iter().copied().map(substitute).collect(),
+            return_type: substitute(*return_type),
+        }),
+        Some(TyKind::CallablePointee {
+            params,
+            return_type,
+        }) => append.intern(TyKind::CallablePointee {
+            params: params.iter().copied().map(substitute).collect(),
+            return_type: substitute(*return_type),
+        }),
         Some(TyKind::ClosureState {
             closure_id,
             captures,

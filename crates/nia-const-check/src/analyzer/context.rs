@@ -1141,6 +1141,15 @@ impl Analyzer<'_> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.collect_array_len_const_exprs_in_ty_inner(param, out, seen);

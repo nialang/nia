@@ -274,6 +274,7 @@ where
             return_type,
             is_variadic,
         }) => {
+            let param_count = params.len();
             let params = params
                 .iter()
                 .map(|param| {
@@ -283,7 +284,7 @@ where
                 .join("__");
             let mut result = format!(
                 "fnptr__pc{}__{}__ret__{}",
-                params.len(),
+                param_count,
                 params,
                 mangle_type_inner(type_store, *return_type, module_id, nominal_name, array_len)
             );
@@ -291,6 +292,50 @@ where
                 result.push_str("__variadic");
             }
             result
+        }
+        Some(TyKind::Callable {
+            is_readonly,
+            params,
+            return_type,
+        }) => {
+            let param_count = params.len();
+            let prefix = if *is_readonly {
+                "callable_read"
+            } else {
+                "callable"
+            };
+            let params = params
+                .iter()
+                .map(|param| {
+                    mangle_type_inner(type_store, *param, module_id, nominal_name, array_len)
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            format!(
+                "{prefix}__pc{}__{}__ret__{}",
+                param_count,
+                params,
+                mangle_type_inner(type_store, *return_type, module_id, nominal_name, array_len)
+            )
+        }
+        Some(TyKind::CallablePointee {
+            params,
+            return_type,
+        }) => {
+            let param_count = params.len();
+            let params = params
+                .iter()
+                .map(|param| {
+                    mangle_type_inner(type_store, *param, module_id, nominal_name, array_len)
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            format!(
+                "callable_pointee__pc{}__{}__ret__{}",
+                param_count,
+                params,
+                mangle_type_inner(type_store, *return_type, module_id, nominal_name, array_len)
+            )
         }
         Some(TyKind::ClosureState { closure_id, .. }) => {
             let owner = mangle_source_def(closure_id.owner, module_id, nominal_name);
@@ -838,6 +883,67 @@ mod tests {
         assert_eq!(
             mangle_type_with(&type_store, reversed, resolvers()),
             "tuple__len__2__bool__i32"
+        );
+    }
+
+    #[test]
+    fn function_and_callable_mangling_preserve_arity_mutability_and_signature_order() {
+        let type_store = TypeStore::new();
+        let module_id = ModuleIdAllocator::new().allocate();
+        let append = type_store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let nullary_function = append.intern(TyKind::FunctionPointer {
+            params: Vec::new(),
+            return_type: i32_ty,
+            is_variadic: false,
+        });
+        let binary_function = append.intern(TyKind::FunctionPointer {
+            params: vec![i32_ty, bool_ty],
+            return_type: i32_ty,
+            is_variadic: false,
+        });
+        let readonly = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: vec![i32_ty, bool_ty],
+            return_type: i32_ty,
+        });
+        let mutable = append.intern(TyKind::Callable {
+            is_readonly: false,
+            params: vec![i32_ty, bool_ty],
+            return_type: i32_ty,
+        });
+        let pointee = append.intern(TyKind::CallablePointee {
+            params: vec![bool_ty, i32_ty],
+            return_type: i32_ty,
+        });
+        let resolvers = || {
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                |_| "item".into(),
+                |_| None,
+            )
+        };
+
+        assert_eq!(
+            mangle_type_with(&type_store, nullary_function, resolvers()),
+            "fnptr__pc0____ret__i32"
+        );
+        assert_eq!(
+            mangle_type_with(&type_store, binary_function, resolvers()),
+            "fnptr__pc2__i32__bool__ret__i32"
+        );
+        assert_eq!(
+            mangle_type_with(&type_store, readonly, resolvers()),
+            "callable_read__pc2__i32__bool__ret__i32"
+        );
+        assert_eq!(
+            mangle_type_with(&type_store, mutable, resolvers()),
+            "callable__pc2__i32__bool__ret__i32"
+        );
+        assert_eq!(
+            mangle_type_with(&type_store, pointee, resolvers()),
+            "callable_pointee__pc2__bool__i32__ret__i32"
         );
     }
 

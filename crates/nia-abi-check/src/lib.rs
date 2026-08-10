@@ -279,6 +279,18 @@ impl AbiChecker<'_> {
                     format!("{context_desc} cannot use unsized trait object pointee directly"),
                 ))
             }
+            Some(TyKind::Callable { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                span,
+                format!("{context_desc} cannot use nia callable view directly"),
+            )),
+            Some(TyKind::CallablePointee { .. }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::STATIC_CHECK,
+                    span,
+                    format!("{context_desc} cannot use unsized callable interface directly"),
+                ))
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -476,6 +488,8 @@ extern fn bad_variadic_definition(fmt: &u8, ...) {
 extern static bad_global: bool;
 union Bits { i: i32 }
 extern fn bad_union(bits: Bits);
+extern fn bad_callable_view(callback: &Fn(i32) i32);
+extern fn bad_callable_pointee(callback: Fn(i32) i32);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -509,6 +523,8 @@ extern fn bad_union(bits: Bits);
             "variadic function pointer",
             "variadic function definition",
             "union by value",
+            "nia callable view directly",
+            "unsized callable interface directly",
         ] {
             assert!(
                 checked

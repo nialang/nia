@@ -67,6 +67,10 @@ pub enum TypeKind {
         return_type: Option<Box<TypeRef>>,
         is_variadic: bool,
     },
+    Callable {
+        params: Vec<TypeRef>,
+        return_type: Option<Box<TypeRef>>,
+    },
     Optional {
         elem: Box<TypeRef>,
     },
@@ -285,6 +289,19 @@ fn type_kind_decl_eq(lhs: &TypeKind, rhs: &TypeKind) -> bool {
                 && option_box_type_ref_decl_eq(lhs_return.as_deref(), rhs_return.as_deref())
         }
         (
+            TypeKind::Callable {
+                params: lhs_params,
+                return_type: lhs_return,
+            },
+            TypeKind::Callable {
+                params: rhs_params,
+                return_type: rhs_return,
+            },
+        ) => {
+            type_refs_decl_eq(lhs_params, rhs_params)
+                && option_box_type_ref_decl_eq(lhs_return.as_deref(), rhs_return.as_deref())
+        }
+        (
             TypeKind::ErrorUnion {
                 error: lhs_error,
                 value: lhs_value,
@@ -442,6 +459,16 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
             is_variadic,
         } => {
             out.push_str(if *is_variadic { "fn_var(" } else { "fn(" });
+            write_joined(out, params, write_type_ref_identity);
+            out.push('|');
+            write_optional_type_identity(out, return_type.as_deref());
+            out.push(')');
+        }
+        TypeKind::Callable {
+            params,
+            return_type,
+        } => {
+            out.push_str("callable(");
             write_joined(out, params, write_type_ref_identity);
             out.push('|');
             write_optional_type_identity(out, return_type.as_deref());

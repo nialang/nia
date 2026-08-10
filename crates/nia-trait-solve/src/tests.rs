@@ -144,3 +144,50 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
         })
     );
 }
+
+#[test]
+fn callable_pointees_are_unsized_while_callable_views_are_sized() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let i32_ty = append.primitive(PrimitiveTy::I32);
+    let pointee = append.intern(TyKind::CallablePointee {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let view = append.intern(TyKind::Callable {
+        is_readonly: true,
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    let goal = |self_ty, builtin| TraitGoal {
+        self_ty,
+        trait_id: TraitId::Builtin(builtin),
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    };
+
+    assert!(solver.proves(goal(view, BuiltinTrait::Sized)));
+    assert!(!solver.proves(goal(pointee, BuiltinTrait::Sized)));
+    assert!(solver.proves(goal(pointee, BuiltinTrait::Unsized)));
+}

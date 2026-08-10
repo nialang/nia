@@ -347,6 +347,15 @@ impl MonoCollector<'_> {
                 params,
                 return_type,
                 ..
+            }
+            | TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }
+            | TyKind::CallablePointee {
+                params,
+                return_type,
             } => {
                 params
                     .iter()
@@ -585,6 +594,15 @@ impl MonoCollector<'_> {
                 params,
                 return_type,
                 ..
+            }
+            | TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }
+            | TyKind::CallablePointee {
+                params,
+                return_type,
             } => {
                 params
                     .iter()
@@ -923,6 +941,66 @@ impl MonoCollector<'_> {
                         params,
                         return_type,
                         is_variadic,
+                    },
+                )
+            }
+            TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            } => {
+                let params = params
+                    .iter()
+                    .map(|param| {
+                        self.instantiate_ty_inner(
+                            module_id,
+                            *param,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_inner(
+                    module_id,
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::Callable {
+                        is_readonly,
+                        params,
+                        return_type,
+                    },
+                )
+            }
+            TyKind::CallablePointee {
+                params,
+                return_type,
+            } => {
+                let params = params
+                    .iter()
+                    .map(|param| {
+                        self.instantiate_ty_inner(
+                            module_id,
+                            *param,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_inner(
+                    module_id,
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::CallablePointee {
+                        params,
+                        return_type,
                     },
                 )
             }

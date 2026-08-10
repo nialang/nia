@@ -220,6 +220,10 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
             params,
             return_type,
             ..
+        }
+        | TypeKind::Callable {
+            params,
+            return_type,
         } => {
             for param in params {
                 visitor.visit_type(param);

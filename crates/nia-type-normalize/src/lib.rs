@@ -126,6 +126,36 @@ impl<'a> TypeNormalizer<'a, '_> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty(param, stack))
+                    .collect();
+                let return_type = self.normalize_ty(return_type, stack);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty(param, stack))
+                    .collect();
+                let return_type = self.normalize_ty(return_type, stack);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Optional { elem })
@@ -430,6 +460,38 @@ impl<'a> TypeNormalizer<'a, '_> {
                     params,
                     return_type,
                     is_variadic,
+                })
+            }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty_with_substitutions(param, substitutions, stack))
+                    .collect();
+                let return_type =
+                    self.normalize_ty_with_substitutions(return_type, substitutions, stack);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty_with_substitutions(param, substitutions, stack))
+                    .collect();
+                let return_type =
+                    self.normalize_ty_with_substitutions(return_type, substitutions, stack);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
                 })
             }
             Some(TyKind::Optional { elem }) => {

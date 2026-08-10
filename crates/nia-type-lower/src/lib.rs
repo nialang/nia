@@ -918,7 +918,20 @@ impl<'a> TypeLowerer<'a, '_> {
                 self.append.intern(TyKind::Error)
             }),
             TypeKind::Pointer { is_readonly, elem } => {
-                if let Some(trait_object) = self.lower_trait_object_type(*is_readonly, elem) {
+                if let TypeKind::Callable {
+                    params,
+                    return_type,
+                } = &elem.kind
+                {
+                    let (params, return_type) =
+                        self.lower_callable_signature(params, return_type.as_deref());
+                    self.append.intern(TyKind::Callable {
+                        is_readonly: *is_readonly,
+                        params,
+                        return_type,
+                    })
+                } else if let Some(trait_object) = self.lower_trait_object_type(*is_readonly, elem)
+                {
                     trait_object
                 } else {
                     let elem = self.lower_type_in_context(elem, TypeContext::Pointee);
@@ -975,6 +988,17 @@ impl<'a> TypeLowerer<'a, '_> {
                     params,
                     return_type,
                     is_variadic: *is_variadic,
+                })
+            }
+            TypeKind::Callable {
+                params,
+                return_type,
+            } => {
+                let (params, return_type) =
+                    self.lower_callable_signature(params, return_type.as_deref());
+                self.append.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
                 })
             }
             TypeKind::Path { segments } => {
@@ -2158,6 +2182,9 @@ impl<'a> TypeLowerer<'a, '_> {
             Some(TyKind::TraitObjectPointee { .. }) => Some(
                 "trait object pointee types are unsized and not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
+            Some(TyKind::CallablePointee { .. }) => Some(
+                "callable interface types are unsized and not valid as values, fields, parameters, or array elements; use `&Fn(...)` or `&mut Fn(...)` for a callable view",
+            ),
             Some(TyKind::BuiltinTrait { .. }) => Some(
                 "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
@@ -2166,6 +2193,22 @@ impl<'a> TypeLowerer<'a, '_> {
             ),
             _ => None,
         }
+    }
+
+    fn lower_callable_signature(
+        &mut self,
+        params: &[TypeRef],
+        return_type: Option<&TypeRef>,
+    ) -> (Vec<InternedTyId>, InternedTyId) {
+        let params = params
+            .iter()
+            .map(|param| self.lower_type_in_context(param, TypeContext::Value))
+            .collect();
+        let return_type = match return_type {
+            Some(return_type) => self.lower_type_in_context(return_type, TypeContext::Return),
+            None => self.append.intern(TyKind::Tuple(Vec::new())),
+        };
+        (params, return_type)
     }
 
     fn defs_for_module(&mut self, module_id: ModuleId) -> Option<&DefCollection> {

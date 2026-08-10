@@ -188,6 +188,36 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_projection_inner(param, active_projections))
+                    .collect();
+                let return_type = self.normalize_projection_inner(return_type, active_projections);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_projection_inner(param, active_projections))
+                    .collect();
+                let return_type = self.normalize_projection_inner(return_type, active_projections);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Optional { elem })
@@ -862,6 +892,15 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 params
                     .iter()
@@ -1145,6 +1184,43 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 expected_variadic == actual_variadic
                     && expected_params.len() == actual_params.len()
+                    && expected_params
+                        .iter()
+                        .zip(actual_params.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+                    && self.types_match_normalized(expected_return, actual_return)
+            }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: expected_readonly,
+                    params: expected_params,
+                    return_type: expected_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) => {
+                expected_readonly == actual_readonly
+                    && expected_params.len() == actual_params.len()
+                    && expected_params
+                        .iter()
+                        .zip(actual_params.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+                    && self.types_match_normalized(expected_return, actual_return)
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: expected_params,
+                    return_type: expected_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) => {
+                expected_params.len() == actual_params.len()
                     && expected_params
                         .iter()
                         .zip(actual_params.iter())
@@ -1517,6 +1593,38 @@ impl<'a> BodyChecker<'a> {
                     format!(" {}", self.ty_name(*return_type))
                 };
                 format!("&fn({}){return_part}", params.join(", "))
+            }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .iter()
+                    .map(|param| self.ty_name(*param))
+                    .collect::<Vec<_>>();
+                let return_part = if self.is_unit(*return_type) {
+                    String::new()
+                } else {
+                    format!(" {}", self.ty_name(*return_type))
+                };
+                let mut_part = if *is_readonly { "" } else { "mut " };
+                format!("&{mut_part}Fn({}){return_part}", params.join(", "))
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .iter()
+                    .map(|param| self.ty_name(*param))
+                    .collect::<Vec<_>>();
+                let return_part = if self.is_unit(*return_type) {
+                    String::new()
+                } else {
+                    format!(" {}", self.ty_name(*return_type))
+                };
+                format!("Fn({}){return_part}", params.join(", "))
             }
             Some(TyKind::Nominal { def_id, args, .. }) => self.nominal_ty_name(*def_id, args),
             Some(TyKind::BuiltinTrait { trait_id, args }) => {

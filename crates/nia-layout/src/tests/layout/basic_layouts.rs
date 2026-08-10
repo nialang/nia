@@ -157,3 +157,60 @@ fn main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
     assert!(tuple_layouts.contains(&(2, Some(TypeLayout { size: 8, align: 4 }))));
     assert!(tuple_layouts.contains(&(3, Some(TypeLayout { size: 16, align: 8 }))));
 }
+
+#[test]
+fn callable_views_are_two_words_and_callable_pointees_are_unsized() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, symbols) = parse_test_module(
+        r#"
+type BareCallback = Fn(i32) i32;
+fn invoke(readonly: &Fn(i32) i32, mutable: &mut Fn(i32) i32) {}
+"#,
+    );
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
+    let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
+    let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
+    let const_eval = compute_test_const(
+        module_id,
+        &type_store,
+        &module,
+        &symbols,
+        &defs,
+        &signatures,
+        &lowered,
+    );
+    let root_types = signatures.type_roots();
+    let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+        type_store: &type_store,
+        defs: &defs,
+        signatures: &signatures,
+        root_types: &root_types,
+        normalized: &HashMap::new(),
+        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        target: TargetDataLayout::LP64,
+        program: ProgramLayoutContext::default(),
+    });
+    assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+
+    let callable_views = root_types
+        .iter()
+        .copied()
+        .filter(|ty| matches!(type_store.get(*ty), Some(TyKind::Callable { .. })))
+        .collect::<Vec<_>>();
+    assert_eq!(callable_views.len(), 2);
+    for view in callable_views {
+        assert_eq!(
+            layouts.types.get(&view),
+            Some(&TypeLayout { size: 16, align: 8 })
+        );
+    }
+
+    let callable_pointee = root_types
+        .iter()
+        .copied()
+        .find(|ty| matches!(type_store.get(*ty), Some(TyKind::CallablePointee { .. })))
+        .expect("bare callable alias root");
+    assert!(!layouts.types.contains_key(&callable_pointee));
+}

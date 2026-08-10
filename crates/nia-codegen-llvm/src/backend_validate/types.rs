@@ -38,7 +38,11 @@ impl BackendValidator<'_> {
         self.validate_type(ty, span);
         if matches!(
             self.index.ty_kind(ty),
-            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. })
+            Some(
+                TyKind::SlicePointee { .. }
+                    | TyKind::TraitObjectPointee { .. }
+                    | TyKind::CallablePointee { .. }
+            )
         ) {
             return;
         }
@@ -94,6 +98,15 @@ impl BackendValidator<'_> {
                 params,
                 return_type,
                 ..
+            }
+            | TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }
+            | TyKind::CallablePointee {
+                params,
+                return_type,
             } => {
                 for param in params {
                     self.validate_runtime_type(param, span);
@@ -334,12 +347,13 @@ impl BackendValidator<'_> {
             TyKind::Pointer { .. }
             | TyKind::VolatilePointer { .. }
             | TyKind::FunctionPointer { .. } => Some(TypeLayout { size: 8, align: 8 }),
-            TyKind::Slice { .. } | TyKind::TraitObject { .. } => {
+            TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. } => {
                 Some(TypeLayout { size: 16, align: 8 })
             }
-            TyKind::Opaque | TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. } => {
-                None
-            }
+            TyKind::Opaque
+            | TyKind::SlicePointee { .. }
+            | TyKind::TraitObjectPointee { .. }
+            | TyKind::CallablePointee { .. } => None,
             TyKind::Range { bound: None, .. } => Some(TypeLayout { size: 0, align: 1 }),
             TyKind::Range {
                 kind,

@@ -893,6 +893,36 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::Callable {
+                    is_readonly,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Optional { elem })
@@ -1587,6 +1617,15 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
             }) => {
                 for param in params {
                     self.check_type_projection_obligations(span, param, obligations);
@@ -2059,6 +2098,43 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 left_variadic == right_variadic
                     && left_params.len() == right_params.len()
+                    && left_params.iter().zip(right_params).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, right)
+                    })
+                    && self
+                        .types_equivalent_without_projection_resolution(left_return, right_return)
+            }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: left_readonly,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: right_readonly,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && left_params.len() == right_params.len()
+                    && left_params.iter().zip(right_params).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, right)
+                    })
+                    && self
+                        .types_equivalent_without_projection_resolution(left_return, right_return)
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_params.len() == right_params.len()
                     && left_params.iter().zip(right_params).all(|(left, right)| {
                         self.types_equivalent_without_projection_resolution(*left, right)
                     })
