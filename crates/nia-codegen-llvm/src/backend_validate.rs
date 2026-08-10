@@ -12,9 +12,10 @@ use std::{
 
 use crate::{declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex};
 use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance, BackendModule,
-    BackendParam, BackendStruct, BackendStructInstance, BackendTraitObjectVtable,
-    BackendTraitObjectVtableFunction, BackendUnion, BackendUnionInstance, CodegenPartition,
+    BackendClosureEntry, BackendFunction, BackendFunctionInstance, BackendGlobal,
+    BackendGlobalInstance, BackendModule, BackendParam, BackendStruct, BackendStructInstance,
+    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendUnion, BackendUnionInstance,
+    CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionLocalKind};
@@ -22,7 +23,7 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::TypeLayout;
 use nia_mangle::mangle_symbol_id;
 use nia_symbol::SymbolId;
-use nia_ty::{ConstGenericArg, PrimitiveTy};
+use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
 
 type FunctionInstanceKey = (
     GlobalDefId,
@@ -62,6 +63,9 @@ pub(super) fn validate_backend_partition_definitions(
             &module.function_instances[position],
             true,
         );
+    }
+    for &position in partition.closure_entry_definitions() {
+        validator.validate_closure_entry(&module.name, &module.closure_entries[position], true);
     }
     for &position in partition.global_definitions() {
         validator.validate_global(&module.globals[position], true);
@@ -178,6 +182,9 @@ pub(super) fn validate_backend_declaration_module(
     for function in &module.function_instances {
         validator.validate_function_instance(&module.name, function, false);
     }
+    for entry in &module.closure_entries {
+        validator.validate_closure_entry(&module.name, entry, false);
+    }
     for global in &module.globals {
         validator.validate_global(global, false);
     }
@@ -290,6 +297,58 @@ impl BackendValidator<'_> {
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
             self.validate_function_body(body);
+        }
+        self.current_item = None;
+    }
+
+    fn validate_closure_entry(
+        &mut self,
+        module_name: &str,
+        entry: &BackendClosureEntry,
+        body: bool,
+    ) {
+        self.current_item = Some(format!(
+            "closure entry {} in {}::{:?}#{}",
+            entry.symbol, module_name, entry.key.closure_id.owner, entry.key.closure_id.ordinal
+        ));
+        self.validate_runtime_type(entry.abi.state_type, entry.span);
+        self.validate_runtime_type(entry.abi.state_pointer_type, entry.span);
+        for param in &entry.abi.params {
+            self.validate_runtime_type(*param, entry.span);
+        }
+        self.validate_type(entry.abi.return_type, entry.span);
+
+        let state_pointer_matches = matches!(
+            self.index.type_store().get(entry.abi.state_pointer_type),
+            Some(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            }) if *elem == entry.abi.state_type
+        );
+        if !state_pointer_matches {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry ABI state pointer must be a readonly pointer to its state type",
+            ));
+        }
+        if entry.abi.params.len() != entry.params.len() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry ABI parameter list does not match its body parameters",
+            ));
+        }
+        if body {
+            self.validate_closure_entry_param_locals(entry);
+            self.validate_function_body(&entry.function_body);
+            if !self.same_type(entry.function_body.ty, entry.abi.return_type) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    entry.function_body.span,
+                    "closure entry body type does not match its ABI return type",
+                ));
+            }
         }
         self.current_item = None;
     }
@@ -442,6 +501,43 @@ impl BackendValidator<'_> {
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     param.span,
                     "backend IR function parameter local type does not match its body local",
+                ));
+            }
+        }
+    }
+
+    fn validate_closure_entry_param_locals(&mut self, entry: &BackendClosureEntry) {
+        let locals = entry
+            .function_body
+            .locals
+            .iter()
+            .map(|local| (local.id, local.ty))
+            .collect::<HashMap<_, _>>();
+        let mut expected = Vec::with_capacity(entry.params.len() + 1);
+        expected.push((entry.state_param, entry.abi.state_pointer_type));
+        expected.extend(
+            entry
+                .params
+                .iter()
+                .copied()
+                .zip(entry.abi.params.iter().copied()),
+        );
+        for (local_id, expected_ty) in expected {
+            let Some(local_ty) = locals.get(&local_id).copied() else {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    entry.span,
+                    format!(
+                        "closure entry ABI parameter references missing body local {local_id:?}"
+                    ),
+                ));
+                continue;
+            };
+            if !self.same_type(expected_ty, local_ty) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    entry.span,
+                    format!("closure entry ABI parameter local {local_id:?} has a mismatched type"),
                 ));
             }
         }

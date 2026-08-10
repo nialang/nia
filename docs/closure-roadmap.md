@@ -119,6 +119,9 @@ collide with their source template or with one another. The ABI record makes the
 readonly state pointer explicit as the hidden first parameter, followed by the
 ordered user parameters and return type. Closure entry bodies participate in
 backend reachability, dead-code analysis, aggregate roots, codegen partition
-membership, and incremental fingerprints. LLVM declaration/body materialization
-is still intentionally gated until the remaining ABI and callable-view work is
-complete.
+membership, and incremental fingerprints. The LLVM backend validator checks that
+ABI record against the generated entry body before codegen starts. LLVM
+declaration/body materialization is still intentionally gated until the
+remaining ABI and callable-view work is complete; valid entries currently
+produce a dedicated materialization-boundary diagnostic rather than an
+incomplete module.
