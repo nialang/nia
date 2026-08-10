@@ -1116,6 +1116,7 @@ impl FunctionLowerer<'_> {
 
         pub(super) fn visit_callee(callee: &TypedCallee, max_id: &mut u32) {
             match callee {
+                TypedCallee::Closure(callee) => visit_expr(callee, max_id),
                 TypedCallee::Method { receiver, .. }
                 | TypedCallee::TraitMethod { receiver, .. }
                 | TypedCallee::DynamicTraitMethod { receiver, .. }

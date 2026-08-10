@@ -77,8 +77,9 @@ The type taxonomy is deliberately split:
 - [ ] Retire this roadmap only after every acceptance item has evidence and the
   durable rules have moved to stable documentation.
 
-Wave 2 currently accepts concrete closure state values and preserves typed
-closure nodes through body IR. Direct invocation and backend entry generation
-remain gated until the explicit state-pointer ABI is implemented; a closure
-that reaches function lowering therefore produces a dedicated lowering
-diagnostic instead of being silently treated as a thin `&fn` pointer.
+Wave 2 currently accepts concrete closure state values, type-checks direct
+invocations, and preserves typed closure/callee nodes through body IR. Backend
+entry generation remains gated until the explicit state-pointer ABI is
+implemented; a closure that reaches function lowering therefore produces a
+dedicated lowering diagnostic instead of being silently treated as a thin
+`&fn` pointer.

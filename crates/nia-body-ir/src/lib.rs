@@ -528,6 +528,7 @@ pub struct TypedFieldInit {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedCallee {
+    Closure(Box<TypedExpr>),
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,

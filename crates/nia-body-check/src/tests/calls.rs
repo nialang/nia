@@ -2,6 +2,31 @@
 use super::common::*;
 
 #[test]
+fn checks_direct_calls_to_concrete_closure_values() {
+    let checked = pipeline(
+        r#"
+fn main(base: i32) i32 {
+    let callback = [base](value: i32) i32 { base + value };
+    callback(2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let tail = body.tail.as_deref().expect("main tail");
+    let nia_body_ir::TypedExprKind::Call { callee, args } = &tail.kind else {
+        panic!("expected closure call");
+    };
+    assert!(matches!(callee, nia_body_ir::TypedCallee::Closure(_)));
+    assert_eq!(args.len(), 1);
+}
+
+#[test]
 fn checks_simple_calls_to_module_functions() {
     let checked = pipeline(
         r#"

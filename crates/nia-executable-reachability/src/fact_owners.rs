@@ -235,7 +235,7 @@ fn collect_resolved_call_owner_modules(
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
         }
-        nia_sema_ir::ResolvedCall::FunctionPointer => {}
+        nia_sema_ir::ResolvedCall::Closure | nia_sema_ir::ResolvedCall::FunctionPointer => {}
     }
 }
 

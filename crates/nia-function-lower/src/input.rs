@@ -396,6 +396,10 @@ impl BodyInputValidator {
 
     fn validate_callee(&self, callee: &TypedCallee) -> Result<(), FunctionLoweringDiagnostic> {
         match callee {
+            TypedCallee::Closure(callee) => Err(FunctionLoweringDiagnostic {
+                span: callee.span,
+                message: "direct closure call lowering is not implemented yet".to_string(),
+            }),
             TypedCallee::Method { receiver, .. }
             | TypedCallee::TraitMethod { receiver, .. }
             | TypedCallee::DynamicTraitMethod { receiver, .. }

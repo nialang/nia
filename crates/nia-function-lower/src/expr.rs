@@ -1182,6 +1182,9 @@ impl FunctionLowerer<'_> {
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionCallee {
         match callee {
+            TypedCallee::Closure(_) => unreachable!(
+                "function lowering input validation rejects closure calls before lowering"
+            ),
             TypedCallee::Function(def_id) => FunctionCallee::Function(*def_id),
             TypedCallee::FunctionInstance {
                 def_id,
