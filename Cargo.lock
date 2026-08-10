@@ -259,6 +259,7 @@ dependencies = [
 name = "nia-closure-check"
 version = "0.4.3"
 dependencies = [
+ "nia-ast",
  "nia-body-ir",
  "nia-diagnostic",
  "nia-ids",

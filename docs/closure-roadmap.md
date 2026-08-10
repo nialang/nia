@@ -65,7 +65,7 @@ The type taxonomy is deliberately split:
 - [x] Track closure-state provenance through aggregates, returns, stores, and
   call summaries.
 - [x] Reject dynamic views that outlive stack-backed closure state.
-- [ ] Reject captures of local addresses when the resulting state can escape.
+- [x] Reject captures of local addresses when the resulting state can escape.
 - [ ] Add an explicit allocator-backed owner with explicit destruction before
   enabling escaping dynamic closures.
 
@@ -109,5 +109,5 @@ retaining-capable. Every stack-backed `&Fn`/`&mut Fn` view is rejected when it
 is returned, stored through memory, passed to a potentially retaining call, or
 carried across the lexical scope that created its closure state. The stage is
 deliberately a bounded provenance analysis, not a general ownership or borrow
-checker. Captured local addresses and an allocator-backed owner remain separate
-Wave 4 work.
+checker. Captured local addresses are tracked as a separate state provenance
+category; an allocator-backed owner remains separate Wave 4 work.

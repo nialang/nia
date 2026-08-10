@@ -1411,6 +1411,10 @@ assigned into an outer scope after the closure state's scope ends. The compiler
 closure escape stage follows this provenance through direct function summaries;
 function-pointer, dynamic-dispatch, and unknown calls are treated as potentially
 retaining. No allocator-backed escaping owner is implied by `&Fn` or `&mut Fn`.
+If a closure captures a pointer whose storage is a local or temporary stack
+address, the closure state likewise cannot be returned, stored through memory,
+or passed to a retaining call. Ordinary raw-pointer flow is outside this rule;
+the restriction begins when the address becomes part of closure state.
 
 A function declaration name is a function item, not an ordinary runtime value.
 Function items cannot be used bare:

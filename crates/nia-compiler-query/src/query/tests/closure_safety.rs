@@ -2,6 +2,7 @@
 use super::*;
 
 const ESCAPE_MESSAGE: &str = "stack-backed callable view cannot be";
+const CAPTURED_ADDRESS_MESSAGE: &str = "closure state capturing a local address cannot be";
 
 fn closure_diagnostics(program: &CheckedProgramAnalysis) -> Vec<&ProgramDiagnostic> {
     program
@@ -9,6 +10,100 @@ fn closure_diagnostics(program: &CheckedProgramAnalysis) -> Vec<&ProgramDiagnost
         .iter()
         .filter(|diagnostic| diagnostic.diagnostic.summary.contains(ESCAPE_MESSAGE))
         .collect()
+}
+
+fn captured_address_diagnostics(program: &CheckedProgramAnalysis) -> Vec<&ProgramDiagnostic> {
+    program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains(CAPTURED_ADDRESS_MESSAGE)
+        })
+        .collect()
+}
+
+#[test]
+fn captured_local_address_is_safe_while_closure_state_stays_local() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn main() i32 {
+    let value = 41;
+    let callback = [ptr = &value]() i32 { ptr.* + 1 };
+    callback()
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        captured_address_diagnostics(&checked).is_empty(),
+        "local closure state produced diagnostics: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn captured_address_escape_propagates_across_function_summaries() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn store[T](slot: &mut T, value: T) () {
+    slot.* = value;
+}
+
+fn captureAndStore(ptr: &i32) () {
+    let callback = [ptr]() i32 { ptr.* };
+    let mut slot = callback;
+    store(&mut slot, callback);
+}
+
+fn main() () {
+    let value = 1;
+    captureAndStore(&value);
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = captured_address_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
+fn ordinary_local_pointer_flow_is_not_owned_by_closure_escape_analysis() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn store(slot: &mut &i32, value: &i32) () {
+    slot.* = value;
+}
+
+fn main() i32 {
+    let first = 1;
+    let second = 2;
+    let mut slot = &first;
+    store(&mut slot, &second);
+    slot.*
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        captured_address_diagnostics(&checked).is_empty(),
+        "ordinary pointer flow produced closure diagnostics: {:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
