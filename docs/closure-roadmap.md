@@ -57,8 +57,8 @@ The type taxonomy is deliberately split:
 
 - [x] Add the unsized `Fn(Args...) Return` callable interface type.
 - [x] Add explicit `&Fn`/`&mut Fn` fat-pointer construction and dynamic calls.
-- [ ] Permit no-capture decay to the existing `&fn` pointer only.
-- [ ] Reject capturing-to-thin-pointer coercions with a dedicated diagnostic.
+- [x] Permit no-capture decay to the existing `&fn` pointer only.
+- [x] Reject capturing-to-thin-pointer coercions with a dedicated diagnostic.
 
 ### 4. Escape and allocation safety
 
@@ -93,4 +93,8 @@ pointer cannot become writable. Body IR and Function IR use dedicated
 construction and callee variants, and the generated entry remains owned by the
 same `LoweredFunctionBody` product. Executable materialization remains
 intentionally blocked until Wave 5 assigns stable entry symbols and ABI
-records.
+records. No-capture closures additionally support expected-signature-guided
+readonly `&closure` conversion to the existing thin `&fn` pointer. Body IR and
+Function IR preserve that operation with dedicated closure-function-pointer
+nodes carrying `ClosureId`; capturing closures are rejected with a diagnostic
+that directs the programmer to `&Fn(...)`.

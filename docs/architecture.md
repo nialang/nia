@@ -1528,10 +1528,22 @@ records calls with `TypedCallee::Callable`; Function IR preserves those as
 retain ordinary recursive expression dependencies, while the construction also
 carries the owning `ClosureId` used to select the generated entry.
 
-These nodes stop at the same explicit backend materialization boundary as a
-direct `FunctionCallee::ClosureEntry` call. LLVM codegen does not synthesize an
-entry address or callable call ABI ahead of the stable closure-entry symbols
-and ABI records owned by the final closure product wave.
+No-capture closure conversion to the existing thin `&fn` type uses a separate
+identity-preserving path. Body checking accepts only an expected-signature-guided
+readonly `&closure` whose closure state has no captures and whose parameter and
+return types match structurally. Capturing closures receive a dedicated
+diagnostic directing them to `&Fn(...)`; mutable address expressions and
+intermediate closure-state pointers do not participate. Body IR records the
+conversion as `TypedExprKind::ClosureFunctionPointer`, and Function IR preserves
+it as `FunctionExprKind::ClosureFunctionPointer`. The node carries the owning
+`ClosureId` rather than pretending that a generated closure entry is a source
+`GlobalDefId` function.
+
+These callable-view and closure-function-pointer nodes stop at the same explicit
+backend materialization boundary as a direct `FunctionCallee::ClosureEntry`
+call. LLVM codegen does not synthesize an entry address or callable call ABI
+ahead of the stable closure-entry symbols and ABI records owned by the final
+closure product wave.
 
 ### 9.5 `nia-function-lower`
 

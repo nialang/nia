@@ -105,6 +105,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariant { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::EnumTag { .. }

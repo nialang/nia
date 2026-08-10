@@ -384,6 +384,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
         | FunctionExprKind::Local(_)
+        | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::Trap => {}

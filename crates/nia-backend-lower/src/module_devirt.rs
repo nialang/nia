@@ -183,6 +183,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 changed |= self.devirtualize_direct_trait_calls_in_expr(state);
             }
+            FunctionExprKind::ClosureFunctionPointer { .. } => {}
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {

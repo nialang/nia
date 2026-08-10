@@ -1116,6 +1116,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }
+                | TypedExprKind::ClosureFunctionPointer { .. }
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::Trap => {}
                 TypedExprKind::Closure { captures, body, .. } => {

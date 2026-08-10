@@ -37,6 +37,7 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => true,
         FunctionExprKind::UnionStorageLiteral { relocations, .. } => relocations
