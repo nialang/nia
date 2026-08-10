@@ -58,3 +58,6 @@ nia-value-resolve.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+nia-mangle.workspace = true

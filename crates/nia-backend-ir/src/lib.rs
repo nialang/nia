@@ -10,7 +10,9 @@ use std::{
 };
 
 use nia_function_ir::{FunctionBody, FunctionInstanceKey};
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
+use nia_ids::{
+    ClosureId, GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind,
+};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_source::SourceIdentity;
 use nia_span::Span;
@@ -713,6 +715,10 @@ impl CodegenPartition {
         &self.definitions.function_instances
     }
 
+    pub fn closure_entry_definitions(&self) -> &[usize] {
+        &self.definitions.closure_entries
+    }
+
     pub fn vtable_definitions(&self) -> &[usize] {
         &self.definitions.vtables
     }
@@ -724,6 +730,7 @@ struct CodegenPartitionDefinitions {
     global_instances: Vec<usize>,
     functions: Vec<usize>,
     function_instances: Vec<usize>,
+    closure_entries: Vec<usize>,
     vtables: Vec<usize>,
 }
 
@@ -752,6 +759,7 @@ impl CodegenPartitionDefinitions {
                 .enumerate()
                 .filter_map(|(index, function)| function.function_body.as_ref().map(|_| index))
                 .collect(),
+            closure_entries: (0..module.closure_entries.len()).collect(),
             vtables: (0..module.trait_object_vtables.len()).collect(),
         };
         definitions
@@ -774,6 +782,11 @@ impl CodegenPartitionDefinitions {
                     .symbol
                     .cmp(&module.function_instances[*right].symbol)
             });
+        definitions.closure_entries.sort_unstable_by(|left, right| {
+            module.closure_entries[*left]
+                .symbol
+                .cmp(&module.closure_entries[*right].symbol)
+        });
         definitions
     }
 
@@ -782,6 +795,7 @@ impl CodegenPartitionDefinitions {
             && self.global_instances.is_empty()
             && self.functions.is_empty()
             && self.function_instances.is_empty()
+            && self.closure_entries.is_empty()
             && self.vtables.is_empty()
     }
 
@@ -790,6 +804,7 @@ impl CodegenPartitionDefinitions {
             + self.global_instances.len()
             + self.functions.len()
             + self.function_instances.len()
+            + self.closure_entries.len()
             + self.vtables.len()
     }
 
@@ -820,6 +835,34 @@ impl CodegenPartitionDefinitions {
         for index in definitions.function_instances {
             let bucket = stable_symbol_bucket(&module.function_instances[index].symbol);
             buckets[bucket].function_instances.push(index);
+        }
+        for index in definitions.closure_entries {
+            let entry = &module.closure_entries[index];
+            let bucket = match &entry.key.owner {
+                BackendClosureEntryOwner::Source(def_id) => {
+                    def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS
+                }
+                BackendClosureEntryOwner::FunctionInstance(owner) => {
+                    let instance = module
+                        .function_instances
+                        .iter()
+                        .find(|instance| {
+                            instance.def_id == owner.def_id
+                                && instance.arg_module_id == owner.arg_module_id
+                                && instance.self_arg == owner.self_arg
+                                && instance.args == owner.args
+                                && instance.const_args == owner.const_args
+                        })
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Nia ICE: closure entry {:?} has no materialized owner instance",
+                                entry.key
+                            )
+                        });
+                    stable_symbol_bucket(&instance.symbol)
+                }
+            };
+            buckets[bucket].closure_entries.push(index);
         }
         buckets[0].vtables = definitions.vtables;
 
@@ -853,8 +896,48 @@ pub struct BackendModule {
     pub global_instances: Vec<BackendGlobalInstance>,
     pub functions: Vec<BackendFunction>,
     pub function_instances: Vec<BackendFunctionInstance>,
+    pub closure_entries: Vec<BackendClosureEntry>,
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
     pub generic_instantiations: Vec<BackendGenericInstantiation>,
+}
+
+/// The concrete function whose substitutions determine a generated closure
+/// entry. The closure itself retains its source `ClosureId`; this owner key
+/// distinguishes entries materialized for separate generic instances.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BackendClosureEntryOwner {
+    Source(GlobalDefId),
+    FunctionInstance(FunctionInstanceKey),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BackendClosureEntryKey {
+    pub closure_id: ClosureId,
+    pub owner: BackendClosureEntryOwner,
+}
+
+/// Backend-visible ABI of a generated closure entry.
+///
+/// `state_pointer_type` is the hidden first parameter. User parameters follow
+/// in source order and the entry is never variadic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendClosureEntryAbi {
+    pub state_type: InternedTyId,
+    pub state_pointer_type: InternedTyId,
+    pub params: Vec<InternedTyId>,
+    pub return_type: InternedTyId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendClosureEntry {
+    pub key: BackendClosureEntryKey,
+    pub symbol: String,
+    pub abi: BackendClosureEntryAbi,
+    pub state_param: LocalId,
+    pub params: Vec<LocalId>,
+    pub local_names: HashMap<LocalId, String>,
+    pub function_body: FunctionBody,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

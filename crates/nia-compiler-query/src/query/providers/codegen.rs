@@ -771,13 +771,6 @@ fn function_lowering_diagnostics(function_bodies: &[LoweredFunctionBodyHandle]) 
                     diagnostic.message.clone(),
                 ));
             }
-            diagnostics.extend(lowered.value.closure_entries().iter().map(|entry| {
-                Diagnostic::internal_error_at(
-                    codes::INVALID_FUNCTION_IR,
-                    entry.body.span,
-                    "generated closure entries have not reached backend materialization yet",
-                )
-            }));
             diagnostics
         })
         .collect()

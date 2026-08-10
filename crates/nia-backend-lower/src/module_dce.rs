@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{BackendOptimizationChange, ModuleLowerer, backend_function_instance_key};
 use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendTraitObjectVtable,
-    BackendTraitObjectVtableFunction,
+    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
+    BackendGlobal, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
 };
 use nia_defs::DefKind;
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, FunctionInstanceRef};
@@ -20,6 +20,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions: &mut Vec<BackendFunction>,
         function_instances: &mut Vec<BackendFunctionInstance>,
+        closure_entries: &mut Vec<BackendClosureEntry>,
         globals: &[BackendGlobal],
         trait_object_vtables: &[BackendTraitObjectVtable],
     ) {
@@ -51,6 +52,12 @@ impl<'a> ModuleLowerer<'a> {
                 && let Some(body) = &function.function_body
             {
                 refs.extend(body.value_refs(self.type_store));
+                extend_closure_entry_refs(
+                    closure_entries,
+                    BackendClosureEntryOwner::Source(function.def_id),
+                    self.type_store,
+                    &mut refs,
+                );
             }
         }
         for instance in function_instances.iter() {
@@ -58,6 +65,14 @@ impl<'a> ModuleLowerer<'a> {
                 && let Some(body) = &instance.function_body
             {
                 refs.extend(body.value_refs(self.type_store));
+                extend_closure_entry_refs(
+                    closure_entries,
+                    BackendClosureEntryOwner::FunctionInstance(backend_function_instance_key(
+                        instance,
+                    )),
+                    self.type_store,
+                    &mut refs,
+                );
             }
         }
         for global in globals {
@@ -90,7 +105,13 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
         }
-        collect_transitive_refs(functions, function_instances, self.type_store, &mut refs);
+        collect_transitive_refs(
+            functions,
+            function_instances,
+            closure_entries,
+            self.type_store,
+            &mut refs,
+        );
 
         let mut removed_functions = Vec::new();
         functions.retain(|function| {
@@ -138,6 +159,18 @@ impl<'a> ModuleLowerer<'a> {
                     type_arg_count,
                 });
         }
+        let live_functions = functions
+            .iter()
+            .map(|function| function.def_id)
+            .collect::<HashSet<_>>();
+        let live_instances = function_instances
+            .iter()
+            .map(backend_function_instance_key)
+            .collect::<HashSet<_>>();
+        closure_entries.retain(|entry| match &entry.key.owner {
+            BackendClosureEntryOwner::Source(def_id) => live_functions.contains(def_id),
+            BackendClosureEntryOwner::FunctionInstance(key) => live_instances.contains(key),
+        });
     }
 
     fn is_removable_private_function(&self, function: &BackendFunction) -> bool {
@@ -167,6 +200,7 @@ impl<'a> ModuleLowerer<'a> {
 fn collect_transitive_refs(
     functions: &[BackendFunction],
     instances: &[BackendFunctionInstance],
+    closure_entries: &[BackendClosureEntry],
     types: &nia_ty::TypeStore,
     refs: &mut FunctionBodyRefs,
 ) {
@@ -205,6 +239,13 @@ fn collect_transitive_refs(
                 .as_ref()
                 .map(|body| body.value_refs(types))
                 .unwrap_or_default();
+            let mut discovered = discovered;
+            extend_closure_entry_refs(
+                closure_entries,
+                BackendClosureEntryOwner::Source(function_id),
+                types,
+                &mut discovered,
+            );
             enqueue_new_refs(
                 refs,
                 discovered,
@@ -227,6 +268,13 @@ fn collect_transitive_refs(
                 .as_ref()
                 .map(|body| body.value_refs(types))
                 .unwrap_or_default();
+            let mut discovered = discovered;
+            extend_closure_entry_refs(
+                closure_entries,
+                BackendClosureEntryOwner::FunctionInstance(instance_key.clone()),
+                types,
+                &mut discovered,
+            );
             enqueue_new_refs(
                 refs,
                 discovered,
@@ -235,6 +283,20 @@ fn collect_transitive_refs(
                 &mut pending_instances,
             );
         }
+    }
+}
+
+fn extend_closure_entry_refs(
+    closure_entries: &[BackendClosureEntry],
+    owner: BackendClosureEntryOwner,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
+    for entry in closure_entries
+        .iter()
+        .filter(|entry| entry.key.owner == owner)
+    {
+        refs.extend(entry.function_body.value_refs(types));
     }
 }
 

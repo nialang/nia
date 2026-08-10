@@ -1,5 +1,5 @@
-use nia_function_ir::{FunctionBlockId, FunctionBody};
-use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+use nia_function_ir::{FunctionBlockId, FunctionBody, FunctionInstanceKey};
+use nia_ids::{ClosureId, DefId, GlobalDefId, ModuleIdAllocator};
 use nia_layout::TargetDataLayout;
 use nia_symbol::SymbolId;
 use nia_ty::PrimitiveTy;
@@ -47,9 +47,38 @@ fn module_with_global(
         global_instances: Vec::new(),
         functions: Vec::new(),
         function_instances: Vec::new(),
+        closure_entries: Vec::new(),
         trait_object_vtables: Vec::new(),
         generic_instantiations: Vec::new(),
     }
+}
+
+#[test]
+fn closure_entry_keys_distinguish_source_and_concrete_instance_owners() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let owner = GlobalDefId {
+        module_id,
+        def_id: DefId(7),
+    };
+    let closure_id = ClosureId { owner, ordinal: 1 };
+    let source = BackendClosureEntryKey {
+        closure_id,
+        owner: BackendClosureEntryOwner::Source(owner),
+    };
+    let instance = BackendClosureEntryKey {
+        closure_id,
+        owner: BackendClosureEntryOwner::FunctionInstance(FunctionInstanceKey {
+            def_id: owner,
+            arg_module_id: module_id,
+            self_arg: None,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        }),
+    };
+
+    assert_ne!(source, instance);
+    assert_eq!(HashSet::from([source, instance]).len(), 2);
 }
 
 #[test]

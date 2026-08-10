@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::{BackendItemDiscovery, FunctionInstanceMaterialization, ModuleLowerer};
+use crate::{
+    BackendItemDiscovery, FunctionInstanceMaterialization, ModuleLowerer,
+    backend_function_instance_key,
+};
 use nia_backend_ir::{
+    BackendClosureEntry, BackendClosureEntryAbi, BackendClosureEntryKey, BackendClosureEntryOwner,
     BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
 };
 use nia_function_ir::{
-    FunctionBody, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal, FunctionLocalKind,
-    GlobalInstanceRef,
+    FunctionBody, FunctionClosureEntry, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal,
+    FunctionLocalKind, GlobalInstanceRef,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
@@ -69,6 +73,7 @@ impl<'a> ModuleLowerer<'a> {
         existing: &[BackendFunctionInstance],
     ) -> FunctionInstanceMaterialization {
         let mut instances = Vec::new();
+        let mut closure_entries = Vec::new();
         let mut materialized_discovery = BackendItemDiscovery::default();
         let mut seen = HashSet::<InstanceKey>::new();
         let mut queued = HashSet::<FunctionInstanceKey>::new();
@@ -147,6 +152,7 @@ impl<'a> ModuleLowerer<'a> {
                 &mut functions_by_def,
                 &mut seen,
                 &mut instances,
+                &mut closure_entries,
                 PlannedFunctionInstance {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
@@ -162,7 +168,17 @@ impl<'a> ModuleLowerer<'a> {
                 .last()
                 .expect("successful function instance lowering must append an instance")
                 .function_body;
-            let discovery = self.discover_backend_items_from_optional_body(body);
+            let mut discovery = self.discover_backend_items_from_optional_body(body);
+            let owner = backend_function_instance_key(
+                instances
+                    .last()
+                    .expect("successful function instance lowering must append an instance"),
+            );
+            for entry in closure_entries.iter().rev().take_while(|entry| {
+                entry.key.owner == BackendClosureEntryOwner::FunctionInstance(owner.clone())
+            }) {
+                discovery.extend(self.discover_backend_items_from_body(&entry.function_body));
+            }
             for discovered in &discovery.refs.function_instances {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
                 let discovered_self_arg = self.canonicalize_instance_ref_self_arg(discovered);
@@ -192,6 +208,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         FunctionInstanceMaterialization {
             instances,
+            closure_entries,
             discovery: materialized_discovery,
         }
     }
@@ -380,6 +397,7 @@ impl<'a> ModuleLowerer<'a> {
         functions_by_def: &mut HashMap<GlobalDefId, BackendFunction>,
         seen: &mut HashSet<InstanceKey>,
         instances: &mut Vec<BackendFunctionInstance>,
+        closure_entries: &mut Vec<BackendClosureEntry>,
         plan: PlannedFunctionInstance,
     ) -> bool {
         let PlannedFunctionInstance {
@@ -431,6 +449,37 @@ impl<'a> ModuleLowerer<'a> {
             })
         });
         let has_body = function_body.is_some();
+        let owner_key = FunctionInstanceKey {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args: args.clone(),
+            const_args: const_args.clone(),
+        };
+        let source_closure_entries = self.input.program.closure_entries(def_id).to_vec();
+        for entry in source_closure_entries {
+            let body =
+                self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
+                    function: def_id,
+                    module_id: arg_module_id,
+                    is_instance: true,
+                    type_arg_count: args.len(),
+                    body: entry.body.clone(),
+                    self_arg,
+                    substitutions: &substitutions,
+                    const_substitutions: &const_substitutions,
+                });
+            let state_type = self.instantiate_ty_with_id(entry.state_ty, substitution_id);
+            let return_type = self.instantiate_ty_with_id(entry.return_type, substitution_id);
+            closure_entries.push(self.materialize_instance_closure_entry(
+                entry,
+                owner_key.clone(),
+                &symbol,
+                state_type,
+                return_type,
+                body,
+            ));
+        }
         instances.push(BackendFunctionInstance {
             def_id,
             name: base.name,
@@ -452,6 +501,62 @@ impl<'a> ModuleLowerer<'a> {
             span: base.span,
         });
         has_body
+    }
+
+    fn materialize_instance_closure_entry(
+        &self,
+        entry: FunctionClosureEntry,
+        owner: FunctionInstanceKey,
+        owner_symbol: &str,
+        state_type: InternedTyId,
+        return_type: InternedTyId,
+        body: FunctionBody,
+    ) -> BackendClosureEntry {
+        let state_pointer_type = body
+            .locals
+            .iter()
+            .find(|local| local.id == entry.state_param)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: closure entry {:?} is missing state parameter {:?}",
+                    entry.closure_id, entry.state_param
+                )
+            })
+            .ty;
+        let params = entry
+            .params
+            .iter()
+            .map(|param| {
+                body.locals
+                    .iter()
+                    .find(|local| local.id == *param)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Nia ICE: closure entry {:?} is missing parameter {:?}",
+                            entry.closure_id, param
+                        )
+                    })
+                    .ty
+            })
+            .collect();
+        BackendClosureEntry {
+            key: BackendClosureEntryKey {
+                closure_id: entry.closure_id,
+                owner: BackendClosureEntryOwner::FunctionInstance(owner),
+            },
+            symbol: nia_mangle::mangle_closure_entry_symbol(owner_symbol, entry.closure_id),
+            abi: BackendClosureEntryAbi {
+                state_type,
+                state_pointer_type,
+                params,
+                return_type,
+            },
+            state_param: entry.state_param,
+            params: entry.params,
+            local_names: self.function_local_names(&body),
+            span: body.span,
+            function_body: body,
+        }
     }
 
     pub(crate) fn backend_function_template_for_program_def(

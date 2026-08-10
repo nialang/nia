@@ -71,7 +71,7 @@ The type taxonomy is deliberately split:
 
 ### 5. Products and documentation
 
-- [ ] Generate stable symbols and backend ABI records for closure entries.
+- [x] Generate stable symbols and backend ABI records for closure entries.
 - [ ] Add codegen, runtime, diagnostics, and clean/incremental identity tests.
 - [ ] Document the final ABI and memory model in the language and ABI specs.
 - [ ] Retire this roadmap only after every acceptance item has evidence and the
@@ -111,3 +111,14 @@ carried across the lexical scope that created its closure state. The stage is
 deliberately a bounded provenance analysis, not a general ownership or borrow
 checker. Captured local addresses are tracked as a separate state provenance
 category; an allocator-backed owner remains separate Wave 4 work.
+
+Wave 5 identity work now publishes closure entries as backend products with a
+stable `ClosureId` plus source-or-instance owner key. Entry symbols are derived
+from the concrete owner symbol and closure ordinal, so generic instances cannot
+collide with their source template or with one another. The ABI record makes the
+readonly state pointer explicit as the hidden first parameter, followed by the
+ordered user parameters and return type. Closure entry bodies participate in
+backend reachability, dead-code analysis, aggregate roots, codegen partition
+membership, and incremental fingerprints. LLVM declaration/body materialization
+is still intentionally gated until the remaining ABI and callable-view work is
+complete.

@@ -188,6 +188,13 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
             .and_then(|index| self.function_bodies[*index].value.body())
     }
 
+    fn closure_entries(&self, def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
+        self.function_body_indices
+            .get(&def_id)
+            .map(|index| self.function_bodies[*index].value.closure_entries())
+            .unwrap_or_default()
+    }
+
     fn static_init_ids(&self) -> &[GlobalDefId] {
         &self.static_init_ids
     }
