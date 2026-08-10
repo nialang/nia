@@ -270,7 +270,7 @@ pub(in crate::query) fn provide_lowered_function_body(
             def_id.module_id,
         ),
     ) {
-        Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered.body)),
+        Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered)),
         Err(diagnostic) => Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic)),
     }
 }
@@ -733,13 +733,23 @@ pub(super) fn monomorphization_diagnostics(
 fn function_lowering_diagnostics(function_bodies: &[LoweredFunctionBodyHandle]) -> Vec<Diagnostic> {
     function_bodies
         .iter()
-        .filter_map(|lowered| {
-            let diagnostic = lowered.value.diagnostic()?;
-            Some(Diagnostic::internal_error_at(
-                codes::INVALID_FUNCTION_IR,
-                diagnostic.span,
-                diagnostic.message.clone(),
-            ))
+        .flat_map(|lowered| {
+            let mut diagnostics = Vec::new();
+            if let Some(diagnostic) = lowered.value.diagnostic() {
+                diagnostics.push(Diagnostic::internal_error_at(
+                    codes::INVALID_FUNCTION_IR,
+                    diagnostic.span,
+                    diagnostic.message.clone(),
+                ));
+            }
+            diagnostics.extend(lowered.value.closure_entries().iter().map(|entry| {
+                Diagnostic::internal_error_at(
+                    codes::INVALID_FUNCTION_IR,
+                    entry.body.span,
+                    "generated closure entries have not reached backend materialization yet",
+                )
+            }));
+            diagnostics
         })
         .collect()
 }

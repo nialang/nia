@@ -592,6 +592,10 @@ impl<'a> ModuleLowerer<'a> {
         callee: FunctionCallee,
     ) -> FunctionCallee {
         match callee {
+            FunctionCallee::ClosureEntry { closure_id, state } => FunctionCallee::ClosureEntry {
+                closure_id,
+                state: Box::new(self.resolve_builtin_operator_calls_in_expr(*state)),
+            },
             FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
             FunctionCallee::FunctionInstance {
                 def_id,

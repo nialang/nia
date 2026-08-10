@@ -1264,6 +1264,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
 fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCallee) -> bool {
     match callee {
+        FunctionCallee::ClosureEntry { .. } => false,
         FunctionCallee::Function(def_id) => codegen
             .module
             .function_item(*def_id)

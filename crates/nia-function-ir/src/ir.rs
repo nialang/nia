@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
+use nia_ids::{BuiltinTraitMethod, ClosureId, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
 pub use nia_ir_names::{GeneratedLocalName, LocalName, PromotedAllocationId};
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -20,6 +20,21 @@ pub struct FunctionBody {
     pub blocks: Vec<FunctionBlock>,
     pub entry: FunctionBlockId,
     pub ty: InternedTyId,
+}
+
+/// A generated entry body for one concrete closure-state type.
+///
+/// `state_param` is the first ABI parameter and always has type
+/// `&ClosureState`. Captured locals are rewritten to projections through that
+/// pointer and never leak from the containing source function.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionClosureEntry {
+    pub closure_id: ClosureId,
+    pub state_ty: InternedTyId,
+    pub state_param: LocalId,
+    pub params: Vec<LocalId>,
+    pub return_type: InternedTyId,
+    pub body: FunctionBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -531,6 +546,10 @@ pub struct FunctionFieldInit {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionCallee {
+    ClosureEntry {
+        closure_id: ClosureId,
+        state: Box<FunctionExpr>,
+    },
     Function(nia_ids::GlobalDefId),
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,

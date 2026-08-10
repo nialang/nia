@@ -329,7 +329,10 @@ impl CompilerBuiltinCollector {
                     self.collect_binary(index, lhs, op);
                 }
             }
-            FunctionCallee::Method { receiver, .. }
+            FunctionCallee::ClosureEntry {
+                state: receiver, ..
+            }
+            | FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }

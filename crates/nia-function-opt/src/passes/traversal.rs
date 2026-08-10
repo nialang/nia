@@ -304,7 +304,10 @@ where
     F: FnMut(&mut FunctionExpr) -> bool,
 {
     match callee {
-        FunctionCallee::Method { receiver, .. }
+        FunctionCallee::ClosureEntry {
+            state: receiver, ..
+        }
+        | FunctionCallee::Method { receiver, .. }
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }

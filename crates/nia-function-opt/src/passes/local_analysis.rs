@@ -246,7 +246,10 @@ impl<'a> LocalUseCollector<'a> {
 
     fn collect_callee(&mut self, callee: &FunctionCallee) {
         match callee {
-            FunctionCallee::Method { receiver, .. }
+            FunctionCallee::ClosureEntry {
+                state: receiver, ..
+            }
+            | FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }

@@ -366,14 +366,19 @@ mod tests {
         };
         let lowered = vec![LoweredFunctionBodyHandle {
             def_id,
-            value: Arc::new(LoweredFunctionBodyValue::Body(FunctionBody {
-                span: Span::default(),
-                locals: Vec::new(),
-                scopes: Vec::new(),
-                blocks: Vec::new(),
-                entry: FunctionBlockId(0),
-                ty,
-            })),
+            value: Arc::new(LoweredFunctionBodyValue::Body(
+                nia_function_lower::LoweredFunctionBody {
+                    body: FunctionBody {
+                        span: Span::default(),
+                        locals: Vec::new(),
+                        scopes: Vec::new(),
+                        blocks: Vec::new(),
+                        entry: FunctionBlockId(0),
+                        ty,
+                    },
+                    closure_entries: Vec::new(),
+                },
+            )),
         }];
 
         let init = Arc::new(nia_static_ir::StaticInit::Bytes(vec![1, 2, 3]));

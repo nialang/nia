@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
@@ -7,7 +9,7 @@ use nia_body_ir::{
     TypedLoop, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
     TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedWhile,
 };
-use nia_ids::{InternedTyId, LocalId, ModuleId};
+use nia_ids::{ClosureId, InternedTyId, LocalId, ModuleId};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind, TypeStore, TypeStoreAppend};
 
@@ -15,13 +17,13 @@ use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,
     FunctionAsmOutput, FunctionAtomic, FunctionBinding, FunctionBitIntrinsicOp, FunctionBlock,
     FunctionBlockId, FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator,
-    FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
-    FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
-    FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionMemoryIntrinsic,
-    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag,
-    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope,
-    FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
-    GeneratedLocalName, LocalName, validate_function_body,
+    FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionClosureEntry,
+    FunctionDeferBody, FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit,
+    FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionLocalKind,
+    FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp,
+    FunctionOptionalTag, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange,
+    FunctionScope, FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
+    FunctionTryKind, GeneratedLocalName, LocalName, validate_function_body,
 };
 
 mod expr;
@@ -50,8 +52,10 @@ impl From<nia_function_ir::FunctionIrError> for FunctionLoweringDiagnostic {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoweredFunctionBody {
     pub body: FunctionBody,
+    pub closure_entries: Vec<FunctionClosureEntry>,
 }
 
+#[derive(Clone)]
 pub struct FunctionTypeContext<'a> {
     store: &'a TypeStore,
     append: TypeStoreAppend,
@@ -83,7 +87,13 @@ pub fn lower_function_body(
     let mut lowerer = FunctionLowerer::new(module_id, types);
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
-    Ok(LoweredFunctionBody { body })
+    for entry in &lowerer.closure_entries {
+        validate_function_body(&entry.body).map_err(FunctionLoweringDiagnostic::from)?;
+    }
+    Ok(LoweredFunctionBody {
+        body,
+        closure_entries: lowerer.closure_entries,
+    })
 }
 
 struct FunctionLowerer<'a> {
@@ -95,6 +105,22 @@ struct FunctionLowerer<'a> {
     scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
     types: FunctionTypeContext<'a>,
+    closure_entries: Vec<FunctionClosureEntry>,
+    closure_state: Option<ClosureStateContext>,
+}
+
+#[derive(Debug, Clone)]
+struct ClosureStateContext {
+    state_ty: InternedTyId,
+    state_ptr_ty: InternedTyId,
+    state_param: LocalId,
+    captures: HashMap<LocalId, ClosureCaptureField>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ClosureCaptureField {
+    index: usize,
+    ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -130,6 +156,8 @@ impl<'a> FunctionLowerer<'a> {
             scopes: Vec::new(),
             loop_targets: Vec::new(),
             types,
+            closure_entries: Vec::new(),
+            closure_state: None,
         }
     }
 
@@ -139,12 +167,30 @@ impl<'a> FunctionLowerer<'a> {
         // source bodies still have their own scopes and blocks, but their
         // locals must be visible to validation and later codegen by id.
         self.next_temp_local = self.next_available_local(body);
+        if let Some(context) = &self.closure_state {
+            self.next_temp_local = self
+                .next_temp_local
+                .max(context.state_param.0.saturating_add(1));
+        }
         let root_scope = self.alloc_scope(None, body.span);
         let entry = self.alloc_block();
         let mut blocks = Vec::new();
         let mut locals = Vec::new();
         self.lower_body_into(body, entry, root_scope, &mut blocks, Fallthrough::Tail);
         self.collect_body_locals(body, &mut locals);
+        if let Some(context) = &self.closure_state {
+            locals.retain(|local| !context.captures.contains_key(&local.id));
+            locals.insert(
+                0,
+                FunctionLocal {
+                    id: context.state_param,
+                    name: LocalName::temporary(context.state_param.0),
+                    kind: FunctionLocalKind::Param,
+                    ty: context.state_ptr_ty,
+                    span: body.span,
+                },
+            );
+        }
         locals.extend(self.temp_locals.clone());
         FunctionBody {
             span: body.span,

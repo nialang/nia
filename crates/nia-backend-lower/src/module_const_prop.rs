@@ -656,7 +656,10 @@ fn propagate_cross_function_constants_in_callee(
     instance_constants: &HashMap<FunctionInstanceKey, FunctionExpr>,
 ) -> bool {
     match callee {
-        FunctionCallee::Method { receiver, .. }
+        FunctionCallee::ClosureEntry {
+            state: receiver, ..
+        }
+        | FunctionCallee::Method { receiver, .. }
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
@@ -749,7 +752,8 @@ fn cross_function_constant_for_callee<'a>(
             args: args.clone(),
             const_args: const_args.clone(),
         }),
-        FunctionCallee::Method { .. }
+        FunctionCallee::ClosureEntry { .. }
+        | FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::DynamicTraitMethod { .. }

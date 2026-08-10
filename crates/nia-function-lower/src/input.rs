@@ -209,10 +209,12 @@ impl BodyInputValidator {
                 }
                 Ok(())
             }
-            TypedExprKind::Closure { .. } => Err(FunctionLoweringDiagnostic {
-                span: expr.span,
-                message: "closure lowering is not implemented yet".to_string(),
-            }),
+            TypedExprKind::Closure { captures, body, .. } => {
+                for capture in captures {
+                    self.validate_value_expr(&capture.value)?;
+                }
+                self.validate_value_body(body)
+            }
             TypedExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.validate_value_expr(&field.value)?;
@@ -396,10 +398,7 @@ impl BodyInputValidator {
 
     fn validate_callee(&self, callee: &TypedCallee) -> Result<(), FunctionLoweringDiagnostic> {
         match callee {
-            TypedCallee::Closure(callee) => Err(FunctionLoweringDiagnostic {
-                span: callee.span,
-                message: "direct closure call lowering is not implemented yet".to_string(),
-            }),
+            TypedCallee::Closure(callee) => self.validate_value_expr(callee),
             TypedCallee::Method { receiver, .. }
             | TypedCallee::TraitMethod { receiver, .. }
             | TypedCallee::DynamicTraitMethod { receiver, .. }

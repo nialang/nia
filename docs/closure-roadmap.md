@@ -50,7 +50,7 @@ The type taxonomy is deliberately split:
 - [x] Resolve captures in the enclosing scope and parameters/body in a fresh
   closure scope.
 - [x] Type-check closure bodies against their declared signature.
-- [ ] Lower direct calls to generated entry functions with an explicit state
+- [x] Lower direct calls to generated entry functions with an explicit state
   pointer.
 
 ### 3. Callable views and coercions
@@ -77,9 +77,11 @@ The type taxonomy is deliberately split:
 - [ ] Retire this roadmap only after every acceptance item has evidence and the
   durable rules have moved to stable documentation.
 
-Wave 2 currently accepts concrete closure state values, type-checks direct
-invocations, and preserves typed closure/callee nodes through body IR. Backend
-entry generation remains gated until the explicit state-pointer ABI is
-implemented; a closure that reaches function lowering therefore produces a
-dedicated lowering diagnostic instead of being silently treated as a thin
-`&fn` pointer.
+Wave 2 now lowers each concrete closure value to an ordered state aggregate and
+keeps generated entry bodies under the owning source-body query. Direct calls
+carry a dedicated closure-entry identity plus an explicit readonly state
+pointer, while entry bodies project captured values through that pointer rather
+than referring to parent-function locals. Stable backend symbols and ABI
+records remain gated as Wave 5 work; backend input assembly rejects generated
+entries at that explicit materialization boundary instead of treating them as
+source `GlobalDefId` functions or thin `&fn` pointers.

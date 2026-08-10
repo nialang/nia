@@ -314,7 +314,10 @@ impl<'a> ModuleLowerer<'a> {
 
     fn devirtualize_direct_trait_calls_in_callee(&mut self, callee: &mut FunctionCallee) -> bool {
         match callee {
-            FunctionCallee::Method { receiver, .. }
+            FunctionCallee::ClosureEntry {
+                state: receiver, ..
+            }
+            | FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
