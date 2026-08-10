@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{FunctionSignature, ModuleCodegen};
 use nia_backend_ir::{
-    BackendField, BackendFunction, BackendFunctionInstance, BackendStructInstance,
-    BackendUnionInstance,
+    BackendClosureEntry, BackendClosureEntryKey, BackendField, BackendFunction,
+    BackendFunctionInstance, BackendStructInstance, BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
@@ -140,6 +140,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .fn_type(&llvm_params, is_variadic)),
             AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
                 Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
+            }
+        }
+    }
+
+    pub(crate) fn callable_entry_function_type_in(
+        &self,
+        params: &[InternedTyId],
+        return_type: InternedTyId,
+        span: Span,
+    ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        let mut llvm_params = vec![self.context.ptr_type(Default::default()).into()];
+        for param in self.classify_params_in(params.iter().copied()) {
+            match param {
+                AbiParam::Direct(ty) => {
+                    llvm_params.push(self.llvm_basic_type_in(ty, span)?);
+                }
+                AbiParam::IndirectReadonly(ty) => {
+                    llvm_params.push(self.pointer_abi_type(ty, span)?);
+                }
+                AbiParam::Omit => {}
+            }
+        }
+        match self.classify_return_in(return_type) {
+            AbiReturn::Direct(ty) => Ok(self
+                .llvm_basic_type_in(ty, span)?
+                .fn_type(&llvm_params, false)),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
+                Ok(self.context.void_type().fn_type(&llvm_params, false))
             }
         }
     }
@@ -1030,6 +1058,23 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn function(&self, def_id: GlobalDefId) -> Option<FunctionValue<'ctx>> {
         self.functions.get(&def_id).copied()
+    }
+
+    pub(crate) fn closure_entry_item(
+        &self,
+        key: &BackendClosureEntryKey,
+    ) -> Option<&'a BackendClosureEntry> {
+        self.source
+            .closure_entries
+            .iter()
+            .find(|entry| entry.key == *key)
+    }
+
+    pub(crate) fn closure_entry_value(
+        &self,
+        key: &BackendClosureEntryKey,
+    ) -> Option<FunctionValue<'ctx>> {
+        self.closure_entries.get(key).copied()
     }
 
     pub(crate) fn function_item(&self, def_id: GlobalDefId) -> Option<&'a BackendFunction> {

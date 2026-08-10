@@ -1,0 +1,13 @@
+using std::process;
+using helper;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let base = helper::marker();
+    let callback = [base](value: i32) i32 { base + value };
+    let view: &Fn(i32) i32 = &callback;
+    if callback(1) != 2 or view(2) != 3 {
+        return process::exit(10)!;
+    }
+    !()
+}

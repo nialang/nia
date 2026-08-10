@@ -457,7 +457,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     current_ty = self.field_ty(current_ty, *field, place.span)?;
                 }
                 FunctionPlaceElem::TupleField(index) => {
-                    let Some(TyKind::Tuple(elems)) = self.module.ty_kind(current_ty) else {
+                    let Some(
+                        TyKind::Tuple(elems)
+                        | TyKind::ClosureState {
+                            captures: elems, ..
+                        },
+                    ) = self.module.ty_kind(current_ty)
+                    else {
                         return Err(
                             self.error(place.span, "tuple place projection target is not a tuple")
                         );

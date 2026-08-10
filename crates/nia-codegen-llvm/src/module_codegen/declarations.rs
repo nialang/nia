@@ -282,6 +282,28 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 ));
             self.function_instance_value_lookups.borrow_mut().clear();
         }
+        for &index in self.partition.closure_entry_definitions() {
+            let entry = &self.source.closure_entries[index];
+            let ty = self.function_signature_type_in(FunctionSignature {
+                param_tys: std::iter::once((entry.abi.state_pointer_type, entry.span)).chain(
+                    entry
+                        .abi
+                        .params
+                        .iter()
+                        .copied()
+                        .map(|param| (param, entry.span)),
+                ),
+                return_type: entry.abi.return_type,
+                is_extern: false,
+                is_variadic: false,
+                span: entry.span,
+            })?;
+            let value = self
+                .module
+                .add_function(&entry.symbol, ty, None)
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            self.closure_entries.insert(entry.key.clone(), value);
+        }
         Ok(())
     }
 
