@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/build-std.yml"
+      - ".node-version"
       - ".python-version"
       - "Cargo.lock"
       - "Cargo.toml"
@@ -17,6 +18,7 @@ on:
       - main
     paths:
       - ".github/workflows/build-std.yml"
+      - ".node-version"
       - ".python-version"
       - "Cargo.lock"
       - "Cargo.toml"
@@ -51,6 +53,22 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version-file: ".python-version"
+
+      - name: Install maintenance Node dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".node-version"
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+
+      - name: Report maintenance toolchain identity
+        run: |
+          python3 --version
+          node --version
+          npm --version
+
+      - name: Install locked maintenance dependencies
+        run: npm ci --prefix tools --ignore-scripts
 
       - name: Install Rust stable
         run: |

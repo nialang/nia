@@ -1,0 +1,22 @@
+{
+  "include": [
+    "__main__.py",
+    "nia_tools",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__"
+  ],
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Linux",
+  "typeCheckingMode": "strict",
+  "reportImplicitOverride": "error",
+  "executionEnvironments": [
+    {
+      "root": "..",
+      "extraPaths": [
+        ".."
+      ]
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 import contextlib
 import io
+import json
 import unittest
 
 from tools.nia_tools.cli import main, usage
+from tools.nia_tools.repository import REPOSITORY_ROOT
 from tools.nia_tools.runtime import PythonVersion, required_python_version
 
 
@@ -36,6 +38,15 @@ class CliTests(unittest.TestCase):
 
     def test_repository_declares_python_3_14(self) -> None:
         self.assertEqual(required_python_version(), PythonVersion(3, 14))
+
+    def test_pyright_targets_the_repository_python_version(self) -> None:
+        config = json.loads(
+            (REPOSITORY_ROOT / "tools" / "pyrightconfig.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(config["pythonVersion"], str(required_python_version()))
 
 
 if __name__ == "__main__":

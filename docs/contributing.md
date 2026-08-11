@@ -38,6 +38,8 @@ Before submitting compiler changes, run:
 
 ```sh
 rustup toolchain install stable --component clippy --component rustfmt
+npm ci --prefix tools --ignore-scripts
+python3 -m tools check
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace

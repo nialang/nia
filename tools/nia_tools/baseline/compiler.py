@@ -5,21 +5,49 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import platform
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
+from tools.nia_tools.common.json_data import JsonObject, JsonValue, decode_json
+from tools.nia_tools.common.machine import MachineMetadata, machine_metadata
 from tools.nia_tools.repository import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 DEFAULT_COMPILER = ROOT / "target" / "release" / "nia"
 DEFAULT_RESOURCE_ROOT = ROOT / "lib"
 DEFAULT_OUTPUT = ROOT / "target" / "nia-perf" / "baseline.json"
+
+
+@dataclass(frozen=True)
+class Options:
+    compiler: Path
+    resource_root: Path
+    output: Path
+    repeat: int
+    build_compiler: bool
+    runner_class: str | None
+    workloads: tuple[str, ...] | None
+
+
+class CompilerIdentity(TypedDict):
+    path: str
+    resource_root: str
+    version: str | None
+    revision: str | None
+    dirty: bool
+
+
+class CompilerBaseline(TypedDict):
+    schema_version: int
+    compiler: CompilerIdentity
+    machine: MachineMetadata
+    repeat: int
+    results: list[JsonObject]
 
 
 def large_codegen_source(blob_count: int = 16, blob_bytes: int = 1024 * 1024) -> str:
@@ -94,137 +122,22 @@ def command_output(args: list[str]) -> str | None:
     return result.stdout.strip() or None
 
 
-def read_text(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
-
-def parse_memory_limit(value: str | None) -> int | None:
-    if value is None:
-        return None
-    value = value.strip()
-    if not value or value == "max":
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def linux_memory() -> tuple[int | None, int | None]:
-    meminfo = read_text(Path("/proc/meminfo"))
-    system = None
-    if meminfo is not None:
-        for line in meminfo.splitlines():
-            if line.startswith("MemTotal:"):
-                try:
-                    system = int(line.split()[1]) * 1024
-                except (IndexError, ValueError):
-                    pass
-                break
-
-    cgroup_text = read_text(Path("/proc/self/cgroup"))
-    if cgroup_text is None:
-        return system, None
-    for line in cgroup_text.splitlines():
-        if line.startswith("0::"):
-            relative = line[3:].lstrip("/")
-            value = read_text(Path("/sys/fs/cgroup") / relative / "memory.max")
-            return system, parse_memory_limit(value)
-    for line in cgroup_text.splitlines():
-        fields = line.split(":", 2)
-        if len(fields) != 3 or "memory" not in fields[1].split(","):
-            continue
-        relative = fields[2].lstrip("/")
-        value = read_text(
-            Path("/sys/fs/cgroup/memory") / relative / "memory.limit_in_bytes"
-        )
-        return system, parse_memory_limit(value)
-    return system, None
-
-
-def linux_cpu_quota() -> float | None:
-    cgroup_text = read_text(Path("/proc/self/cgroup"))
-    if cgroup_text is None:
-        return None
-    for line in cgroup_text.splitlines():
-        if line.startswith("0::"):
-            relative = line[3:].lstrip("/")
-            value = read_text(Path("/sys/fs/cgroup") / relative / "cpu.max")
-            if value is None:
-                return None
-            fields = value.split()
-            if len(fields) != 2 or fields[0] == "max":
-                return None
-            try:
-                return int(fields[0]) / int(fields[1])
-            except (ValueError, ZeroDivisionError):
-                return None
-    for line in cgroup_text.splitlines():
-        fields = line.split(":", 2)
-        if len(fields) != 3 or "cpu" not in fields[1].split(","):
-            continue
-        relative = fields[2].lstrip("/")
-        root = Path("/sys/fs/cgroup/cpu") / relative
-        quota = parse_memory_limit(read_text(root / "cpu.cfs_quota_us"))
-        period = parse_memory_limit(read_text(root / "cpu.cfs_period_us"))
-        if quota is None or period is None or quota < 0 or period == 0:
-            return None
-        return quota / period
-    return None
-
-
-def linux_cpu_model() -> str | None:
-    cpuinfo = read_text(Path("/proc/cpuinfo"))
-    if cpuinfo is None:
-        return None
-    for line in cpuinfo.splitlines():
-        if not line.startswith(("model name", "Hardware")):
-            continue
-        _, separator, value = line.partition(":")
-        if separator and value.strip():
-            return value.strip()
-    return None
-
-
-def machine_metadata(runner_class: str | None = None) -> dict[str, Any]:
-    affinity = None
-    if hasattr(os, "sched_getaffinity"):
-        affinity = len(os.sched_getaffinity(0))
-    system_memory, cgroup_memory = linux_memory()
-    visible_limits = [value for value in (system_memory, cgroup_memory) if value]
-    cpu_quota = linux_cpu_quota()
-    cpu_limits = [value for value in (affinity, cpu_quota) if value]
-    return {
-        "runner_class": runner_class,
-        "system": platform.system(),
-        "platform": platform.platform(),
-        "architecture": platform.machine(),
-        "cpu_model": linux_cpu_model(),
-        "logical_cpus": os.cpu_count(),
-        "affinity_cpus": affinity,
-        "cgroup_cpu_quota": cpu_quota,
-        "effective_cpu_limit": min(cpu_limits) if cpu_limits else None,
-        "system_memory_bytes": system_memory,
-        "cgroup_memory_limit_bytes": cgroup_memory,
-        "effective_memory_limit_bytes": min(visible_limits) if visible_limits else None,
-    }
-
-
-def timing_json(stderr: str) -> dict[str, Any]:
+def timing_json(stderr: str) -> JsonObject:
     for line in reversed(stderr.splitlines()):
         try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
+            value = decode_json(line, "compiler timing report")
+        except ValueError:
             continue
-        if isinstance(value, dict) and value.get("schema_version") == 1:
+        if (
+            isinstance(value, dict)
+            and type(value.get("schema_version")) is int
+            and value["schema_version"] == 1
+        ):
             return value
     raise ValueError("compiler did not emit a schema_version=1 timing report")
 
 
-def normalize_report_paths(value: Any) -> Any:
+def normalize_report_paths(value: JsonValue) -> JsonValue:
     if isinstance(value, str):
         return value.replace(str(ROOT), "$REPO")
     if isinstance(value, list):
@@ -234,7 +147,7 @@ def normalize_report_paths(value: Any) -> Any:
     return value
 
 
-def require_allocation_instrumentation(report: dict[str, Any]) -> None:
+def require_allocation_instrumentation(report: JsonObject) -> None:
     counters = report.get("counters", {})
     if not isinstance(counters, dict) or not {
         "allocator.allocated_bytes",
@@ -247,7 +160,7 @@ def require_allocation_instrumentation(report: dict[str, Any]) -> None:
         )
 
 
-def require_module_finalization_instrumentation(report: dict[str, Any]) -> None:
+def require_module_finalization_instrumentation(report: JsonObject) -> None:
     counters = report.get("counters", {})
     required = {
         "backend.module_finalization.start_live_bytes",
@@ -262,33 +175,27 @@ def require_module_finalization_instrumentation(report: dict[str, Any]) -> None:
 
 
 def require_codegen_bucket_instrumentation(
-    report: dict[str, Any], minimum_units: int
+    report: JsonObject, minimum_units: int
 ) -> None:
     counters = report.get("counters", {})
-    units = counters.get("llvm.units") if isinstance(counters, dict) else None
-    permits = (
-        counters.get("llvm.memory_permits") if isinstance(counters, dict) else None
-    )
-    worker_lanes = (
-        counters.get("llvm.worker_lanes") if isinstance(counters, dict) else None
-    )
-    ready_submissions = (
-        counters.get("llvm.ready_task_submissions")
-        if isinstance(counters, dict)
-        else None
-    )
 
-    def valid_count(value: object) -> bool:
-        return isinstance(value, int) and not isinstance(value, bool)
+    def count(name: str) -> int | None:
+        value = counters.get(name) if isinstance(counters, dict) else None
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    units = count("llvm.units")
+    permits = count("llvm.memory_permits")
+    worker_lanes = count("llvm.worker_lanes")
+    ready_submissions = count("llvm.ready_task_submissions")
     if (
-        not valid_count(units)
+        units is None
         or units < minimum_units
-        or not valid_count(permits)
+        or permits is None
         or permits < minimum_units
-        or not valid_count(worker_lanes)
+        or worker_lanes is None
         or worker_lanes < 1
         or worker_lanes > units
-        or not valid_count(ready_submissions)
+        or ready_submissions is None
         or ready_submissions != units
     ):
         raise RuntimeError(
@@ -324,7 +231,7 @@ def workload_command(
 
 def run_workload(
     compiler: Path, resource_root: Path, name: str, args: list[str]
-) -> dict[str, Any]:
+) -> JsonObject:
     command = workload_command(compiler, resource_root, args)
     result = subprocess.run(
         command,
@@ -336,7 +243,10 @@ def run_workload(
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
         raise RuntimeError(f"workload {name!r} failed with status {result.returncode}")
-    report = normalize_report_paths(timing_json(result.stderr))
+    normalized = normalize_report_paths(timing_json(result.stderr))
+    if not isinstance(normalized, dict):
+        raise ValueError("normalized compiler timing report is not an object")
+    report = normalized
     require_allocation_instrumentation(report)
     if name == "module_backend":
         require_module_finalization_instrumentation(report)
@@ -353,7 +263,7 @@ def run_workload(
     return report
 
 
-def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> Options:
     parser = argparse.ArgumentParser(
         prog="python3 -m tools baseline compiler", description=__doc__
     )
@@ -374,7 +284,39 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         action="append",
         help="run only this workload; may be passed more than once",
     )
-    return parser.parse_args(arguments)
+    namespace = parser.parse_args(arguments)
+    if not isinstance(namespace.compiler, Path):
+        raise TypeError("argparse did not produce a Path for --compiler")
+    if not isinstance(namespace.resource_root, Path):
+        raise TypeError("argparse did not produce a Path for --resource-root")
+    if not isinstance(namespace.output, Path):
+        raise TypeError("argparse did not produce a Path for --output")
+    if not isinstance(namespace.repeat, int):
+        raise TypeError("argparse did not produce an int for --repeat")
+    runner_class = namespace.runner_class
+    if runner_class is not None and not isinstance(runner_class, str):
+        raise TypeError("argparse did not produce text for --runner-class")
+    raw_workloads: object = namespace.workload
+    workloads: tuple[str, ...] | None
+    if raw_workloads is None:
+        workloads = None
+    elif isinstance(raw_workloads, list):
+        raw_values = cast(list[object], raw_workloads)
+        values = [value for value in raw_values if isinstance(value, str)]
+        if len(values) != len(raw_values):
+            raise TypeError("argparse did not produce text values for --workload")
+        workloads = tuple(values)
+    else:
+        raise TypeError("argparse did not produce a list for --workload")
+    return Options(
+        compiler=namespace.compiler,
+        resource_root=namespace.resource_root,
+        output=namespace.output,
+        repeat=namespace.repeat,
+        build_compiler=not bool(namespace.no_build),
+        runner_class=runner_class,
+        workloads=workloads,
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -388,7 +330,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     resource_root = args.resource_root.resolve()
     if not resource_root.joinpath("toolchain.meta").is_file():
         raise SystemExit(f"resource root is invalid: {resource_root}")
-    if not args.no_build and compiler == DEFAULT_COMPILER.resolve():
+    if args.build_compiler and compiler == DEFAULT_COMPILER.resolve():
         subprocess.run(
             [
                 "cargo",
@@ -407,11 +349,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="nia-perf-") as temporary:
         available = workloads(Path(temporary))
-        selected = args.workload or list(available)
+        selected = args.workloads or tuple(available)
         unknown = sorted(set(selected) - set(available))
         if unknown:
             raise SystemExit(f"unknown workload(s): {', '.join(unknown)}")
-        results = []
+        results: list[JsonObject] = []
         for iteration in range(args.repeat):
             for name in selected:
                 print(f"perf: iteration {iteration + 1}/{args.repeat} {name}", file=sys.stderr)
@@ -426,7 +368,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     revision = command_output(["git", "rev-parse", "HEAD"])
     dirty = command_output(["git", "status", "--porcelain"])
-    baseline = {
+    baseline: CompilerBaseline = {
         "schema_version": 1,
         "compiler": {
             "path": command_label(str(compiler)),

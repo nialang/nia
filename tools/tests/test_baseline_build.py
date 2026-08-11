@@ -1,9 +1,12 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from tools.nia_tools.baseline.build import (
     BUILD_STAGE_NAMES,
+    BuildResult,
+    TimingReport,
     build_command,
     corrupt_action_cache,
     json_lines,
@@ -14,13 +17,15 @@ from tools.nia_tools.baseline.build import (
 
 
 class BuildBaselineTests(unittest.TestCase):
-    def acceptance_result(self, name, counters):
-        return {
+    def acceptance_result(
+        self, name: str, counters: dict[str, int]
+    ) -> BuildResult:
+        return cast(BuildResult, {
             "name": name,
             "measurement": {"counters": counters},
-        }
+        })
 
-    def passing_acceptance_results(self, action_count=3):
+    def passing_acceptance_results(self, action_count: int = 3) -> list[BuildResult]:
         return [
             self.acceptance_result(
                 "clean",
@@ -94,8 +99,13 @@ class BuildBaselineTests(unittest.TestCase):
             ),
         ]
 
-    def timing_report(self, wall=0.4, rss=20, counters=None):
-        return {
+    def timing_report(
+        self,
+        wall: float = 0.4,
+        rss: int = 20,
+        counters: dict[str, int] | None = None,
+    ) -> TimingReport:
+        return cast(TimingReport, {
             "schema_version": 1,
             "process": {"wall_seconds": wall, "max_rss_bytes": rss},
             "timings": [
@@ -114,9 +124,9 @@ class BuildBaselineTests(unittest.TestCase):
                 "build.runner_executions": 1,
                 "llvm.object_reuse_misses": 0,
             },
-        }
+        })
 
-    def test_extracts_outer_build_measurement(self):
+    def test_extracts_outer_build_measurement(self) -> None:
         child = self.timing_report(counters={"llvm.units": 1})
         outer = {
             **self.timing_report(),
@@ -139,7 +149,7 @@ class BuildBaselineTests(unittest.TestCase):
             parsed["measurement"]["counters"]["llvm.object_reuse_misses"], 0
         )
 
-    def test_rejects_missing_outer_stages(self):
+    def test_rejects_missing_outer_stages(self) -> None:
         outer = (
             '{"schema_version":1,"process":{},"timings":[],'
             '"counters":{"build.runner_executions":1}}'
@@ -147,14 +157,21 @@ class BuildBaselineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "build_resolve_invocation"):
             parse_build_reports(outer, True)
 
-    def test_rejects_missing_build_stage(self):
+    def test_rejects_missing_build_stage(self) -> None:
         outer = self.timing_report()
         outer["timings"].pop()
         with self.assertRaisesRegex(ValueError, "build_execute_plan"):
             parse_build_reports(__import__("json").dumps(outer), True)
 
-    def test_summarizes_repeated_stage_and_counter_samples(self):
-        runs = []
+    def test_rejects_non_object_timing_entries(self) -> None:
+        outer = self.timing_report()
+        malformed = {**outer, "timings": [*outer["timings"], 1]}
+
+        with self.assertRaisesRegex(ValueError, "non-object entry"):
+            parse_build_reports(__import__("json").dumps(malformed), True)
+
+    def test_summarizes_repeated_stage_and_counter_samples(self) -> None:
+        runs: list[list[BuildResult]] = []
         for index in range(3):
             parsed = parse_build_reports(
                 __import__("json").dumps(
@@ -164,11 +181,11 @@ class BuildBaselineTests(unittest.TestCase):
             )
             runs.append(
                 [
-                    {
+                    cast(BuildResult, {
                         "name": "warm",
                         "wall_seconds_observed": float(index + 1),
                         **parsed,
-                    }
+                    })
                 ]
             )
 
@@ -179,7 +196,7 @@ class BuildBaselineTests(unittest.TestCase):
         self.assertEqual(summary["process"]["max_rss_bytes"]["median"], 20)
         self.assertEqual(summary["counters"]["build.runner_executions"]["min"], 1)
 
-    def test_warm_acceptance_retains_failed_counter_evidence(self):
+    def test_warm_acceptance_retains_failed_counter_evidence(self) -> None:
         results = self.passing_acceptance_results(action_count=1)
         results[1]["measurement"]["counters"]["llvm.object_reuse_misses"] = 15
 
@@ -193,7 +210,7 @@ class BuildBaselineTests(unittest.TestCase):
         )
         self.assertEqual(llvm["found"], 15)
 
-    def test_warm_acceptance_scales_with_clean_action_count(self):
+    def test_warm_acceptance_scales_with_clean_action_count(self) -> None:
         acceptance = workload_acceptance(self.passing_acceptance_results())
 
         self.assertTrue(acceptance["passed"])
@@ -207,7 +224,7 @@ class BuildBaselineTests(unittest.TestCase):
             3,
         )
 
-    def test_edit_acceptance_requires_typed_invalidation(self):
+    def test_edit_acceptance_requires_typed_invalidation(self) -> None:
         results = self.passing_acceptance_results()
         results[2]["measurement"]["counters"].pop(
             "build.action_cache_invalidation_sources"
@@ -231,7 +248,7 @@ class BuildBaselineTests(unittest.TestCase):
             ("module_map_edit", "build.action_cache_invalidation_module"), failed
         )
 
-    def test_failed_action_acceptance_rejects_executed_actions(self):
+    def test_failed_action_acceptance_rejects_executed_actions(self) -> None:
         results = self.passing_acceptance_results()
         results[6]["measurement"]["counters"]["build.actions_executed"] = 1
 
@@ -246,7 +263,7 @@ class BuildBaselineTests(unittest.TestCase):
         )
         self.assertEqual(action_check["found"], 1)
 
-    def test_corruption_acceptance_requires_repair_and_warm_reuse(self):
+    def test_corruption_acceptance_requires_repair_and_warm_reuse(self) -> None:
         results = self.passing_acceptance_results()
         results[4]["measurement"]["counters"][
             "build.action_cache_miss_corrupt"
@@ -266,7 +283,7 @@ class BuildBaselineTests(unittest.TestCase):
         )
         self.assertIn(("recovered_warm", "build.action_cache_hits"), failed)
 
-    def test_corrupt_action_cache_overwrites_only_action_entries(self):
+    def test_corrupt_action_cache_overwrites_only_action_entries(self) -> None:
         with TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             first = workspace / ".nia-cache/actions/generated-files/v1/a/one.entry"
@@ -282,10 +299,17 @@ class BuildBaselineTests(unittest.TestCase):
             self.assertEqual(second.read_bytes(), injected)
             self.assertEqual(ignored.read_bytes(), b"valid")
 
-    def test_ignores_non_json_stderr(self):
+    def test_ignores_non_json_stderr(self) -> None:
         self.assertEqual(json_lines("error: ordinary diagnostic\nnot-json"), [])
 
-    def test_build_command_places_named_step_after_build(self):
+    def test_rejects_boolean_counters(self) -> None:
+        results = self.passing_acceptance_results()
+        results[0]["measurement"]["counters"]["build.action_cache_hits"] = True
+
+        with self.assertRaisesRegex(ValueError, "is not an integer"):
+            workload_acceptance(results)
+
+    def test_build_command_places_named_step_after_build(self) -> None:
         command = build_command(
             __import__("pathlib").Path("/tool/nia"),
             __import__("pathlib").Path("/tool/lib"),

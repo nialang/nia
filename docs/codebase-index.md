@@ -102,8 +102,9 @@ loader/provider closure tests own that guarantee.
   ordinary unit tests.
 
 Compiler-, LLVM-, and build-heavy tests must use `nia-test-support` resource
-accounting. The normal local gate is `cargo fmt --check`, strict workspace
-Clippy, and `cargo test --workspace`; focused owners should run first.
+accounting. The normal local gate starts with `python3 -m tools check`, followed
+by `cargo fmt --check`, strict workspace Clippy, and `cargo test --workspace`;
+focused owners should run first.
 
 ## 6. Change Routing
 

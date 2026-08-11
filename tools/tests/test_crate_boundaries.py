@@ -2,11 +2,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.nia_tools.report.crate_boundaries import rust_source_metrics, workspace_boundaries
+from tools.nia_tools.report.crate_boundaries import (
+    CargoMetadata,
+    CargoPackage,
+    rust_source_metrics,
+    workspace_boundaries,
+)
 
 
 class CrateBoundaryTests(unittest.TestCase):
-    def test_counts_non_empty_source_lines_and_public_items(self):
+    def test_counts_non_empty_source_lines_and_public_items(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             crate_root = Path(directory)
             source_root = crate_root / "src"
@@ -18,10 +23,10 @@ class CrateBoundaryTests(unittest.TestCase):
 
             self.assertEqual(rust_source_metrics(crate_root), (3, 1))
 
-    def test_separates_production_and_dev_only_dependents(self):
+    def test_separates_production_and_dev_only_dependents(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            packages = []
+            packages: list[CargoPackage] = []
             for name in ("provider", "consumer", "dev-consumer"):
                 crate_root = root / name
                 (crate_root / "src").mkdir(parents=True)
@@ -41,7 +46,7 @@ class CrateBoundaryTests(unittest.TestCase):
             packages[2]["dependencies"] = [
                 {"name": "provider", "kind": "dev"}
             ]
-            metadata = {
+            metadata: CargoMetadata = {
                 "packages": packages,
                 "workspace_members": [package["id"] for package in packages],
             }

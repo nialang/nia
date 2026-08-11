@@ -12,7 +12,7 @@ from tools.nia_tools.baseline.compiler import (
 
 
 class PerfRunnerTests(unittest.TestCase):
-    def test_workload_command_uses_an_explicit_resource_root(self):
+    def test_workload_command_uses_an_explicit_resource_root(self) -> None:
         command = workload_command(
             Path("/tool/nia"), Path("/tool/lib"), ["check", "/source/main.nia"]
         )
@@ -28,13 +28,13 @@ class PerfRunnerTests(unittest.TestCase):
             ],
         )
 
-    def test_machine_metadata_records_explicit_runner_class(self):
+    def test_machine_metadata_records_explicit_runner_class(self) -> None:
         metadata = machine_metadata("github-hosted-ubuntu-24.04-x64")
         self.assertEqual(
             metadata["runner_class"], "github-hosted-ubuntu-24.04-x64"
         )
 
-    def test_accepts_instrumented_timing_report(self):
+    def test_accepts_instrumented_timing_report(self) -> None:
         require_allocation_instrumentation(
             {
                 "counters": {
@@ -44,15 +44,15 @@ class PerfRunnerTests(unittest.TestCase):
             }
         )
 
-    def test_rejects_uninstrumented_timing_report_with_build_command(self):
+    def test_rejects_uninstrumented_timing_report_with_build_command(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "--features perf-alloc"):
             require_allocation_instrumentation({"counters": {}})
 
-    def test_rejects_malformed_counters_with_build_command(self):
+    def test_rejects_malformed_counters_with_build_command(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "--features perf-alloc"):
             require_allocation_instrumentation({"counters": None})
 
-    def test_accepts_backend_finalization_live_window_counters(self):
+    def test_accepts_backend_finalization_live_window_counters(self) -> None:
         require_module_finalization_instrumentation(
             {
                 "counters": {
@@ -64,11 +64,11 @@ class PerfRunnerTests(unittest.TestCase):
             }
         )
 
-    def test_rejects_missing_backend_finalization_live_window_counters(self):
+    def test_rejects_missing_backend_finalization_live_window_counters(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "finalization live-window counters"):
             require_module_finalization_instrumentation({"counters": {}})
 
-    def test_accepts_multiple_codegen_bucket_units(self):
+    def test_accepts_multiple_codegen_bucket_units(self) -> None:
         require_codegen_bucket_instrumentation(
             {
                 "counters": {
@@ -81,7 +81,7 @@ class PerfRunnerTests(unittest.TestCase):
             4,
         )
 
-    def test_rejects_single_codegen_bucket_unit(self):
+    def test_rejects_single_codegen_bucket_unit(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
                 {
@@ -95,7 +95,7 @@ class PerfRunnerTests(unittest.TestCase):
                 2,
             )
 
-    def test_rejects_malformed_codegen_bucket_counter(self):
+    def test_rejects_malformed_codegen_bucket_counter(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
                 {
@@ -109,7 +109,7 @@ class PerfRunnerTests(unittest.TestCase):
                 2,
             )
 
-    def test_rejects_cached_codegen_bucket_sample(self):
+    def test_rejects_cached_codegen_bucket_sample(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
                 {
@@ -123,7 +123,7 @@ class PerfRunnerTests(unittest.TestCase):
                 4,
             )
 
-    def test_rejects_invalid_codegen_worker_lane_count(self):
+    def test_rejects_invalid_codegen_worker_lane_count(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
                 {
@@ -137,7 +137,7 @@ class PerfRunnerTests(unittest.TestCase):
                 4,
             )
 
-    def test_rejects_missing_live_ready_task_counter(self):
+    def test_rejects_missing_live_ready_task_counter(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "live ready-task path"):
             require_codegen_bucket_instrumentation(
                 {
@@ -150,7 +150,7 @@ class PerfRunnerTests(unittest.TestCase):
                 4,
             )
 
-    def test_rejects_partial_live_ready_task_submission(self):
+    def test_rejects_partial_live_ready_task_submission(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "live ready-task path"):
             require_codegen_bucket_instrumentation(
                 {
@@ -164,7 +164,7 @@ class PerfRunnerTests(unittest.TestCase):
                 4,
             )
 
-    def test_large_codegen_source_is_stable_and_reachable(self):
+    def test_large_codegen_source_is_stable_and_reachable(self) -> None:
         source = large_codegen_source(blob_count=8, blob_bytes=4096)
         self.assertEqual(source.count("static blob"), 8)
         self.assertEqual(source.count("[4096]u8"), 8)

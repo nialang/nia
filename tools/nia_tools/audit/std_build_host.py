@@ -8,7 +8,9 @@ import json
 import re
 from collections import deque
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 from tools.nia_tools.repository import REPOSITORY_ROOT
 
@@ -26,6 +28,19 @@ MODULE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class Options:
+    print_snapshot: bool
+    snapshot: Path
+
+
+class Snapshot(TypedDict):
+    schema_version: int
+    kind: str
+    roots: list[str]
+    modules: list[str]
+
+
 def package_module_path(reference: str, std_root: Path = STD_ROOT) -> Path:
     parts = reference.split("::")
     for length in range(len(parts), 0, -1):
@@ -40,7 +55,7 @@ def child_module_path(owner: Path, name: str) -> Path:
 
 
 def source_dependencies(path: Path, std_root: Path = STD_ROOT) -> set[Path]:
-    dependencies = set()
+    dependencies: set[Path] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         if match := USING.match(line):
             dependencies.add(package_module_path(match.group(1), std_root))
@@ -65,7 +80,7 @@ def build_host_closure(std_root: Path = STD_ROOT) -> list[str]:
     return sorted(str(path.relative_to(std_root.parent)) for path in visited)
 
 
-def snapshot() -> dict[str, object]:
+def snapshot() -> Snapshot:
     return {
         "schema_version": 1,
         "kind": "nia-std-build-host-source-closure",
@@ -74,7 +89,7 @@ def snapshot() -> dict[str, object]:
     }
 
 
-def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> Options:
     parser = argparse.ArgumentParser(
         prog="python3 -m tools audit std-build-host", description=__doc__
     )
@@ -89,13 +104,19 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SNAPSHOT,
         help="snapshot to check (default: tools/fixtures/std-build-host-dependencies.json)",
     )
-    return parser.parse_args(arguments)
+    namespace = parser.parse_args(arguments)
+    if not isinstance(namespace.snapshot, Path):
+        raise TypeError("argparse did not produce a Path for --snapshot")
+    return Options(
+        print_snapshot=bool(namespace.print),
+        snapshot=namespace.snapshot,
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
     args = parse_args(arguments)
     current = snapshot()
-    if args.print:
+    if args.print_snapshot:
         print(json.dumps(current, indent=2))
         return 0
 
