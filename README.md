@@ -263,7 +263,7 @@ slices, structs and enums, control flow, standard-library I/O, collections,
 generics, traits, error handling, and multi-file imports. They use the current
 executable entry contract:
 `pub fn main(process::Init) process::ExitCode!()`. They print visible results
-with the fallible `std::debug::print(...).exit().?` boundary, and
+with the fallible `std::debug::print(...).?` boundary, and
 `03_stdout.nia` shows explicit stdout output through `std::io` and `std::fmt`.
 
 ## Documentation
@@ -281,6 +281,10 @@ with the fallible `std::debug::print(...).exit().?` boundary, and
   build-host dependency audit, and API maturity rules.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
   discipline, acceptance rules, and roadmap-retirement policy.
+- [docs/error-handling-roadmap.md](docs/error-handling-roadmap.md): active error
+  propagation, const, and mapping API proposal.
+- [docs/std-feature-integration-roadmap.md](docs/std-feature-integration-roadmap.md):
+  active tuple and closure standard-library integration proposal.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
 - [docs/project-conventions.md](docs/project-conventions.md): maintenance rules

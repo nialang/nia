@@ -12,15 +12,15 @@ pub fn main(init: Init) ExitCode!() {
         .withArguments(&arguments)
         .withEnvironment(&environment)
         .withStdout(process::StdIo::Pipe);
-    let mut child = command.spawn().exit().?;
+    let mut child = command.spawn().?;
     let mut stdout = switch child.takeStdout() {
         ?value => value,
         null => return process::exit(1)!,
     };
     let mut output: [18]u8 = [0; 18];
-    stdout.readExact(&mut output[..]).exit().?;
-    stdout.close().exit().?;
-    let term = child.wait().exit().?;
+    stdout.readExact(&mut output[..]).?;
+    stdout.close().?;
+    let term = child.wait().?;
     if not term.succeeded() or not (&output[..]).equals(&b"typed environment\n") {
         return process::exit(1)!;
     }

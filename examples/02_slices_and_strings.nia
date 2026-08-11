@@ -77,11 +77,11 @@ pub fn main(init: Init) ExitCode!() {
     let phraseText: &[char] = &phrase;
     let mut textStorage: [256]u8 = [0; 256];
     let mut textAllocator = mem::FixedBufferAllocator::init(&mut textStorage);
-    let mut replaced = phraseText.replaceAll(&mut textAllocator, &"coercion", &"iteration").exit().?;
-    defer replaced.deinit(&mut textAllocator).exit().?;
+    let mut replaced = phraseText.replaceAll(&mut textAllocator, &"coercion", &"iteration").?;
+    defer replaced.deinit(&mut textAllocator).?;
     let textParts: [2]&[char] = [phraseText, replaced.text()];
-    let mut joined = (&textParts).join(&mut textAllocator, &" -> ").exit().?;
-    defer joined.deinit(&mut textAllocator).exit().?;
+    let mut joined = (&textParts).join(&mut textAllocator, &" -> ").?;
+    defer joined.deinit(&mut textAllocator).?;
 
     if first_written != 2 {
         return exit(1)!;
@@ -131,7 +131,7 @@ pub fn main(init: Init) ExitCode!() {
             &stable_bytes_len,
             &copied_len,
         ],
-    ).exit().?;
+    ).?;
 
     !()
 }
