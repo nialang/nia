@@ -113,6 +113,27 @@ where I: Iterator
             }
         }
     }
+
+    pub fn fold[Accumulator](
+        self,
+        initial: Accumulator,
+        callback: &Fn(Accumulator, [I as Iterator]::Item) Accumulator,
+    ) Accumulator {
+        let mut iter = self;
+        let mut accumulator = initial;
+        let mut done = false;
+        while done == false {
+            switch iter.next() {
+                ?value => {
+                    accumulator = callback(accumulator, value);
+                },
+                null => {
+                    done = true;
+                },
+            }
+        }
+        accumulator
+    }
 }
 
 extend[I] I
