@@ -11,7 +11,7 @@ on:
       - "lib/**"
       - "examples/**"
       - "benchmarks/build/**"
-      - "tools/**"
+      - "maintain/**"
   push:
     branches:
       - main
@@ -24,7 +24,7 @@ on:
       - "lib/**"
       - "examples/**"
       - "benchmarks/build/**"
-      - "tools/**"
+      - "maintain/**"
   workflow_dispatch:
 
 permissions:

@@ -61,9 +61,9 @@ impl Drop for TemporaryDirectory {
 
 pub fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
+        .join("..")
         .canonicalize()
-        .expect("nia-maintain must live under the repository tools directory")
+        .expect("nia-maintain must live under the repository root")
 }
 
 pub fn absolute_path(path: &Path) -> MaintainResult<PathBuf> {

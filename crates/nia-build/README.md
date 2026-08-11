@@ -104,7 +104,7 @@ The principal end-to-end contracts live in
 representative clean/warm/edit/corruption workload lives under
 [`benchmarks/build/`](../../benchmarks/build/) and is run through
 `cargo maintain baseline build`. The maintenance command is documented in
-[`tools/README.md`](../../tools/README.md).
+[`maintain/README.md`](../../maintain/README.md).
 
 Historical migration matrices, dated measurements, and hosted-run identifiers
 belong in Git history and generated evidence, not in this maintained contract.

@@ -223,8 +223,8 @@ language states are tracked through Git tags.
 - [examples/](examples/): small executable programs for the current language
   and standard-library surface.
 - [benchmarks/](benchmarks/): fixed compiler performance workloads.
-- [tools/README.md](tools/README.md): Rust maintenance binary for audits, crate
-  reports, and compiler/build baselines.
+- [maintain/](maintain/): repository maintenance subsystem for audits, crate
+  reports, fixtures, and compiler/build baselines.
 - [.github/workflows/build-std.yml](.github/workflows/build-std.yml): managed
   build/std correctness matrix for clean/warm/edit/corruption/failure builds,
   relocation, installed artifact execution, and workspace validation.

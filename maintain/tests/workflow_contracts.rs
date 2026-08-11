@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
+        .join("..")
         .canonicalize()
         .unwrap()
 }
@@ -23,7 +23,7 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
         "lib/**",
         "examples/**",
         "benchmarks/build/**",
-        "tools/**",
+        "maintain/**",
     ] {
         assert!(
             workflow.contains(&format!("      - \"{path}\"")),
