@@ -53,6 +53,78 @@ fn main() bool!i32 {
 }
 
 #[test]
+fn fallible_callable_argument_infers_nested_error_union_return() {
+    let checked = pipeline(
+        r#"
+extend[Value, Source, Target] Source!Value {
+    fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+        switch self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fn source() i32!i32 {
+    1!
+}
+
+fn main() i32 {
+    let recovered = source().orElse(&[](error: i32) bool!i32 {
+        if error == 1 {
+            !42
+        } else {
+            true!
+        }
+    });
+    switch recovered {
+        !value => value,
+        error! => if error { 1 } else { 0 },
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn fallible_error_recovery_rejects_a_different_success_type() {
+    let checked = pipeline(
+        r#"
+extend[Value, Source, Target] Source!Value {
+    fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+        switch self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fn source() i32!i32 {
+    1!
+}
+
+fn main() bool!i32 {
+    source().orElse(&[](error: i32) bool!i64 {
+        _ = error;
+        !42
+    })
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("expected &Fn(i32) bool!i32")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn constructs_and_calls_readonly_and_mutable_callable_views() {
     let checked = pipeline(
         r#"

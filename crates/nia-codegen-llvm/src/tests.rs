@@ -156,6 +156,40 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn callable_view_codegen_passes_indirect_error_union_return_storage() {
+    let root = common::temp_dir("callable_view_codegen_indirect_error_union_return");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main(flag: bool) bool!i32 {
+    let callback = [](value: i32) bool!i32 {
+        if value == 1 {
+            !42
+        } else {
+            true!
+        }
+    };
+    let view: &Fn(i32) bool!i32 = &callback;
+    view(if flag { 1 } else { 0 })
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+
+    assert!(
+        ir.contains("call void %callable.entry") && ir.contains("(ptr %0, ptr %callable.state"),
+        "LLVM IR omitted callable indirect return storage: {ir}"
+    );
+}
+
+#[test]
 fn closure_function_pointer_codegen_materializes_adapter() {
     let root = common::temp_dir("closure_function_pointer_codegen_adapter");
     let main = root.join("main.nia");
