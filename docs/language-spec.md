@@ -1160,6 +1160,11 @@ evaluated once, the conversion is skipped on success, and the compiler does not
 introduce allocation or type erasure. An `IntoError` implementation is expected
 to be an infallible error mapping; conversions that add values not present in
 the source, such as an operation name or path, remain explicit adapters.
+Diagnostics distinguish a missing direct implementation from a malformed
+`IntoError` protocol and from a rejected two-step chain. A protocol witness must
+provide a value receiver with exactly the `into_error(self) Target` shape; a
+source-to-intermediate and intermediate-to-target pair is still rejected rather
+than executed as multiple conversions.
 
 Automatic conversion is available during const evaluation only when the
 selected `into_error` witness is a `const fn`. Const evaluation performs that
