@@ -98,6 +98,113 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_error_or_else_recovers_or_replaces_failure() {
+    let root = temp_dir("emit_exe_std_error_or_else_recovers_or_replaces_failure");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::process;
+
+enum SourceError: i32 {
+    Missing = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Wrapped = 2,
+    Unexpected = 3,
+    _,
+}
+
+fn source(ok: bool) SourceError!(i32, i32) {
+    if ok {
+        !(20, 22)
+    } else {
+        SourceError::Missing!
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let success = source(true).orElse(&[](cause: SourceError) TargetError!(i32, i32) {
+        _ = cause;
+        std::builtin::trap();
+        TargetError::Unexpected!
+    });
+    switch success {
+        !(left, right) => if left + right != 42 {
+            return process::exit(1)!;
+        },
+        cause! => {
+            _ = cause;
+            return process::exit(2)!;
+        },
+    }
+
+    let offset = 2;
+    let recovered = source(false).orElse(&[offset](cause: SourceError) TargetError!(i32, i32) {
+        if cause == SourceError::Missing {
+            !(40, offset)
+        } else {
+            TargetError::Unexpected!
+        }
+    });
+    switch recovered {
+        !(left, right) => if left + right != 42 {
+            return process::exit(3)!;
+        },
+        cause! => {
+            _ = cause;
+            return process::exit(4)!;
+        },
+    }
+
+    let replaced = source(false).orElse(&[](cause: SourceError) TargetError!(i32, i32) {
+        if cause == SourceError::Missing {
+            TargetError::Wrapped!
+        } else {
+            TargetError::Unexpected!
+        }
+    });
+    switch replaced {
+        !value => {
+            _ = value;
+            return process::exit(5)!;
+        },
+        TargetError::Wrapped! => {},
+        cause! => {
+            _ = cause;
+            return process::exit(6)!;
+        },
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std error orElse");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_into_error_is_const_propagation_protocol() {
     let root = temp_dir("emit_exe_std_into_error_is_const_propagation_protocol");
     let main = root.join("main.nia");

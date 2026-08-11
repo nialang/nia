@@ -1120,6 +1120,142 @@ fn driver_invalidates_reused_loader_sources() {
 }
 
 #[test]
+fn incremental_into_error_witness_body_invalidates_const_result() {
+    let initial = r#"
+trait IntoError[Target] {
+    const fn into_error(self) Target;
+}
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    First = 1,
+    Second = 2,
+    _,
+}
+
+extend SourceError : IntoError[TargetError] {
+    const fn into_error(self) TargetError {
+        TargetError::First
+    }
+}
+
+const fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+
+const converted = propagate(SourceError::Failed!);
+const width: usize = switch converted {
+    TargetError::First! => 1,
+    TargetError::Second! => 2,
+    _ => 3,
+};
+
+fn requireOne(value: [1]i32) () {
+    _ = value;
+}
+
+fn main() () {
+    let values: [width]i32 = [0; width];
+    requireOne(values)
+}
+"#;
+    let edited = initial.replace("TargetError::First\n    }", "TargetError::Second\n    }");
+
+    let driver = test_driver();
+    driver.set_source("main.nia", initial);
+    let first =
+        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+    driver.set_source("main.nia", edited.clone());
+    let incremental =
+        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
+
+    let clean_driver = test_driver();
+    clean_driver.set_source("main.nia", edited);
+    let clean =
+        checked_program_from_output(clean_driver.check_all_modules(CheckRequest::new("main.nia")));
+    let incremental_summaries = incremental
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    let clean_summaries = clean
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(incremental_summaries, clean_summaries);
+    assert!(
+        incremental_summaries.iter().any(|summary| {
+            summary.contains("expected [1]i32") && summary.contains("got [2]i32")
+        })
+    );
+}
+
+#[test]
+fn incremental_error_recovery_callable_signature_matches_clean_recomputation() {
+    let initial = r#"
+using std::error;
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Wrapped = 2,
+    _,
+}
+
+fn source() SourceError!i32 {
+    SourceError::Failed!
+}
+
+fn main() TargetError!i32 {
+    source().orElse(&[](cause: SourceError) TargetError!i32 {
+        _ = cause;
+        !42
+    })
+}
+"#;
+    let edited = initial.replace(
+        "TargetError!i32 {\n        _ = cause;\n        !42",
+        "bool!i32 {\n        _ = cause;\n        !42",
+    );
+
+    let driver = test_driver();
+    driver.set_source("main.nia", initial);
+    let first = checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+    driver.set_source("main.nia", edited.clone());
+    let incremental =
+        checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
+
+    let clean_driver = test_driver();
+    clean_driver.set_source("main.nia", edited);
+    let clean =
+        checked_program_from_output(clean_driver.check_entry(CheckRequest::new("main.nia")));
+    let incremental_summaries = incremental
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    let clean_summaries = clean
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(incremental_summaries, clean_summaries);
+    assert!(!incremental_summaries.is_empty());
+}
+
+#[test]
 fn driver_replaces_compiler_with_loader_query_session() {
     let driver = test_driver();
     driver.set_source("main.nia", "fn main() i32 { 1 }");

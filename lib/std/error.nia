@@ -13,6 +13,17 @@ extend[Value, Source, Target] Source!Value {
             },
         }
     }
+
+    pub fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+        switch self {
+            !value => {
+                !value
+            },
+            error! => {
+                fallback(error)
+            },
+        }
+    }
 }
 
 extend[T, Source, Target] Source!T

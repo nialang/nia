@@ -602,21 +602,24 @@ NULL-terminated `argv`/`envp` arrays that remain valid until spawn returns.
 `std::error::IntoError[Target]` is the infallible, cause-preserving conversion
 used by direct `.?` propagation. Its trait method is `const fn`, so a selected
 standard or user witness can participate in const propagation when its body is
-const-capable. Error unions additionally expose
-`mapError`, which accepts a synchronous borrowed `&Fn(Source) Target` view,
-preserves the success payload, and invokes the callback only on the error arm.
-The receiver is evaluated once. The operation does not retain the callback,
-allocate callable storage, infer destruction, or add contextual operation/path
-information; those mappings remain explicit domain adapters. Inline closures
-participate in ordinary generic inference through their explicit return type,
-so a result annotation is not required merely to select `Target`.
+const-capable. Error unions additionally expose `mapError`, which accepts a
+synchronous borrowed `&Fn(Source) Target` view, preserves the success payload,
+and invokes the callback only on the error arm. `orElse` accepts
+`&Fn(Source) Target!Value`; its failure callback can recover with `!value` or
+return a replacement `Target!`, while success bypasses the callback unchanged.
+Both operations evaluate the receiver once. Neither operation retains the
+callback, allocates callable storage, infers destruction, changes the success
+type, or adds contextual operation/path information; those mappings remain
+explicit domain adapters. Inline closures participate in ordinary generic
+inference through their explicit return type, so a result annotation is not
+required merely to select `Target`.
 
 The callback view is valid only for the `mapError` call. Lazy std adapters must
 not store this view; an adapter that outlives the call must own a sized callable
 or use the explicit `mem::CallableAllocation` boundary and its sole
 `deinit` release right.
-Callable-view calls are currently runtime-only, so `mapError` is not a const
-operation.
+Callable-view calls are currently runtime-only, so `mapError` and `orElse` are
+not const operations.
 
 Build-plan text and paths must be owned by the builder/plan arena or copied into
 the serialized plan. A borrowed text slice, `PathView`, module import, or target name

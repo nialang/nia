@@ -50,8 +50,9 @@ once; the preserved success payload is a tuple, covering the complete generic
 error-union/callable/tuple lowering path. The second slice adds const
 `IntoError` propagation, upgrades the standard protocol and existing standard
 witnesses to `const fn`, and proves both tuple-success preservation and
-failure-only conversion through emitted code. Fallible mapping and richer
-recovery operations remain undecided and are not silently included.
+failure-only conversion through emitted code. The third slice adds `orElse` as
+the explicit fallible recovery boundary without changing the success type or
+introducing recursive error-union flattening.
 
 ## 2. Decisions And Open Questions
 
@@ -72,10 +73,11 @@ Open questions block only the behavior they affect.
    `CallableAllocation`; those shapes would add restrictions or ownership that
    a synchronous mapping does not need. Capturing mutability remains outside
    this project.
-4. How are fallible mappings represented? A `mapError` callback returning
-   `Target` is infallible. A callback returning `Target!Target2` would require
-   a specified flattening operation and must not be smuggled in as an implicit
-   conversion.
+4. Resolved: fallible recovery is `Source!Value::orElse`, whose callback has
+   type `Fn(Source) Target!Value` and whose result is `Target!Value`. The callback
+   runs only on failure and can recover or replace the error. Requiring the same
+   `Value` type makes the single returned error-union layer explicit; no general
+   nested-union flattening or success mapping is implied.
 5. Which standard conversions are safe to provide? `IntoError` may preserve or
    narrow an existing cause, but it must not invent operation/path context,
    allocate, or erase the source. Contextual errors continue through named

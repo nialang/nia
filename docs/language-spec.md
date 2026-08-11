@@ -1187,6 +1187,26 @@ mapping operation and is not an additional automatic propagation conversion.
 Callable-view calls are runtime-only, so `mapError` is not available in const
 evaluation.
 
+Fallible recovery uses `orElse`:
+
+```nia
+let recovered = operation().orElse(&[fallback](cause: SourceError) TargetError!Value {
+    if canRecover(cause) {
+        !fallback
+    } else {
+        TargetError::Unavailable!
+    }
+});
+```
+
+`Source!Value::orElse` also evaluates its receiver once and skips the callback
+on success. On failure, its callback returns `Target!Value`, so it may recover
+with a success value or replace the error. The success type remains exactly
+`Value`; callbacks that produce another success type are rejected. The result
+has one error-union layer, with no implicit conversion or recursive flattening.
+Like `mapError`, `orElse` borrows a readonly synchronous callable and is not
+available during const evaluation.
+
 Patterns can destructure optional and error-union values:
 
 ```nia

@@ -24,7 +24,9 @@ acceptance, not a reason to add progress to an old roadmap.
   products. A callable view is non-owning; deinitialization remains explicit.
 - `.?` and `IntoError` remove former explicit `.exit().?` call-site adapters;
   `std::error::mapError` now owns explicit synchronous error-arm mapping, while
-  recovery and fallible combinators remain unreviewed.
+  `std::error::orElse` owns synchronous failure recovery or replacement without
+  changing the success type. Success-side fallible combinators remain
+  unreviewed.
 
 These observations are design input, not a mandate to rewrite every named
 struct or add callbacks to every loop. Each migration must demonstrate a real
@@ -41,6 +43,9 @@ error-handling roadmap because its target/error semantics are a language/std
 boundary rather than an iterator concern. Its conformance case uses a tuple
 success payload, establishing tuple preservation through a real generic std
 operation without replacing ownership-sensitive named result structs.
+The error roadmap's next std slice adds `orElse` with the same borrowed callable
+lifetime. Its callback returns one explicit `Target!Value` layer, so it can
+recover or replace a failure while tuple success values remain unchanged.
 
 ## 2. Candidate API Families
 
@@ -53,8 +58,9 @@ callable value:
 - `map` for `Fn(Item) Output`;
 - `filter` for `Fn(Item) bool` or a clearly specified borrowed-item form;
 - `fold`/`tryFold` as eager operations;
-- `tryMap` only after the error-handling roadmap decides fallible mapping and
-  flattening semantics; `mapError` is already owned by the error-union API.
+- `tryMap` only after its item-success and iterator-error ownership are reviewed;
+  error-union `mapError` and `orElse` do not implicitly decide how a lazy
+  iterator stores or combines those values.
 
 The first implementation may use a borrowed callable view for a synchronous
 operation, but a lazy adapter must define how its callable state lives across

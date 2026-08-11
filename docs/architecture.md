@@ -998,6 +998,13 @@ The const IR remains a resolved expression tree, while the call-frame fact
 supplies the evaluation-only failure-edge operation without duplicating runtime
 BIR.
 
+Standard error-union combinators remain ordinary generic extension methods.
+`mapError` calls `Fn(Source) Target` only on failure. `orElse` calls
+`Fn(Source) Target!Value` only on failure and returns that callback result
+directly, while its success arm reconstructs `!value`. The nested callback
+return type therefore participates in ordinary callable/generic inference; no
+compiler-owned error-union flattening operation or recovery side channel exists.
+
 Binary const expressions are typed conservatively from operand types.
 Boolean logic and comparisons produce `bool`; integer arithmetic and bit
 operations produce the shared operand type only when both operands already have
@@ -1534,13 +1541,20 @@ apply to a closure-state pointer after that pointer has been stored separately.
 Generic method argument inference also treats a direct pointer to a
 `ClosureState` as its callable signature while the expected callable parameter
 is being inferred. This preserves the normal generic method path for synchronous
-APIs such as `Source!T::mapError`; it does not broaden callable coercion after a
-closure-state pointer has been stored separately or extend its lifetime.
+APIs such as `Source!T::mapError` and `Source!T::orElse`; it does not broaden
+callable coercion after a closure-state pointer has been stored separately or
+extend its lifetime.
 Checked Body IR records the operation as `TypedExprKind::CallableCoercion` and
 records calls with `TypedCallee::Callable`; Function IR preserves those as
 `FunctionExprKind::CallableCoercion` and `FunctionCallee::Callable`. Both nodes
 retain ordinary recursive expression dependencies, while the construction also
 carries the owning `ClosureId` used to select the generated entry.
+
+LLVM callable entries use the same return classification as direct Nia calls.
+An indirect aggregate return has ABI order `out pointer, state pointer,
+arguments...`; direct returns start with the state pointer. Callable-view
+function types, generated closure entry declarations, and indirect call sites
+all derive that order from the shared return/parameter classifiers.
 
 No-capture closure conversion to the existing thin `&fn` type uses a separate
 identity-preserving path. Body checking accepts only an expected-signature-guided

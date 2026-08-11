@@ -150,7 +150,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         return_type: InternedTyId,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
-        let mut llvm_params = vec![self.context.ptr_type(Default::default()).into()];
+        let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
+        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type) {
+            llvm_params.push(self.pointer_abi_type(ty, span)?);
+        }
+        llvm_params.push(self.context.ptr_type(Default::default()).into());
         for param in self.classify_params_in(params.iter().copied()) {
             match param {
                 AbiParam::Direct(ty) => {
