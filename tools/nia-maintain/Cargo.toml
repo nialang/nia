@@ -1,0 +1,16 @@
+[package]
+name = "nia-maintain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"

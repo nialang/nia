@@ -68,6 +68,7 @@ members = [
     "crates/nia-flow-check",
     "crates/nia-opt",
     "crates/nia-cli",
+    "tools/nia-maintain",
 ]
 
 [workspace.package]
@@ -79,6 +80,10 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 jobserver = "0.1.35"
 libc = "0.2.186"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+toml = "1.1.4"
 nia-compat = { path = "crates/nia-compat" }
 nia-span = { path = "crates/nia-span" }
 nia-source = { path = "crates/nia-source" }
