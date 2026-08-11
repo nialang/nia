@@ -78,10 +78,10 @@ that declaration. Changing the encoded inputs or their meaning requires a
 domain-version increment, and the compatibility audit rejects malformed,
 duplicated, or inline production domains.
 
-A future public-version reset, compatibility epoch, or development-schema
-renumbering requires its own release proposal after audit and representative
-project testing. The registry preserves current values until that proposal is
-accepted; it does not make a reset implicit.
+A public-version reset, compatibility epoch, or development-schema renumbering
+requires its own release proposal after audit and representative project
+testing. The registry preserves current values until that proposal is accepted;
+it does not make a reset implicit.
 
 - Never serialize a session-local index or infer stable identity from allocation
   order, module number, query slot, pointer value, or debug formatting.

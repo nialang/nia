@@ -113,5 +113,5 @@ close a proposal that does not fit the project direction.
 Compiler implementation contributions are made under `GPL-3.0-or-later`, as
 described in the repository [LICENSE.md](../LICENSE.md).
 
-Documentation licensing is intentionally separate from the compiler
-implementation license unless a future document explicitly says otherwise.
+Documentation has no separate license grant unless its owning file states one
+explicitly.

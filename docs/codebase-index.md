@@ -40,7 +40,7 @@ backends directly.
 | Type/signature | `nia-ty`, `nia-type-resolve`, `nia-type-lower`, `nia-item-signatures`, `nia-program-signatures`, `nia-type-normalize`, `nia-trait-solve` | Type identity, declaration signatures, normalization, and trait selection |
 | Name resolution | `nia-value-resolve`, `nia-local-resolve` | Global value paths and function-local bindings |
 | Const/static/ABI | `nia-sema`, `nia-sema-ir`, `nia-const-ir`, `nia-const-eval`, `nia-const-check`, `nia-static-check`, `nia-static-ir`, `nia-layout`, `nia-abi-check` | Shared semantic checks, compile-time values, static storage, layout, and ABI validation |
-| Bodies and function IR | `nia-flow-check`, `nia-body-check`, `nia-body-ir`, `nia-function-ir`, `nia-function-lower`, `nia-function-opt`, `nia-ir-names` | Typed bodies, places/control flow, lowering, and function-local optimization |
+| Bodies and function IR | `nia-flow-check`, `nia-body-check`, `nia-body-ir`, `nia-closure-check`, `nia-function-ir`, `nia-function-lower`, `nia-function-opt`, `nia-ir-names` | Typed bodies, places/control flow, closure escape validation, lowering, and function-local optimization |
 | Executable closure | `nia-executable-facts`, `nia-executable-reachability`, `nia-monomorphize`, `nia-mangle` | Reachable program facts, generic instances, and stable symbols |
 | Backend | `nia-backend-ir`, `nia-backend-lower`, `nia-llvm`, `nia-codegen-llvm` | Backend ownership boundary, lowering, LLVM facade, objects and work products |
 | Product surface | `nia-linker`, `nia-driver`, `nia-build`, `nia-cli` | Linking, typed compiler requests, build coordination/cache, and the `nia` binary |
@@ -81,7 +81,7 @@ backends directly.
 - build-host declarations and protocol encoding in `build/`.
 
 The durable facade, ownership, and API rules live beside the implementation in
-`../lib/README.md` and the owning `lib/std` modules. Broad `using std` spelling
+[`lib/README.md`](../lib/README.md) and the owning `lib/std` modules. Broad `using std` spelling
 is not evidence that all facade modules perform semantic or backend work;
 loader/provider closure tests own that guarantee.
 

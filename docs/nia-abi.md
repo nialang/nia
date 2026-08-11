@@ -717,10 +717,9 @@ still satisfy this section regardless of optimization level.
 
 Exact-key monomorphized instance deduplication is required at every
 optimization level for deterministic symbol identity. The
-`dedup_monomorphized_instances` policy field exposes this boundary for current
-reports and future size-oriented cross-instance deduplication; it must not make
-required exact-key deduplication optional or merge instances that need distinct
-ABI-visible symbols.
+`dedup_monomorphized_instances` policy field exposes this boundary in
+optimization reports; it must not make required exact-key deduplication optional
+or merge instances that need distinct ABI-visible symbols.
 
 Optimization levels may change backend IR shape, generated instruction
 sequences, temporary storage, and whether unreachable or redundant runtime work
