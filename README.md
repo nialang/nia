@@ -275,8 +275,8 @@ with the fallible `std::debug::print(...).?` boundary, and
   boundaries.
 - [docs/codebase-index.md](docs/codebase-index.md): maintainer index for crate
   ownership, build/std entry points, tests, and common change paths.
-- [docs/build-system.md](docs/build-system.md): build ownership, plan/action
-  contracts, acceptance evidence, and resource discipline.
+- [crates/nia-build/README.md](crates/nia-build/README.md): build invocation,
+  plan, coordinator, cache, output-publication, and test ownership.
 - [lib/README.md](lib/README.md): standard-library facade, ownership, error,
   callback, and conformance boundaries.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change

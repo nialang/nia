@@ -1,3 +1,9 @@
+// Canonical build-plan draft encoding used by the generated runner.
+//
+// Encoding is bounded and deterministic. The Rust decoder validates the
+// registered schema and freezes the complete graph again before execution, so
+// this module is a handoff owner rather than an action executor.
+
 using pkg::collections;
 using pkg::fs;
 using pkg::io;

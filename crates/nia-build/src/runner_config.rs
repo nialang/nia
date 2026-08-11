@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Private bounded configuration for one generated build runner.
+//!
+//! The runner receives one invocation-qualified file rather than reconstructing
+//! package, toolchain, target, optimization, or step state from positional
+//! arguments. The registered format is checksummed and removed with the runner.
+
 use std::path::Path;
 
 use nia_compat::formats::{BUILD_PLAN, RUNNER_CONFIG};

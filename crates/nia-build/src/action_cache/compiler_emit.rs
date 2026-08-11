@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Compiler-emit bindings to Driver-owned executable products.
+//!
+//! Identity extends the compiler-check manifest with artifact, output, archive
+//! input, and link-environment components. The record stores a typed Driver
+//! cache reference, not executable bytes, and invalid referents fall back to
+//! ordinary compilation after retiring only this binding.
 
 use std::{
     collections::BTreeSet,

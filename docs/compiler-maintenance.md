@@ -219,12 +219,13 @@ surface, migration boundary, tests, and performance evidence. Do not append
 build or standard-library feature work to an already closed compiler roadmap or
 reuse compiler completion percentages to describe it.
 
-Durable build ownership and API decisions live in
-[build-system.md](build-system.md). Standard-library decisions live beside their
-owners in [`lib/README.md`](../lib/README.md) and the relevant `lib/std` facade
-or module. Current std APIs are not retained merely because they made the
-bootstrap run, and full build sessions remain resource-accounted integration
-work rather than ordinary unit tests.
+Durable build ownership and API decisions live beside their owners in
+[`crates/nia-build/README.md`](../crates/nia-build/README.md), the relevant Rust
+module, and [`lib/std/build.nia`](../lib/std/build.nia). Other standard-library
+decisions likewise live in [`lib/README.md`](../lib/README.md) and the relevant
+`lib/std` facade or module. Current std APIs are not retained merely because
+they made the bootstrap run, and full build sessions remain resource-accounted
+integration work rather than ordinary unit tests.
 
 Any compiler changes required by that work still follow this maintenance
 contract. Ordinary build or standard-library errors must continue through the

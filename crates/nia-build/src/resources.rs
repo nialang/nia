@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Action-level accounting layered on inherited query-session capacity.
+//!
+//! CPU and I/O declarations reserve one slot. Conservative work reserves the
+//! complete action capacity so an unknown or nested tool cannot overlap another
+//! ready action. This budget does not replace compiler or LLVM memory limits.
 
 use std::sync::{Condvar, Mutex};
 

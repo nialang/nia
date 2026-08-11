@@ -1,3 +1,10 @@
+// Build-script construction, validation, handoff, and cleanup failures.
+//
+// Context records the attempted operation and owned subject while `ErrorCause`
+// preserves allocation, formatting, filesystem, process, and exit failures.
+// Ordinary build errors propagate explicitly; `Internal` is reserved for a
+// violated build-library invariant.
+
 using pkg::error;
 using pkg::fmt;
 using pkg::fs;

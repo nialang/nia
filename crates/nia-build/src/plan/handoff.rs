@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Durable handoff for a validated canonical build plan.
+//!
+//! Publication writes and syncs a same-directory temporary file, renames it
+//! atomically, and syncs the parent. The already decoded plan remains execution
+//! truth; `build-plan.bin` is the last completed durable observation.
 
 use super::{BuildPlan, PlanCodecError, codec::MAX_PLAN_BYTES};
 use std::{

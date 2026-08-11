@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Persistent records for explicitly declared external commands.
+//!
+//! Eligibility requires a cleared environment, declared semantic inputs, and
+//! declared outputs. Tool bytes, logical inputs, explicit environment, package
+//! roots, dependencies, and compatibility components form identity; a hit
+//! restores the complete checksummed output set through output recovery.
 
 use std::{
     fs,

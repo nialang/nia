@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Bounded subprocess output capture and owned process-tree cleanup.
+//!
+//! Output may be forwarded while retaining only a fixed tail for diagnostics.
+//! Timeout, cancellation, and parent failure retire descendants instead of
+//! leaving background tools attached to a completed build.
 
 use std::{
     io::{self, Read, Write},

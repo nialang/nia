@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Deterministic selected-closure scheduling and typed action execution.
+//!
+//! Ready actions run in canonical waves through the inherited `QuerySession`
+//! budget. Completion order is not observable, failures cancel later canonical
+//! work, and every output-producing action crosses the locked journaled
+//! publication boundary before its result becomes visible.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

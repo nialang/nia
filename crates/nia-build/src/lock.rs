@@ -1,3 +1,9 @@
+//! Cross-process ownership locks for stable logical build outputs.
+//!
+//! Equal destinations serialize through the same cache-rooted coordination key.
+//! Owner PID, process start time, and acquisition sequence prevent stale or
+//! older same-process guards from removing a live successor's lock.
+
 use std::{
     fs, io,
     io::Write as _,

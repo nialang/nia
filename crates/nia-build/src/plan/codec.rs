@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Canonical registered build-plan encoding.
+//!
+//! The codec bounds every collection and payload, rejects unknown identities
+//! and trailing data, and routes decoded drafts back through semantic freeze.
 
 use super::*;
 use std::fmt;

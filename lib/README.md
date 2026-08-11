@@ -24,8 +24,9 @@ The library follows a small set of ownership rules:
 The source files are the API reference: facades state their boundaries and the
 owning modules document type-specific lifetime, error, and cleanup contracts.
 Language-level behavior is specified in `docs/language-spec.md`; implemented
-compiler and build boundaries are described in `docs/architecture.md` and
-`docs/build-system.md`.
+compiler boundaries are described in `docs/architecture.md`, and Rust build
+ownership lives in [`crates/nia-build/README.md`](../crates/nia-build/README.md)
+and its source modules.
 
 Standard-library conformance lives primarily in the `emit_exe_*.rs` and
 `std_*.rs` tests under `crates/nia-cli/tests/`, plus the full-pipeline tests under
