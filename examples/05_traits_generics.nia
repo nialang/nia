@@ -53,7 +53,7 @@ pub fn main(init: Init) ExitCode!() {
         return exit(1)!;
     }
 
-    debug::print(&"traits total={}\n", &[&measured]).exit().?;
+    debug::print(&"traits total={}\n", &[&measured]).?;
 
     !()
 }

@@ -31,7 +31,7 @@ pub fn main(init: Init) ExitCode!() {
     debug::print(
         &"modules sum={} len2={} color={} diff={}\n",
         &[&sum, &len2, &color, &diff],
-    ).exit().?;
+    ).?;
 
     !()
 }

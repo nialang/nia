@@ -11,12 +11,13 @@ Each top-level `.nia` file uses the current entry contract:
 Most examples print their results through `std::debug::print`, a stderr debug
 printing helper for small programs and diagnostics. It keeps example programs
 focused on the language feature being shown while returning formatting or flush
-errors explicitly. Executable examples propagate that result with `.exit().?`.
+errors explicitly. Executable examples propagate that result with direct `.?`;
+`.exit()` remains available when the converted error union is needed as a value.
 
 `03_stdout.nia` shows the explicit application-output path with
 `std::io.FileWriter` and `std::fmt`: create a stdout buffer, write formatted text,
 flush the writer, and map I/O error unions into process exit codes with
-`io_call().exit().?`. Format arguments are passed as a slice of trait-object
+`io_call().?`. Format arguments are passed as a slice of trait-object
 handles, usually written as `&[&value, &count]`; Nia converts the array pointer
 to the expected slice.
 

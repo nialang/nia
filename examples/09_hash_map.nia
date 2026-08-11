@@ -11,19 +11,19 @@ fn run(init: Init) ExitCode!() {
 
     let mut page = mem::PageAllocator::init();
     let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
-    defer gpa.deinit().ok().exit().?;
+    defer gpa.deinit().ok().?;
     let allocator = &mut gpa;
 
     let mut scores = std::HashMap[i32, i32]::init();
-    defer scores.deinit(allocator).exit().?;
+    defer scores.deinit(allocator).?;
 
     // Reserve before repeated insertion when an approximate size is known.
-    scores.reserve(allocator, 8).exit().?;
-    _ = scores.insert(allocator, 7, 70).exit().?;
-    _ = scores.insert(allocator, 42, 420).exit().?;
-    _ = scores.insert(allocator, 9, 90).exit().?;
+    scores.reserve(allocator, 8).?;
+    _ = scores.insert(allocator, 7, 70).?;
+    _ = scores.insert(allocator, 42, 420).?;
+    _ = scores.insert(allocator, 9, 90).?;
     // getOrInsert returns the stored entry slot and any rejected input.
-    let mut answerSlot = scores.getOrInsert(allocator, 42, 0).exit().?;
+    let mut answerSlot = scores.getOrInsert(allocator, 42, 0).?;
     _ = answerSlot.intoRejected();
     answerSlot.value().* = answerSlot.value().* + 1;
     switch scores.getEntryMut(&42) {
@@ -76,8 +76,8 @@ fn run(init: Init) ExitCode!() {
         &removedValue,
         &total,
         &hasSeven,
-    ]).exit().?;
-    debug::print(&"hash_map entries={}\n", &[&scores]).exit().?;
+    ]).?;
+    debug::print(&"hash_map entries={}\n", &[&scores]).?;
     !()
 }
 

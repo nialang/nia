@@ -13,18 +13,18 @@ fn run(init: Init) ExitCode!() {
     // mixed lifetimes. The page allocator is its low-level backing source.
     let gpa = &mut mem::GeneralPurposeAllocator::init(&mut page);
     // .ok() turns a leak report into mem::Error so examples fail on leaks.
-    defer gpa.deinit().ok().exit().?;
+    defer gpa.deinit().ok().?;
 
     let mut values = std::ArrayList[i32]::init();
     // Register container cleanup after allocator cleanup so it runs first.
-    defer values.deinit(gpa).exit().?;
+    defer values.deinit(gpa).?;
 
     // ArrayList asks for an allocator at each operation. Passing the handle
     // makes it explicit that the container uses this allocator's storage but
     // does not own the allocator itself.
-    values.push(gpa, 10).exit().?;
-    values.push(gpa, 20).exit().?;
-    values.push(gpa, 30).exit().?;
+    values.push(gpa, 10).?;
+    values.push(gpa, 20).?;
+    values.push(gpa, 30).?;
 
     let mut total = 0;
     for &value in values {
@@ -39,7 +39,7 @@ fn run(init: Init) ExitCode!() {
         &total,
         &used,
         &capacity,
-    ]).exit().?;
+    ]).?;
     !()
 }
 

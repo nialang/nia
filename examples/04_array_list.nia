@@ -18,11 +18,11 @@ fn run(init: Init) ExitCode!() {
     let mut values = std::ArrayList[i32]::init();
     // Containers do not own an allocator. Deinitialize with the same allocator
     // that provided their backing storage.
-    defer values.deinit(allocator).exit().?;
+    defer values.deinit(allocator).?;
 
-    values.push(allocator, 10).exit().?;
-    values.push(allocator, 20).exit().?;
-    values.push(allocator, 30).exit().?;
+    values.push(allocator, 10).?;
+    values.push(allocator, 20).?;
+    values.push(allocator, 30).?;
 
     let mut total = 0;
     for &item in values {
@@ -35,7 +35,7 @@ fn run(init: Init) ExitCode!() {
     debug::print(
         &"array_list len={} capacity={} values={} total={}\n",
         &[&len, &capacity, &values, &total],
-    ).exit().?;
+    ).?;
 
     !()
 }
