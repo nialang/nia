@@ -290,7 +290,7 @@ Nia-owned optimization consumers:
   rebuilding element-by-element arrays. These forms must preserve the documented
   Nia static data representation and ABI layout.
 
-Future Nia-owned optimization consumers should follow the same boundary:
+Nia-owned optimization consumers follow the same boundary:
 
 - required normalization belongs in the phase that needs the invariant and must
   not depend on a user optimization level;
@@ -301,10 +301,10 @@ Future Nia-owned optimization consumers should follow the same boundary:
   ABI, symbol identity, static data representation, source-level checks, and
   evaluation-order guarantees.
 
-O2 and higher should use an explicit backend optimization pipeline rather than
-adding an unstructured list of calls. Each pass should have a stable name,
-documented level boundary, focused tests, and eventually statistics so IR diffs
-can explain why a function changed.
+O2 and higher use an explicit backend optimization pipeline rather than an
+unstructured list of calls. Each pass has a stable name, documented level
+boundary, focused tests, and change attribution so reports explain why a
+function changed.
 
 ## 3. Foundation Crates
 
@@ -1660,8 +1660,8 @@ recursive-expansion guards to diagnose cycles. This exact-key deduplication is
 a required correctness invariant at every optimization level; the
 `dedup_monomorphized_instances` policy switch reports that the monomorphization
 boundary participates in size policy, but it does not make exact-key
-deduplication optional. Future size-oriented passes may use this boundary for
-stronger cross-instance deduplication that preserves symbol identity.
+deduplication optional or permit merging instances with distinct symbol
+identity.
 
 The collector mutates the compilation `TypeStore` for instantiated structural
 types. Its output contains instance keys and diagnostics, not an alternate set

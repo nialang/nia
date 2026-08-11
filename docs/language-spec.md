@@ -3,7 +3,7 @@
 Status: normative language reference
 
 This document defines the current Nia language. It is intended to be the main
-reference for users, implementers, tests, and future maintenance work. Version
+reference for users, implementers, tests, and maintenance work. Version
 numbers are tracked by Git tags and release history, not by this file name.
 
 Nia is a small systems programming language. It keeps the directness of C while
@@ -2618,9 +2618,9 @@ struct Box[T] where T: Eq[T] {
 ```
 
 Generics are implemented by monomorphization. Type parameters have no runtime
-representation. The current generic surface is explicit type parameters on
-functions, structs, unions, traits, and methods. User-declared let generics
-are reserved for future design; array length is part of array type syntax.
+representation. The generic surface is explicit type parameters on functions,
+structs, unions, traits, and methods. Local `let` bindings cannot declare
+generic parameters; array length is part of array type syntax.
 
 Omitting the bracket list on a generic function call requests inference for
 every generic parameter. Once a bracket list is written, it must contain one
@@ -3025,8 +3025,7 @@ Associated type projections are written explicitly:
 Nia does not support shorthand projection syntax such as `T::Item` or
 `Self::Item`. Path syntax with `::` remains ordinary type or associated function
 path syntax; it does not infer an associated type projection. Associated types
-also do not take their own generic parameters in this version. Generic
-associated type families are reserved for future design.
+cannot declare their own generic parameters.
 
 Trait bounds may bind associated types in the same bracketed trait argument
 list. Positional trait arguments come first, followed by named associated type
@@ -3463,24 +3462,18 @@ README, while build-script APIs and execution ownership live in
 [`crates/nia-build/README.md`](../crates/nia-build/README.md). These toolchain
 surfaces are not additional language grammar.
 
-## 15. Reserved Future Design Areas
+## 15. Outside The Language Contract
 
-The following areas are intentionally outside the current language surface.
-They are reserved for future design and should not be treated as specified by
-this document:
+This specification defines only the syntax and semantics stated in its current
+sections. An unmentioned construct has no reserved syntax or implied behavior.
+Unsupported attributes, intrinsics, macro forms, generic forms, patterns, and
+compile-time operations are ordinary invalid source unless a current section
+defines them.
 
-- associated type families and full trait obligation solving;
-- payload-carrying algebraic data types beyond current enums;
-- aggregate destructuring patterns beyond current optional and error-union
-  patterns;
-- package management semantics;
-- LSP semantics;
-- large standard-library layering;
-- volatile pointer families;
-- SIMD as a language primitive;
-- user-defined attributes and arbitrary compiler intrinsics;
-- macros;
-- general compile-time execution beyond the current `const` value subset.
+Package management, editor protocols, compiler command spelling, build-script
+APIs, and standard-library APIs belong to their owning toolchain or library
+interfaces. They do not become language grammar through omission from this
+specification.
 
 ## 16. Example
 
