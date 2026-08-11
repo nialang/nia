@@ -68,17 +68,15 @@ source files
 ```
 
 The driver requests top-level query products. Individual crates do not load
-files, schedule whole-program work, or call later backends. Some arrows above
-are query dependencies rather than mandatory eager stages; for example a future
-active item surface query can ask const branch queries which in turn depend
-on already-lowered declaration surfaces.
+files, schedule whole-program work, or call later backends. The arrows above are
+dependency directions, not a requirement that every stage execute eagerly.
 
 Optimization is configured separately from the phase graph. The CLI accepts
 `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, `-Oz`, and `-O` as `-O2`; these levels are
 lowered into a Nia `OptimizationPolicy` before query execution. The policy is
-threaded through compiler-query, backend lowering, and LLVM codegen even when a
-phase has no optimization pass yet. This keeps future Nia IR passes from
-depending directly on LLVM's smaller codegen-only optimization enum.
+threaded through compiler-query, backend lowering, and LLVM codegen. Nia-owned
+optimization consumers therefore do not depend directly on LLVM's smaller
+codegen-only optimization enum.
 LLVM codegen separately reports both an optimization level and a size policy:
 `Os` maps to LLVM's default codegen level with a small-size policy, while `Oz`
 maps to LLVM's less-aggressive codegen level with a tiny-size policy.
@@ -112,27 +110,25 @@ The levels have these architectural meanings:
 
 This policy split is intentional. LLVM's optimization enum only controls LLVM
 codegen choices. Nia must also make earlier size and performance decisions in
-monomorphization, backend lowering, specialization, and future inlining, where
+monomorphization, backend lowering, specialization, and inlining, where
 LLVM cannot undo duplicated Nia-level work.
 
-Current Nia-owned optimization consumers:
+Nia-owned optimization consumers:
 
 - `nia-monomorphize` collects concrete generic instances before backend
   lowering. It pre-indexes instantiations by source definition and caches
   effective generic lists and mangled type symbols during collection so
   repeated generic-instance discovery does not rebuild the same symbol inputs
   or clone whole definition maps. The policy keeps monomorphized instance
-  deduplication visible at this boundary; the current implementation always
-  performs exact-key deduplication as a correctness invariant for symbol
+  deduplication visible at this boundary. Exact-key deduplication is a
+  correctness invariant for symbol
   uniqueness. `Os`/`Oz` therefore do not disable or reinterpret exact-key
-  deduplication; they reserve the policy boundary for future stronger
-  size-oriented cross-instance deduplication. Nested type arguments discovered while
-  expanding generic bodies are substituted through a per-module working
-  interner and a substitution-id cache, so recursive pointer, slice, array,
-  nominal, and projection shapes are instantiated once for a given substitution
-  map instead of cloning interners for every edge. The substitution id is built
-  directly from the effective generic parameter order, avoiding a clone-and-sort
-  pass for every nested generic edge.
+  deduplication. Nested type arguments discovered while expanding generic
+  bodies are published through the canonical `TypeStore` and memoized by a
+  substitution-id cache, so recursive pointer, slice, array, nominal, and
+  projection shapes are instantiated once for a given substitution map. The
+  substitution id is built directly from the effective generic parameter order,
+  avoiding a clone-and-sort pass for every nested generic edge.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR and delegates function-local Function IR cleanup to
   `nia-function-opt`. Function passes are selected from policy capabilities, not
@@ -211,10 +207,6 @@ Current Nia-owned optimization consumers:
   `nia emit --exe <file.nia> --opt-report` write the same report to stderr
   so stdout remains machine-readable backend IR or LLVM IR and native emit
   targets keep object/executable output file-only.
-  Dedicated `--emit-*-before-opt` / `--emit-*-after-opt` snapshots are not
-  implemented yet; reviewers should currently use `emit --backend` for the final
-  optimized backend IR and `--opt-report` for pass inventory and change
-  attribution.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
@@ -255,7 +247,7 @@ Current Nia-owned optimization consumers:
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for Nia-level inlining,
   specialization, static-data canonicalization, vtable deduplication, and
-  future code-size decisions that happen before LLVM emission.
+  code-size decisions made before LLVM emission.
 - `nia-codegen-llvm` also builds a whole-program index before validation and
   emission. This is compiler-throughput infrastructure rather than a generated
   code optimization: repeated module, item, function-instance, vtable, and
@@ -418,7 +410,7 @@ session. It follows these rules:
   path handle.
 - Query execution may append through a typed store API, but analysis crates do
   not receive general mutable access to the semantic context. The store owns
-  synchronization, canonicalization, and any future sharding policy.
+  synchronization, canonicalization, and sharding policy.
 
 The compilation-owned `TypeStore` provides the sole session-wide identity
 space. `InternedTyId` is exactly one 64-bit word containing `TypeStoreId` plus a
@@ -444,25 +436,25 @@ the corresponding callable view. This prevents alias normalization, generic
 substitution, or another structural reconstruction path from manufacturing an
 incorrect one-word pointer to the unsized interface.
 
-The direct `InternedTyId::owner()` operation and the former physical-origin
-table are deleted. Const normalization and trait visibility use the current
-execution module while nominal layout ownership comes from `GlobalDefId`. The
-canonical store validates `TypeStoreId`, indexes an immutable
+Const normalization and trait visibility use the current execution module,
+while nominal layout ownership comes from `GlobalDefId`; an interned type has
+no independent physical-origin owner. The canonical store validates
+`TypeStoreId`, indexes an immutable
 append-only kind arena, and returns a borrow tied to the store lifetime. The
 arena is a sparse four-level `OnceLock` trie over the four bytes of a `u32` slot,
 so reads neither acquire the canonicalization mutex nor require unsafe lifetime
 extension. A foreign-session handle has no kind.
 
-Trait solving reads every input handle from the canonical `TypeStore`. Its
-append capability publishes synthesized types, so program
-trait implementations and signatures no longer need recursive import or paired
-views. Enum classification uses explicit program metadata rather than type
-origin or view membership.
+Trait solving reads every input handle from the canonical `TypeStore`, and its
+append capability publishes synthesized types. Program trait implementations
+and signatures therefore use the same handles without recursive import or
+paired views. Enum classification uses explicit program metadata rather than
+type origin or view membership.
 
 Const and body providers publish directly to the compilation-owned `TypeStore`.
 Array lengths, enum values, values, typed const facts, `ConstCheck`,
-and `BodyConst` are ordinary semantic products and no longer carry or transfer
-type snapshots. `ConstInput` has no base interner, and `TypeLowering`
+and `BodyConst` are ordinary semantic products without type snapshots.
+`ConstInput` has no base interner, and `TypeLowering`
 contains semantic facts rather than an append-prefix view; const type reads use
 canonical storage. `BodyTypeCx` fixes the body algorithm contract in the same way: reads
 always use canonical storage, while synthesized types append to the current
@@ -476,30 +468,26 @@ shard. Providers acquire shared local trait, extension, and function-signature
 facts before entering the transaction, while preserving item-level lazy
 materialization inside resolvers. `TypeStore` rejects same-thread reentry into
 one module shard so an ownership violation becomes an immediate internal error
-instead of a mutex deadlock. Foreign const append views remain only where trait
-solving or layout still requires a mutable legacy append handle; const
-algorithms never read through those views or copy canonical handles into them.
+instead of a mutex deadlock. Foreign const append capabilities are restricted
+to trait solving and layout operations that synthesize types. Const algorithms
+never read through those capabilities or copy canonical handles into them.
 
-`BodyIr` no longer publishes an interner snapshot. Prechecked body facts and
-incremental seeds borrow an explicit current session view, which must be a
+`BodyIr` contains typed body data but no interner snapshot. Prechecked body
+facts and incremental seeds borrow an explicit current session view, which must be a
 prefix of the session shard and cannot replace it. Executable fact extraction
-and reachability now read every handle directly from the canonical `TypeStore`;
+and reachability read every handle directly from the canonical `TypeStore`;
 typed body data is not also a type-store product. Reachability receives a
 separate append-only capability only while generic substitution synthesizes a
 new structural type. That capability does not add the type to a module
-visibility log, so reads cannot accidentally fall back to
-the old view contract. This removes the former hidden requirement to merge
-every body increment into a second snapshot.
+visibility log, and every read remains bound to the canonical store.
 
-Function IR lowering and monomorphization have crossed this boundary for
-mutation. Function lowering borrows the session shard and appends synthesized
+Function IR lowering borrows the session shard and appends synthesized
 types, while its single-body and batch products contain only function IR and
 diagnostics. `MonoCollector` also borrows the store directly: recursive type
 inspection clones one `TyKind` under a short transaction, projection solving
 locks only the target shard, and type mangling uses a bounded transaction whose
-callbacks cannot reenter the store. The collector no longer owns
-`working_interners_by_module`, and `Monomorphization` no longer publishes a map
-of cloned interners.
+callbacks cannot reenter the store. `MonoCollector` and `Monomorphization`
+contain monomorphization facts, not writable interners or interner snapshots.
 
 Layout root traversal and computation use a single `LayoutComputationInput`.
 `LayoutTypeCx` reads every handle from canonical storage and appends substituted
@@ -517,9 +505,8 @@ layout.
 
 Backend lowering reads existing handles from the canonical store and publishes
 synthesized instance types through a module-scoped `TypeStoreAppend`; it does
-not checkout an owning module shard for the whole-program fixed point. The
-previous cloned writable interner and `BackendModule.interner` have been
-deleted. `BackendProgram` therefore contains typed handles and backend facts,
+not checkout an owning module shard for the whole-program fixed point.
+`BackendProgram` contains typed handles and backend facts,
 not a second type database. `CodegenProgram` retains only a lightweight handle
 to the same session store. LLVM validation, compiler-builtin collection,
 ABI/type lowering, static initialization, and mangling all resolve handles
@@ -527,8 +514,9 @@ directly from the canonical store; they neither checkout module shards nor
 reconstruct a program module-view map. Missing or foreign handles fail at this
 store boundary.
 
-Compiler-query no longer constructs a final module-snapshot map for backend
-lowering. `BackendTypeContext` reads every `TyId` from `TypeStore`; foreign
+Compiler-query passes the canonical store into backend lowering rather than
+constructing a module-snapshot map. `BackendTypeContext` reads every `TyId` from
+`TypeStore`; foreign
 function/global instance worklists carry only stable handles; extension and
 trait candidates carry `ModuleId` for normalization rather than cloned
 interners. Program normalization input borrows only the normalized-ID maps, so
@@ -536,11 +524,11 @@ it cannot expose a type view as an accidental backend side channel. The
 backend's append capability neither exposes nor updates a module visibility
 log.
 
-Reachability has crossed this boundary completely: its fact input contains one
+Reachability follows the same boundary: its fact input contains one
 canonical store reference, generic instances carry only stable handles, and
 trait method/vtable deduplication includes the use-module visibility context
-instead of relying on an argument interner identity. It no longer snapshots,
-imports, or recursively adopts types. Program signature products and visible
+instead of relying on an argument interner identity. It does not snapshot,
+import, or recursively adopt types. Program signature products and visible
 extension products likewise contain only canonical handles; body, trait
 solving, layout, reachability, backend, and codegen consume them without an
 embedded interner. Const and program-signature analysis also read exclusively
@@ -551,8 +539,8 @@ synthesize through `TypeStoreAppend`. `TypeNormalization` is a pure semantic
 fact containing only normalized-ID mappings and diagnostics. Its single
 algorithm entry receives the canonical store, creates a module-scoped append
 capability for synthesized aliases, and never exposes mutable storage to its
-callers; const/body/query inputs no longer use normalization as a hidden
-snapshot carrier. Type lowering exposes deterministic,
+callers; const/body/query inputs use explicit canonical storage instead of
+normalization as a snapshot carrier. Type lowering exposes deterministic,
 deduplicated source type roots, so normalization also does not enumerate a
 module view. `TypeLowering` itself contains only source type facts, const
 expressions, and diagnostics; all lowering entry points require an explicit
@@ -560,8 +548,7 @@ session `TypeStore` through `TypeLoweringContext`. ABI and flow checks read that
 store directly. Item-signature collection has one input-object API, validates
 that lowering handles belong to the same store, and uses a short-lived append
 capability for synthesized builtin/error types. No production append contract
-requires a module visibility view. The migration implementation and its legacy
-identity types are fully deleted.
+requires a module visibility view.
 
 ### 3.6 `nia-diagnostic`
 
@@ -609,8 +596,7 @@ red/green child-path ranges.
 Important parser boundary:
 
 - expression bracket suffixes are parsed in a syntax-preserving form;
-- semantic disambiguation of generic instantiation vs indexing happens later;
-- removed historical spellings should not get special migration paths.
+- semantic disambiguation of generic instantiation vs indexing happens later.
 
 ### 4.5 `nia-ast-walk`
 
@@ -633,16 +619,16 @@ the current target. Module discovery, definition collection, type-name
 resolution, type lowering, item-signature collection, value resolution, and
 local resolution consume the active item tree. These phases therefore see a
 single declaration surface selected by conditional attributes instead of
-reinterpreting a pruned AST module. The raw tree remains available for future
-source-addressable inactive-code diagnostics.
+reinterpreting a pruned AST module. The raw tree preserves inactive items as
+source-addressable syntax.
 
-This boundary is the long-term replacement for phases directly interpreting
-conditional source selection as a module declaration, definition, type, value,
-or local-name pre-pass. Inactive items remain represented and
+Semantic phases consume the selected active item tree rather than interpreting
+conditional source selection independently as a declaration, definition, type,
+value, or local-name pre-pass. Inactive items remain represented and
 source-addressable; they are not semantically checked for a target unless a
 query selects them.
 
-Function bodies are still stored as AST body nodes inside active item-tree
+Function bodies are stored as AST body nodes inside active item-tree
 function items until body checking. Declaration-surface phases use
 `nia-item-tree`; body-oriented facts are produced later as `BodyFacts` instead
 of adding long-lived meaning to AST expressions.
@@ -668,8 +654,8 @@ Executable reachability pruning is intentionally outside the provider file in
 behind `query/backend_lowering.rs`; providers should wire query dependencies and
 timing boundaries rather than owning program analysis or backend input shape.
 
-The query frontend is batch-friendly. Persistent caches, cross-session reuse,
-LSP scheduling, cancellation, and priority handling are separate future layers.
+The query frontend owns batch compilation. It does not own persistent
+cross-session caches or editor scheduling, cancellation, and priority policy.
 
 Query keys declare an explicit storage policy. The default
 `CacheOwnedArc` policy retains one immutable value in its slot and publishes
@@ -719,7 +705,7 @@ validation, invalidation, and tracing to become quiescent, then removes the
 obsolete key from typed lookup, the live slot table, and both directions of the
 dependency graph. Slot indices are monotonic and never reused, so a retired
 `QueryNodeId` cannot resolve to a later slot. Source replacement applies this
-protocol to the old revision's parsed module, syntax tree, declarations,
+protocol to the retired revision's parsed module, syntax tree, declarations,
 provider summary, and facade facts. Cache ownership is not a historical-reader
 capability; only immutable values already held by external readers may outlive
 retirement through their own `Arc`. Provider graph growth uses the previous
@@ -783,7 +769,7 @@ them into canonical type ids.
 Defines the compiler type model and session-wide canonical `TypeStore`. All
 compiler passes and test fixtures read unified `TyId` handles from the store and
 publish new types through `TypeStoreAppend`; there is no secondary type view or
-migration storage API.
+storage API.
 
 ### 6.3 `nia-type-lower`
 
@@ -1130,8 +1116,8 @@ aggregate destinations, indirect arguments, and returns, so crossing from
 comptime into runtime preserves storage without reconstructing a field. Whole
 struct const values still materialize as ordinary `StructLiteral` expressions.
 
-Const pointers have explicit provenance and no longer contain a transparent
-boxed pointee snapshot. A place pointer contains an evaluator allocation id and
+Const pointers use explicit provenance rather than a transparent boxed pointee
+snapshot. A place pointer contains an evaluator allocation id and
 a field/index projection path. Local bindings receive fresh allocation ids;
 dereference resolves the active frame value, so a write to the owner is visible
 through an existing pointer. Equality compares provenance, never pointee
@@ -1220,8 +1206,7 @@ const string without frozen provenance uses its defining global item or local
 binding rather than its use site. Recursive lowering preserves that fallback,
 function-body references include imported origin modules, and fingerprints use
 the normalized module source identity plus span. LLVM therefore emits the same
-stable link-once global as every other promotion. The former module-local
-counter and `.nia.static.array.N` symbols no longer exist.
+stable link-once global as every other promotion.
 
 Static initializer IR has no static-array-pointer variant. It had no compiler
 producer and keeping it would have retained a dormant second promotion model.
@@ -1738,13 +1723,10 @@ resolution, and coercions, and consumes typed runtime bodies for function
 lowering. Typed bodies are not exposed through backend IR as the function
 codegen boundary.
 
-`GlobalDefId` is the semantic identity and query key of a function. The
-per-function ownership audit found no cross-structure edge that needed a
-separate storage identity, so the transitional `FunctionBodyId` and
-`FunctionBodyStore` were removed. Immutable shared snapshots use `Arc` only
-when they have real concurrent owners; a single-call read path uses a borrow,
-and a unique consumer receives owned data. ID handles are therefore not a
-mechanical replacement for every pointer-shaped relationship.
+`GlobalDefId` is both the semantic identity and query key of a function; there
+is no separate body storage identity or body store. Immutable snapshots use
+`Arc` only when they have concurrent owners, a single-call read path uses a
+borrow, and a unique consumer receives owned data.
 
 `ExecutableFunctionBodyQuery(GlobalDefId)` publishes a semantic-value checked
 body product. `LoweredFunctionBodyQuery(GlobalDefId)` depends only on that
@@ -1753,18 +1735,17 @@ item product and owns one `FunctionBody`. The executable fixed point publishes
 checked-body item query lowers exactly one function from that function's frozen
 semantic facts, and `ExecutableCheckedModulesQuery` assembles its aggregate view
 from those item products. A body edit can still re-execute checked-body item
-queries because their semantic facts are currently aggregate inputs, but
+queries because their semantic facts are aggregate inputs, but
 semantic equality preserves unchanged body fingerprints, so their lowered query
-products validate green without executing. This boundary is therefore
-per-item checked-body production, not yet fully per-item semantic analysis.
+products validate green without executing. Checked-body production is per item,
+while its semantic-analysis input remains aggregate-shaped.
 Monomorphization and backend lowering share the same cache-owned handles.
 Backend input assembly builds a short-lived whole-program index from references
 to those query payloads; module-local lookup uses that same borrowed index and
 does not clone bodies into a second owned map.
 
-`MonomorphizationQuery` and `BackendLoweringQuery` are production tracked
-queries, rather than test-only contracts or phases executed inside
-`CodegenProgramQuery`. The codegen program holds the exact cache-owned products;
+`MonomorphizationQuery` and `BackendLoweringQuery` are the tracked owners of
+their aggregate products. The codegen program holds the exact cache-owned products;
 the backend aggregate depends on monomorphization through module-local instance
 plans rather than receiving the aggregate product directly. This provides one
 red-green owner for each aggregate stage and prevents repeated public or
@@ -1773,7 +1754,7 @@ backend lowering item-grained: the current backend query still assembles all
 module inputs, performs the cross-module function/global-instance fixed point,
 and publishes one `BackendProgram`.
 
-`BackendModuleSourceItemPlanQuery(ModuleId)` now owns the deterministic
+`BackendModuleSourceItemPlanQuery(ModuleId)` owns the deterministic
 frontend source-item projection for one module. It derives sorted, deduplicated
 module-local function, global, struct, and union keys from
 `ExecutableCheckedModuleFactsQuery`; executable backend lowering consumes those
@@ -1796,20 +1777,18 @@ requested executable module, filters the monomorphization aggregate by the
 definition owner's `ModuleId`, orders instances by their deterministic mono
 symbol, and rejects duplicate semantic instance keys. The plan retains the
 argument module because type arguments are interpreted in that context. The
-public backend-lowering API consumes only these module-local DTO slices;
-`nia-backend-lower` no longer has a production dependency on
-`nia-monomorphize`, and `BackendLoweringQuery` no longer reads
+public backend-lowering API consumes only these module-local DTO slices.
+Monomorphization details stay behind the query boundary: `nia-backend-lower`
+does not depend on `nia-monomorphize`, and `BackendLoweringQuery` does not read
 `MonomorphizationQuery` directly.
 
-These source and frontend function-instance plans are not yet the complete
-backend item plan. Function-body and vtable-induced instances, generic global
-instances, vtables, and instance-induced source references now converge from
-closed call-scoped discovery deltas, while layout completion, module
-optimization, and DCE still execute in the aggregate backend call. The closed
-plan must still be separated from immutable per-module or per-CGU
-materialization before those products can become smaller query nodes; an
-incomplete module product must not be cached and then mutated from an external
-worklist.
+The module source and frontend function-instance plans cover only items known
+before materialization. Function-body and vtable-induced instances, generic
+global instances, vtables, and instance-induced source references converge from
+closed call-scoped discovery deltas. Layout completion, module optimization,
+and DCE execute after that aggregate closure. Only the complete closed plan may
+cross the immutable module-query boundary; an incomplete module product must
+not be cached and then mutated from an external worklist.
 
 The aggregate cross-module closure drains newly discovered source functions,
 function instances, and global instances into one iteration-local
@@ -1820,16 +1799,16 @@ one snapshot enter the next snapshot instead of mutating the active batches.
 Duplicate module owners and references to an owner absent from the module plan
 are compiler errors; neither case is silently truncated or dropped.
 
-This call-scoped plan is a convergence boundary, not yet a query product.
+This call-scoped plan is an internal convergence boundary rather than an
+independent query product.
 Concrete generic local-static global keys only appear when a function template
 is substituted into a concrete backend function instance; the pre-backend
 `FunctionBody` still contains the source local-static identity. Vtable-induced
-function instances have the same post-substitution dependency. A future global
-instance/vtable query plan must therefore consume a closed substitution result
-or move that pure planning logic earlier. Projecting an apparently empty plan
-from source Function IR would create a second, incomplete truth source.
+function instances have the same post-substitution dependency. Consequently,
+the authoritative global-instance and vtable plan is derived from closed
+substitution results, not projected from source Function IR.
 
-Function and global instance substitution now returns a closed materialization
+Function and global instance substitution returns a closed materialization
 delta: the newly owned backend payload, every source-function,
 function-instance, and global-instance reference, and every trait-object vtable
 discovered from that concrete body or initializer. Source functions use the
@@ -1844,8 +1823,8 @@ The delta is moved within one backend query call and has no independent
 identity or shared owner, so it is not stored behind an ID or `Arc`. Vtable
 discovery walks only the newly produced concrete body; new entries immediately
 enqueue their source/default-method instance references, and the module only
-deduplicates vtable semantic keys. The old function/function-instance aggregate
-collector and the post-optimization reachability rescan have been deleted.
+deduplicates vtable semantic keys. No aggregate collector or post-optimization
+reachability rescan participates in this path.
 Devirtualization, cross-function constant propagation, and inlining may remove
 or copy already discovered edges but must not create a new semantic
 reachability edge. The resulting closure is complete before it is published as
@@ -1858,11 +1837,10 @@ devirtualization, cross-function constant propagation, inlining, DCE, reachable
 aggregate/instance completion, and final layout construction all observe the
 same closed item set. Additional-item handling therefore does not optimize a
 partial module or repeatedly rebuild its instance layouts. This ordering is a
-prerequisite for a consuming global item-plan query: publishing the previous
-mix of pre-closure optimized items and unoptimized late items would make the
-query product internally inconsistent.
+prerequisite for a consuming global item-plan query because the query product
+cannot mix pre-closure optimized items with unoptimized late items.
 
-The closed result is now represented by a consuming `BackendItemPlan`. Planning
+The closed result is represented by a consuming `BackendItemPlan`. Planning
 owns the complete, unfinalized module item sets plus diagnostics and
 materialization-time optimization changes; it does not retain a `ModuleLowerer`
 or borrow its substitution and trait caches. Finalization validates the module
@@ -1890,7 +1868,7 @@ changing their backing allocations. This is the module ownership boundary used
 by independently scheduled finalization queries; source modules are still not
 claimed to be final CGU work products.
 
-The partition now crosses a formal per-module query boundary. The sole
+The partition crosses a formal per-module query boundary. The sole
 `BackendItemPlanQuery` consumer destructures the aggregate once and publishes
 each raw module payload directly to
 `BackendModuleItemPlanQuery(ModuleId)`. Finalization then consumes those slots
@@ -1901,14 +1879,14 @@ slot to be republished on the next backend request. Query regressions assert
 that production leaves every module-plan slot payload-free. This establishes
 module-keyed ownership and independently scheduled finalization inputs, but no
 CGU partition is claimed yet.
-The instrumented compiler now records Rust global-allocator current and peak
+The instrumented compiler records Rust global-allocator current and peak
 live bytes, including already-live instrumented allocations at the detail
 timing boundary. Backend fan-out emits snapshots before publication, after all
 module slots are published, and after all are consumed. These counters expose
 whether scheduling changes create a transient heap spike; process RSS remains
 the authority for LLVM/native allocations that the Rust allocator cannot see.
 
-Module finalization now has an explicit task-shaped ownership boundary.
+Module finalization has an explicit task-shaped ownership boundary.
 `BackendProgramFinalizationContext` contains only the program-wide read-only
 indexes, type store, optimization policy, and timing flag; both that context and
 `BackendLowerModuleInput` are compile-time checked as `Send + Sync`. Each
@@ -1948,17 +1926,17 @@ The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or
 cross-structure reference boundary; no synonymous `TypedBodyId` is introduced.
-The aggregate checked-module view and the item query currently share an
-`Arc<TypedBody>` allocation. That `Arc` must be re-audited if the aggregate view
-is removed; sharing ownership is not itself a reason to invent a storage ID.
+The aggregate checked-module view and the item query share one
+`Arc<TypedBody>` allocation because both are live owners; the body retains
+`GlobalDefId` as its sole semantic and query identity.
 
 Materialization copies a body only when creating the corresponding
 `BackendFunction` or `BackendFunctionInstance`. Generic-instance reference
 discovery scans the body already owned by the newly appended backend instance,
-rather than cloning a temporary discovery body. Checked-body production itself
-is item-owned, while its frozen semantic-fact input is still
-module/executable-aggregate shaped. Itemizing that input boundary and moving
-backend materialization to per-item or per-CGU ownership are the next steps.
+rather than cloning a temporary discovery body. Checked-body production is
+item-owned, while its frozen semantic-fact input is module/executable-aggregate
+shaped. Backend materialization remains aggregate until cross-module closure
+has converged, then finalization consumes the module-owned partitions.
 
 ### 11.3 Static Initializer IR
 
@@ -1980,9 +1958,8 @@ lowered through the same `nia-const-ir` surface and evaluated through a
 single static-initializer helper. That helper is part of static data
 materialization, not a general backend escape hatch for reinterpreting AST.
 
-This separation is intentional. A future constant/data IR may refine
-`StaticInit`, but it should remain a data-initialization boundary rather than
-being folded into function IR.
+`StaticInit` is the data-initialization boundary and remains separate from
+function IR.
 
 `GlobalDefId` is also the semantic identity of a static initializer; there is
 no separate `StaticInitId` or static-init store. `BodyIr.global_inits` shares
@@ -1998,26 +1975,23 @@ with `StaticInitOnly`; a local static temporarily promotes the node facts owned
 by its enclosing function into the item lowering view. The already-checked
 global is not type-checked again. `ExecutableCheckedModulesQuery` reconstructs
 its aggregate view from the item products, so there is no path that extracts an
-item payload from the facts aggregate. Facts-only checking
-still lowers a transient tree once to preserve the single static-data
+item payload from the facts aggregate. Facts-only checking lowers a transient
+tree once to preserve the single static-data
 representability and diagnostic implementation, derives `StaticInitRefs`, and
-immediately releases the tree. Avoiding that transient allocation requires a
-shared lowering sink, not a second reference-discovery semantics.
+immediately releases the tree.
 
 Semantic-value equality lets an unchanged initializer remain green even when
 its aggregate facts input causes the item query to execute again. The aggregate
-view and item query currently share one `Arc<StaticInit>` allocation; this `Arc`
-must be re-audited if the aggregate view is removed, rather than replaced
-mechanically with a storage ID.
+view and item query share one `Arc<StaticInit>` allocation because both are live
+owners; `GlobalDefId` remains the initializer's sole semantic and query identity.
 
 Backend input assembly keeps the query handles alive and builds one
-call-scoped `GlobalDefId -> &StaticInit` index. `nia-backend-lower` no longer
-receives `BodyIr` or owns another initializer map. A non-generic
+call-scoped `GlobalDefId -> &StaticInit` index. `nia-backend-lower` receives
+that index rather than `BodyIr` or an owned initializer map. A non-generic
 `BackendGlobal` makes its one required owned copy at materialization; a generic
 global must additionally produce an independent tree because type
 substitution rewrites the initializer. Size optimization consumes that owned
-tree and returns a changed flag with the simplified value, avoiding the former
-full-tree clone used only to compare before and after values.
+tree and returns a changed flag with the simplified value.
 
 ## 12. LLVM Backend
 
@@ -2187,7 +2161,7 @@ equality is the only reuse condition. The encoder uses fixed discriminants and
 length-delimited values and does not hash `Debug` output or temporary
 object/output paths. Links with a sysroot, explicit native libraries, or raw
 linker arguments are not declared cacheable because those options may name
-external files whose contents are not yet tracked.
+external files outside the tracked input set.
 
 The Driver owns the sole persistent link-result cache. It computes the
 fingerprint and attempts restoration before writing temporary object files or
@@ -2202,11 +2176,10 @@ atomic rename, while a corrupt entry is physically deleted and treated as a
 miss. Restored files are made executable. No prior registered namespace is read. Cache
 I/O errors only lose reuse and never become an alternate link truth source.
 
-The former source-graph/request-manifest executable cache and its public API
-have been deleted. CLI executable emission and the build runner use the same
-configured Driver for object and link-result reuse, with no compatibility
-reader or fallback fingerprint. This is complete link-result reuse: a miss
-still performs one full link, and no partial relinking is claimed.
+CLI executable emission and the build runner use the same configured Driver for
+object and link-result reuse. This cache has one registered namespace and one
+fingerprint model, with no compatibility reader or fallback fingerprint. A miss
+performs one full link; the cache does not provide partial relinking.
 
 Work-product lookup outcomes are typed rather than collapsed into `Option`.
 Timing reports count object and link-result hits and misses, and separate misses
@@ -2233,21 +2206,21 @@ its own process LLVM memory permit before allocating LLVM state, so CPU fan-out
 remains subject to both the session executor budget and heavy-memory
 backpressure. The outer aggregation layer owns no module-local LLVM state.
 
-This remains a bounded source partition policy, not a profile-guided final CGU
-model. `ModuleId` is still a process-local owner identity, vtables intentionally
-remain together, and validation remains a whole-program predecessor.
-Frontend/LLVM overlap and quantitative CPU/RSS acceptance remain Phase G work.
-Current link-result reuse is still whole-result reuse rather than partial
-relinking.
+This is a bounded source partition policy, not a profile-guided final CGU model.
+`ModuleId` is a process-local owner identity, vtables remain together, and
+validation is a whole-program predecessor. Frontend and LLVM execution do not
+overlap. Quantitative CPU and RSS acceptance belongs to the maintained
+performance suite. Link-result reuse operates on the whole result rather than
+partial relinking.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
 (`-Os` and `-Oz`) also remain visible in the Nia policy so monomorphization,
 inlining, specialization, and deduplication can make size-aware decisions before
-LLVM sees the program. Today the native LLVM target machine is configured with
-the mapped codegen optimization level; the size policy is reported and preserved
-at the Nia/codegen boundary for size-aware Nia lowering and future target-option
-plumbing rather than being a separate LLVM target-machine knob.
+LLVM sees the program. The native LLVM target machine is configured with the
+mapped codegen optimization level. The size policy is reported and preserved at
+the Nia/codegen boundary for size-aware Nia lowering; it is not a separate LLVM
+target-machine knob.
 
 It should not parse AST or make frontend semantic decisions.
 
@@ -2255,276 +2228,43 @@ It should not parse AST or make frontend semantic decisions.
 
 ### 13.1 `nia-cli`
 
-The package is `nia-cli`. The compiler binary name is `nia`.
+The package is `nia-cli`, and the compiler binary is `nia`. This crate owns
+command-line parsing, explicit toolchain-layout selection, outer timing and ICE
+boundaries, and conversion from command options into typed Driver or build
+requests. It does not reproduce compiler phases, cache policy, or build-plan
+execution.
 
-The CLI supports:
+The command families are:
 
-```text
-nia build [step] [--root dir]
-nia check <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --tokens <file.nia>
-nia emit --ast <file.nia>
-nia emit --checked <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --backend <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --llvm <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
-nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
-```
+- `check`, which validates a program through a typed `nia-driver` request;
+- `emit`, which exposes tokens, AST, checked state, backend IR, LLVM IR,
+  object files, and executables through the owning compiler boundary; and
+- `build`, which resolves a `BuildRequest` and delegates package discovery,
+  runner execution, plan validation, scheduling, caching, and publication to
+  `nia-build`.
 
-`nia build` is the package-build entry point and searches for `build.nia` from
-the selected root directory and then each parent directory. Build outputs belong
-under `.nia-build/`; reusable package or compiler cache entries belong under
-`.nia-cache/`. The generated build runner is part of the Nia toolchain boundary
-so package build scripts do not spell out LLVM, C runtime, or linker dependency
-details. It configures, validates, and encodes an immutable plan, but does not
-execute that plan. The Rust coordinator validates the frozen plan, computes the
-selected dependency closure, and calls the compiler through typed `nia-driver`
-requests; it does not embed the compiler through a separate ABI bridge or
-reconstruct compiler work as raw CLI arguments.
+The executable help output is the command and option spelling authority. The
+repository README provides user-oriented invocation examples; duplicating the
+complete option matrix here would create another CLI definition.
 
-The build action cache can skip compiler work only after the loader validates a
-complete logical source manifest against a versioned record containing the
-action, module mapping, target, optimization, runtime, and
-toolchain/std/protocol identities. Compiler-check records represent only a
-previous successful zero-diagnostic check and contain no session-local compiler
-product. Compiler-emit records additionally bind the declared artifact,
-logical output, and current linker environment to a typed Driver link-cache
-reference. They do not copy executable bytes into the build cache.
+Every source-tree invocation selects `lib` as an explicit resource root.
+Installed invocations resolve their relocatable resource layout through
+`ToolchainLayout`. CLI code passes that typed layout into Driver and build
+requests and never derives production resources from a compile-time checkout
+path.
 
-Generated module roots and generated module-map imports use the same manifest
-boundary as package sources. Producer closure validation proves that their bytes
-exist before the compiler action; the Driver then fingerprints the logical
-source identities and bytes actually consumed. Consequently, changing a
-generated root or import invalidates only compiler actions whose module closure
-contains it, while an unchanged output can preserve a consumer hit even if the
-producer recipe changed. The coordinator has no parallel generated-source
-fingerprint or recipe-coupled invalidation path.
+Compiler commands preserve the distinction between bare/object/IR emission and
+freestanding executable startup described by the language and ABI references.
+Native output commands create missing output directories, but never create
+input source or module-map paths. Timing and optimization reports use their
+typed reporting channels rather than sharing stdout with emitted IR or native
+artifacts.
 
-On an emit hit, the Driver validates the referenced product against the current
-toolchain, target, resolved linker bytes, default library paths, and structured
-link options before atomically restoring the requested output. Missing,
-corrupt, invalidated, or unreadable products retire the build binding and fall
-back to ordinary compile/link work. Only a successful zero-diagnostic emit with
-a complete final source manifest and a published Driver link product can bind a
-record. Warnings and incomplete source manifests do not publish compiler action
-records. External commands can consume emitted executables through typed
-Artifact-root inputs. The builder adds the matching emit dependency, plan
-freeze independently validates the producer closure, and the command cache
-hashes the artifact bytes as a separate dependency component. The Driver
-continues to own its internal frontend, object, and link products.
-
-`build.nia` is compiled and run as ordinary Nia code. The Rust toolchain owns
-package-root discovery, runner generation, plan validation, scheduling, and
-action execution; declarative build configuration stays in the Nia build script
-and can use `std`. The generated runner injects package-root context into
-`std::build::Build`: `packageRoot()` is the directory containing `build.nia`,
-`buildDir()` is `.nia-build/`, `cacheDir()` is `.nia-cache/`, and
-`toolchainExecutable()` is the `nia` executable that launched the build. The
-toolchain creates the build and cache directories before executing the runner.
-The current `std::build` surface is intentionally small:
-`addPackage(PackageOptions::init(name, relativeRoot))` records a local package
-root and returns an owner-checked handle. `rootPackage()` returns the matching
-handle for the package containing `build.nia`, and
-`CommandArgument::packageInput(handle, path)` preserves that package key in the
-frozen logical path. Package roots are canonical paths relative to the root
-package; no absolute host path, registry resolution, version solver, download,
-or network policy enters the plan. Cross-package compiler module maps remain a
-separate unfinished surface.
-`addModule(ModuleOptions::init(name, rootSource))` records a package-rooted
-source module, while `ModuleOptions::fromBuild(name,
-BuildPathView::init(path))` records a build-rooted source such as generated
-code. `ModuleImport::init(name, path)` records a package-rooted module-map
-entry; `ModuleImport::fromBuild(name, BuildPathView::init(path))` records a
-build-rooted generated entry. Every build-rooted root source or import has one
-exact generated-file or external-command output producer. Builder validation
-adds that producer edge to every compiler check/emit step after configuration,
-so producer declaration order is irrelevant and missing/ambiguous ownership is
-rejected. `addExecutable(ExecutableOptions::init(name, rootModule))` records a
-script-owned executable artifact. The `nia build -O*` invocation mode is the
-default for every module; `ModuleOptions::withOptimization` records an explicit
-module override, and `ExecutableOptions::withOutputName` changes only the
-logical output name. Executables derive the artifact target and freestanding
-runtime from their artifact role and kind. Those facts are not generic options,
-so a script cannot construct a configuration that is accepted by the builder
-and rejected later merely because a bare executable is unsupported.
-No named profile abstraction is frozen at this stage. A profile becomes useful
-only when it owns a coherent set of independently documented policies; while
-optimization is the sole inherited setting, the normalized invocation mode is
-the direct and unambiguous input. Inheritance is resolved before plan encoding,
-so neither the coordinator nor action-cache identity needs optional/default
-configuration semantics.
-`addCheckExecutableStep(name, target)` and
-`addEmitExecutableStep(name, target)` register graph steps that route that
-artifact through the current toolchain. Emitted executables currently land at
-`.nia-build/<output-name-or-target-name>`, with target names validated so
-artifact paths cannot escape the build directory.
-`addAggregateStep(name)` groups dependencies without work of its own.
-`addGeneratedFileStep(name, BuildPathView::init(path), contents)` atomically
-publishes the supplied bytes under `.nia-build/`; generated consumers refer to
-that output through its build-rooted logical identity. Frozen-plan validation
-independently resolves the exact output owner and requires its step in every
-consumer dependency closure; an old file in the build directory is never a
-substitute for a producer edge.
-`addRunExecutableStep(name, RunOptions::init(executable))` records an
-outputless external-command action using the executable's Artifact-root path and
-automatically depends on its existing emit producer; plan freeze verifies that
-dependency closure independently. `RunOptions::withArguments` supplies its
-arguments. `CommandArgument::artifactInput(executable)` gives an ordinary
-external command a declared Artifact-root input and the same automatic producer
-edge; foreign handles and executables without an emit step are rejected. The
-options and `ModuleImport` values are borrowed call descriptors.
-Every value retained by `Build` is copied into `String`, `Path`, an owned
-argument list, or an owned import record before the call returns. Fallible
-ownership transfer uses conditional `defer` rollback; deep records are released
-in reverse order, all cleanup is attempted, and the first cleanup error is
-returned. `setDefaultStep(step)` makes
-the no-argument build entry explicit; the runner does not infer a default from
-step registration order and contains no recursive action executor.
-This surface grows the build system through explicit step and artifact APIs
-rather than a Rust-side manifest parser.
-
-External commands declared with `addExternalCommandStep` carry a versioned
-`ActionResourceClass`. The public options default to `Conservative`; build
-scripts may explicitly select `Cpu` or `Io` after accounting for the tool's
-behavior. Compiler actions map to `Cpu`, generated-file and aggregate actions
-map to `Io`, and uncacheable actions remain `Conservative`. The coordinator
-combines `--jobs` with inherited `QuerySession` capacity, charges `Cpu` and `Io`
-one action slot, and charges `Conservative` the complete action capacity. This
-prevents unknown external work from overlapping same-wave actions without
-creating a private executor or weakening compiler query and LLVM memory limits.
-
-The registered build protocol includes canonical local-package roots and
-separates an external command's environment and cache declarations. Existing commands inherit the coordinator environment and
-are uncacheable by default. A command may clear that environment and then add
-explicit owned name/value entries. Only a command that clears the environment,
-declares at least one output, and asserts `DeclaredInputs` crosses the
-persistent-cache boundary. The assertion means the build script accepts
-responsibility for listing every semantic file input. The coordinator applies
-`env_clear` before explicit values, resolves a search program to a concrete
-executable, and hashes its bytes before lookup. Absolute package, build, and
-tool installation paths remain outside the stable identity; logical
-cwd/input/output identities, explicit environment, command declaration, tool
-bytes, dependency-artifact bytes, and toolchain compatibility components remain
-inside. Ordinary declared files and dependency artifacts use separate
-fingerprint components so invalidation reports identify the owning boundary.
-
-An exact hit restores the complete checksummed output vector through the
-journaled staged-output transaction without starting a child process. Cold
-execution captures only regular staged outputs and publishes after the output
-transaction commits. A second tool/input snapshot must still match before
-publication. Cache read, corruption, and write failures do not replace action
-correctness; nondeterministic same-identity output sets are rejected rather
-than mutating an accepted record. Inherited and uncacheable commands remain on
-the ordinary execution path and cannot report cache hits.
-
-Borrowed scalar text uses `&[char]` directly. `fs::PathView` adds nominal path
-semantics over borrowed scalar text, while `std::String` and `fs::Path`
-own caller-allocated storage.
-`Path::fromUtf8` preserves typed text decoding failures, and pure owned path
-operations report allocator failures directly. `Path::joinComponent` is the
-single component-join operation; it reserves the full append before changing
-visible path text. `PathView::encode` and `Path::encode` are the checked
-scalar-to-native-byte boundary. Together with checked
-`NativePathView::fromBytes`, they are the only constructors of the borrowed
-native representation. Path-taking filesystem calls preserve both their
-operation and path/system cause in `OperationError`.
-`RelativePathView` and `RelativeNativePathView` are validated lexical-root
-capabilities: construction rejects leading `/` and complete `..` components,
-and every path-taking `Dir` method requires one of those roles before lowering
-to an OS `*at` operation. Ordinary `PathView` remains the process-path role for
-`File::open` and `File::create`. The directory capability blocks absolute and
-lexical parent escape. On Linux, handle-opening operations use an `openat2`
-provider boundary with `RESOLVE_BENEATH`; metadata resolves an `O_PATH` fd and
-queries it with `statx(AT_EMPTY_PATH)`. Directory creation dynamically lowers
-parent/name components, resolves the parent beneath the root, and applies
-`mkdirat` only to its stable fd. Delete operations use the same design before
-`unlinkat`; rename resolves both source and destination parents beneath their
-respective roots before invoking `renameat`.
-Scalar lowering uses operation-scoped
-allocator-owned C strings and carries `mem::Error` as an allocation variant of
-`OperationError`; no filesystem or process facade depends on a fixed 4096-byte
-path buffer. `Command` applies the same owned lowering to its executable and
-working-directory paths. Command argument and exact-environment byte arenas are
-fully populated before their `argv`/`envp` pointer arrays are constructed, so
-arena growth cannot invalidate retained pointers. On Linux those allocations
-remain live across `fork` while the parent waits on the close-on-exec spawn-error
-pipe; the wait ends only after `execve` consumes them or reports failure. The
-inherited environment is a process-lifetime view of the startup stack, while
-`spawnRaw` is the explicit caller-owned native-pointer escape hatch.
-
-Global module-map options:
-
-```text
--M name=path
--Mname=path
--M=name=path
---module name=path
---module=name=path
-```
-
-Global optimization options are listed explicitly in CLI help:
-
-```text
--O
--O0
--O1
--O2
--O3
--Os
--Oz
-```
-
-Global timing options are also accepted before or after the command:
-
-```text
---timings
---timings=summary
---timings=detail
---timing-trace=events
-```
-
-`--timings=detail` reports aggregated query timings. `--timing-trace=events`
-also prints raw timing events and is intended for diagnosing timing collection
-rather than normal performance measurement.
-
-`nia check <file.nia> --opt-report` prints the active optimization
-policy, LLVM codegen optimization level, enabled backend module/function/global
-pass inventories, the backend optimization change count, and backend
-optimization changes to stdout. `nia check <file.nia> --runtime freestanding`
-injects the freestanding startup runtime and checks the same entry contract used
-by `emit --exe`.
-`nia emit --backend` prints the optimized backend IR to stdout for pass review.
-`nia emit --checked <file.nia> --opt-report`,
-`nia emit --backend <file.nia> --opt-report`,
-`nia emit --llvm <file.nia> --opt-report`,
-`nia emit --obj <file.nia> --opt-report`, and
-`nia emit --exe <file.nia> --opt-report` print the report to stderr while
-leaving stdout as backend IR or LLVM IR, and while keeping native
-object/executable output file-only. This is useful when reviewing pass behavior
-next to emitted code or native codegen artifacts.
-Timing reports are written to stderr; detail mode also includes aggregated query
-timings.
-The CLI does not yet expose separate before/after backend optimization snapshots;
-`emit --backend` is the post-lowering optimized backend IR, and
-`--opt-report` is the stable pass-observability interface.
-The CLI regression fixture emits and runs the same program at `-O0`, `-O1`,
-`-O2`, `-O3`, `-Os`, `-Oz`, and `-O`; it exercises constant leaf inlining,
-generic instance calls, local cleanup, and size-safe forwarding wrappers while
-checking that the freestanding executable exits with the same value at every
-level.
-
-`emit --obj` defaults to the bare runtime and may produce multiple object files
-because backend lowering can produce multiple codegen units. `emit --obj
---runtime freestanding` lowers with the same startup injection used by
-executable emission. `-o` is only valid for single-unit output; `--out-dir` is
-the multi-unit form. `emit --exe` lowers the freestanding runtime-selected
-executable model and invokes the configured target linker. Extra linker
-arguments are passed with repeated `--link-arg` options.
-Native output paths are
-mkdir-friendly by design: missing parent directories for `emit --obj -o`,
-`emit --obj --out-dir`, and `emit --exe -o` are created before writing or
-linking output artifacts. Input paths and module map paths are never created
-implicitly.
+The Rust build owner and its persistence boundaries are documented in
+[`crates/nia-build/README.md`](../crates/nia-build/README.md). The build-script
+API is documented beside [`lib/std/build.nia`](../lib/std/build.nia), and
+standard-library filesystem and process behavior belongs to the corresponding
+`lib/std` facades and providers.
 
 ## 14. Diagnostics
 
@@ -2545,9 +2285,8 @@ missing references, invalid static initializer paths, or missing ABI layouts in
 runtime positions, LLVM codegen reports diagnostics at that boundary instead of
 letting backend-specific lowering fail later.
 
-Diagnostics should describe current language rules. The compiler should not keep
-special migration diagnostics for syntax that only existed during earlier
-experimental development.
+Diagnostics describe current language rules. Unsupported syntax receives
+ordinary current-rule diagnostics rather than a reserved compatibility path.
 
 ## 15. File And Module Granularity
 
@@ -2589,7 +2328,7 @@ Do not add features by tunneling around query boundaries.
 
 ## 17. Design Principles
 
-These principles guide future maintenance:
+These principles guide maintenance:
 
 - prefer explicit language rules over hidden runtime policy;
 - keep host and bare output models separate;
