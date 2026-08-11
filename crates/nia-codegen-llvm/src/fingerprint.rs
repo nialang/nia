@@ -9,7 +9,7 @@ use nia_opt::{
     InlineThreshold, NiaOptimizationLevel, OptimizationDepth, OptimizationPolicy,
     SpecializationPolicy,
 };
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_static_ir::{StaticAddressElem, StaticInit};
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, TraitId,
@@ -21,6 +21,23 @@ use crate::{
     compiler_builtins::CompilerBuiltinSymbols,
     declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex,
 };
+
+const SOURCE_POLICY_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.source-policy.v3");
+const SOURCE_DEFINITION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.source-definition.v3");
+const SOURCE_DECLARATIONS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.source-declarations.v3");
+const SOURCE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.source-target.v2");
+const BUILTINS_POLICY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.builtins-policy.v2");
+const BUILTINS_DEFINITION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.builtins-definition.v2");
+const BUILTINS_DECLARATIONS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.builtins-declarations.v2");
+const BUILTINS_TARGET_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.builtins-target.v2");
+#[cfg(test)]
+const TEST_EXPRESSION_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.test-expr.v1");
 
 #[derive(Clone, Copy)]
 pub(super) enum ArtifactTarget<'a> {
@@ -36,20 +53,20 @@ pub(super) fn source_unit_fingerprint(
     target: ArtifactTarget<'_>,
 ) -> CodegenUnitFingerprintSet {
     declarations.validate_dependencies(partition, index);
-    let mut policy = Encoder::new("nia.llvm.source-policy.v3", index);
+    let mut policy = Encoder::new(SOURCE_POLICY_DOMAIN, index);
     policy.compiler_contract(options.toolchain_identity);
     policy.codegen_unit_key(&partition.key);
     policy.optimization(options.optimization);
     policy.artifact_kind(target);
 
     let owner = index.module_for_partition(partition);
-    let mut definition = Encoder::new("nia.llvm.source-definition.v3", index);
+    let mut definition = Encoder::new(SOURCE_DEFINITION_DOMAIN, index);
     definition.partition_definitions(partition, owner);
 
-    let mut declaration = Encoder::new("nia.llvm.source-declarations.v3", index);
+    let mut declaration = Encoder::new(SOURCE_DECLARATIONS_DOMAIN, index);
     declaration.declaration_membership(declarations, owner.layouts.target);
 
-    let mut target_component = Encoder::new("nia.llvm.source-target.v2", index);
+    let mut target_component = Encoder::new(SOURCE_TARGET_DOMAIN, index);
     target_component.artifact_target(target);
     CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
         policy: policy.finish(),
@@ -64,17 +81,17 @@ pub(super) fn compiler_builtins_fingerprint(
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
 ) -> CodegenUnitFingerprintSet {
-    let mut policy = QueryFingerprintBuilder::new("nia.llvm.builtins-policy.v2");
+    let mut policy = QueryFingerprintBuilder::new(BUILTINS_POLICY_DOMAIN);
     write_toolchain_identity(&mut policy, options.toolchain_identity);
     policy.write_u64(llvm_sys_version());
     write_optimization(&mut policy, options.optimization);
 
-    let mut definition = QueryFingerprintBuilder::new("nia.llvm.builtins-definition.v2");
+    let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
     definition.write_u8(u8::from(symbols.u128_div_rem));
     definition.write_u8(u8::from(symbols.i128_div_rem));
 
-    let declarations = QueryFingerprintBuilder::new("nia.llvm.builtins-declarations.v2");
-    let mut target_component = QueryFingerprintBuilder::new("nia.llvm.builtins-target.v2");
+    let declarations = QueryFingerprintBuilder::new(BUILTINS_DECLARATIONS_DOMAIN);
+    let mut target_component = QueryFingerprintBuilder::new(BUILTINS_TARGET_DOMAIN);
     write_target_identity(&mut target_component, target);
     CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
         policy: finish_builder(policy),
@@ -94,7 +111,7 @@ struct Encoder<'a> {
 }
 
 impl<'a> Encoder<'a> {
-    fn new(domain: &str, index: &'a ProgramIndex) -> Self {
+    fn new(domain: FingerprintDomain, index: &'a ProgramIndex) -> Self {
         Self {
             builder: QueryFingerprintBuilder::new(domain),
             index,
@@ -2223,7 +2240,7 @@ mod tests {
     }
 
     fn expr_fingerprint(index: &ProgramIndex, expr: &FunctionExpr) -> CodegenUnitFingerprint {
-        let mut encoder = Encoder::new("nia.llvm.test-expr.v1", index);
+        let mut encoder = Encoder::new(TEST_EXPRESSION_DOMAIN, index);
         encoder.expr(expr);
         encoder.finish()
     }

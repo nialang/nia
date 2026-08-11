@@ -2,7 +2,7 @@ use nia_ast::FunctionItem;
 use nia_ids::DefId;
 use nia_imports::{ModuleMap, StableModuleKey};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_span::Span;
 use nia_syntax::SyntaxTree;
@@ -11,6 +11,45 @@ use nia_target_config::TargetConfig;
 use crate::RuntimeModel;
 
 const FRONTEND_CACHE_SCHEMA_VERSION: u64 = 2;
+const SOURCE_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.source.v1");
+const SIGNATURE_TYPE_RESOLUTION_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.signature-type-resolution.v1");
+const SIGNATURE_TYPE_LOWERING_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.signature-type-lowering.v1");
+const SIGNATURE_ITEM_SIGNATURES_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.signature-item-signatures.v1");
+const EXTENSION_VALIDATION_DIAGNOSTICS_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.extension-validation-diagnostics.v1");
+const EXECUTABLE_VALUE_REF_EDGES_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.executable-value-ref-edges.v1");
+const CHECK_CERTIFICATE_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.check-certificate.v1");
+const SYNTAX_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.syntax.v1");
+const ITEM_SIGNATURE_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.item-signature.v1");
+const PROVIDER_SUMMARY_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.provider-summary.v2");
+const PUBLIC_SURFACE_FACTS_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.public-surface-facts.v1");
+const FACADE_FACTS_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.facade-facts.v1");
+const MODULE_DEPENDENCIES_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.module-dependencies.v1");
+const PROVIDER_DEMAND_PLAN_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-key.provider-demand-plan.v1");
+const CACHE_NAMESPACE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.cache-namespace.v2");
+const SOURCE_CONTENT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.source-content.v1");
+const PROGRAM_SOURCES_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.program-sources.v1");
+const MODULE_MAP_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.frontend.module-map.v1");
+const LOSSLESS_SYNTAX_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.lossless-syntax.v1");
+const ITEM_SIGNATURE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.item-signature.v1");
 
 macro_rules! frontend_fingerprint {
     ($name:ident) => {
@@ -53,7 +92,7 @@ impl FrontendCheckScope {
 }
 
 macro_rules! frontend_cache_key {
-    ($name:ident, $fingerprint:ident, $domain:literal) => {
+    ($name:ident, $fingerprint:ident, $domain:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $name(QueryFingerprint);
 
@@ -82,7 +121,7 @@ macro_rules! frontend_cache_key {
 frontend_cache_key!(
     FrontendSourceCacheKey,
     SourceContentFingerprint,
-    "nia.frontend.cache-key.source.v1"
+    SOURCE_CACHE_KEY_DOMAIN
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -95,8 +134,7 @@ impl FrontendSignatureTypeResolutionCacheKey {
         set: SignatureItemSet,
         program_sources: FrontendProgramSourceFingerprint,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.signature-type-resolution.v1");
+        let mut builder = QueryFingerprintBuilder::new(SIGNATURE_TYPE_RESOLUTION_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
         builder.write_u8(signature_item_set_tag(set));
         Self(builder.finish())
@@ -121,8 +159,7 @@ impl FrontendSignatureTypeLoweringCacheKey {
         set: SignatureItemSet,
         program_sources: FrontendProgramSourceFingerprint,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.signature-type-lowering.v1");
+        let mut builder = QueryFingerprintBuilder::new(SIGNATURE_TYPE_LOWERING_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
         builder.write_u8(signature_item_set_tag(set));
         Self(builder.finish())
@@ -147,8 +184,7 @@ impl FrontendSignatureItemSignaturesCacheKey {
         set: SignatureItemSet,
         program_sources: FrontendProgramSourceFingerprint,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.signature-item-signatures.v1");
+        let mut builder = QueryFingerprintBuilder::new(SIGNATURE_ITEM_SIGNATURES_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
         builder.write_u8(signature_item_set_tag(set));
         Self(builder.finish())
@@ -172,9 +208,8 @@ impl FrontendExtensionValidationDiagnosticsCacheKey {
         module: &StableModuleKey,
         program_sources: FrontendProgramSourceFingerprint,
     ) -> Self {
-        let mut builder = QueryFingerprintBuilder::new(
-            "nia.frontend.cache-key.extension-validation-diagnostics.v1",
-        );
+        let mut builder =
+            QueryFingerprintBuilder::new(EXTENSION_VALIDATION_DIAGNOSTICS_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
         Self(builder.finish())
     }
@@ -198,8 +233,7 @@ impl FrontendExecutableValueRefEdgesCacheKey {
         owner: DefId,
         program_sources: FrontendProgramSourceFingerprint,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.executable-value-ref-edges.v1");
+        let mut builder = QueryFingerprintBuilder::new(EXECUTABLE_VALUE_REF_EDGES_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
         builder.write_u64(owner.0);
         Self(builder.finish())
@@ -224,8 +258,7 @@ impl FrontendCheckCertificateCacheKey {
         input: FrontendCheckInputFingerprint,
         scope: FrontendCheckScope,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.check-certificate.v1");
+        let mut builder = QueryFingerprintBuilder::new(CHECK_CERTIFICATE_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, entry, input.parts());
         builder.write_u8(scope.tag());
         Self(builder.finish())
@@ -242,22 +275,22 @@ impl FrontendCheckCertificateCacheKey {
 frontend_cache_key!(
     FrontendSyntaxCacheKey,
     SyntaxFingerprint,
-    "nia.frontend.cache-key.syntax.v1"
+    SYNTAX_CACHE_KEY_DOMAIN
 );
 frontend_cache_key!(
     FrontendItemSignatureCacheKey,
     ItemSignatureFingerprint,
-    "nia.frontend.cache-key.item-signature.v1"
+    ITEM_SIGNATURE_CACHE_KEY_DOMAIN
 );
 frontend_cache_key!(
     FrontendProviderSummaryCacheKey,
     ItemSignatureFingerprint,
-    "nia.frontend.cache-key.provider-summary.v2"
+    PROVIDER_SUMMARY_CACHE_KEY_DOMAIN
 );
 frontend_cache_key!(
     FrontendPublicSurfaceFactsCacheKey,
     SourceContentFingerprint,
-    "nia.frontend.cache-key.public-surface-facts.v1"
+    PUBLIC_SURFACE_FACTS_CACHE_KEY_DOMAIN
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -270,7 +303,7 @@ impl FrontendFacadeFactsCacheKey {
         item_signature: ItemSignatureFingerprint,
         module_map: FrontendModuleMapFingerprint,
     ) -> Self {
-        let mut builder = QueryFingerprintBuilder::new("nia.frontend.cache-key.facade-facts.v1");
+        let mut builder = QueryFingerprintBuilder::new(FACADE_FACTS_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, item_signature.parts());
         builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
         Self(builder.finish())
@@ -295,8 +328,7 @@ impl FrontendModuleDependenciesCacheKey {
         source: SourceContentFingerprint,
         module_map: FrontendModuleMapFingerprint,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.module-dependencies.v1");
+        let mut builder = QueryFingerprintBuilder::new(MODULE_DEPENDENCIES_CACHE_KEY_DOMAIN);
         write_frontend_cache_key(&mut builder, namespace, module, source.parts());
         builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
         Self(builder.finish())
@@ -321,8 +353,7 @@ impl FrontendProviderDemandPlanCacheKey {
         module_map: FrontendModuleMapFingerprint,
         package_root_used_paths: bool,
     ) -> Self {
-        let mut builder =
-            QueryFingerprintBuilder::new("nia.frontend.cache-key.provider-demand-plan.v1");
+        let mut builder = QueryFingerprintBuilder::new(PROVIDER_DEMAND_PLAN_CACHE_KEY_DOMAIN);
         builder.write_fingerprint(QueryFingerprint::from_parts(namespace.parts()));
         builder.write_str(entry.normalized_path());
         builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
@@ -353,7 +384,7 @@ impl FrontendCacheNamespace {
         runtime: RuntimeModel,
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
-        let mut builder = QueryFingerprintBuilder::new("nia.frontend.cache-namespace.v2");
+        let mut builder = QueryFingerprintBuilder::new(CACHE_NAMESPACE_DOMAIN);
         builder.write_u64(FRONTEND_CACHE_SCHEMA_VERSION);
         for part in toolchain.parts() {
             builder.write_u64(part);
@@ -389,7 +420,7 @@ fn write_frontend_cache_key(
 }
 
 pub fn source_content_fingerprint(source: &str) -> SourceContentFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.source-content.v1");
+    let mut builder = QueryFingerprintBuilder::new(SOURCE_CONTENT_DOMAIN);
     builder.write_bytes(source.as_bytes());
     SourceContentFingerprint(builder.finish())
 }
@@ -404,7 +435,7 @@ pub fn frontend_program_source_fingerprint<'a>(
             .normalized_path()
             .cmp(right.0.source_identity().normalized_path())
     });
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.program-sources.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROGRAM_SOURCES_DOMAIN);
     builder.write_u64(sources.len() as u64);
     for (module, source, len) in sources {
         builder.write_str(module.source_identity().normalized_path());
@@ -434,7 +465,7 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
             .cmp(&right.0)
             .then_with(|| left.1.normalized_path().cmp(right.1.normalized_path()))
     });
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.module-map.v1");
+    let mut builder = QueryFingerprintBuilder::new(MODULE_MAP_DOMAIN);
     builder.write_u64(entries.len() as u64);
     for (name, path) in entries {
         builder.write_u64(name);
@@ -444,7 +475,7 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
 }
 
 pub fn syntax_fingerprint(syntax: &SyntaxTree) -> SyntaxFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.lossless-syntax.v1");
+    let mut builder = QueryFingerprintBuilder::new(LOSSLESS_SYNTAX_DOMAIN);
     builder.write_bytes(syntax.source().as_bytes());
     SyntaxFingerprint(builder.finish())
 }
@@ -479,7 +510,7 @@ pub fn item_signature_fingerprint(
     }
     body_spans.sort_unstable_by_key(|span| (span.start, span.end));
 
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.item-signature.v1");
+    let mut builder = QueryFingerprintBuilder::new(ITEM_SIGNATURE_DOMAIN);
     let mut cursor = 0;
     for span in body_spans {
         assert!(

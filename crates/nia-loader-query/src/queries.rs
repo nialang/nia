@@ -18,12 +18,15 @@ use nia_imports::{
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{
-    QueryDb, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy, QueryKey,
-    QueryResult, QueryRetirement,
+    FingerprintDomain, QueryDb, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
+    QueryKey, QueryResult, QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
 use std::sync::Arc;
+
+const SOURCE_STATUS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.loader.source-status.v1");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LoadedProgramQuery;
@@ -548,7 +551,7 @@ impl QueryKey<LoaderContext> for SourceStatusQuery {
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
-        let mut builder = QueryFingerprintBuilder::new("nia.loader.source-status.v1");
+        let mut builder = QueryFingerprintBuilder::new(SOURCE_STATUS_DOMAIN);
         builder.write_u64(u64::from(self.0.0));
         match value {
             SourceStatus::Missing => builder.write_u8(0),

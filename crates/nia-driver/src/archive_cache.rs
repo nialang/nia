@@ -11,8 +11,10 @@ use nia_linker::{
     ArchiveCacheKey, ArchiveFingerprint, ArchiveFingerprintComponents, ArchiveFingerprintSet,
     ArchiveInvalidation,
 };
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
+const ARCHIVE_RESULT_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.archive-result-payload.v1");
 static ARCHIVE_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -292,7 +294,7 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
 }
 
 fn payload_checksum(bytes: &[u8]) -> ArchiveFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.archive-result-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(ARCHIVE_RESULT_PAYLOAD_DOMAIN);
     builder.write_bytes(bytes);
     ArchiveFingerprint::from_parts(builder.finish().parts())
 }

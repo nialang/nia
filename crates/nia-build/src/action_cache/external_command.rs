@@ -8,7 +8,7 @@ use std::{
 };
 
 use nia_compat::formats::{EXTERNAL_COMMAND_CACHE, EXTERNAL_COMMAND_ENTRY};
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
@@ -20,6 +20,41 @@ use crate::{
     ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
     PlanPackage, lock::ScopedFileLock,
 };
+
+const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command.v1");
+const EXTERNAL_COMMAND_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-key.v1");
+const EXTERNAL_COMMAND_DECLARATION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-declaration.v1");
+const EXTERNAL_COMMAND_TOOL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-tool.v1");
+const EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-environment.v1");
+const EXTERNAL_COMMAND_INPUTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-inputs.v1");
+const EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-dependencies.v1");
+const EXTERNAL_COMMAND_WORKING_DIRECTORY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-working-directory.v1");
+const EXTERNAL_COMMAND_PACKAGE_ROOTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-package-roots.v1");
+const EXTERNAL_COMMAND_OUTPUTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-outputs.v1");
+const EXTERNAL_COMMAND_COMPILER_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-compiler.v1");
+const EXTERNAL_COMMAND_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-resource-layout.v1");
+const EXTERNAL_COMMAND_STANDARD_LIBRARY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-standard-library.v1");
+const EXTERNAL_COMMAND_BUILD_PROTOCOL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-build-protocol.v1");
+const EXTERNAL_COMMAND_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-payload.v1");
+const EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-tool-contents.v1");
+const EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.external-command-input-contents.v2");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FingerprintComponents {
@@ -46,7 +81,7 @@ struct FingerprintSet {
 
 impl FingerprintSet {
     fn new(cache_key: QueryFingerprint, components: FingerprintComponents) -> Self {
-        let mut builder = QueryFingerprintBuilder::new("nia.build.external-command.v1");
+        let mut builder = QueryFingerprintBuilder::new(EXTERNAL_COMMAND_FINGERPRINT_DOMAIN);
         builder.write_fingerprint(cache_key);
         for component in components.values() {
             builder.write_fingerprint(component);
@@ -138,36 +173,33 @@ impl ExternalCommandCacheIdentity {
         let dependencies = input_identity(&dependency_inputs);
         let working_directory = logical_path_identity(working_directory);
         let outputs_identity = path_list_identity(outputs);
-        let cache_key = component("nia.build.external-command-key.v1", &action_identity);
+        let cache_key = component(EXTERNAL_COMMAND_KEY_DOMAIN, &action_identity);
         let components = FingerprintComponents {
-            command: component("nia.build.external-command-declaration.v1", &command),
-            tool: component("nia.build.external-command-tool.v1", &tool),
-            environment: component("nia.build.external-command-environment.v1", &environment),
-            inputs: component("nia.build.external-command-inputs.v1", &inputs),
-            dependencies: component("nia.build.external-command-dependencies.v1", &dependencies),
+            command: component(EXTERNAL_COMMAND_DECLARATION_DOMAIN, &command),
+            tool: component(EXTERNAL_COMMAND_TOOL_DOMAIN, &tool),
+            environment: component(EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN, &environment),
+            inputs: component(EXTERNAL_COMMAND_INPUTS_DOMAIN, &inputs),
+            dependencies: component(EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN, &dependencies),
             working_directory: component(
-                "nia.build.external-command-working-directory.v1",
+                EXTERNAL_COMMAND_WORKING_DIRECTORY_DOMAIN,
                 &working_directory,
             ),
-            package_roots: component(
-                "nia.build.external-command-package-roots.v1",
-                &package_roots,
-            ),
-            outputs: component("nia.build.external-command-outputs.v1", &outputs_identity),
+            package_roots: component(EXTERNAL_COMMAND_PACKAGE_ROOTS_DOMAIN, &package_roots),
+            outputs: component(EXTERNAL_COMMAND_OUTPUTS_DOMAIN, &outputs_identity),
             compiler: text_component(
-                "nia.build.external-command-compiler.v1",
+                EXTERNAL_COMMAND_COMPILER_DOMAIN,
                 toolchain.compiler_version(),
             ),
             resource_layout: integer_component(
-                "nia.build.external-command-resource-layout.v1",
+                EXTERNAL_COMMAND_RESOURCE_LAYOUT_DOMAIN,
                 toolchain.resource_layout_schema(),
             ),
             standard_library: integer_component(
-                "nia.build.external-command-standard-library.v1",
+                EXTERNAL_COMMAND_STANDARD_LIBRARY_DOMAIN,
                 toolchain.std_schema(),
             ),
             build_protocol: integer_component(
-                "nia.build.external-command-build-protocol.v1",
+                EXTERNAL_COMMAND_BUILD_PROTOCOL_DOMAIN,
                 toolchain.build_protocol_schema(),
             ),
         };
@@ -406,7 +438,7 @@ impl ExternalCommandCache {
     }
 
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
-        let mut builder = QueryFingerprintBuilder::new("nia.build.action-cache-mutation-lock.v1");
+        let mut builder = QueryFingerprintBuilder::new(super::ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
         let lock = self
             .root
@@ -457,7 +489,7 @@ fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -
     for payload in payloads {
         write_fingerprint(
             &mut encoded,
-            bytes_fingerprint("nia.build.external-command-payload.v1", payload),
+            bytes_fingerprint(EXTERNAL_COMMAND_PAYLOAD_DOMAIN, payload),
         );
         write_bytes(&mut encoded, payload);
     }
@@ -496,42 +528,38 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let working_directory = read_bytes(&mut cursor, encoded.len())?;
     let package_roots = read_bytes(&mut cursor, encoded.len())?;
     let outputs = read_bytes(&mut cursor, encoded.len())?;
-    (component("nia.build.external-command-key.v1", &action) == cache_key).then_some(())?;
+    (component(EXTERNAL_COMMAND_KEY_DOMAIN, &action) == cache_key).then_some(())?;
     for (found, domain, value) in [
         (
             components.command,
-            "nia.build.external-command-declaration.v1",
+            EXTERNAL_COMMAND_DECLARATION_DOMAIN,
             &command,
         ),
-        (components.tool, "nia.build.external-command-tool.v1", &tool),
+        (components.tool, EXTERNAL_COMMAND_TOOL_DOMAIN, &tool),
         (
             components.environment,
-            "nia.build.external-command-environment.v1",
+            EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN,
             &environment,
         ),
-        (
-            components.inputs,
-            "nia.build.external-command-inputs.v1",
-            &inputs,
-        ),
+        (components.inputs, EXTERNAL_COMMAND_INPUTS_DOMAIN, &inputs),
         (
             components.dependencies,
-            "nia.build.external-command-dependencies.v1",
+            EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN,
             &dependencies,
         ),
         (
             components.working_directory,
-            "nia.build.external-command-working-directory.v1",
+            EXTERNAL_COMMAND_WORKING_DIRECTORY_DOMAIN,
             &working_directory,
         ),
         (
             components.package_roots,
-            "nia.build.external-command-package-roots.v1",
+            EXTERNAL_COMMAND_PACKAGE_ROOTS_DOMAIN,
             &package_roots,
         ),
         (
             components.outputs,
-            "nia.build.external-command-outputs.v1",
+            EXTERNAL_COMMAND_OUTPUTS_DOMAIN,
             &outputs,
         ),
     ] {
@@ -544,8 +572,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     for _ in 0..payload_count {
         let checksum = read_fingerprint(&mut cursor)?;
         let payload = read_bytes(&mut cursor, encoded.len())?;
-        (bytes_fingerprint("nia.build.external-command-payload.v1", &payload) == checksum)
-            .then_some(())?;
+        (bytes_fingerprint(EXTERNAL_COMMAND_PAYLOAD_DOMAIN, &payload) == checksum).then_some(())?;
         payloads.push(payload);
     }
     (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(DecodedEntry {
@@ -639,13 +666,13 @@ fn invalidations(
     reasons
 }
 
-fn component(domain: &'static str, value: &[u8]) -> QueryFingerprint {
+fn component(domain: FingerprintDomain, value: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_bytes(value);
     builder.finish()
 }
 
-fn bytes_fingerprint(domain: &'static str, value: &[u8]) -> QueryFingerprint {
+fn bytes_fingerprint(domain: FingerprintDomain, value: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_bytes(value);
     builder.finish()
@@ -693,7 +720,7 @@ fn tool_identity(program: &CommandProgram, contents: &[u8]) -> Vec<u8> {
     encoded.extend_from_slice(&(contents.len() as u64).to_le_bytes());
     write_fingerprint(
         &mut encoded,
-        bytes_fingerprint("nia.build.external-command-tool-contents.v1", contents),
+        bytes_fingerprint(EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN, contents),
     );
     encoded
 }
@@ -722,7 +749,7 @@ fn input_identity(inputs: &[(&LogicalPath, &[u8])]) -> Vec<u8> {
         encoded.extend_from_slice(&(contents.len() as u64).to_le_bytes());
         write_fingerprint(
             &mut encoded,
-            bytes_fingerprint("nia.build.external-command-input-contents.v2", contents),
+            bytes_fingerprint(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN, contents),
         );
     }
     encoded
@@ -761,22 +788,19 @@ mod tests {
         let mut outputs = Vec::new();
         outputs.extend_from_slice(&2_u64.to_le_bytes());
         outputs.extend_from_slice(b"outputs");
-        let cache_key = component("nia.build.external-command-key.v1", &action);
+        let cache_key = component(EXTERNAL_COMMAND_KEY_DOMAIN, &action);
         let components = FingerprintComponents {
-            command: component("nia.build.external-command-declaration.v1", &command),
-            tool: component("nia.build.external-command-tool.v1", &tool),
-            environment: component("nia.build.external-command-environment.v1", &environment),
-            inputs: component("nia.build.external-command-inputs.v1", &inputs),
-            dependencies: component("nia.build.external-command-dependencies.v1", &dependencies),
+            command: component(EXTERNAL_COMMAND_DECLARATION_DOMAIN, &command),
+            tool: component(EXTERNAL_COMMAND_TOOL_DOMAIN, &tool),
+            environment: component(EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN, &environment),
+            inputs: component(EXTERNAL_COMMAND_INPUTS_DOMAIN, &inputs),
+            dependencies: component(EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN, &dependencies),
             working_directory: component(
-                "nia.build.external-command-working-directory.v1",
+                EXTERNAL_COMMAND_WORKING_DIRECTORY_DOMAIN,
                 &working_directory,
             ),
-            package_roots: component(
-                "nia.build.external-command-package-roots.v1",
-                &package_roots,
-            ),
-            outputs: component("nia.build.external-command-outputs.v1", &outputs),
+            package_roots: component(EXTERNAL_COMMAND_PACKAGE_ROOTS_DOMAIN, &package_roots),
+            outputs: component(EXTERNAL_COMMAND_OUTPUTS_DOMAIN, &outputs),
             compiler: QueryFingerprint::from_parts([1, 2]),
             resource_layout: QueryFingerprint::from_parts([3, 4]),
             standard_library: QueryFingerprint::from_parts([5, 6]),
@@ -859,10 +883,8 @@ mod tests {
 
         let mut changed = identity.clone();
         changed.dependencies = b"changed-dependencies".to_vec();
-        changed.fingerprints.components.dependencies = component(
-            "nia.build.external-command-dependencies.v1",
-            &changed.dependencies,
-        );
+        changed.fingerprints.components.dependencies =
+            component(EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN, &changed.dependencies);
         changed.fingerprints = FingerprintSet::new(
             changed.fingerprints.cache_key,
             changed.fingerprints.components,

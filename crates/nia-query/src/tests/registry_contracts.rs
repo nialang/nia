@@ -64,9 +64,40 @@ fn fingerprint_builder_is_deterministic_and_domain_separated() {
         builder.finish()
     };
 
-    assert_eq!(fingerprint("query-a.v1"), fingerprint("query-a.v1"));
-    assert_ne!(fingerprint("query-a.v1"), fingerprint("query-b.v1"));
+    assert_eq!(
+        fingerprint(FingerprintDomain::new("nia.query-a.v1")),
+        fingerprint(FingerprintDomain::new("nia.query-a.v1"))
+    );
+    assert_ne!(
+        fingerprint(FingerprintDomain::new("nia.query-a.v1")),
+        fingerprint(FingerprintDomain::new("nia.query-b.v1"))
+    );
     assert_eq!(std::mem::size_of::<QueryFingerprint>(), 16);
+}
+
+#[test]
+fn fingerprint_domains_require_a_versioned_nia_identity() {
+    assert_eq!(
+        FingerprintDomain::new("nia.query.product.v12").as_str(),
+        "nia.query.product.v12"
+    );
+    for invalid in [
+        "query.product.v1",
+        "nia.query.product",
+        "nia..v1",
+        "nia.query..product.v1",
+        "nia.-query.product.v1",
+        "nia.query-.product.v1",
+        "nia.query--product.v1",
+        "nia.query_product.v1",
+        "nia.query.product.v0",
+        "nia.query.product.v01",
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| FingerprintDomain::new(invalid)).is_err(),
+            "accepted invalid fingerprint domain {invalid}"
+        );
+    }
 }
 
 #[test]

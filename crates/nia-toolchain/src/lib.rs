@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_compat::{COMPILER_VERSION, toolchain};
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target_config::TargetConfig;
 use std::{fmt, fs, io, path::PathBuf};
+
+const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.toolchain.compatibility-identity.v1");
 
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 
@@ -54,8 +58,7 @@ impl ToolchainIdentity {
     }
 
     pub fn fingerprint(&self) -> ToolchainIdentityFingerprint {
-        let mut builder =
-            nia_query::QueryFingerprintBuilder::new("nia.toolchain.compatibility-identity.v1");
+        let mut builder = QueryFingerprintBuilder::new(COMPATIBILITY_IDENTITY_DOMAIN);
         builder.write_str(&self.compiler_version);
         builder.write_u64(u64::from(self.resource_layout_schema));
         builder.write_u64(u64::from(self.std_schema));

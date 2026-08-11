@@ -11,7 +11,7 @@ use nia_compat::formats::{COMPILER_CHECK_CACHE, COMPILER_CHECK_ENTRY};
 use nia_compiler_query::{SourceContentFingerprint, frontend_program_source_fingerprint};
 use nia_driver::{SourceInputContent, SourceInputManifest};
 use nia_imports::StableModuleKey;
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_toolchain::ToolchainIdentity;
 
@@ -24,6 +24,29 @@ use crate::{
     ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, TargetSpec, lock::ScopedFileLock,
 };
 
+pub(super) const COMPILER_CHECK_COMPILER_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.compiler.v1");
+pub(super) const COMPILER_CHECK_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.resource-layout.v1");
+pub(super) const COMPILER_CHECK_STANDARD_LIBRARY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.standard-library.v1");
+pub(super) const COMPILER_CHECK_BUILD_PROTOCOL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.build-protocol.v1");
+pub(super) const COMPILER_CHECK_MODULE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.module.v1");
+pub(super) const COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.package-roots.v1");
+pub(super) const COMPILER_CHECK_TARGET_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.target.v1");
+pub(super) const COMPILER_CHECK_OPTIMIZATION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.optimization.v1");
+pub(super) const COMPILER_CHECK_RUNTIME_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.runtime.v1");
+const COMPILER_CHECK_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.key.v1");
+const COMPILER_CHECK_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.fingerprint.v1");
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ToolchainComponents {
     compiler: QueryFingerprint,
@@ -35,20 +58,17 @@ struct ToolchainComponents {
 impl ToolchainComponents {
     fn new(identity: &ToolchainIdentity) -> Self {
         Self {
-            compiler: text_fingerprint(
-                "nia.build.compiler-check.compiler.v1",
-                identity.compiler_version(),
-            ),
+            compiler: text_fingerprint(COMPILER_CHECK_COMPILER_DOMAIN, identity.compiler_version()),
             resource_layout: integer_fingerprint(
-                "nia.build.compiler-check.resource-layout.v1",
+                COMPILER_CHECK_RESOURCE_LAYOUT_DOMAIN,
                 u64::from(identity.resource_layout_schema()),
             ),
             standard_library: integer_fingerprint(
-                "nia.build.compiler-check.standard-library.v1",
+                COMPILER_CHECK_STANDARD_LIBRARY_DOMAIN,
                 u64::from(identity.std_schema()),
             ),
             build_protocol: integer_fingerprint(
-                "nia.build.compiler-check.build-protocol.v1",
+                COMPILER_CHECK_BUILD_PROTOCOL_DOMAIN,
                 u64::from(identity.build_protocol_schema()),
             ),
         }
@@ -91,20 +111,17 @@ impl FingerprintSet {
         let cache_key = action_key_fingerprint(action);
         let components = FingerprintComponents {
             sources: input.sources,
-            module: bytes_fingerprint("nia.build.compiler-check.module.v1", input.module),
+            module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, input.module),
             package_roots: bytes_fingerprint(
-                "nia.build.compiler-check.package-roots.v1",
+                COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN,
                 input.package_roots,
             ),
-            target: bytes_fingerprint("nia.build.compiler-check.target.v1", input.target),
+            target: bytes_fingerprint(COMPILER_CHECK_TARGET_DOMAIN, input.target),
             optimization: integer_fingerprint(
-                "nia.build.compiler-check.optimization.v1",
+                COMPILER_CHECK_OPTIMIZATION_DOMAIN,
                 u64::from(input.optimization),
             ),
-            runtime: integer_fingerprint(
-                "nia.build.compiler-check.runtime.v1",
-                u64::from(input.runtime),
-            ),
+            runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(input.runtime)),
             compiler: input.toolchain.compiler,
             resource_layout: input.toolchain.resource_layout,
             standard_library: input.toolchain.standard_library,
@@ -377,7 +394,7 @@ impl CompilerCheckCache {
     }
 
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
-        let mut builder = QueryFingerprintBuilder::new("nia.build.action-cache-mutation-lock.v1");
+        let mut builder = QueryFingerprintBuilder::new(super::ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
         let lock = self
             .root
@@ -460,17 +477,14 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let source_fingerprint = source_records_fingerprint(&sources);
     let components = FingerprintComponents {
         sources: source_fingerprint,
-        module: bytes_fingerprint("nia.build.compiler-check.module.v1", &module),
-        package_roots: bytes_fingerprint(
-            "nia.build.compiler-check.package-roots.v1",
-            &package_roots,
-        ),
-        target: bytes_fingerprint("nia.build.compiler-check.target.v1", &target),
+        module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, &module),
+        package_roots: bytes_fingerprint(COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, &package_roots),
+        target: bytes_fingerprint(COMPILER_CHECK_TARGET_DOMAIN, &target),
         optimization: integer_fingerprint(
-            "nia.build.compiler-check.optimization.v1",
+            COMPILER_CHECK_OPTIMIZATION_DOMAIN,
             u64::from(optimization),
         ),
-        runtime: integer_fingerprint("nia.build.compiler-check.runtime.v1", u64::from(runtime)),
+        runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(runtime)),
         compiler: fingerprints.components.compiler,
         resource_layout: fingerprints.components.resource_layout,
         standard_library: fingerprints.components.standard_library,
@@ -641,7 +655,7 @@ fn action_identity(action: &ActionKey) -> Vec<u8> {
 }
 
 fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.compiler-check.key.v1");
+    let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_KEY_DOMAIN);
     builder.write_str(action.package().as_str());
     builder.write_str(action.name());
     builder.finish()
@@ -652,7 +666,7 @@ pub(super) fn action_fingerprint(encoded: &[u8]) -> Option<QueryFingerprint> {
     let package = read_bytes(&mut cursor, encoded.len())?;
     let name = read_bytes(&mut cursor, encoded.len())?;
     (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
-    let mut builder = QueryFingerprintBuilder::new("nia.build.compiler-check.key.v1");
+    let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_KEY_DOMAIN);
     builder.write_bytes(&package);
     builder.write_bytes(&name);
     Some(builder.finish())
@@ -716,7 +730,7 @@ fn combined_fingerprint(
     cache_key: QueryFingerprint,
     components: FingerprintComponents,
 ) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.compiler-check.fingerprint.v1");
+    let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_FINGERPRINT_DOMAIN);
     builder.write_fingerprint(cache_key);
     for component in [
         components.sources,
@@ -735,19 +749,19 @@ fn combined_fingerprint(
     builder.finish()
 }
 
-pub(super) fn bytes_fingerprint(domain: &str, bytes: &[u8]) -> QueryFingerprint {
+pub(super) fn bytes_fingerprint(domain: FingerprintDomain, bytes: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_bytes(bytes);
     builder.finish()
 }
 
-fn text_fingerprint(domain: &str, text: &str) -> QueryFingerprint {
+fn text_fingerprint(domain: FingerprintDomain, text: &str) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_str(text);
     builder.finish()
 }
 
-pub(super) fn integer_fingerprint(domain: &str, value: u64) -> QueryFingerprint {
+pub(super) fn integer_fingerprint(domain: FingerprintDomain, value: u64) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u64(value);
     builder.finish()

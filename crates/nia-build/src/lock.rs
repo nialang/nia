@@ -7,11 +7,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 use crate::LogicalPath;
 
 const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+const OUTPUT_LOCK_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.output-lock.v1");
 static LOCK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +50,7 @@ impl ProcessIdentity {
 }
 
 pub(crate) fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBuf {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.output-lock.v1");
+    let mut builder = QueryFingerprintBuilder::new(OUTPUT_LOCK_DOMAIN);
     builder.write_str(&output.protocol_path());
     let [first, second] = builder.finish().parts();
     cache_dir

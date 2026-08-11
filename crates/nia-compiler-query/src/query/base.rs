@@ -115,7 +115,7 @@ impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(stable_module_key_fingerprint(
-            "nia.compiler.module-graph-entry.v1",
+            MODULE_GRAPH_ENTRY_DOMAIN,
             value,
         ))
     }
@@ -175,7 +175,7 @@ impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(optional_stable_module_key_fingerprint(
-            "nia.compiler.module-graph-parent.v1",
+            MODULE_GRAPH_PARENT_DOMAIN,
             value.as_ref(),
         ))
     }
@@ -247,7 +247,7 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(optional_stable_module_key_fingerprint(
-            "nia.compiler.module-package-root.v1",
+            MODULE_PACKAGE_ROOT_DOMAIN,
             value.as_ref(),
         ))
     }
@@ -275,7 +275,7 @@ impl QueryKey<CompilerContext> for LoadedModulesQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(stable_module_sequence_fingerprint(
-            "nia.compiler.loaded-modules.v1",
+            LOADED_MODULES_DOMAIN,
             value,
         ))
     }
@@ -496,7 +496,7 @@ impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(stable_module_sequence_fingerprint(
-            "nia.compiler.parse-ok-module-ids.v1",
+            PARSE_OK_MODULE_IDS_DOMAIN,
             value,
         ))
     }
@@ -520,7 +520,7 @@ impl QueryKey<CompilerContext> for SemanticModuleIdsQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(stable_module_sequence_fingerprint(
-            "nia.compiler.semantic-module-ids.v1",
+            SEMANTIC_MODULE_IDS_DOMAIN,
             value,
         ))
     }
@@ -547,10 +547,7 @@ impl QueryKey<CompilerContext> for ModulePathQuery {
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
-        Some(source_path_fingerprint(
-            "nia.compiler.module-source-path.v1",
-            value,
-        ))
+        Some(source_path_fingerprint(MODULE_SOURCE_PATH_DOMAIN, value))
     }
 }
 
@@ -576,7 +573,7 @@ impl QueryKey<CompilerContext> for ModuleSourceVersionQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(source_version_fingerprint(
-            "nia.compiler.module-source-version.v1",
+            MODULE_SOURCE_VERSION_DOMAIN,
             *value,
         ))
     }
@@ -1057,7 +1054,7 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(optional_stable_module_key_fingerprint(
-            "nia.compiler.public-surface-module.v1",
+            PUBLIC_SURFACE_MODULE_DOMAIN,
             value.as_ref(),
         ))
     }
@@ -1193,7 +1190,7 @@ impl QueryKey<CompilerContext> for UsingScopeModuleQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(optional_stable_module_key_fingerprint(
-            "nia.compiler.using-scope-module.v1",
+            USING_SCOPE_MODULE_DOMAIN,
             value.as_ref(),
         ))
     }

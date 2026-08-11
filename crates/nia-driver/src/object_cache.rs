@@ -11,8 +11,12 @@ use nia_codegen_llvm::{
     CodegenUnitKey, ObjectWorkProductCache, ObjectWorkProductInvalidation, ObjectWorkProductLookup,
 };
 use nia_compat::formats::{OBJECT_WORK_PRODUCT, OBJECT_WORK_PRODUCT_CACHE};
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
+const OBJECT_WORK_PRODUCT_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.object-work-product-key.v2");
+const OBJECT_WORK_PRODUCT_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.object-work-product-payload.v1");
 static OBJECT_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -26,7 +30,7 @@ impl PersistentObjectWorkProductCache {
     }
 
     fn key_dir(&self, key: &CodegenUnitKey) -> PathBuf {
-        let mut builder = QueryFingerprintBuilder::new("nia.object-work-product-key.v2");
+        let mut builder = QueryFingerprintBuilder::new(OBJECT_WORK_PRODUCT_KEY_DOMAIN);
         builder.write_bytes(&encode_unit_key(key));
         let [first, second] = builder.finish().parts();
         self.root
@@ -279,7 +283,7 @@ fn encode_unit_key(key: &CodegenUnitKey) -> Vec<u8> {
 }
 
 fn payload_checksum(bytes: &[u8]) -> CodegenUnitFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.object-work-product-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(OBJECT_WORK_PRODUCT_PAYLOAD_DOMAIN);
     builder.write_bytes(bytes);
     CodegenUnitFingerprint::from_parts(builder.finish().parts())
 }

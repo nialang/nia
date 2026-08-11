@@ -11,7 +11,7 @@ use std::{
 use nia_compat::formats::{
     OUTPUT_TRANSACTION, OUTPUT_TRANSACTION_JOURNAL, OUTPUT_TRANSACTION_PREPARED,
 };
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 use crate::{
     ActionKey, LogicalPath, LogicalPathRoot, PackageKey,
@@ -21,6 +21,8 @@ use crate::{
 pub(crate) const OUTPUT_TRANSACTION_DIRECTORY: &str = ".nia-transactions";
 const MAX_JOURNAL_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUTS: usize = 4096;
+const OUTPUT_TRANSACTION_JOURNAL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.output-transaction-journal.v2");
 static JOURNAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -550,7 +552,7 @@ fn decode_envelope<'a>(encoded: &'a [u8], magic: &[u8; 8]) -> Option<&'a [u8]> {
 }
 
 fn checksum(payload: &[u8]) -> [u64; 2] {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.output-transaction-journal.v2");
+    let mut builder = QueryFingerprintBuilder::new(OUTPUT_TRANSACTION_JOURNAL_DOMAIN);
     builder.write_bytes(payload);
     builder.finish().parts()
 }
