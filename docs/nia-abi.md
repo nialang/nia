@@ -360,7 +360,7 @@ Nia has two struct layout policies:
 - Nia struct layout for normal structs;
 - C struct layout for `extern struct`.
 
-### 11.1 Nia Struct Layout
+### 12.1 Nia Struct Layout
 
 Normal structs use Nia-owned layout:
 
@@ -402,7 +402,7 @@ b: i64, a: u8, c: u8
 The compiler must use field identity and layout tables for field access. It must
 not assume that source field index equals physical field index.
 
-### 11.2 C Struct Layout
+### 12.2 C Struct Layout
 
 `extern struct` uses C ABI layout:
 
@@ -419,7 +419,7 @@ C-compatible layout model.
 `extern struct` is not eligible for Nia field reordering, ZST compression beyond
 what the C ABI model permits, or other Nia-only aggregate optimizations.
 
-### 11.3 Public Nia Structs
+### 12.3 Public Nia Structs
 
 `pub struct` does not imply C layout.
 
@@ -430,7 +430,7 @@ If a type must be consumed by C or another external ABI user, it must use a type
 form whose representation is defined for that ABI boundary, such as
 `extern struct`.
 
-### 11.4 Empty Structs
+### 12.4 Empty Structs
 
 Empty structs are ZSTs:
 
@@ -446,7 +446,7 @@ size 0, align 1
 
 Empty struct values have no runtime storage.
 
-### 11.5 ZST Fields
+### 12.5 ZST Fields
 
 ZST fields contribute no storage.
 
@@ -456,7 +456,7 @@ consume bytes in the physical Nia layout.
 
 If every field is zero-sized, the struct is also zero-sized with alignment `1`.
 
-## 12. Union Representation
+## 13. Union Representation
 
 Nia unions are C-style untagged unions:
 
@@ -487,7 +487,7 @@ C ABI union by-value passing is not defined by this ABI. Passing a union across
 the C ABI must use a pointer to an `extern union` or another explicitly defined
 C-compatible representation.
 
-## 13. Enum Representation
+## 14. Enum Representation
 
 C-style Nia enums use an integer backing type:
 
@@ -506,7 +506,7 @@ use the backing integer type explicitly.
 Nia does not use niche or payload-carrying enum representations. Plain C-style
 enum layout is backing-type based.
 
-## 14. Function ABI
+## 15. Function ABI
 
 Normal Nia functions use the Nia function ABI.
 
@@ -516,7 +516,7 @@ Executable startup is owned by the selected standard-library runtime. The
 default Linux x86_64 runtime exports `_start` as an `extern fn` symbol and calls
 the Nia-level root entry contract from standard-library code.
 
-### 14.1 Nia Function Parameters
+### 15.1 Nia Function Parameters
 
 The Nia function ABI classifies parameters as follows:
 
@@ -538,7 +538,7 @@ Indirect readonly address means the caller passes an address of a value whose
 contents are observed by the callee. The callee must treat this address as the
 by-value parameter's storage and must not mutate it.
 
-### 14.2 Nia Function Returns
+### 15.2 Nia Function Returns
 
 The Nia function ABI classifies returns as follows:
 
@@ -556,7 +556,7 @@ never returns          no normal return
 Hidden out pointer means the caller provides result storage and the callee writes
 the aggregate result into it.
 
-### 14.3 Methods
+### 15.3 Methods
 
 Methods are functions with an explicit receiver convention.
 
@@ -571,7 +571,7 @@ self        classified as a normal value parameter
 Method receiver ABI must follow the same parameter classification rules as other
 Nia function parameters.
 
-### 14.4 Generic Functions
+### 15.4 Generic Functions
 
 Generic functions are monomorphized.
 
@@ -579,7 +579,7 @@ Each concrete instance uses the Nia ABI after substituting concrete type
 arguments. Layout and function ABI classification are performed on the concrete
 types, not on generic parameters.
 
-## 15. C ABI Function Boundaries
+## 16. C ABI Function Boundaries
 
 `extern fn` declarations and definitions are C ABI boundaries.
 
@@ -610,7 +610,7 @@ volatile pointer values         allowed with ordinary pointer representation
 `extern struct` is the C-layout aggregate form. Ordinary Nia structs are not
 C-layout types.
 
-## 16. Static Data ABI
+## 17. Static Data ABI
 
 Top-level `let` and `let mut` storage uses the ABI representation of its type.
 
@@ -631,7 +631,7 @@ semantics.
 
 Extern globals use external symbol names and C ABI-compatible types.
 
-## 17. Modules And Cross-Module ABI
+## 18. Modules And Cross-Module ABI
 
 All modules in one checked program use one ABI model.
 
@@ -654,7 +654,7 @@ C layout, or unmangled symbols.
 Cross-module layout must be communicated through compiler metadata, not
 recomputed from source text in later phases.
 
-## 18. Symbol Naming And Linkage
+## 19. Symbol Naming And Linkage
 
 Normal Nia symbols use Nia mangling.
 
@@ -681,7 +681,7 @@ Nia mangling must be deterministic and must distinguish generic instances.
 The Nia ABI does not encode ABI versions or layout hashes in symbols. Stable
 binary compatibility requires a separate explicit compatibility model.
 
-## 19. Optimization Rules
+## 20. Optimization Rules
 
 ABI optimizations must preserve source semantics.
 
@@ -804,7 +804,7 @@ and initializer evaluation order. These choices may remove temporary storage and
 copies, but they do not change aggregate layout, field identity, parameter and
 return classification, or externally visible ABI.
 
-## 20. Inline Assembly Boundary
+## 21. Inline Assembly Boundary
 
 Inline assembly observes backend-level values and machine registers.
 
@@ -815,7 +815,7 @@ defined lowering for that operand class.
 Inline assembly outputs cannot have `()`, `never`, or other non-material
 runtime types.
 
-## 21. Backend Lowering Contract
+## 22. Backend Lowering Contract
 
 Backend lowering must preserve the ABI representation chosen before codegen.
 
@@ -833,7 +833,7 @@ order that the language requires. If a zero-sized aggregate literal contains
 field or element initializers with side effects, those effects must still be
 emitted even though the aggregate itself has no runtime representation.
 
-## 22. ABI Invariants
+## 23. ABI Invariants
 
 The following invariants must hold:
 
