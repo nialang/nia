@@ -1161,6 +1161,26 @@ introduce allocation or type erasure. An `IntoError` implementation is expected
 to be an infallible error mapping; conversions that add values not present in
 the source, such as an operation name or path, remain explicit adapters.
 
+Error unions also provide the explicit `mapError` extension:
+
+```nia
+let mapped = operation().mapError(&[context](cause: SourceError) TargetError {
+    _ = context;
+    _ = cause;
+    TargetError::Unknown
+});
+```
+
+`Source!T::mapError` evaluates its receiver once, returns `!value` unchanged
+on success, and invokes the borrowed `&Fn(Source) Target` view only on the
+error path. The callback is synchronous and cannot be retained by the
+operation; it receives no inferred lifetime extension or allocator ownership.
+The target error type is inferred from the callback's explicit return type,
+including when the callback is an inline closure. `mapError` is an explicit
+mapping operation and is not an additional automatic propagation conversion.
+Callable-view calls are runtime-only, so `mapError` is not available in const
+evaluation.
+
 Automatic `IntoError` conversion is currently a runtime-only propagation
 feature. Const evaluation rejects it even when the selected method is declared
 `const fn`; exact-type optional and error propagation remain available in const

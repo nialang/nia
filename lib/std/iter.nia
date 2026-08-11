@@ -98,6 +98,21 @@ where I: Iterator
         }
         total
     }
+
+    pub fn forEach(self, callback: &Fn([I as Iterator]::Item) ()) () {
+        let mut iter = self;
+        let mut done = false;
+        while done == false {
+            switch iter.next() {
+                ?value => {
+                    callback(value);
+                },
+                null => {
+                    done = true;
+                },
+            }
+        }
+    }
 }
 
 extend[I] I

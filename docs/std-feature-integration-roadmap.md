@@ -22,14 +22,25 @@ acceptance, not a reason to add progress to an old roadmap.
   writer methods are ordinary typed error paths rather than callable pipelines.
 - `std::mem::Allocated` and `CallableAllocation` are explicit storage/owner
   products. A callable view is non-owning; deinitialization remains explicit.
-- `.?` and `IntoError` already remove several former explicit `.exit().?`
-  call-site adapters, but `std::error` has no reviewed `mapError`/recovery
-  combinator.
+- `.?` and `IntoError` remove former explicit `.exit().?` call-site adapters;
+  `std::error::mapError` now owns explicit synchronous error-arm mapping, while
+  recovery and fallible combinators remain unreviewed.
 
 These observations are design input, not a mandate to rewrite every named
 struct or add callbacks to every loop. Each migration must demonstrate a real
 user workflow, a simpler ownership/error contract, and no unwanted provider
 closure.
+
+### Current Delivery
+
+The first std slice adds synchronous `Iterator::forEach`, which accepts a
+borrowed `&Fn(Item) ()` and does not retain callable state. Its closure lifetime
+therefore ends at the call boundary; lazy adapters and owned callable storage
+remain separate design work. Error-union `mapError` is tracked in the separate
+error-handling roadmap because its target/error semantics are a language/std
+boundary rather than an iterator concern. Its conformance case uses a tuple
+success payload, establishing tuple preservation through a real generic std
+operation without replacing ownership-sensitive named result structs.
 
 ## 2. Candidate API Families
 
@@ -42,8 +53,8 @@ callable value:
 - `map` for `Fn(Item) Output`;
 - `filter` for `Fn(Item) bool` or a clearly specified borrowed-item form;
 - `fold`/`tryFold` as eager operations;
-- `mapError`/`tryMap` only after the error-handling roadmap decides their union
-  semantics.
+- `tryMap` only after the error-handling roadmap decides fallible mapping and
+  flattening semantics; `mapError` is already owned by the error-union API.
 
 The first implementation may use a borrowed callable view for a synchronous
 operation, but a lazy adapter must define how its callable state lives across

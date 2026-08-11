@@ -38,24 +38,37 @@ The owning implementation boundaries are `check_try_expr` and
 try lowering/codegen paths under `crates/nia-function-lower` and
 `crates/nia-codegen-llvm`. Const behavior is owned by `crates/nia-const-check`.
 
-## 2. Questions And Decisions
+### Current Delivery
 
-The first phase is a design review. No API is stabilized until each question
-has a written decision and a representative source example.
+The first implementation slice adds `Source!T::mapError` as an explicit,
+synchronous borrowed-callable operation. Generic inference now derives a
+callable signature from a direct `&closure` pointer, so an inline closure's
+explicit return type supplies the target error without a result annotation.
+Runtime conformance proves success bypasses the mapper and failure invokes it
+once; the preserved success payload is a tuple, covering the complete generic
+error-union/callable/tuple lowering path. Const conversion, fallible mapping,
+and richer recovery operations remain undecided and are not silently included
+in this slice.
+
+## 2. Decisions And Open Questions
+
+Each selected API has a written decision and a representative source example.
+Open questions block only the behavior they affect.
 
 1. Should automatic `IntoError` conversion become available in const code?
    The review must define the required const trait-call proof, reject methods
    that can perform runtime-only work, and specify whether conversion remains
    one failure-edge call. If the proof is not implementable without a second
    semantic model, retain the current rejection and improve its diagnostic.
-2. What is the canonical error-mapping API? Evaluate an error-union method such
-   as `mapError`, a free function, and a trait operation. The chosen shape must
-   map only the error arm, preserve the success value, evaluate the source once,
-   and make callable lifetime/ownership explicit.
-3. Should mapping accept a concrete generic callable, a borrowed `Fn` view, a
-   no-capture `&fn` pointer, or an explicitly owned `CallableAllocation`? A
-   borrowed view must not escape the call; an owned callable must not hide its
-   allocator or destruction order. Capturing mutability is outside this project.
+2. The canonical infallible error-mapping API is the error-union method
+   `mapError`. It maps only the error arm, preserves the success value,
+   evaluates the source once, and borrows its callable for the synchronous call.
+   A parallel free function or trait operation is not retained.
+3. `mapError` accepts a borrowed readonly `Fn` view and cannot retain it. It
+   does not take a no-capture-only function pointer or an owned
+   `CallableAllocation`; those shapes would add restrictions or ownership that
+   a synchronous mapping does not need. Capturing mutability remains outside
+   this project.
 4. How are fallible mappings represented? A `mapError` callback returning
    `Target` is infallible. A callback returning `Target!Target2` would require
    a specified flattening operation and must not be smuggled in as an implicit

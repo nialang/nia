@@ -2,6 +2,19 @@ pub trait IntoError[Target] {
     fn into_error(self) Target;
 }
 
+extend[Value, Source, Target] Source!Value {
+    pub fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+        switch self {
+            !value => {
+                !value
+            },
+            error! => {
+                mapper(error)!
+            },
+        }
+    }
+}
+
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {

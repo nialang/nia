@@ -69,10 +69,12 @@ Direct `std::build` source imports currently reach `collections`, `process`,
 `fmt`, `fs`, `io`, `mem`, `os`, `slice`, and `string`; path/string conversion
 also pulls Unicode behavior. The conservative source-declared facade/provider
 closure is recorded in `std-build-host-dependencies.json` and checked by
-`tools/std_build_host_audit.py`. It currently contains 97 modules: broad facade
+`tools/std_build_host_audit.py`. It currently contains 99 modules: broad facade
 declarations make almost the entire std tree reachable from the build host,
 including hash-map, math, and low-level Linux providers that build does not
-conceptually require. This is not a claim that loader demand executes every
+conceptually require. The closure also includes `debug` through process error
+conversion and `mem/allocation` through the public callable-owner memory
+facade. This is not a claim that loader demand executes every
 module and is not a module-count optimization target. It exists to expose
 forbidden conceptual layer edges. Performance and isolation decisions use the
 loader's observed semantic, body, and backend closures instead.
@@ -320,6 +322,12 @@ a double-ended source before applying `take` when the intended sequence is the
 last `limit` values in reverse order. `Take` does not claim a false
 `DoubleEndedIterator` implementation merely to make `take(...).rev()` type
 check.
+
+`forEach(callback)` is the synchronous callback form for an already-created
+iterator. It consumes the iterator and borrows `&Fn(Item) ()` only for the call;
+it does not retain or allocate callable state. Ordinary control-flow scans still
+prefer direct `for`. Lazy mapping/filtering needs an owned sized callable and is
+not represented by storing this borrowed view.
 
 Borrowed `ArrayList` parameters follow the same rule: both `&ArrayList[T]` and
 `&mut ArrayList[T]` are directly iterable and yield `&T`. Mutable element
@@ -588,6 +596,25 @@ trusted boundary: its caller must provide NUL-terminated path/strings and
 NULL-terminated `argv`/`envp` arrays that remain valid until spawn returns.
 
 ## 5. Ownership And Error Baseline
+
+### Error Mapping And Callable Boundaries
+
+`std::error::IntoError[Target]` remains the infallible, cause-preserving
+conversion used by direct `.?` propagation. Error unions additionally expose
+`mapError`, which accepts a synchronous borrowed `&Fn(Source) Target` view,
+preserves the success payload, and invokes the callback only on the error arm.
+The receiver is evaluated once. The operation does not retain the callback,
+allocate callable storage, infer destruction, or add contextual operation/path
+information; those mappings remain explicit domain adapters. Inline closures
+participate in ordinary generic inference through their explicit return type,
+so a result annotation is not required merely to select `Target`.
+
+The callback view is valid only for the `mapError` call. Lazy std adapters must
+not store this view; an adapter that outlives the call must own a sized callable
+or use the explicit `mem::CallableAllocation` boundary and its sole
+`deinit` release right.
+Callable-view calls are currently runtime-only, so `mapError` is not a const
+operation.
 
 Build-plan text and paths must be owned by the builder/plan arena or copied into
 the serialized plan. A borrowed text slice, `PathView`, module import, or target name
