@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STD_ROOT = ROOT / "lib" / "std"
-DEFAULT_SNAPSHOT = ROOT / "docs" / "std-build-host-dependencies.json"
+DEFAULT_SNAPSHOT = ROOT / "tools" / "fixtures" / "std-build-host-dependencies.json"
 ROOT_MODULES = (
     "builtin.nia",
     "start.nia",
@@ -74,22 +74,33 @@ def snapshot() -> dict[str, object]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", type=Path)
+    parser.add_argument(
+        "--print",
+        action="store_true",
+        help="print the current closure instead of checking the maintained snapshot",
+    )
+    parser.add_argument(
+        "--snapshot",
+        type=Path,
+        default=DEFAULT_SNAPSHOT,
+        help="snapshot to check (default: tools/fixtures/std-build-host-dependencies.json)",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     current = snapshot()
-    if args.check is not None:
-        expected = json.loads(args.check.read_text(encoding="utf-8"))
-        if current != expected:
-            raise SystemExit(
-                "build-host std dependency closure changed; review API/layering "
-                "impact and update the snapshot deliberately"
-            )
-    else:
+    if args.print:
         print(json.dumps(current, indent=2))
+        return 0
+
+    expected = json.loads(args.snapshot.read_text(encoding="utf-8"))
+    if current != expected:
+        raise SystemExit(
+            "build-host std dependency closure changed; review API/layering "
+            "impact, use --print to inspect it, and update the snapshot deliberately"
+        )
     return 0
 
 

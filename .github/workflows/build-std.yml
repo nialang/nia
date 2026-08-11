@@ -12,7 +12,10 @@ on:
       - "benchmarks/build/**"
       - "tools/build_baseline.py"
       - "tools/perf.py"
+      - "tools/std_build_host_audit.py"
       - "tools/test_build_std_workflow.py"
+      - "tools/test_std_build_host_audit.py"
+      - "tools/fixtures/std-build-host-dependencies.json"
   push:
     branches:
       - main
@@ -26,7 +29,10 @@ on:
       - "benchmarks/build/**"
       - "tools/build_baseline.py"
       - "tools/perf.py"
+      - "tools/std_build_host_audit.py"
       - "tools/test_build_std_workflow.py"
+      - "tools/test_std_build_host_audit.py"
+      - "tools/fixtures/std-build-host-dependencies.json"
   workflow_dispatch:
 
 permissions:
@@ -87,7 +93,10 @@ jobs:
             nia-build-std-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Check workflow and Python tooling
-        run: python3 -m unittest tools.test_build_std_workflow
+        run: |
+          python3 -m unittest \
+            tools.test_build_std_workflow \
+            tools.test_std_build_host_audit
 
       - name: Format and lint
         run: |

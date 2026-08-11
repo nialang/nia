@@ -1,11 +1,17 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.std_build_host_audit import build_host_closure
+from tools.std_build_host_audit import DEFAULT_SNAPSHOT, build_host_closure, snapshot
 
 
 class StdBuildHostAuditTests(unittest.TestCase):
+    def test_maintained_snapshot_matches_source_closure(self):
+        expected = json.loads(DEFAULT_SNAPSHOT.read_text(encoding="utf-8"))
+
+        self.assertEqual(snapshot(), expected)
+
     def test_follows_package_imports_and_declared_provider_modules(self):
         with tempfile.TemporaryDirectory() as temporary:
             std = Path(temporary) / "std"

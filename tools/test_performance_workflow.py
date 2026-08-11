@@ -18,11 +18,12 @@ class PerformanceWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("--allow-machine-mismatch", self.workflow)
 
-    def test_downloads_latest_completed_main_candidate(self):
+    def test_downloads_latest_completed_main_baseline(self):
         self.assertIn("--branch main", self.workflow)
         self.assertIn("--status completed", self.workflow)
         self.assertIn('--name "${artifact_name}"', self.workflow)
-        self.assertIn("nia-perf-baseline nia-perf-candidate", self.workflow)
+        self.assertIn("artifact_name=nia-perf-baseline", self.workflow)
+        self.assertNotIn("nia-perf-baseline nia-perf-candidate", self.workflow)
         self.assertIn('test -f "${destination}/baseline.json"', self.workflow)
         self.assertIn("steps.main_baseline.outputs.available", self.workflow)
 
