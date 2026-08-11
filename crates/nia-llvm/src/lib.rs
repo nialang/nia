@@ -14,6 +14,3 @@ pub use llvm_facade::{
     LlvmResult, OptimizationLevel, attributes, basic_block, builder, context, intrinsics, llvm_sys,
     module, target, types, values,
 };
-
-/// Bump when the LLVM wrapper changes code-generation-visible behavior.
-pub const CODEGEN_ABI_VERSION: u64 = 1;

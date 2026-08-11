@@ -10,10 +10,9 @@ use nia_codegen_llvm::{
     CodegenUnitFingerprint, CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet,
     CodegenUnitKey, ObjectWorkProductCache, ObjectWorkProductInvalidation, ObjectWorkProductLookup,
 };
+use nia_compat::formats::{OBJECT_WORK_PRODUCT, OBJECT_WORK_PRODUCT_CACHE};
 use nia_query::QueryFingerprintBuilder;
 
-const OBJECT_WORK_PRODUCT_MAGIC: &[u8; 8] = b"NIAOBJ02";
-const OBJECT_WORK_PRODUCT_SCHEMA: &str = "v2";
 static OBJECT_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -33,7 +32,7 @@ impl PersistentObjectWorkProductCache {
         self.root
             .join("artifacts")
             .join("objects")
-            .join(OBJECT_WORK_PRODUCT_SCHEMA)
+            .join(OBJECT_WORK_PRODUCT_CACHE.path_component)
             .join(format!("{first:016x}{second:016x}"))
     }
 
@@ -187,7 +186,7 @@ fn encode_work_product(
     let key = encode_unit_key(key);
     let checksum = payload_checksum(bytes);
     let mut encoded = Vec::with_capacity(128 + key.len() + bytes.len());
-    encoded.extend_from_slice(OBJECT_WORK_PRODUCT_MAGIC);
+    encoded.extend_from_slice(OBJECT_WORK_PRODUCT.magic);
     write_fingerprint(&mut encoded, fingerprints.fingerprint);
     for component in [
         fingerprints.components.policy,
@@ -215,7 +214,7 @@ fn decode_work_product(encoded: &[u8]) -> Option<DecodedWorkProduct> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *OBJECT_WORK_PRODUCT_MAGIC).then_some(())?;
+    (magic == *OBJECT_WORK_PRODUCT.magic).then_some(())?;
     let fingerprint = read_fingerprint(&mut cursor)?;
     let components = CodegenUnitFingerprintComponents {
         policy: read_fingerprint(&mut cursor)?,

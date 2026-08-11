@@ -6,14 +6,13 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_compat::formats::{LINK_RESULT, LINK_RESULT_CACHE};
 use nia_linker::{
     LinkResultCacheKey, LinkResultFingerprint, LinkResultFingerprintComponents,
     LinkResultFingerprintSet, LinkResultInvalidation,
 };
 use nia_query::QueryFingerprintBuilder;
 
-const LINK_RESULT_MAGIC: &[u8; 8] = b"NIALNK03";
-const LINK_RESULT_SCHEMA: &str = "v3";
 static LINK_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -195,7 +194,7 @@ impl PersistentLinkResultCache {
         self.root
             .join("artifacts")
             .join("links")
-            .join(LINK_RESULT_SCHEMA)
+            .join(LINK_RESULT_CACHE.path_component)
             .join(format!("{first:016x}{second:016x}"))
     }
 
@@ -225,7 +224,7 @@ fn remove_corrupt(path: &Path) {
 fn encode_link_result(fingerprints: LinkResultFingerprintSet, bytes: &[u8]) -> Vec<u8> {
     let checksum = payload_checksum(bytes);
     let mut encoded = Vec::with_capacity(128 + bytes.len());
-    encoded.extend_from_slice(LINK_RESULT_MAGIC);
+    encoded.extend_from_slice(LINK_RESULT.magic);
     for part in fingerprints.cache_key.parts() {
         encoded.extend_from_slice(&part.to_le_bytes());
     }
@@ -254,7 +253,7 @@ fn decode_link_result(encoded: &[u8]) -> Option<DecodedLinkResult> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *LINK_RESULT_MAGIC).then_some(())?;
+    (magic == *LINK_RESULT.magic).then_some(())?;
     let cache_key =
         LinkResultCacheKey::from_parts([read_u64(&mut cursor)?, read_u64(&mut cursor)?]);
     let fingerprint = read_fingerprint(&mut cursor)?;

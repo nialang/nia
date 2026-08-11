@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{fmt, io::Cursor};
 
+use nia_compat::formats::STABLE_DIAGNOSTIC_BUNDLE;
 use nia_span::Span;
 
 use crate::{
@@ -8,7 +9,6 @@ use crate::{
     SpanSource, codes,
 };
 
-const MAGIC: &[u8; 8] = b"NIADB001";
 const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 
@@ -37,7 +37,7 @@ pub fn encode_stable_diagnostic_bundle(
     diagnostics: &[Diagnostic],
     source_len: usize,
 ) -> Result<Vec<u8>, StableDiagnosticBundleError> {
-    let mut encoded = MAGIC.to_vec();
+    let mut encoded = STABLE_DIAGNOSTIC_BUNDLE.magic.to_vec();
     write_len(&mut encoded, diagnostics.len())?;
     for diagnostic in diagnostics {
         let code = codes::ALL
@@ -90,10 +90,10 @@ pub fn decode_stable_diagnostic_bundle(
     encoded: &[u8],
     source_len: usize,
 ) -> Option<Vec<Diagnostic>> {
-    if encoded.len() > MAX_BUNDLE_BYTES || !encoded.starts_with(MAGIC) {
+    if encoded.len() > MAX_BUNDLE_BYTES || !encoded.starts_with(STABLE_DIAGNOSTIC_BUNDLE.magic) {
         return None;
     }
-    let mut cursor = Cursor::new(&encoded[MAGIC.len()..]);
+    let mut cursor = Cursor::new(&encoded[STABLE_DIAGNOSTIC_BUNDLE.magic.len()..]);
     let diagnostics_len = read_len(&mut cursor)?;
     let mut diagnostics = Vec::with_capacity(diagnostics_len);
     for _ in 0..diagnostics_len {
@@ -152,7 +152,9 @@ pub fn decode_stable_diagnostic_bundle(
             debug: Box::new(debug),
         });
     }
-    (usize::try_from(cursor.position()).ok()? + MAGIC.len() == encoded.len()).then_some(diagnostics)
+    (usize::try_from(cursor.position()).ok()? + STABLE_DIAGNOSTIC_BUNDLE.magic.len()
+        == encoded.len())
+    .then_some(diagnostics)
 }
 
 fn write_span(

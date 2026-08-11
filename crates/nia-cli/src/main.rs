@@ -25,7 +25,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(CliAction::Version) => {
-            println!("nia {}", env!("CARGO_PKG_VERSION"));
+            println!("nia {}", nia_compat::COMPILER_VERSION);
             ExitCode::SUCCESS
         }
         Ok(CliAction::Run(cli)) => {

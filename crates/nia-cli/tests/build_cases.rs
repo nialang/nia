@@ -240,7 +240,10 @@ fn assert_configured_build_success(
     assert_no_transient_runner_files(workspace);
     let plan_path = workspace.join(".nia-build/build-plan.bin");
     let plan = nia_build::read_build_plan(&plan_path).expect("decode published build plan");
-    assert_eq!(plan.schema_version(), nia_build::BUILD_PLAN_SCHEMA_VERSION);
+    assert_eq!(
+        plan.schema_version(),
+        nia_compat::formats::BUILD_PLAN.schema
+    );
     assert_eq!(plan.root_package().as_str(), "root");
     assert_eq!(plan.packages().len(), 2);
     let assets = plan

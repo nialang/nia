@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{collections::BTreeMap, fmt, io::Cursor};
 
+use nia_compat::formats::STABLE_PROGRAM_DIAGNOSTIC_BUNDLE;
 use nia_diagnostic::{
     StableDiagnosticBundleError, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
 };
@@ -8,7 +9,6 @@ use nia_source::SourcePath;
 
 use crate::ProgramDiagnostic;
 
-const MAGIC: &[u8; 8] = b"NIAPD001";
 const MAX_STORE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 
@@ -47,7 +47,7 @@ pub(crate) fn encode_stable_program_diagnostic_bundle(
         used_sources.insert(path.to_owned(), source_len);
     }
 
-    let mut encoded = MAGIC.to_vec();
+    let mut encoded = STABLE_PROGRAM_DIAGNOSTIC_BUNDLE.magic.to_vec();
     write_len(&mut encoded, used_sources.len())?;
     let mut source_indices = BTreeMap::new();
     for (index, (path, source_len)) in used_sources.iter().enumerate() {
@@ -80,10 +80,12 @@ pub(crate) fn decode_stable_program_diagnostic_bundle(
     encoded: &[u8],
     source_lengths: &BTreeMap<String, usize>,
 ) -> Option<Vec<ProgramDiagnostic>> {
-    if encoded.len() > MAX_STORE_BYTES || !encoded.starts_with(MAGIC) {
+    if encoded.len() > MAX_STORE_BYTES
+        || !encoded.starts_with(STABLE_PROGRAM_DIAGNOSTIC_BUNDLE.magic)
+    {
         return None;
     }
-    let mut cursor = Cursor::new(&encoded[MAGIC.len()..]);
+    let mut cursor = Cursor::new(&encoded[STABLE_PROGRAM_DIAGNOSTIC_BUNDLE.magic.len()..]);
     let source_count = read_len(&mut cursor)?;
     let mut sources = Vec::with_capacity(source_count);
     let mut previous_path: Option<String> = None;
@@ -123,7 +125,9 @@ pub(crate) fn decode_stable_program_diagnostic_bundle(
             diagnostic: decoded.pop()?,
         });
     }
-    (usize::try_from(cursor.position()).ok()? + MAGIC.len() == encoded.len()).then_some(diagnostics)
+    (usize::try_from(cursor.position()).ok()? + STABLE_PROGRAM_DIAGNOSTIC_BUNDLE.magic.len()
+        == encoded.len())
+    .then_some(diagnostics)
 }
 
 fn write_string(

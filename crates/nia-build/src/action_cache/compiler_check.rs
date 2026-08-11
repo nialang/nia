@@ -7,6 +7,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
+use nia_compat::formats::{COMPILER_CHECK_CACHE, COMPILER_CHECK_ENTRY};
 use nia_compiler_query::{SourceContentFingerprint, frontend_program_source_fingerprint};
 use nia_driver::{SourceInputContent, SourceInputManifest};
 use nia_imports::StableModuleKey;
@@ -22,9 +23,6 @@ use super::{
 use crate::{
     ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, TargetSpec, lock::ScopedFileLock,
 };
-
-const MAGIC: &[u8; 8] = b"NIACKC02";
-const SCHEMA: &str = "v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ToolchainComponents {
@@ -323,7 +321,7 @@ impl CompilerCheckCache {
         self.root
             .join("actions")
             .join("compiler-checks")
-            .join(SCHEMA)
+            .join(COMPILER_CHECK_CACHE.path_component)
             .join(fingerprint_text(cache_key))
     }
 
@@ -386,7 +384,7 @@ impl CompilerCheckCache {
             .join("coordination")
             .join("action-cache-mutations")
             .join("compiler-checks")
-            .join(SCHEMA)
+            .join(COMPILER_CHECK_CACHE.path_component)
             .join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
@@ -407,7 +405,7 @@ struct DecodedEntry {
 
 fn encode_entry(identity: &CompilerCheckCacheIdentity) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(MAGIC);
+    encoded.extend_from_slice(COMPILER_CHECK_ENTRY.magic);
     write_fingerprint_set(&mut encoded, identity.fingerprints);
     write_bytes(&mut encoded, &identity.action);
     write_bytes(&mut encoded, &identity.module);
@@ -431,7 +429,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     std::io::Read::read_exact(&mut cursor, &mut magic).ok()?;
-    (magic == *MAGIC).then_some(())?;
+    (magic == *COMPILER_CHECK_ENTRY.magic).then_some(())?;
     let fingerprints = read_fingerprint_set(&mut cursor)?;
     let action = read_bytes(&mut cursor, encoded.len())?;
     let module = read_bytes(&mut cursor, encoded.len())?;

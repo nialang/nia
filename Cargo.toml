@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/nia-compat",
     "crates/nia-span",
     "crates/nia-source",
     "crates/nia-node-id",
@@ -78,6 +79,7 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 jobserver = "0.1.35"
 libc = "0.2.186"
+nia-compat = { path = "crates/nia-compat" }
 nia-span = { path = "crates/nia-span" }
 nia-source = { path = "crates/nia-source" }
 nia-node-id = { path = "crates/nia-node-id" }

@@ -7,6 +7,11 @@ use std::{
 };
 
 use nia_ast::PathSegmentKind;
+use nia_compat::formats::{
+    FRONTEND_CACHE, FRONTEND_DEPENDENCY_MANIFEST, FRONTEND_FACADE_FACTS,
+    FRONTEND_MODULE_DEPENDENCIES, FRONTEND_PROVIDER_DEMAND_PLAN, FRONTEND_PROVIDER_SUMMARY,
+    FRONTEND_PUBLIC_SURFACE_FACTS,
+};
 use nia_compiler_query::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleDependenciesCacheKey,
     FrontendModuleMapFingerprint, FrontendProviderDemandPlanCacheKey,
@@ -31,13 +36,6 @@ use crate::used_paths::{
     ExplicitUsingImport, ModuleDeclarations, UsedModulePath, UsedModulePathProcessing,
 };
 
-const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM02";
-const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF02";
-const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD03";
-const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS03";
-const PROVIDER_DEMAND_PLAN_MAGIC: &[u8; 8] = b"NIAFPD03";
-const PUBLIC_SURFACE_FACTS_MAGIC: &[u8; 8] = b"NIAFPF01";
-const FRONTEND_CACHE_SCHEMA: &str = "v4";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
@@ -585,7 +583,7 @@ impl PersistentFrontendCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join(FRONTEND_CACHE_SCHEMA)
+            .join(FRONTEND_CACHE.path_component)
             .join("provider-summaries")
             .join(format!("{first:016x}{second:016x}.fps"))
     }
@@ -598,7 +596,7 @@ impl PersistentFrontendCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join(FRONTEND_CACHE_SCHEMA)
+            .join(FRONTEND_CACHE.path_component)
             .join("provider-demand-plans")
             .join(format!("{first:016x}{second:016x}.fpd"))
     }
@@ -608,7 +606,7 @@ impl PersistentFrontendCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join(FRONTEND_CACHE_SCHEMA)
+            .join(FRONTEND_CACHE.path_component)
             .join("facade-facts")
             .join(format!("{first:016x}{second:016x}.fff"))
     }
@@ -621,7 +619,7 @@ impl PersistentFrontendCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join(FRONTEND_CACHE_SCHEMA)
+            .join(FRONTEND_CACHE.path_component)
             .join("module-dependencies")
             .join(format!("{first:016x}{second:016x}.fmd"))
     }
@@ -631,7 +629,7 @@ impl PersistentFrontendCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join(FRONTEND_CACHE_SCHEMA)
+            .join(FRONTEND_CACHE.path_component)
             .join("dependency-manifests")
             .join(format!("{first:016x}{second:016x}.fdm"))
     }
@@ -644,7 +642,7 @@ impl PersistentFrontendCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join(FRONTEND_CACHE_SCHEMA)
+            .join(FRONTEND_CACHE.path_component)
             .join("public-surface-facts")
             .join(format!("{first:016x}{second:016x}.fpf"))
     }
@@ -812,7 +810,7 @@ fn encode_provider_demand_plan(
     }
 
     let mut encoded = Vec::with_capacity(48 + payload.len());
-    encoded.extend_from_slice(PROVIDER_DEMAND_PLAN_MAGIC);
+    encoded.extend_from_slice(FRONTEND_PROVIDER_DEMAND_PLAN.magic);
     encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     write_parts(
         &mut encoded,
@@ -826,7 +824,7 @@ fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProviderDemandPl
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *PROVIDER_DEMAND_PLAN_MAGIC).then_some(())?;
+    (magic == *FRONTEND_PROVIDER_DEMAND_PLAN.magic).then_some(())?;
     let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
     let checksum = QueryFingerprint::from_parts(read_parts(&mut cursor)?);
     let mut payload = vec![0; payload_len];
@@ -1108,7 +1106,7 @@ fn encode_dependency_manifest(
     let payload = parts_bytes(item_signature.parts());
     let checksum = dependency_manifest_checksum(&payload);
     let mut encoded = Vec::with_capacity(112 + module.source_identity().normalized_path().len());
-    encoded.extend_from_slice(DEPENDENCY_MANIFEST_MAGIC);
+    encoded.extend_from_slice(FRONTEND_DEPENDENCY_MANIFEST.magic);
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
@@ -1131,7 +1129,7 @@ fn decode_dependency_manifest(encoded: &[u8]) -> Option<DecodedDependencyManifes
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *DEPENDENCY_MANIFEST_MAGIC).then_some(())?;
+    (magic == *FRONTEND_DEPENDENCY_MANIFEST.magic).then_some(())?;
     let key = read_parts(&mut cursor)?;
     let namespace = read_parts(&mut cursor)?;
     let module = read_string(&mut cursor, encoded.len())?;
@@ -1167,7 +1165,7 @@ fn encode_facade_facts(
     let checksum = facade_facts_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(112 + module.source_identity().normalized_path().len() + payload.len());
-    encoded.extend_from_slice(FACADE_FACTS_MAGIC);
+    encoded.extend_from_slice(FRONTEND_FACADE_FACTS.magic);
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
@@ -1192,7 +1190,7 @@ fn decode_facade_facts(encoded: &[u8]) -> Option<DecodedFacadeFacts> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *FACADE_FACTS_MAGIC).then_some(())?;
+    (magic == *FRONTEND_FACADE_FACTS.magic).then_some(())?;
     let key = read_parts(&mut cursor)?;
     let namespace = read_parts(&mut cursor)?;
     let module = read_string(&mut cursor, encoded.len())?;
@@ -1278,7 +1276,7 @@ fn encode_module_dependencies(
     let checksum = module_dependencies_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(120 + module.source_identity().normalized_path().len() + payload.len());
-    encoded.extend_from_slice(MODULE_DEPENDENCIES_MAGIC);
+    encoded.extend_from_slice(FRONTEND_MODULE_DEPENDENCIES.magic);
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
@@ -1305,7 +1303,7 @@ fn decode_module_dependencies(encoded: &[u8]) -> Option<DecodedModuleDependencie
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *MODULE_DEPENDENCIES_MAGIC).then_some(())?;
+    (magic == *FRONTEND_MODULE_DEPENDENCIES.magic).then_some(())?;
     let key = read_parts(&mut cursor)?;
     let namespace = read_parts(&mut cursor)?;
     let module = read_string(&mut cursor, encoded.len())?;
@@ -1426,7 +1424,7 @@ fn encode_public_surface_facts(
     let checksum = public_surface_facts_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(112 + module.source_identity().normalized_path().len() + payload.len());
-    encoded.extend_from_slice(PUBLIC_SURFACE_FACTS_MAGIC);
+    encoded.extend_from_slice(FRONTEND_PUBLIC_SURFACE_FACTS.magic);
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
@@ -1451,7 +1449,7 @@ fn decode_public_surface_facts(encoded: &[u8]) -> Option<DecodedPublicSurfaceFac
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *PUBLIC_SURFACE_FACTS_MAGIC).then_some(())?;
+    (magic == *FRONTEND_PUBLIC_SURFACE_FACTS.magic).then_some(())?;
     let key = read_parts(&mut cursor)?;
     let namespace = read_parts(&mut cursor)?;
     let module = read_string(&mut cursor, encoded.len())?;
@@ -2130,7 +2128,7 @@ fn encode_provider_summary(
     let checksum = payload_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(96 + module.source_identity().normalized_path().len() + payload.len());
-    encoded.extend_from_slice(PROVIDER_SUMMARY_MAGIC);
+    encoded.extend_from_slice(FRONTEND_PROVIDER_SUMMARY.magic);
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
@@ -2153,7 +2151,7 @@ fn decode_provider_summary(encoded: &[u8]) -> Option<DecodedProviderSummary> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *PROVIDER_SUMMARY_MAGIC).then_some(())?;
+    (magic == *FRONTEND_PROVIDER_SUMMARY.magic).then_some(())?;
     let key = read_parts(&mut cursor)?;
     let namespace = read_parts(&mut cursor)?;
     let module = read_string(&mut cursor, encoded.len())?;

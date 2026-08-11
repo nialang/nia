@@ -6,6 +6,10 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_compat::formats::{
+    CHECK_CERTIFICATE, EXECUTABLE_VALUE_REF_EDGES, EXTENSION_VALIDATION_DIAGNOSTICS,
+    SIGNATURE_ITEM_SIGNATURES, SIGNATURE_TYPE_LOWERING, SIGNATURE_TYPE_RESOLUTION,
+};
 use nia_diagnostic::{
     Diagnostic, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
 };
@@ -41,12 +45,6 @@ use crate::{
 
 mod storage;
 
-const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR003";
-const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL003";
-const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI008";
-const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV002";
-const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
-const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC002";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -176,7 +174,7 @@ fn encode_check_certificate(
     certificate: &CachedCheckCertificate,
 ) -> io::Result<Vec<u8>> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(CHECK_CERTIFICATE_MAGIC);
+    encoded.extend_from_slice(CHECK_CERTIFICATE.magic);
     write_parts(&mut encoded, identity.key.parts());
     write_parts(&mut encoded, identity.namespace.parts());
     write_parts(&mut encoded, identity.input.parts());
@@ -207,7 +205,7 @@ fn decode_check_certificate(
     encoded: &[u8],
     identity: CheckCertificateIdentity<'_>,
 ) -> Option<CachedCheckCertificate> {
-    if encoded.len() < CHECK_CERTIFICATE_MAGIC.len() + 16 {
+    if encoded.len() < CHECK_CERTIFICATE.magic.len() + 16 {
         return None;
     }
     let checksum_offset = encoded.len().checked_sub(16)?;
@@ -219,7 +217,7 @@ fn decode_check_certificate(
     let mut cursor = Cursor::new(&encoded[..checksum_offset]);
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
-    if &magic != CHECK_CERTIFICATE_MAGIC
+    if &magic != CHECK_CERTIFICATE.magic
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.input.parts()
@@ -250,7 +248,7 @@ fn decode_check_certificate(
 
 fn encode_entry(identity: SignatureTypeResolutionIdentity<'_>, payload: &[u8]) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(TYPE_RESOLUTION_MAGIC);
+    encoded.extend_from_slice(SIGNATURE_TYPE_RESOLUTION.magic);
     write_parts(&mut encoded, identity.key.parts());
     write_parts(&mut encoded, identity.namespace.parts());
     write_parts(&mut encoded, identity.program_sources.parts());
@@ -271,7 +269,7 @@ fn decode_entry<'a>(
     encoded: &'a [u8],
     identity: SignatureTypeResolutionIdentity<'_>,
 ) -> Option<&'a [u8]> {
-    if encoded.len() < TYPE_RESOLUTION_MAGIC.len() + 16 {
+    if encoded.len() < SIGNATURE_TYPE_RESOLUTION.magic.len() + 16 {
         return None;
     }
     let checksum_offset = encoded.len().checked_sub(16)?;
@@ -283,7 +281,7 @@ fn decode_entry<'a>(
     let mut cursor = Cursor::new(&encoded[..checksum_offset]);
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
-    if &magic != TYPE_RESOLUTION_MAGIC
+    if &magic != SIGNATURE_TYPE_RESOLUTION.magic
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()
@@ -308,7 +306,7 @@ fn encode_type_lowering_entry(
     payload: &[u8],
 ) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(TYPE_LOWERING_MAGIC);
+    encoded.extend_from_slice(SIGNATURE_TYPE_LOWERING.magic);
     write_parts(&mut encoded, identity.key.parts());
     write_parts(&mut encoded, identity.namespace.parts());
     write_parts(&mut encoded, identity.program_sources.parts());
@@ -329,7 +327,7 @@ fn decode_type_lowering_entry<'a>(
     encoded: &'a [u8],
     identity: SignatureTypeLoweringIdentity<'_>,
 ) -> Option<&'a [u8]> {
-    if encoded.len() < TYPE_LOWERING_MAGIC.len() + 16 {
+    if encoded.len() < SIGNATURE_TYPE_LOWERING.magic.len() + 16 {
         return None;
     }
     let checksum_offset = encoded.len().checked_sub(16)?;
@@ -341,7 +339,7 @@ fn decode_type_lowering_entry<'a>(
     let mut cursor = Cursor::new(&encoded[..checksum_offset]);
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
-    if &magic != TYPE_LOWERING_MAGIC
+    if &magic != SIGNATURE_TYPE_LOWERING.magic
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()
@@ -366,7 +364,7 @@ fn encode_item_signatures_entry(
     payload: &[u8],
 ) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(ITEM_SIGNATURES_MAGIC);
+    encoded.extend_from_slice(SIGNATURE_ITEM_SIGNATURES.magic);
     write_parts(&mut encoded, identity.key.parts());
     write_parts(&mut encoded, identity.namespace.parts());
     write_parts(&mut encoded, identity.program_sources.parts());
@@ -387,7 +385,7 @@ fn decode_item_signatures_entry<'a>(
     encoded: &'a [u8],
     identity: SignatureItemSignaturesIdentity<'_>,
 ) -> Option<&'a [u8]> {
-    if encoded.len() < ITEM_SIGNATURES_MAGIC.len() + 16 {
+    if encoded.len() < SIGNATURE_ITEM_SIGNATURES.magic.len() + 16 {
         return None;
     }
     let checksum_offset = encoded.len().checked_sub(16)?;
@@ -399,7 +397,7 @@ fn decode_item_signatures_entry<'a>(
     let mut cursor = Cursor::new(&encoded[..checksum_offset]);
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
-    if &magic != ITEM_SIGNATURES_MAGIC
+    if &magic != SIGNATURE_ITEM_SIGNATURES.magic
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()
@@ -424,7 +422,7 @@ fn encode_extension_validation_diagnostics_entry(
     payload: &[u8],
 ) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC);
+    encoded.extend_from_slice(EXTENSION_VALIDATION_DIAGNOSTICS.magic);
     write_parts(&mut encoded, identity.key.parts());
     write_parts(&mut encoded, identity.namespace.parts());
     write_parts(&mut encoded, identity.program_sources.parts());
@@ -444,7 +442,7 @@ fn decode_extension_validation_diagnostics_entry<'a>(
     encoded: &'a [u8],
     identity: ExtensionValidationDiagnosticsIdentity<'_>,
 ) -> Option<&'a [u8]> {
-    if encoded.len() < EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC.len() + 16 {
+    if encoded.len() < EXTENSION_VALIDATION_DIAGNOSTICS.magic.len() + 16 {
         return None;
     }
     let checksum_offset = encoded.len().checked_sub(16)?;
@@ -456,7 +454,7 @@ fn decode_extension_validation_diagnostics_entry<'a>(
     let mut cursor = Cursor::new(&encoded[..checksum_offset]);
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
-    if &magic != EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC
+    if &magic != EXTENSION_VALIDATION_DIAGNOSTICS.magic
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()
@@ -480,7 +478,7 @@ fn encode_executable_value_ref_edges_entry(
     payload: &[u8],
 ) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(EXECUTABLE_VALUE_REF_EDGES_MAGIC);
+    encoded.extend_from_slice(EXECUTABLE_VALUE_REF_EDGES.magic);
     write_parts(&mut encoded, identity.key.parts());
     write_parts(&mut encoded, identity.namespace.parts());
     write_parts(&mut encoded, identity.program_sources.parts());
@@ -500,7 +498,7 @@ fn decode_executable_value_ref_edges_entry<'a>(
     encoded: &'a [u8],
     identity: ExecutableValueRefEdgesIdentity<'_>,
 ) -> Option<&'a [u8]> {
-    if encoded.len() < EXECUTABLE_VALUE_REF_EDGES_MAGIC.len() + 16 {
+    if encoded.len() < EXECUTABLE_VALUE_REF_EDGES.magic.len() + 16 {
         return None;
     }
     let checksum_offset = encoded.len().checked_sub(16)?;
@@ -512,7 +510,7 @@ fn decode_executable_value_ref_edges_entry<'a>(
     let mut cursor = Cursor::new(&encoded[..checksum_offset]);
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
-    if &magic != EXECUTABLE_VALUE_REF_EDGES_MAGIC
+    if &magic != EXECUTABLE_VALUE_REF_EDGES.magic
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()

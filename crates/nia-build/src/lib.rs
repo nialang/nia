@@ -12,6 +12,7 @@ use std::{
     thread,
 };
 
+use nia_compat::formats::RUNNER_CONFIG;
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, LinkExecutableRequest, TimingMode,
 };
@@ -1033,7 +1034,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let source = source
         .replace(
             "__NIA_RUNNER_CONFIG_SCHEMA_VERSION__",
-            &runner_config::RUNNER_CONFIG_SCHEMA_VERSION.to_string(),
+            &RUNNER_CONFIG.schema.to_string(),
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAX_BYTES__",
@@ -1041,7 +1042,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAGIC__",
-            runner_config::RUNNER_CONFIG_MAGIC_TEXT,
+            std::str::from_utf8(RUNNER_CONFIG.magic).expect("runner config magic is ASCII"),
         );
     Ok(BuildRunnerSource { path, source })
 }
@@ -1545,7 +1546,7 @@ mod tests {
         assert!(runner.source.contains("runnerConfigChecksum(payload)"));
         assert!(runner.source.contains(&format!(
             "envelope.u32().reportAndExit(init).? != {}u32",
-            runner_config::RUNNER_CONFIG_SCHEMA_VERSION
+            RUNNER_CONFIG.schema
         )));
         assert!(runner.source.contains(&format!(
             "configLen64 > {}u64",
@@ -1554,7 +1555,7 @@ mod tests {
         assert!(
             runner
                 .source
-                .contains(std::str::from_utf8(runner_config::RUNNER_CONFIG_MAGIC).unwrap())
+                .contains(std::str::from_utf8(RUNNER_CONFIG.magic).unwrap())
         );
         assert!(runner.source.contains("init.args().len() != 3"));
         assert!(runner.source.contains("equals(&b\"--config\")"));
@@ -1622,10 +1623,10 @@ mod tests {
         assert_eq!(plan.optimization, OptimizationMode::Oz);
         assert_eq!(config.artifact_target, *toolchain.host_target());
         assert_ne!(config.artifact_target, *toolchain.artifact_target());
-        assert_eq!(&encoded[..8], b"NIARUNCF");
+        assert_eq!(&encoded[..8], RUNNER_CONFIG.magic);
         assert_eq!(
             u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
-            runner_config::RUNNER_CONFIG_SCHEMA_VERSION
+            RUNNER_CONFIG.schema
         );
         assert!(
             encoded

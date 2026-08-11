@@ -6,8 +6,6 @@ use nia_ty::{
     TypeStore,
 };
 
-pub const MANGLE_ABI_VERSION: u64 = 3;
-
 pub struct MangleResolvers<F, G, H> {
     module_id: F,
     nominal_name: G,

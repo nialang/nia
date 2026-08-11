@@ -6,14 +6,13 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_compat::formats::{ARCHIVE_RESULT, ARCHIVE_RESULT_CACHE};
 use nia_linker::{
     ArchiveCacheKey, ArchiveFingerprint, ArchiveFingerprintComponents, ArchiveFingerprintSet,
     ArchiveInvalidation,
 };
 use nia_query::QueryFingerprintBuilder;
 
-const ARCHIVE_MAGIC: &[u8; 8] = b"NIAARC01";
-const ARCHIVE_SCHEMA: &str = "v1";
 static ARCHIVE_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -191,7 +190,7 @@ impl PersistentArchiveCache {
         self.root
             .join("artifacts")
             .join("archives")
-            .join(ARCHIVE_SCHEMA)
+            .join(ARCHIVE_RESULT_CACHE.path_component)
             .join(format!("{first:016x}{second:016x}"))
     }
 
@@ -221,7 +220,7 @@ fn remove_corrupt(path: &Path) {
 fn encode_archive(fingerprints: ArchiveFingerprintSet, bytes: &[u8]) -> Vec<u8> {
     let checksum = payload_checksum(bytes);
     let mut encoded = Vec::with_capacity(128 + bytes.len());
-    encoded.extend_from_slice(ARCHIVE_MAGIC);
+    encoded.extend_from_slice(ARCHIVE_RESULT.magic);
     for part in fingerprints.cache_key.parts() {
         encoded.extend_from_slice(&part.to_le_bytes());
     }
@@ -250,7 +249,7 @@ fn decode_archive(encoded: &[u8]) -> Option<DecodedArchive> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *ARCHIVE_MAGIC).then_some(())?;
+    (magic == *ARCHIVE_RESULT.magic).then_some(())?;
     let cache_key = ArchiveCacheKey::from_parts([read_u64(&mut cursor)?, read_u64(&mut cursor)?]);
     let fingerprint = read_fingerprint(&mut cursor)?;
     let components = ArchiveFingerprintComponents {

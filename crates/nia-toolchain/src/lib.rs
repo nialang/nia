@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_compat::{COMPILER_VERSION, toolchain};
 use nia_target_config::TargetConfig;
 use std::{fmt, fs, io, path::PathBuf};
 
-pub const RESOURCE_LAYOUT_SCHEMA: u32 = 1;
-pub const STD_SCHEMA: u32 = 1;
-pub const BUILD_PROTOCOL_SCHEMA: u32 = 10;
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,10 +19,10 @@ pub struct ToolchainIdentityFingerprint(nia_query::QueryFingerprint);
 impl ToolchainIdentityFingerprint {
     pub fn current() -> Self {
         ToolchainIdentity {
-            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
-            resource_layout_schema: RESOURCE_LAYOUT_SCHEMA,
-            std_schema: STD_SCHEMA,
-            build_protocol_schema: BUILD_PROTOCOL_SCHEMA,
+            compiler_version: COMPILER_VERSION.to_string(),
+            resource_layout_schema: toolchain::RESOURCE_LAYOUT,
+            std_schema: toolchain::STANDARD_LIBRARY,
+            build_protocol_schema: toolchain::BUILD_PROTOCOL,
         }
         .fingerprint()
     }
@@ -497,25 +495,25 @@ fn validate_identity(
     validate_field(
         path,
         "resource-layout-schema",
-        RESOURCE_LAYOUT_SCHEMA.to_string(),
+        toolchain::RESOURCE_LAYOUT.to_string(),
         identity.resource_layout_schema.to_string(),
     )?;
     validate_field(
         path,
         "compiler-version",
-        env!("CARGO_PKG_VERSION").to_string(),
+        COMPILER_VERSION.to_string(),
         identity.compiler_version.clone(),
     )?;
     validate_field(
         path,
         "std-schema",
-        STD_SCHEMA.to_string(),
+        toolchain::STANDARD_LIBRARY.to_string(),
         identity.std_schema.to_string(),
     )?;
     validate_field(
         path,
         "build-protocol-schema",
-        BUILD_PROTOCOL_SCHEMA.to_string(),
+        toolchain::BUILD_PROTOCOL.to_string(),
         identity.build_protocol_schema.to_string(),
     )
 }
@@ -561,10 +559,7 @@ mod tests {
         fs::create_dir_all(resources.join("std")).expect("create std directory");
         fs::write(
             resources.join(RESOURCE_MANIFEST_NAME),
-            format!(
-                "resource-layout-schema={RESOURCE_LAYOUT_SCHEMA}\ncompiler-version={}\nstd-schema={STD_SCHEMA}\nbuild-protocol-schema={BUILD_PROTOCOL_SCHEMA}\n",
-                env!("CARGO_PKG_VERSION")
-            ),
+            nia_compat::toolchain_manifest(),
         )
         .expect("write manifest");
         fs::write(resources.join("std.nia"), "pub module start;").expect("write std root");
@@ -617,11 +612,10 @@ mod tests {
     #[test]
     fn malformed_numeric_manifest_field_reports_its_source_line() {
         let path = PathBuf::from("toolchain.meta");
-        let error = parse_manifest(
-            &path,
-            "# identity\ncompiler-version=0.4.3\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=3\n",
-        )
-        .expect_err("invalid numeric schema");
+        let manifest = format!(
+            "# identity\ncompiler-version={COMPILER_VERSION}\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=3\n"
+        );
+        let error = parse_manifest(&path, &manifest).expect_err("invalid numeric schema");
 
         assert!(
             matches!(
@@ -665,10 +659,10 @@ mod tests {
         assert_eq!(
             ToolchainIdentityFingerprint::current(),
             ToolchainIdentity {
-                compiler_version: env!("CARGO_PKG_VERSION").to_string(),
-                resource_layout_schema: RESOURCE_LAYOUT_SCHEMA,
-                std_schema: STD_SCHEMA,
-                build_protocol_schema: BUILD_PROTOCOL_SCHEMA,
+                compiler_version: COMPILER_VERSION.to_string(),
+                resource_layout_schema: toolchain::RESOURCE_LAYOUT,
+                std_schema: toolchain::STANDARD_LIBRARY,
+                build_protocol_schema: toolchain::BUILD_PROTOCOL,
             }
             .fingerprint()
         );

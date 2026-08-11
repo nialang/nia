@@ -14,6 +14,7 @@ nia-backend-lower.workspace = true
 nia-body-check.workspace = true
 nia-body-ir.workspace = true
 nia-closure-check.workspace = true
+nia-compat.workspace = true
 nia-const-check.workspace = true
 nia-const-ir.workspace = true
 nia-defs.workspace = true

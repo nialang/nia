@@ -2145,14 +2145,14 @@ current session ID and stable key. A miss follows the only codegen path and
 publishes the resulting bytes after successful emission.
 
 Persistent entries live under
-`artifacts/objects/v2/<stable-key-digest>/<full-fingerprint>.o`. The full
+`artifacts/objects/<registered-namespace>/<stable-key-digest>/<full-fingerprint>.o`. The full
 fingerprint is a versioned aggregate of four independently versioned components:
 compiler/codegen policy, unit definitions, whole-program declarations/ABI, and
 native target identity. The binary envelope records the aggregate, all four
 components, canonical unit key, payload length, and a domain-separated payload
 checksum. Reads recompute the aggregate from the stored components, validate the
-key and content-addressed path, and reject trailing or truncated data. The old
-v1 namespace is not read.
+key and content-addressed path, and reject trailing or truncated data. No prior
+registered namespace is read.
 
 An exact aggregate match is the only cache hit. On an exact miss, the Driver may
 inspect validated entries in the same stable-key directory and compare against
@@ -2181,7 +2181,7 @@ This boundary makes the exact ordered CGU work-product set available to
 link-result fingerprinting. `nia-linker` owns the versioned canonical
 `LinkResultFingerprintSet`. Its four independent component domains cover the
 ordered CGU keys and fingerprints, target-derived facts, the resolved linker
-path/binary/flavor, and structured link options respectively. A fixed v2
+path/binary/flavor, and structured link options respectively. A versioned
 aggregate domain combines those component fingerprints; exact aggregate
 equality is the only reuse condition. The encoder uses fixed discriminants and
 length-delimited values and does not hash `Debug` output or temporary
@@ -2193,13 +2193,13 @@ The Driver owns the sole persistent link-result cache. It computes the
 fingerprint and attempts restoration before writing temporary object files or
 invoking the linker. A miss invokes the linker over the complete typed input
 collection and publishes only a successful executable. Entries live under
-`artifacts/links/v2/<stable-input-key>/<full-fingerprint>.link`; their binary
+`artifacts/links/<registered-namespace>/<stable-input-key>/<full-fingerprint>.link`; their binary
 envelope records a magic/schema, stable cache key, aggregate and component
 fingerprints, payload length, and a domain-separated payload checksum. The
 cache recomputes the aggregate and verifies the content-addressed path before
 accepting an entry. Publication uses a unique same-directory staged file and
 atomic rename, while a corrupt entry is physically deleted and treated as a
-miss. Restored files are made executable. The v1 namespace is not read. Cache
+miss. Restored files are made executable. No prior registered namespace is read. Cache
 I/O errors only lose reuse and never become an alternate link truth source.
 
 The former source-graph/request-manifest executable cache and its public API
@@ -2393,8 +2393,8 @@ one action slot, and charges `Conservative` the complete action capacity. This
 prevents unknown external work from overlapping same-wave actions without
 creating a private executor or weakening compiler query and LLVM memory limits.
 
-Build protocol schema 6 adds canonical local-package roots and also separates an external command's environment and
-cache declarations. Existing commands inherit the coordinator environment and
+The registered build protocol includes canonical local-package roots and
+separates an external command's environment and cache declarations. Existing commands inherit the coordinator environment and
 are uncacheable by default. A command may clear that environment and then add
 explicit owned name/value entries. Only a command that clears the environment,
 declares at least one output, and asserts `DeclaredInputs` crosses the

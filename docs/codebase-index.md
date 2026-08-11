@@ -32,7 +32,7 @@ backends directly.
 | Area | Crates | Primary responsibility |
 | --- | --- | --- |
 | Foundation | `nia-span`, `nia-source`, `nia-node-id`, `nia-ids`, `nia-hash`, `nia-symbol`, `nia-symbol-table` | Source, syntax-node, semantic, and symbol identity |
-| Configuration | `nia-target-config`, `nia-toolchain`, `nia-opt`, `nia-timing`, `nia-test-support` | Targets, relocatable resources, optimization policy, telemetry, test resource limits |
+| Configuration | `nia-compat`, `nia-target-config`, `nia-toolchain`, `nia-opt`, `nia-timing`, `nia-test-support` | Compatibility identities, targets, relocatable resources, optimization policy, telemetry, test resource limits |
 | Diagnostics | `nia-diagnostic`, `nia-ice` | User diagnostics and the internal-error boundary |
 | Syntax | `nia-lexer`, `nia-syntax`, `nia-ast`, `nia-ast-walk`, `nia-parser`, `nia-literals`, `nia-item-tree` | Tokens through stable declaration-oriented syntax products |
 | Module surface | `nia-provider-summary`, `nia-public-surface`, `nia-defs`, `nia-imports` | Lazy providers, visibility, definitions, and import graphs |
@@ -49,6 +49,8 @@ backends directly.
 
 - `crates/nia-cli/src/main.rs`: CLI parsing, toolchain resolution, command and
   ICE boundaries.
+- `crates/nia-compat/src/lib.rs`: release, toolchain, ABI, persisted-format, and
+  cache-namespace identity registry.
 - `crates/nia-driver/src/pipeline.rs`: typed check/emit requests and the
   end-to-end compiler product pipeline.
 - `crates/nia-loader-query/src/lib.rs`: loader facade, source manifests, and
@@ -110,6 +112,7 @@ Clippy, and `cargo test --workspace`; focused owners should run first.
 | Type or trait semantics | type/signature owner and `nia-body-check` | const evaluation, layout, backend lowering, language/ABI docs |
 | Runtime representation | `nia-layout`, `nia-abi-check`, `nia-backend-ir` | monomorphization, LLVM, runtime tests, ABI reference |
 | Incremental identity | query/product owner | source identity, invalidation reason, clean/warm equivalence |
+| Compatibility identity | `nia-compat` | owning encoder/decoder, generated toolchain manifest, structural audit |
 | Compiler command | `nia-driver`, then `nia-cli` | diagnostics, help, command cases |
 | Build API/protocol | `lib/std/build/`, then `nia-build::plan` | codec, coordinator, cache identity, production build fixture |
 | Build output/cache | `nia-build::coordinator` or `action_cache` | output locks, recovery journal, corruption and race tests |

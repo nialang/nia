@@ -111,7 +111,7 @@ impl<'a> Encoder<'a> {
     ) {
         write_toolchain_identity(&mut self.builder, toolchain_identity);
         self.builder.write_u64(llvm_sys_version());
-        self.builder.write_u64(nia_mangle::MANGLE_ABI_VERSION);
+        self.builder.write_u64(nia_compat::abi::MANGLE);
     }
 
     fn tag(&mut self, tag: u8) {
@@ -2039,7 +2039,7 @@ fn write_target_identity(builder: &mut QueryFingerprintBuilder, identity: &Targe
 }
 
 const fn llvm_sys_version() -> u64 {
-    nia_llvm::CODEGEN_ABI_VERSION
+    nia_compat::abi::LLVM_CODEGEN
 }
 
 #[cfg(test)]

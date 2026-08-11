@@ -9,6 +9,7 @@ license.workspace = true
 nia-ast.workspace = true
 nia-ast-walk.workspace = true
 nia-compiler-query.workspace = true
+nia-compat.workspace = true
 nia-diagnostic.workspace = true
 nia-defs.workspace = true
 nia-ids.workspace = true

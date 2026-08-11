@@ -3,7 +3,8 @@
 use super::*;
 use std::fmt;
 
-const MAGIC: &[u8; 8] = b"NIA-PLN\0";
+use nia_compat::formats::BUILD_PLAN;
+
 pub(super) const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ITEMS: usize = 100_000;
 const MAX_STRING_BYTES: usize = 1024 * 1024;
@@ -46,7 +47,7 @@ impl std::error::Error for PlanCodecError {}
 impl BuildPlan {
     pub fn encode(&self) -> Result<Vec<u8>, PlanCodecError> {
         let mut writer = Writer::new();
-        writer.bytes(MAGIC);
+        writer.bytes(BUILD_PLAN.magic);
         writer.u32(self.schema_version);
         writer.package_key(&self.root_package)?;
         writer.count(self.packages.len())?;
@@ -85,11 +86,11 @@ impl BuildPlan {
             });
         }
         let mut reader = Reader::new(bytes);
-        if reader.take(MAGIC.len())? != MAGIC {
+        if reader.take(BUILD_PLAN.magic.len())? != BUILD_PLAN.magic {
             return Err(PlanCodecError::BadMagic);
         }
         let version = reader.u32()?;
-        if version != BUILD_PLAN_SCHEMA_VERSION {
+        if version != BUILD_PLAN.schema {
             return Err(PlanCodecError::UnsupportedVersion(version));
         }
         let root_package = reader.package_key()?;
@@ -847,8 +848,8 @@ mod tests {
 
     fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
         let mut writer = Writer::new();
-        writer.bytes(MAGIC);
-        writer.u32(BUILD_PLAN_SCHEMA_VERSION);
+        writer.bytes(BUILD_PLAN.magic);
+        writer.u32(BUILD_PLAN.schema);
         writer.package_key(&draft.root_package).unwrap();
         writer.count(draft.packages.len()).unwrap();
         for package in &draft.packages {
@@ -1142,12 +1143,10 @@ mod tests {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
         let bytes = plan.encode().unwrap();
         let mut unknown = bytes.clone();
-        unknown[8..12].copy_from_slice(&(BUILD_PLAN_SCHEMA_VERSION + 1).to_le_bytes());
+        unknown[8..12].copy_from_slice(&(BUILD_PLAN.schema + 1).to_le_bytes());
         assert_eq!(
             BuildPlan::decode(&unknown),
-            Err(PlanCodecError::UnsupportedVersion(
-                BUILD_PLAN_SCHEMA_VERSION + 1
-            ))
+            Err(PlanCodecError::UnsupportedVersion(BUILD_PLAN.schema + 1))
         );
         assert!(matches!(
             BuildPlan::decode(&bytes[..bytes.len() - 1]),

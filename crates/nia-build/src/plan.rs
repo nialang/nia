@@ -3,13 +3,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use nia_compat::formats::BUILD_PLAN;
+
 mod codec;
 mod handoff;
 
 pub use codec::*;
 pub use handoff::*;
-
-pub const BUILD_PLAN_SCHEMA_VERSION: u32 = nia_toolchain::BUILD_PROTOCOL_SCHEMA;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StableNameError {
@@ -479,7 +479,7 @@ impl BuildPlan {
         validate_generated_source_dependencies(&draft)?;
 
         Ok(Self {
-            schema_version: BUILD_PLAN_SCHEMA_VERSION,
+            schema_version: BUILD_PLAN.schema,
             root_package: draft.root_package,
             packages: draft.packages,
             host_target: draft.host_target,
