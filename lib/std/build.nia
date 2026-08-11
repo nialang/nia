@@ -1,3 +1,9 @@
+// Build-script facade and owned build-plan construction.
+//
+// Public options are borrowed call descriptors. `Build` copies every retained
+// string, path, argument, import, and target value into allocator-owned storage,
+// validates graph ownership, and releases deep records explicitly.
+
 pub(pkg) module core;
 pub(pkg) module error;
 pub(pkg) module plan;

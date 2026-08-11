@@ -72,8 +72,8 @@ diagnostic artifacts have been preserved.
 
 Test scratch storage must have an owner. CLI tests use
 `nia_test_support::test_dir`, whose guard removes the complete tree on drop,
-including failure unwinding. Do not return an unowned `PathBuf` rooted in the
-system temporary directory from a shared test helper.
+including failure unwinding. Do not return an unowned `std::path::PathBuf`
+rooted in the system temporary directory from a shared Rust test helper.
 
 Do not add `allow` or `expect` attributes to bypass lints. Fix the code instead.
 

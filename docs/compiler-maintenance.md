@@ -200,10 +200,10 @@ surface, migration boundary, tests, and performance evidence. Do not append
 build or standard-library feature work to an already closed compiler roadmap or
 reuse compiler completion percentages to describe it.
 
-Durable ownership and API decisions live in [build-system.md](build-system.md)
-and [standard-library.md](standard-library.md). These documents describe the
-completed build/std ownership boundaries and maintained acceptance suites. In
-particular, current std APIs are not retained merely because they made the
+Durable build ownership and API decisions live in
+[build-system.md](build-system.md). Standard-library decisions live beside their
+owners in [`lib/README.md`](../lib/README.md) and the relevant `lib/std` facade
+or module. Current std APIs are not retained merely because they made the
 bootstrap run, and full build sessions remain resource-accounted integration
 work rather than ordinary unit tests.
 

@@ -251,7 +251,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
     let allocator: &mut mem::Allocator = &mut page;
-    let mut longPath = std::PathBuf::init();
+    let mut longPath = std::Path::init();
     defer longPath.deinit(allocator).exit().?;
     let mut index: usize = 0;
     while index < 5000usize {
@@ -2352,7 +2352,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(50)!;
     }
 
-    let mut path = std::PathBuf::fromView(page, std::PathView::init(&"root")).exit().?;
+    let mut path = std::Path::fromView(page, std::PathView::init(&"root")).exit().?;
     defer path.deinit(page).exit().?;
     path.joinComponent(page, &"child").exit().?;
     if path.view().text().len() != 10usize {

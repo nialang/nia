@@ -8,8 +8,8 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_std_fs_path_buf_builds_char_paths() {
-    let root = temp_dir("emit_exe_std_fs_path_buf_builds_char_paths");
+fn emit_exe_std_fs_owned_path_builds_char_paths() {
+    let root = temp_dir("emit_exe_std_fs_owned_path_builds_char_paths");
     let data_path = root.join("subdir").join("inside.txt");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
@@ -23,7 +23,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
-    let mut path = fs::PathBuf::fromView(&mut page, fs::PathView::init(&"subdir")).exit().?;
+    let mut path = fs::Path::fromView(&mut page, fs::PathView::init(&"subdir")).exit().?;
     defer path.deinit(&mut page).exit().?;
 
     path.joinComponent(&mut page, &"/inside.txt").exit().?;
@@ -318,7 +318,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let allocator: &mut mem::Allocator = &mut page;
-    let mut longPath = fs::PathBuf::init();
+    let mut longPath = fs::Path::init();
     defer longPath.deinit(allocator).exit().?;
     let mut index: usize = 0;
     while index < 5000usize {
@@ -1591,7 +1591,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
 
     let valid: [3]u8 = [b'A', 0xceu8, 0xbbu8];
-    let mut path = switch fs::PathBuf::fromUtf8(&mut page, &valid) {
+    let mut path = switch fs::Path::fromUtf8(&mut page, &valid) {
         !value => value,
         error! => { _ = error; return process::exit(1)!; },
     };
@@ -1617,7 +1617,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let invalid: [5]u8 = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
-    switch fs::PathBuf::fromUtf8(&mut page, &invalid) {
+    switch fs::Path::fromUtf8(&mut page, &invalid) {
         !value => { _ = value; return process::exit(5)!; },
         string::TextError::InvalidUtf8(unicode::Utf8DecodeError::InvalidContinuation)! => {},
         error! => { _ = error; return process::exit(6)!; },
@@ -1639,7 +1639,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut fixedStorage: [96]u8 = [0; 96];
     let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage);
-    let mut bounded = fs::PathBuf::init();
+    let mut bounded = fs::Path::init();
     bounded.append(&mut fixed, &"base").exit().?;
     defer bounded.deinit(&mut fixed).exit().?;
     switch bounded.joinComponent(&mut fixed, &"component-that-requires-growth") {

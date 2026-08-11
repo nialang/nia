@@ -3,6 +3,9 @@
 // Files are modules in Nia. This root facade re-exports selected items that
 // are intentionally available as `std::name`; it does not re-export the
 // standard-library implementation modules themselves.
+//
+// Owned values keep allocation and release explicit. Borrowed views do not
+// extend backing storage lifetimes, and typed errors preserve domain causes.
 
 pub module atomic;
 pub module builtin;
@@ -29,7 +32,7 @@ pub module unicode;
 pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap, HashMapInitError};
 pub using cstring::{CString, CStringBuildError, CStringError, CStringView};
-pub using fs::{PathBuf, PathView};
+pub using fs::{Path, PathView};
 pub using string::{String, TextError, TextFormatError};
 
 using pkg::iter::range;

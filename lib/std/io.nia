@@ -1,3 +1,8 @@
+// Fallible reader and writer traits plus explicit buffering adapters.
+//
+// Adapters borrow or own exactly the handle stated by their type and preserve
+// partial I/O, buffering, and underlying system failures through typed errors.
+
 pub(pkg) module buffered;
 pub(pkg) module error;
 pub(pkg) module file_adapter;

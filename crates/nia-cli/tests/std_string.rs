@@ -655,7 +655,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(9)!;
         },
     }
-    let mut path = fs::PathBuf::fromString(pathText);
+    let mut path = fs::Path::fromString(pathText);
     pathTextTransferred = true;
     defer path.deinit(page).exit().?;
 
@@ -760,8 +760,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn check_std_path_buf_does_not_adopt_raw_owned_text() {
-    let root = temp_dir("check_std_path_buf_does_not_adopt_raw_owned_text");
+fn check_std_path_does_not_adopt_raw_owned_text() {
+    let root = temp_dir("check_std_path_does_not_adopt_raw_owned_text");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -770,7 +770,7 @@ using std;
 
 fn main() () {
     let mut text: [3]char = ['n', 'i', 'a'];
-    _ = std::PathBuf::fromOwnedSlice(&mut text[..]);
+    _ = std::Path::fromOwnedSlice(&mut text[..]);
 }
 "#,
     )

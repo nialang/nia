@@ -78,9 +78,10 @@ backends directly.
 - startup/runtime injection in `start/`;
 - build-host declarations and protocol encoding in `build/`.
 
-The durable layering and API maturity rules are in `standard-library.md`.
-Broad `using std` spelling is not evidence that all facade modules perform
-semantic or backend work; loader/provider closure tests own that guarantee.
+The durable facade, ownership, and API rules live beside the implementation in
+`../lib/README.md` and the owning `lib/std` modules. Broad `using std` spelling
+is not evidence that all facade modules perform semantic or backend work;
+loader/provider closure tests own that guarantee.
 
 ## 5. Tests And Workloads
 
@@ -116,6 +117,6 @@ Clippy, and `cargo test --workspace`; focused owners should run first.
 | Toolchain layout | `nia-toolchain` | CLI, Driver, loader, cache domains, relocation tests |
 
 For architectural work, read `project-conventions.md`,
-`compiler-maintenance.md`, `build-system.md`, and `standard-library.md` before
-editing. One owner must remain responsible for each identity, diagnostic, cache
-product, and execution policy.
+`compiler-maintenance.md`, `build-system.md`, and the relevant implementation
+facade before editing. One owner must remain responsible for each identity,
+diagnostic, cache product, and execution policy.

@@ -1,3 +1,9 @@
+// Explicit allocation and ownership primitives.
+//
+// Allocator-backed values retain no implicit destructor. Release uses the
+// allocator that produced the storage, and callable views remain borrowed
+// from their `Allocated` or `CallableAllocation` owner.
+
 pub(pkg) module arena_allocator;
 pub(pkg) module allocation;
 pub(pkg) module allocator;

@@ -1,3 +1,9 @@
+// Owned Unicode scalar text.
+//
+// `String` owns allocator-backed `char` storage; slices and iterators borrow it.
+// UTF-8 and formatting APIs preserve validation, allocation, and writer errors,
+// and mutation commits only after the complete operation can succeed.
+
 pub(pkg) module hash;
 
 using pkg::collections;

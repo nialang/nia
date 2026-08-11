@@ -6,7 +6,7 @@ using pkg::string;
 
 using types::{
     NativePathView,
-    PathBuf,
+    Path,
     PathError,
     PathView,
     RelativeNativePathView,
@@ -81,28 +81,28 @@ extend RelativePathView {
     }
 }
 
-extend PathBuf {
-    pub fn init() PathBuf {
+extend Path {
+    pub fn init() Path {
         { text: string::String::init() }
     }
 
-    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!PathBuf {
+    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!Path {
         let text = string::String::initCapacity(allocator, capacity).?;
-        !PathBuf { text: text }
+        !Path { text: text }
     }
 
-    pub fn fromString(text: string::String) PathBuf {
+    pub fn fromString(text: string::String) Path {
         { text: text }
     }
 
-    pub fn fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!PathBuf {
+    pub fn fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!Path {
         let text = string::String::fromSlice(allocator, path.text()).?;
-        !PathBuf::fromString(text)
+        !Path::fromString(text)
     }
 
-    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) string::TextError!PathBuf {
+    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) string::TextError!Path {
         let text = string::String::fromUtf8(allocator, bytes).?;
-        !PathBuf::fromString(text)
+        !Path::fromString(text)
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {

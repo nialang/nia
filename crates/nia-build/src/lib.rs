@@ -757,10 +757,10 @@ fn readText(
 fn readPath(
     cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
-    storage: &mut fs::PathBuf,
+    storage: &mut fs::Path,
     subject: build::ErrorSubject,
 ) build::Error!fs::PathView {
-    storage.* = switch fs::PathBuf::fromUtf8(allocator, cursor.textBytes().?) {
+    storage.* = switch fs::Path::fromUtf8(allocator, cursor.textBytes().?) {
         !path => path,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -815,7 +815,7 @@ fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationM
 fn configPathArg(
     init: process::Init,
     allocator: &mut mem::Allocator,
-    storage: &mut fs::PathBuf,
+    storage: &mut fs::Path,
 ) build::Error!fs::PathView {
     if init.args().len() != 3 {
         return build::Error::Invalid {
@@ -837,7 +837,7 @@ fn configPathArg(
         ?value => value,
         null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
     };
-    storage.* = switch fs::PathBuf::fromUtf8(allocator, arg.bytes()) {
+    storage.* = switch fs::Path::fromUtf8(allocator, arg.bytes()) {
         !path => path,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -862,7 +862,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().ok().exit().?;
 
-    let mut configPathStorage = fs::PathBuf::init();
+    let mut configPathStorage = fs::Path::init();
     defer configPathStorage.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
     let configPath = configPathArg(init, &mut allocator, &mut configPathStorage).reportAndExit(init).?;
     let mut configFile = fs::File::open(configPath, fs::OpenOptions::readOnly()).asBuildError(
@@ -922,15 +922,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     let mut config = ConfigCursor::init(payload);
 
-    let mut packageRootPath = fs::PathBuf::init();
+    let mut packageRootPath = fs::Path::init();
     defer packageRootPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
-    let mut buildDirPath = fs::PathBuf::init();
+    let mut buildDirPath = fs::Path::init();
     defer buildDirPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildDir).reportAndExit(init).?;
-    let mut cacheDirPath = fs::PathBuf::init();
+    let mut cacheDirPath = fs::Path::init();
     defer cacheDirPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::CacheDir).reportAndExit(init).?;
-    let mut toolchainPath = fs::PathBuf::init();
+    let mut toolchainPath = fs::Path::init();
     defer toolchainPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
-    let mut resourceRootPath = fs::PathBuf::init();
+    let mut resourceRootPath = fs::Path::init();
     defer resourceRootPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
 
     let packageRoot = readPath(&mut config, &mut allocator, &mut packageRootPath, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
@@ -946,7 +946,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let artifactTarget = readTarget(&mut config, &mut allocator, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
     let defaultOptimization = readOptimization(&mut config).reportAndExit(init).?;
     let planSchemaVersion = config.u32().reportAndExit(init).?;
-    let mut planDraftPath = fs::PathBuf::init();
+    let mut planDraftPath = fs::Path::init();
     defer planDraftPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let mut requestedStepText = string::String::init();
@@ -1559,7 +1559,7 @@ mod tests {
         assert!(runner.source.contains("init.args().len() != 3"));
         assert!(runner.source.contains("equals(&b\"--config\")"));
         assert!(runner.source.contains("fn reportAndExit("));
-        assert!(runner.source.contains("fs::PathBuf::fromUtf8("));
+        assert!(runner.source.contains("fs::Path::fromUtf8("));
         assert!(runner.source.contains("string::String::fromUtf8("));
         assert!(runner.source.contains("let mut api = build::Build::init("));
         assert!(runner.source.contains("readPath(&mut config"));
