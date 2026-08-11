@@ -134,6 +134,26 @@ where I: Iterator
         }
         accumulator
     }
+
+    pub fn position(self, predicate: &Fn([I as Iterator]::Item) bool) ?usize {
+        let mut iter = self;
+        let mut index: usize = 0;
+        let mut done = false;
+        while done == false {
+            switch iter.next() {
+                ?value => {
+                    if predicate(value) {
+                        return ?index;
+                    }
+                    index += 1;
+                },
+                null => {
+                    done = true;
+                },
+            }
+        }
+        null
+    }
 }
 
 extend[I] I

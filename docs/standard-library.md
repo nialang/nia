@@ -627,6 +627,9 @@ readonly callbacks. `forEach` invokes `Fn(Item) ()`; `fold` invokes
 iterator during the call. Neither operation stores a callable or extends its
 lifetime, so capturing closures are valid while the call is active and lazy
 iterator adapters remain a separate ownership design.
+`Iterator::position` follows the same rule with `Fn(Item) bool` and returns
+`?usize`; it consumes items while returning only the matching index, avoiding
+an ownership promise for the consumed value.
 
 Build-plan text and paths must be owned by the builder/plan arena or copied into
 the serialized plan. A borrowed text slice, `PathView`, module import, or target name
