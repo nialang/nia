@@ -1,118 +1,66 @@
 # Platform Support
 
-Nia is currently maintainer-tested rather than platform-supported.
+Nia is maintainer-tested rather than released with formal platform support
+tiers. A passing environment is evidence for that configuration, not a minimum
+version promise or a guarantee for similar hosts and targets.
 
-The compiler is developed and tested primarily on the maintainer's local Linux
-environment. Other systems may work, but they are not currently part of a
-documented support guarantee.
+## Host And Target Boundaries
 
-## Host and Target
+Host and target support are separate:
 
-Platform support has two separate meanings:
+- the host is the platform where the `nia` compiler runs;
+- the target is the platform described by generated LLVM IR, object files, or
+  executables.
 
-- host platform: where `nia` itself runs;
-- target platform: where generated LLVM IR, object files, or executables are
-  expected to run.
+A host may run the compiler without being a supported executable target. An
+LLVM target may accept object emission without Nia providing startup code,
+linker integration, or a tested runtime for it.
 
-Nia should eventually support both compiler-host and target-runtime workflows,
-but these are different promises. A host platform can run `nia` without being a
-supported target, and a target can be emitted as object code without `nia`
-providing a full executable or linking workflow for it.
+## Maintained Configurations
 
-## Current Status
+The repository is exercised in these environments:
 
-Current support is intentionally narrow:
+- the maintainer's current Fedora Linux x86_64 environment;
+- managed `ubuntu-24.04` x86_64 correctness and performance workflows using
+  LLVM 22; and
+- freestanding Linux x86_64 executable tests using the standard-library startup
+  facade and a target linker without CRT startup.
 
-- `nia` is primarily tested in the maintainer's local Linux environment;
-- LLVM is required through the Rust `llvm-sys` dependency;
-- executable emission uses an injected standard-library package startup facade
-  and currently has a freestanding Linux x86_64 implementation that invokes the
-  target linker without CRT startup;
-- native object emission depends on the LLVM target configuration available to
-  the local toolchain;
-- the repository defines managed `ubuntu-24.04` x86_64 correctness and
-  performance workflows that install LLVM 22 and exercise the complete
-  compiler/LLVM workload suites;
-- cross compilation is not documented as a supported workflow yet.
+Native object emission is limited by the targets built into the selected LLVM
+installation. The managed Linux workflows are architecture and regression
+guards; they do not establish a general Linux, host, or target compatibility
+promise.
 
-This does not mean other hosts or targets cannot work. It means the project does
-not yet claim support for them.
+## Toolchain Policy
 
-## Toolchain Update Policy
+Rust follows the newest stable channel without a repository pin or MSRV. LLVM
+follows the default LLVM release in the newest stable Fedora release. The
+`llvm-sys` dependency family, `LLVM_SYS_*_PREFIX` environment name, linker
+package, and managed workflow installation move together when that LLVM
+identity changes.
 
-The project follows the maintainer's current Fedora development environment
-rather than defining old minimum compiler versions. Rust tracks the newest
-stable channel without a repository pin or MSRV. LLVM tracks the default LLVM
-release supplied by the newest stable Fedora release; the `llvm-sys` binding,
-`LLVM_SYS_*_PREFIX` name, linker package, and managed workflow installation move
-together when Fedora changes that identity. The Ubuntu hosted runners install
-the matching LLVM release from `apt.llvm.org`; Ubuntu is the execution venue,
-not the version authority.
+Ubuntu hosted runners install the matching LLVM release from `apt.llvm.org`.
+Ubuntu is an execution venue, not the version authority. Managed runs report
+the resolved Rust, Cargo, Clippy, rustfmt, and `llvm-config` identities so a
+failure is tied to its actual toolchain rather than a copied environment
+snapshot in this document.
 
-Every managed run reports its Rust/Cargo/Clippy/rustfmt identity and
-`llvm-config --version`. A new upstream stable release may legitimately expose
-new diagnostics. Maintainers reproduce those diagnostics after updating the
-local toolchain and fix the code rather than weakening strict lint policy.
+New upstream stable releases may expose diagnostics or build failures. The
+maintenance policy is to reproduce and fix those failures on the current
+toolchain, not to weaken strict lint or test policy to preserve an older
+environment.
 
-## Known Maintainer Environment
+## Current Limits
 
-This is the current known working environment snapshot, not a minimum
-requirement or support guarantee.
+The project does not claim support for:
 
-Snapshot date: 2026-08-09.
+- Windows or macOS compiler hosts;
+- stable target-triple selection or cross-compilation behavior;
+- freestanding executable startup outside Linux x86_64;
+- a complete bare-metal build workflow;
+- target-aware linker selection beyond the `NIA_LINKER` override; or
+- every valid LLVM installation layout.
 
-- OS: Fedora Linux 44 (WSL)
-- Architecture: x86_64
-- libc: GNU libc 2.43
-- Rust: rustc 1.97.1
-- Cargo: cargo 1.97.1
-- default executable linker: `ld` resolves to `/usr/sbin/ld`
-- linker implementation: GNU ld 2.46
-- LLVM config tool: `/usr/sbin/llvm-config`
-- LLVM version: 22.1.6
-- LLVM host target: x86_64-redhat-linux-gnu
-- Rust LLVM binding dependency: `llvm-sys = 221.0.1`
-
-The local LLVM installation reports these built targets:
-
-```text
-AArch64 AMDGPU ARM AVR BPF Hexagon Lanai LoongArch Mips MSP430 NVPTX PowerPC
-RISCV Sparc SPIRV SystemZ VE WebAssembly X86 XCore
-```
-
-## Support Tiers
-
-The project may use these tiers as platform work becomes more formal:
-
-- Tier 0: maintainer-tested local environment. This is the current state.
-- Tier 1: regularly tested hosts and targets with expected working compiler,
-  object emission, and freestanding executable emission.
-- Tier 2: expected to build or emit code, but not tested as strictly.
-- Planned or unknown: platforms that may be desirable but have no support
-  commitment yet.
-
-No platform is Tier 1 yet. The managed performance workflow is an architecture
-and regression guard, not a general host/target support promise.
-
-## Not Guaranteed Yet
-
-The following are not currently guaranteed:
-
-- Windows host support;
-- macOS host support;
-- stable target triple selection;
-- stable cross compilation behavior;
-- a complete bare-metal build story;
-- compatibility with every LLVM installation layout.
-
-## Future Work
-
-Expected platform work includes:
-
-- keeping the Rust and Fedora-derived LLVM identity current and observable;
-- adding CI for at least one Linux host;
-- making target selection explicit in the CLI;
-- making executable linker selection target-aware beyond the current
-  `NIA_LINKER` override;
-- documenting freestanding workflows across more targets once runtime
-  boundaries are more complete.
+Changes to one of these boundaries require implementation, maintained tests,
+and an explicit support-policy update. Incidental success does not change the
+support claim.

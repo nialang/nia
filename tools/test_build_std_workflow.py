@@ -18,6 +18,9 @@ class BuildStdWorkflowTests(unittest.TestCase):
             "examples/**",
             "benchmarks/build/**",
             "tools/perf.py",
+            "tools/std_build_host_audit.py",
+            "tools/test_std_build_host_audit.py",
+            "tools/fixtures/std-build-host-dependencies.json",
         ]:
             self.assertIn(f'      - "{path}"', self.workflow)
         self.assertIn("workflow_dispatch:", self.workflow)
@@ -48,6 +51,7 @@ class BuildStdWorkflowTests(unittest.TestCase):
             "cargo test -p nia-cli --test build_cases",
             "cargo test -p nia-cli --test toolchain_relocation",
             "python3 tools/build_baseline.py",
+            "tools.test_std_build_host_audit",
         ]:
             self.assertIn(command, self.workflow)
 

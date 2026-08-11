@@ -168,8 +168,8 @@ for 90 days. The current run remains failed when a guard fires, but its already
 landed main revision becomes the comparison point for the next push. This keeps
 pull requests relative to current main and prevents one accepted regression or
 changed workload from pinning all future comparisons to an arbitrarily old
-revision. Discovery also accepts the legacy `nia-perf-candidate` name so the
-first run after this policy change can recover the newest complete sample.
+revision. Baseline discovery reads only the `nia-perf-baseline` artifact; an
+unpromoted candidate is diagnostic evidence, not an alternate trend source.
 
 Pull-request candidates and main runs that fail before completing
 `candidate.json` are stored separately for 14 days for diagnosis. A failed

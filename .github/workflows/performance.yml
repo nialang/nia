@@ -111,20 +111,19 @@ jobs:
             if test -z "${run_id}"; then
               continue
             fi
-            for artifact_name in nia-perf-baseline nia-perf-candidate; do
-              destination="target/nia-perf/main-${run_id}-${artifact_name}"
-              if gh run download "${run_id}" \
-                --repo "${GITHUB_REPOSITORY}" \
-                --name "${artifact_name}" \
-                --dir "${destination}" \
-                && test -f "${destination}/baseline.json"; then
-                echo "path=${destination}/baseline.json" >> "${GITHUB_OUTPUT}"
-                echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
-                echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
-                available=true
-                break 2
-              fi
-            done
+            artifact_name=nia-perf-baseline
+            destination="target/nia-perf/main-${run_id}-${artifact_name}"
+            if gh run download "${run_id}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --name "${artifact_name}" \
+              --dir "${destination}" \
+              && test -f "${destination}/baseline.json"; then
+              echo "path=${destination}/baseline.json" >> "${GITHUB_OUTPUT}"
+              echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
+              echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
+              available=true
+              break
+            fi
           done <<< "${run_ids}"
           echo "available=${available}" >> "${GITHUB_OUTPUT}"
 
