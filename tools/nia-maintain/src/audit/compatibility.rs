@@ -73,10 +73,7 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> MaintainResult<()> {
         let path = entry.path();
         if file_type.is_dir() {
             let name = entry.file_name();
-            if matches!(
-                name.to_str(),
-                Some(".git" | "target" | "node_modules" | "__pycache__")
-            ) {
+            if matches!(name.to_str(), Some(".git" | "target")) {
                 continue;
             }
             collect_files(&path, files)?;

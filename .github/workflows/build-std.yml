@@ -4,8 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/build-std.yml"
-      - ".node-version"
-      - ".python-version"
+      - ".cargo/**"
       - "Cargo.lock"
       - "Cargo.toml"
       - "crates/**"
@@ -18,8 +17,7 @@ on:
       - main
     paths:
       - ".github/workflows/build-std.yml"
-      - ".node-version"
-      - ".python-version"
+      - ".cargo/**"
       - "Cargo.lock"
       - "Cargo.toml"
       - "crates/**"
@@ -48,27 +46,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
-
-      - name: Install maintenance Python
-        uses: actions/setup-python@v6
-        with:
-          python-version-file: ".python-version"
-
-      - name: Install maintenance Node dependencies
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: ".node-version"
-          cache: npm
-          cache-dependency-path: tools/package-lock.json
-
-      - name: Report maintenance toolchain identity
-        run: |
-          python3 --version
-          node --version
-          npm --version
-
-      - name: Install locked maintenance dependencies
-        run: npm ci --prefix tools --ignore-scripts
 
       - name: Install Rust stable
         run: |
@@ -108,7 +85,7 @@ jobs:
             nia-build-std-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Check maintenance tooling
-        run: python3 -m tools check
+        run: cargo maintain check
 
       - name: Format and lint
         run: |
@@ -132,21 +109,12 @@ jobs:
 
       - name: Run clean/warm/edit/corruption/failure build baseline
         run: |
-          python3 -m tools baseline build \
+          cargo maintain baseline build \
             --nia target/release/nia \
             --resource-root lib \
             --repetitions 1 \
             --timeout-seconds 600 \
             --output target/nia-build-baseline/hosted.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          report = json.loads(Path("target/nia-build-baseline/hosted.json").read_text())
-          if report["acceptance"]["passed"] is not True:
-              raise SystemExit("hosted build baseline acceptance failed")
-          print("hosted build baseline acceptance: passed")
-          PY
 
       - name: Publish build/std evidence
         if: always()

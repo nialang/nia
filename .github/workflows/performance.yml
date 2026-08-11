@@ -40,27 +40,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install maintenance Python
-        uses: actions/setup-python@v6
-        with:
-          python-version-file: ".python-version"
-
-      - name: Install maintenance Node dependencies
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: ".node-version"
-          cache: npm
-          cache-dependency-path: tools/package-lock.json
-
-      - name: Report maintenance toolchain identity
-        run: |
-          python3 --version
-          node --version
-          npm --version
-
-      - name: Install locked maintenance dependencies
-        run: npm ci --prefix tools --ignore-scripts
-
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
@@ -99,7 +78,7 @@ jobs:
             nia-perf-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Check maintenance tooling
-        run: python3 -m tools check
+        run: cargo maintain check
 
       - name: Download latest completed main baseline
         id: main_baseline
@@ -148,17 +127,18 @@ jobs:
         run: |
           mkdir -p target/nia-perf
           set -o pipefail
-          python3 -m tools baseline compiler \
+          cargo maintain baseline compiler \
             --repeat 3 \
             --runner-class github-hosted-ubuntu-24.04-x64 \
             --output target/nia-perf/candidate.json \
             2>&1 | tee target/nia-perf/candidate.log
 
       - name: Compare with main baseline
+        id: comparison
         if: steps.main_baseline.outputs.available == 'true'
         run: |
           set +e
-          python3 -m tools baseline compare \
+          cargo maintain baseline compare \
             "${{ steps.main_baseline.outputs.path }}" \
             target/nia-perf/candidate.json \
             > target/nia-perf/comparison.json
@@ -179,6 +159,7 @@ jobs:
           BASELINE_AVAILABLE: ${{ steps.main_baseline.outputs.available }}
           BASELINE_RUN_ID: ${{ steps.main_baseline.outputs.run_id }}
           BASELINE_ARTIFACT_NAME: ${{ steps.main_baseline.outputs.artifact_name }}
+          COMPARISON_OUTCOME: ${{ steps.comparison.outcome }}
         run: |
           {
             echo "## Nia performance guard"
@@ -196,9 +177,11 @@ jobs:
               echo "- Main baseline: bootstrap (no prior artifact)"
             fi
             if test -f target/nia-perf/comparison.json; then
-              comparison_passed="$(
-                python3 -c 'import json; print(str(json.load(open("target/nia-perf/comparison.json"))["passed"]).lower())'
-              )"
+              if test "${COMPARISON_OUTCOME}" = success; then
+                comparison_passed=true
+              else
+                comparison_passed=false
+              fi
               echo "- Comparison passed: \`${comparison_passed}\`"
             fi
           } >> "${GITHUB_STEP_SUMMARY}"

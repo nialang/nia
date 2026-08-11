@@ -31,6 +31,6 @@ and its source modules.
 Standard-library conformance lives primarily in the `emit_exe_*.rs` and
 `std_*.rs` tests under `crates/nia-cli/tests/`, plus the full-pipeline tests under
 `crates/nia-driver/src/tests/`. The build-host provider audit is maintained by
-`python3 -m tools audit std-build-host`; its enforced fixture is
+`cargo maintain audit std-build-host`; its enforced fixture is
 `tools/fixtures/std-build-host-dependencies.json`. Run the audit without options
 to check it, or use `--print` to inspect a deliberate closure update.

@@ -98,11 +98,11 @@ loader/provider closure tests own that guarantee.
 - `crates/nia-codegen-llvm/src/tests/` owns LLVM shape and runtime codegen.
 - `examples/` contains maintained user-facing language idioms.
 - `benchmarks/` contains repeatable performance and build-state workloads;
-  `python3 -m tools baseline ...` owns their maintained runners. They are not
+  `cargo maintain baseline ...` owns their maintained runners. They are not
   ordinary unit tests.
 
 Compiler-, LLVM-, and build-heavy tests must use `nia-test-support` resource
-accounting. The normal local gate starts with `python3 -m tools check`, followed
+accounting. The normal local gate starts with `cargo maintain check`, followed
 by `cargo fmt --check`, strict workspace Clippy, and `cargo test --workspace`;
 focused owners should run first.
 

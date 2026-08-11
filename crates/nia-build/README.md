@@ -103,7 +103,7 @@ The principal end-to-end contracts live in
 [`nia-cli/tests/build_cases.rs`](../nia-cli/tests/build_cases.rs); the
 representative clean/warm/edit/corruption workload lives under
 [`benchmarks/build/`](../../benchmarks/build/) and is run through
-`python3 -m tools baseline build`. The maintenance command is documented in
+`cargo maintain baseline build`. The maintenance command is documented in
 [`tools/README.md`](../../tools/README.md).
 
 Historical migration matrices, dated measurements, and hosted-run identifiers
