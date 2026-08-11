@@ -1036,11 +1036,25 @@ impl<'a> BodyChecker<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
             }) => {
-                if let Some(TyKind::Callable {
-                    is_readonly: actual_readonly,
-                    params: actual_params,
-                    return_type: actual_return,
-                }) = self.interner.get(actual).cloned()
+                let actual_callable = match self.interner.get(actual).cloned() {
+                    Some(TyKind::Callable {
+                        is_readonly,
+                        params,
+                        return_type,
+                    }) => Some((is_readonly, params, return_type)),
+                    Some(TyKind::Pointer { is_readonly, elem }) => {
+                        match self.interner.get(elem).cloned() {
+                            Some(TyKind::ClosureState {
+                                params,
+                                return_type,
+                                ..
+                            }) => Some((is_readonly, params, return_type)),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some((actual_readonly, actual_params, actual_return)) = actual_callable
                     && pattern_readonly == actual_readonly
                     && pattern_params.len() == actual_params.len()
                 {

@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use std::process::Command;
+
+mod support;
+
+use support::{CommandExt, CommandStatusExt, temp_dir};
+
+#[test]
+fn emit_exe_std_iterator_for_each_accepts_borrowed_closure() {
+    let root = temp_dir("emit_exe_std_iterator_for_each_accepts_borrowed_closure");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let offset = 1;
+    (1..5).iter().forEach(&[offset](value: i32) () {
+        _ = value;
+        _ = offset;
+    });
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std iterator forEach");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

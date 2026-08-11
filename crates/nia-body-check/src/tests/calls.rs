@@ -27,6 +27,32 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
+    let checked = pipeline(
+        r#"
+extend[Value, Source, Target] Source!Value {
+    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+        switch self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fn source() i32!i32 {
+    1!
+}
+
+fn main() bool!i32 {
+    source().mapError(&[](error: i32) bool { error == 1 })
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn constructs_and_calls_readonly_and_mutable_callable_views() {
     let checked = pipeline(
         r#"

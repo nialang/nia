@@ -1522,6 +1522,11 @@ guides an explicit `&closure` or `&mut closure` expression. It requires exact
 parameter and return signatures, permits a mutable state pointer to become a
 readonly view, and rejects the opposite direction. The conversion does not
 apply to a closure-state pointer after that pointer has been stored separately.
+Generic method argument inference also treats a direct pointer to a
+`ClosureState` as its callable signature while the expected callable parameter
+is being inferred. This preserves the normal generic method path for synchronous
+APIs such as `Source!T::mapError`; it does not broaden callable coercion after a
+closure-state pointer has been stored separately or extend its lifetime.
 Checked Body IR records the operation as `TypedExprKind::CallableCoercion` and
 records calls with `TypedCallee::Callable`; Function IR preserves those as
 `FunctionExprKind::CallableCoercion` and `FunctionCallee::Callable`. Both nodes
