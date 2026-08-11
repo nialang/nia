@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Immutable build-plan model and semantic validation boundary.
+//!
+//! Stable keys combine package identity with validated visible names, while
+//! logical paths retain their typed root independently of physical checkout
+//! paths. `BuildPlan::freeze` canonicalizes order and validates the complete
+//! graph before a plan can be encoded or executed.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

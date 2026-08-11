@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Successful zero-diagnostic compiler-check records.
+//!
+//! Lookup validates the complete logical source manifest. Records contain no
+//! session-local checked program and are published only from the final loader
+//! manifest of the successful check; warnings and incomplete closures remain
+//! uncacheable.
 
 use std::{
     fs,

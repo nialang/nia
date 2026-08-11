@@ -129,6 +129,9 @@ extend BuildPaths {
 }
 
 extend Build {
+    // The generated runner supplies these values from the resolved toolchain
+    // invocation. Ordinary build scripts receive the initialized value and do
+    // not construct alternate roots, targets, or protocol versions.
     pub fn init(
         allocator: &mut mem::Allocator,
         packageRoot: fs::PathView,
@@ -321,6 +324,8 @@ extend Build {
         self.artifactTarget.view()
     }
 
+    // Steps declare graph work only. Execution, process ownership, output
+    // publication, caching, and cancellation belong to the Rust coordinator.
     pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
         self.addStepRecord(name, StepKind::Aggregate, { aggregate: AggregateStep::init() })
     }
@@ -705,6 +710,9 @@ extend Build {
         !()
     }
 
+    // Modules and artifacts retain borrowed descriptors as owned plan records.
+    // Build-rooted source paths are generated inputs and gain producer edges
+    // during complete-graph validation.
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
 
@@ -1692,6 +1700,8 @@ extend RunExecutableStep {
 }
 
 extend CommandArgument {
+    // Each constructor records the logical root used for dependency validation
+    // and cache identity. Literal values intentionally declare no file input.
     pub fn literal(value: &[char]) CommandArgument {
         {
             kind: CommandArgumentKind::Literal,
@@ -1750,6 +1760,9 @@ extend CommandArgument {
 }
 
 extend ExternalCommandOptions {
+    // Search commands inherit the process environment and are uncacheable by
+    // default. Persistent reuse requires `withClearedEnvironment`, explicit
+    // typed inputs/outputs, and `withDeclaredInputCache`.
     pub fn search(program: &[char]) ExternalCommandOptions {
         {
             program: program,
@@ -2678,6 +2691,8 @@ extend TargetStorage {
 }
 
 extend ExecutableOptions {
+    // Artifact target is the default. `forHost` is reserved for tools that must
+    // execute during this build; arbitrary target construction is not exposed.
     pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
         {
             name: name,

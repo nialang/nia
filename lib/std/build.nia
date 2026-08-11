@@ -1,8 +1,22 @@
-// Build-script facade and owned build-plan construction.
+// Declarative package-build facade.
+//
+// `nia build` constructs one `Build` for the package containing `build.nia`.
+// `packageRoot()` names that package, `buildDir()` is its `.nia-build/` output
+// root, and `cacheDir()` is its reusable `.nia-cache/` root. Build scripts
+// declare packages, modules, artifacts, actions, and dependencies; the generated
+// runner validates and encodes the graph but never executes an action.
 //
 // Public options are borrowed call descriptors. `Build` copies every retained
-// string, path, argument, import, and target value into allocator-owned storage,
-// validates graph ownership, and releases deep records explicitly.
+// string, path, argument, import, target, and handle relation into
+// allocator-owned storage. Handles belong to one live `Build` and are rejected
+// when passed to another. `BuildPathView` is always relative to `.nia-build/`;
+// package paths use `fs::PathView` together with an explicit package handle.
+//
+// Artifact options target the invocation artifact by default; `forHost()` is
+// the explicit host-tool role. External commands inherit the environment and
+// remain uncacheable unless they clear it, declare outputs, and opt into the
+// declared-input cache contract. `deinit()` releases the complete retained
+// graph and reports the first cleanup error after attempting every release.
 
 pub(pkg) module core;
 pub(pkg) module error;

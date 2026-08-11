@@ -1,4 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Bootstrap and invocation owner for `nia build`.
+//!
+//! This crate discovers `build.nia`, creates invocation-private runner state,
+//! compiles and runs the script for the host, decodes its immutable plan, and
+//! hands the selected closure to the coordinator. The runner only configures a
+//! graph through `std::build`; action execution remains in this process.
+//!
+//! See the crate README for the source ownership and persistence boundaries.
+
 use std::{
     env, fmt, fs, io,
     io::Write,

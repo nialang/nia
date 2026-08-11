@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Build-action cache records and typed invalidation reasons.
+//!
+//! This cache owns build bindings and generated/external payloads. Compiler
+//! objects, archives, and link products remain in their Driver or linker-owned
+//! caches; compiler emit records retain typed references rather than duplicate
+//! those products. Cache failure is always a miss, never an output bypass.
 
 use std::{
     collections::BTreeSet,

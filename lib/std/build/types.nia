@@ -4,6 +4,8 @@ using pkg::mem;
 using pkg::string;
 using pkg::build::error;
 
+// Protocol-visible kinds have explicit tags. Unknown values remain invalid
+// rather than falling back to an older or less constrained action contract.
 pub enum StepKind: i32 {
     Aggregate = 1,
     CheckExecutable = 2,
@@ -41,6 +43,8 @@ pub(pkg) enum ModuleSourceRoot: i32 {
     _
 }
 
+// A build-root path is a lexical path below `.nia-build/`. It is not an
+// arbitrary process path and cannot select package, cache, or toolchain files.
 pub struct BuildPathView {
     path: &[char],
 }
@@ -65,6 +69,8 @@ pub(pkg) struct TargetStorage {
     pointerWidth: u32,
 }
 
+// Handles are process-local capabilities owned by one `Build`. Their indices
+// and owner ids never enter the serialized plan or persistent identities.
 pub struct StepHandle {
     ownerId: usize,
     index: usize,
@@ -174,6 +180,9 @@ pub struct CommandArgument {
     package: PackageHandle,
 }
 
+// Conservative actions reserve the complete ready-action capacity. Cpu and Io
+// are explicit scheduling declarations; neither disables nested compiler or
+// LLVM resource accounting.
 pub enum ActionResourceClass: i32 {
     Conservative = 1,
     Cpu = 2,
@@ -187,6 +196,9 @@ pub enum CommandEnvironmentPolicy: i32 {
     _
 }
 
+// DeclaredInputs is an assertion by the build script that every semantic file
+// input and output is represented by a typed `CommandArgument`. It is accepted
+// only with a cleared environment and at least one declared output.
 pub enum CommandCachePolicy: i32 {
     Uncacheable = 1,
     DeclaredInputs = 2,
@@ -261,6 +273,9 @@ pub struct StepDependency {
     dependency: StepHandle,
 }
 
+// Module paths are package-rooted by default. `fromBuild` records generated
+// roots and imports, whose exact producer must be in each consuming compiler
+// step's dependency closure.
 pub struct ModuleOptions {
     name: &[char],
     sourceRoot: ModuleSourceRoot,
@@ -295,6 +310,9 @@ pub struct OwnedModuleImport {
     path: fs::Path,
 }
 
+// Artifact descriptors borrow their name and module handles for one call. The
+// `Build` retains owned copies and resolves the invocation artifact target
+// unless the descriptor explicitly selects the host role.
 pub struct ExecutableOptions {
     name: &[char],
     rootModule: ModuleHandle,
@@ -350,6 +368,8 @@ pub struct BuildPaths {
     toolchainResourceRoot: fs::Path,
 }
 
+// `Build` owns the mutable declaration graph. Validation covers the complete
+// graph, including unselected components, before the plan draft is published.
 pub struct Build {
     ownerId: usize,
     allocator: &mut mem::Allocator,

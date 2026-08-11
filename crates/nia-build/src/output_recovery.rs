@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Recoverable publication for one action's complete output set.
+//!
+//! A checksummed journal is durable before staging can affect destinations, and
+//! a separately synced prepared marker records rollback ownership. Recovery
+//! runs under the complete canonical output-lock set and rejects ambiguous or
+//! corrupt state instead of selecting a partial result.
 
 use std::{
     collections::BTreeSet,
