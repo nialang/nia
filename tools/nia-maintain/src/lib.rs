@@ -1,15 +1,79 @@
 pub mod audit;
+pub mod baseline;
 pub mod report;
+pub mod system;
 
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type MaintainResult<T> = Result<T, String>;
+
+static NEXT_TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
+
+pub struct TemporaryDirectory {
+    path: Option<PathBuf>,
+}
+
+impl TemporaryDirectory {
+    pub fn new(prefix: &str) -> MaintainResult<Self> {
+        let root = std::env::temp_dir();
+        for _ in 0..100 {
+            let sequence = NEXT_TEMPORARY_ID.fetch_add(1, Ordering::Relaxed);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|error| format!("system clock precedes Unix epoch: {error}"))?
+                .as_nanos();
+            let path = root.join(format!("{prefix}{}-{nanos}-{sequence}", std::process::id()));
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path: Some(path) }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "failed to create temporary directory {}: {error}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        Err("failed to allocate a unique temporary directory".to_owned())
+    }
+
+    pub fn path(&self) -> &Path {
+        self.path
+            .as_deref()
+            .expect("temporary directory was persisted")
+    }
+
+    pub fn persist(mut self) -> PathBuf {
+        self.path.take().expect("temporary directory was persisted")
+    }
+}
+
+impl Drop for TemporaryDirectory {
+    fn drop(&mut self) {
+        if let Some(path) = &self.path {
+            let _ = fs::remove_dir_all(path);
+        }
+    }
+}
 
 pub fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
         .expect("nia-maintain must live under the repository tools directory")
+}
+
+pub fn absolute_path(path: &Path) -> MaintainResult<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        std::env::current_dir()
+            .map(|current| current.join(path))
+            .map_err(|error| format!("failed to resolve {}: {error}", path.display()))
+    }
 }
 
 pub fn parse_usize(value: &str, option: &str) -> MaintainResult<usize> {
