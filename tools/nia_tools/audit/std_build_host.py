@@ -7,10 +7,12 @@ import argparse
 import json
 import re
 from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
 
+from tools.nia_tools.repository import REPOSITORY_ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 STD_ROOT = ROOT / "lib" / "std"
 DEFAULT_SNAPSHOT = ROOT / "tools" / "fixtures" / "std-build-host-dependencies.json"
 ROOT_MODULES = (
@@ -72,8 +74,10 @@ def snapshot() -> dict[str, object]:
     }
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python3 -m tools audit std-build-host", description=__doc__
+    )
     parser.add_argument(
         "--print",
         action="store_true",
@@ -85,11 +89,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_SNAPSHOT,
         help="snapshot to check (default: tools/fixtures/std-build-host-dependencies.json)",
     )
-    return parser.parse_args()
+    return parser.parse_args(arguments)
 
 
-def main() -> int:
-    args = parse_args()
+def main(arguments: Sequence[str] | None = None) -> int:
+    args = parse_args(arguments)
     current = snapshot()
     if args.print:
         print(json.dumps(current, indent=2))

@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "build-std.yml"
 
 
@@ -13,14 +13,12 @@ class BuildStdWorkflowTests(unittest.TestCase):
 
     def test_runs_on_build_and_std_inputs(self):
         for path in [
+            ".python-version",
             "crates/**",
             "lib/**",
             "examples/**",
             "benchmarks/build/**",
-            "tools/perf.py",
-            "tools/std_build_host_audit.py",
-            "tools/test_std_build_host_audit.py",
-            "tools/fixtures/std-build-host-dependencies.json",
+            "tools/**",
         ]:
             self.assertIn(f'      - "{path}"', self.workflow)
         self.assertIn("workflow_dispatch:", self.workflow)
@@ -50,8 +48,8 @@ class BuildStdWorkflowTests(unittest.TestCase):
             "cargo test --workspace --all-features",
             "cargo test -p nia-cli --test build_cases",
             "cargo test -p nia-cli --test toolchain_relocation",
-            "python3 tools/build_baseline.py",
-            "tools.test_std_build_host_audit",
+            "python3 -m tools check",
+            "python3 -m tools baseline build",
         ]:
             self.assertIn(command, self.workflow)
 
@@ -64,11 +62,15 @@ class BuildStdWorkflowTests(unittest.TestCase):
     def test_uses_current_official_action_runtimes(self):
         for action in [
             "actions/checkout@v7",
+            "actions/setup-python@v6",
             "actions/cache@v6",
             "actions/upload-artifact@v7",
         ]:
             self.assertIn(action, self.workflow)
         self.assertNotIn("@v4", self.workflow)
+
+    def test_installs_repository_python_version(self):
+        self.assertIn('python-version-file: ".python-version"', self.workflow)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.std_build_host_audit import DEFAULT_SNAPSHOT, build_host_closure, snapshot
+from tools.nia_tools.audit.std_build_host import (
+    DEFAULT_SNAPSHOT,
+    build_host_closure,
+    snapshot,
+)
 
 
 class StdBuildHostAuditTests(unittest.TestCase):

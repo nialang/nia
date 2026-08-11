@@ -8,6 +8,7 @@ import json
 import math
 import statistics
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -193,8 +194,10 @@ def compare_baselines(
     }
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python3 -m tools baseline compare", description=__doc__
+    )
     parser.add_argument("baseline", type=Path)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--max-wall-regression", type=float, default=50.0)
@@ -202,11 +205,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-query-regression", type=float, default=5.0)
     parser.add_argument("--max-allocation-regression", type=float, default=20.0)
     parser.add_argument("--allow-machine-mismatch", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(arguments)
 
 
-def main() -> int:
-    args = parse_args()
+def main(arguments: Sequence[str] | None = None) -> int:
+    args = parse_args(arguments)
     thresholds = {
         "wall": args.max_wall_regression,
         "rss": args.max_rss_regression,

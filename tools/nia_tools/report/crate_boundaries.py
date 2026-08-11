@@ -7,12 +7,14 @@ import argparse
 import json
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from tools.nia_tools.repository import REPOSITORY_ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 PUBLIC_ITEM = re.compile(
     r"^pub\s+(?:async\s+|unsafe\s+|const\s+|extern\s+)*"
     r"(?:struct|enum|union|trait|type|const|static|fn|mod|use)\b"
@@ -126,8 +128,9 @@ def write_tsv(boundaries: Iterable[CrateBoundary]) -> None:
         )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog="python3 -m tools report crate-boundaries",
         description=(
             "Report deterministic crate size and workspace dependency evidence. "
             "Counts non-empty Rust lines and lexical public item declarations in src/."
@@ -143,11 +146,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="show only crates with at most this many production consumers",
     )
-    return parser.parse_args()
+    return parser.parse_args(arguments)
 
 
-def main() -> None:
-    args = parse_args()
+def main(arguments: Sequence[str] | None = None) -> int:
+    args = parse_args(arguments)
     boundaries = workspace_boundaries(cargo_metadata(ROOT))
     if args.max_rust_loc is not None:
         boundaries = [
@@ -163,7 +166,8 @@ def main() -> None:
             <= args.max_production_dependents
         ]
     write_tsv(boundaries)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
