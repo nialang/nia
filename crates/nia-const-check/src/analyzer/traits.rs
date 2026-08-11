@@ -107,8 +107,20 @@ impl Analyzer<'_> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> bool {
+        matches!(
+            self.resolve_trait_obligation(self_ty, trait_id, trait_args),
+            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
+        )
+    }
+
+    pub(super) fn resolve_trait_obligation(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+    ) -> TraitResolution {
         let Some(module_id) = self.ensure_trait_solver_module(self_ty, &trait_args) else {
-            return false;
+            return TraitResolution::Unsatisfied;
         };
         let assumptions = self.current_trait_goals();
         let normalization = self.type_normalization_for_module(module_id);
@@ -126,7 +138,7 @@ impl Analyzer<'_> {
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let Some(normalization) = normalization else {
-            return false;
+            return TraitResolution::Unsatisfied;
         };
         let visible_extensions = self
             .input
@@ -143,7 +155,7 @@ impl Analyzer<'_> {
                     })
         };
         if !self.type_contexts.contains_key(&module_id) {
-            return false;
+            return TraitResolution::Unsatisfied;
         }
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
@@ -159,7 +171,7 @@ impl Analyzer<'_> {
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(&assumptions);
-        solver.proves(TraitGoal {
+        solver.resolve(TraitGoal {
             self_ty,
             trait_id,
             trait_args,

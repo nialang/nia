@@ -1,5 +1,5 @@
 pub trait IntoError[Target] {
-    fn into_error(self) Target;
+    const fn into_error(self) Target;
 }
 
 extend[Value, Source, Target] Source!Value {

@@ -45,7 +45,7 @@ use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_target_config::TargetConfig;
-use nia_trait_solve::{TraitGoal, TraitSolverContext};
+use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, RangeTyKind, TraitId,
     TyKind, TypeStoreAppend,
@@ -322,6 +322,8 @@ pub(crate) struct ConstCallFrame {
     mutable_locals: HashSet<LocalId>,
     type_substitutions: SymbolMap<InternedTyId>,
     const_substitutions: SymbolMap<ConstGenericArg>,
+    try_error_conversions: HashMap<Span, ResolvedConstCallee>,
+    checked_try_error_conversions: HashSet<Span>,
 }
 
 impl From<TypedConstFrame> for ConstCallFrame {
@@ -338,6 +340,8 @@ impl From<TypedConstFrame> for ConstCallFrame {
             mutable_locals: HashSet::new(),
             type_substitutions: frame.type_substitutions,
             const_substitutions: frame.const_substitutions,
+            try_error_conversions: HashMap::new(),
+            checked_try_error_conversions: HashSet::new(),
         }
     }
 }
@@ -989,6 +993,29 @@ impl Analyzer<'_> {
         value: &ConstValue,
         enum_id: GlobalDefId,
     ) {
+        let Some(signature) = self
+            .signatures_for_module(enum_id.module_id)
+            .and_then(|signatures| signatures.as_ref().enums.get(&enum_id.def_id).cloned())
+        else {
+            self.push_const_type_mismatch(span, "enum");
+            return;
+        };
+        if let ConstValue::Int(value) = value
+            && signature.is_open
+            && signature.variants.iter().all(|variant| {
+                matches!(
+                    variant.payload,
+                    nia_item_signatures::EnumVariantPayloadSignature::Unit
+                )
+            })
+        {
+            self.validate_runtime_typed_value(
+                span,
+                &ConstValue::Int(*value),
+                signature.backing_type,
+            );
+            return;
+        }
         let ConstValue::Enum { variant, payload } = value else {
             self.push_const_type_mismatch(span, "enum");
             return;
@@ -1010,13 +1037,6 @@ impl Analyzer<'_> {
             self.push_const_type_mismatch(span, "enum");
             return;
         }
-        let Some(signature) = self
-            .signatures_for_module(enum_id.module_id)
-            .and_then(|signatures| signatures.as_ref().enums.get(&enum_id.def_id).cloned())
-        else {
-            self.push_const_type_mismatch(span, "enum");
-            return;
-        };
         let Some(variant) = signature
             .variants
             .iter()

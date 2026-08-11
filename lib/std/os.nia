@@ -280,7 +280,7 @@ pub(pkg) fn exit(code: i32) () {
 }
 
 extend platform::Errno : error::IntoError[Error] {
-    fn into_error(self) Error {
+    const fn into_error(self) Error {
         switch self {
             platform::Errno::PermissionDenied => Error::PermissionDenied,
             platform::Errno::NoEntry => Error::NotFound,
@@ -311,13 +311,13 @@ extend platform::Errno : error::IntoError[Error] {
 }
 
 extend platform::Errno {
-    fn asOsError(self) Error {
+    const fn asOsError(self) Error {
         self.into_error()
     }
 }
 
 extend platform::SpawnError : error::IntoError[SpawnError] {
-    fn into_error(self) SpawnError {
+    const fn into_error(self) SpawnError {
         switch self {
             platform::SpawnError::Setup(cause) => SpawnError::Setup(cause.asOsError()),
             platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.asOsError()),

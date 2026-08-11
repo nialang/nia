@@ -1106,6 +1106,7 @@ fn eval_resolved_try_expr_flow(
     inner: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
+    env.prepare_resolved_try(span, inner)?;
     match eval_resolved_const_expr_flow(inner, env)? {
         ConstEvalFlow::Value(ConstValue::Optional(Some(value))) => Ok(ConstEvalFlow::Value(*value)),
         ConstEvalFlow::Value(ConstValue::Optional(None)) => {
@@ -1113,7 +1114,10 @@ fn eval_resolved_try_expr_flow(
         }
         ConstEvalFlow::Value(ConstValue::ErrorUnion(Ok(value))) => Ok(ConstEvalFlow::Value(*value)),
         ConstEvalFlow::Value(ConstValue::ErrorUnion(Err(value))) => {
-            Ok(ConstEvalFlow::Propagate(ConstValue::ErrorUnion(Err(value))))
+            let value = env.convert_resolved_try_error(span, *value)?;
+            Ok(ConstEvalFlow::Propagate(ConstValue::ErrorUnion(Err(
+                Box::new(value),
+            ))))
         }
         ConstEvalFlow::Value(_) => Err(ConstError {
             span,

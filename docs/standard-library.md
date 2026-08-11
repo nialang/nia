@@ -599,8 +599,10 @@ NULL-terminated `argv`/`envp` arrays that remain valid until spawn returns.
 
 ### Error Mapping And Callable Boundaries
 
-`std::error::IntoError[Target]` remains the infallible, cause-preserving
-conversion used by direct `.?` propagation. Error unions additionally expose
+`std::error::IntoError[Target]` is the infallible, cause-preserving conversion
+used by direct `.?` propagation. Its trait method is `const fn`, so a selected
+standard or user witness can participate in const propagation when its body is
+const-capable. Error unions additionally expose
 `mapError`, which accepts a synchronous borrowed `&Fn(Source) Target` view,
 preserves the success payload, and invokes the callback only on the error arm.
 The receiver is evaluated once. The operation does not retain the callback,

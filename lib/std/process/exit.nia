@@ -10,7 +10,7 @@ using pkg::process::types;
 using types::{Error, ExitCode, SpawnError, SystemError};
 
 extend debug::Error : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             debug::Error::Format(cause) => cause.asExitCode(),
             debug::Error::Flush(cause) => cause.asExitCode(),
@@ -19,7 +19,7 @@ extend debug::Error : error::IntoError[ExitCode] {
 }
 
 extend debug::Error {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -31,7 +31,7 @@ extend[T] debug::Error!T {
 }
 
 extend cstring::CStringBuildError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             cstring::CStringBuildError::ContainsNul => exit(22),
             cstring::CStringBuildError::Allocation(cause) => cause.asExitCode(),
@@ -40,7 +40,7 @@ extend cstring::CStringBuildError : error::IntoError[ExitCode] {
 }
 
 extend cstring::CStringBuildError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -52,19 +52,19 @@ extend[T] cstring::CStringBuildError!T {
 }
 
 extend fs::Error : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
 extend fs::Error {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
 extend fs::PathError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             fs::PathError::ContainsNul => exit(22),
             fs::PathError::Absolute => exit(22),
@@ -77,24 +77,21 @@ extend fs::PathError : error::IntoError[ExitCode] {
 }
 
 extend fs::PathError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
 extend fs::OperationError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
-            fs::OperationError::Allocation { operation, cause } => {
-                _ = operation;
+            fs::OperationError::Allocation { operation: _, cause } => {
                 cause.asExitCode()
             },
-            fs::OperationError::Path { operation, cause } => {
-                _ = operation;
+            fs::OperationError::Path { operation: _, cause } => {
                 cause.asExitCode()
             },
-            fs::OperationError::System { operation, cause } => {
-                _ = operation;
+            fs::OperationError::System { operation: _, cause } => {
                 cause.asExitCode()
             },
         }
@@ -102,41 +99,41 @@ extend fs::OperationError : error::IntoError[ExitCode] {
 }
 
 extend fs::OperationError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
-pub fn exit(code: i32) ExitCode {
+pub const fn exit(code: i32) ExitCode {
     code as ExitCode
 }
 
 extend io::SystemError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
 extend io::SystemError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
 extend SystemError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
 extend SystemError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
 extend io::Error : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             io::Error::EndOfStream => exit(5),
             io::Error::ShortWrite => exit(5),
@@ -147,7 +144,7 @@ extend io::Error : error::IntoError[ExitCode] {
 }
 
 extend io::Error {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -159,17 +156,14 @@ extend[T] io::Error!T {
 }
 
 extend Error : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             Error::Allocation(cause) => cause.asExitCode(),
             Error::Path(cause) => cause.asExitCode(),
-            Error::ArgumentContainsNul(index) => {
-                _ = index;
+            Error::ArgumentContainsNul(_) => {
                 exit(22)
             },
-            Error::Environment { index, cause } => {
-                _ = index;
-                _ = cause;
+            Error::Environment { index: _, cause: _ } => {
                 exit(22)
             },
             Error::SpawnSetup(cause) => cause.asExitCode(),
@@ -177,8 +171,7 @@ extend Error : error::IntoError[ExitCode] {
             Error::Wait(cause) => cause.asExitCode(),
             Error::TryWait(cause) => cause.asExitCode(),
             Error::Kill(cause) => cause.asExitCode(),
-            Error::Close { stream, cause } => {
-                _ = stream;
+            Error::Close { stream: _, cause } => {
                 cause.asExitCode()
             },
         }
@@ -186,7 +179,7 @@ extend Error : error::IntoError[ExitCode] {
 }
 
 extend SpawnError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             SpawnError::Setup(cause) => cause.asExitCode(),
             SpawnError::Stdio(cause) => cause.asExitCode(),
@@ -197,13 +190,13 @@ extend SpawnError : error::IntoError[ExitCode] {
 }
 
 extend SpawnError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
 
 extend Error {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -233,7 +226,7 @@ extend[T] fs::OperationError!T {
 }
 
 extend fmt::Error : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             fmt::Error::Write => exit(5),
             fmt::Error::InvalidTemplate => exit(22),
@@ -245,7 +238,7 @@ extend fmt::Error : error::IntoError[ExitCode] {
 }
 
 extend fmt::Error {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -257,7 +250,7 @@ extend[T] fmt::Error!T {
 }
 
 extend io::BufferError : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             io::BufferError::NoSpace => exit(2),
             io::BufferError::ShortWrite => exit(5),
@@ -268,7 +261,7 @@ extend io::BufferError : error::IntoError[ExitCode] {
 }
 
 extend io::BufferError {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }
@@ -280,7 +273,7 @@ extend[T] io::BufferError!T {
 }
 
 extend mem::Error : error::IntoError[ExitCode] {
-    fn into_error(self) ExitCode {
+    const fn into_error(self) ExitCode {
         switch self {
             mem::Error::Invalid => exit(22),
             mem::Error::InvalidAlignment => exit(22),
@@ -291,7 +284,7 @@ extend mem::Error : error::IntoError[ExitCode] {
 }
 
 extend mem::Error {
-    pub fn asExitCode(self) ExitCode {
+    pub const fn asExitCode(self) ExitCode {
         self.into_error()
     }
 }

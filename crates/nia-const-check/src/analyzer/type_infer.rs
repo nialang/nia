@@ -582,6 +582,7 @@ impl Analyzer<'_> {
             }
             ResolvedConstExprKind::Try { expr: inner } => {
                 let inner_ty = self.resolved_const_arg_runtime_type(inner, None)?;
+                self.prepare_resolved_const_try_error_conversion(expr.span(), inner_ty);
                 let payload = match self.ty_kind(inner_ty)? {
                     TyKind::Optional { elem } => elem,
                     TyKind::ErrorUnion { value, .. } => value,
@@ -679,6 +680,86 @@ impl Analyzer<'_> {
                     self.current_runtime_tuple_type(Vec::new()),
                 ))
             }
+        }
+    }
+
+    pub(super) fn prepare_resolved_const_try_error_conversion(
+        &mut self,
+        span: Span,
+        inner_ty: InternedTyId,
+    ) {
+        if self
+            .call_locals
+            .last()
+            .is_some_and(|frame| frame.checked_try_error_conversions.contains(&span))
+        {
+            return;
+        }
+        if let Some(frame) = self.call_locals.last_mut() {
+            frame.checked_try_error_conversions.insert(span);
+            frame.try_error_conversions.remove(&span);
+        }
+
+        let Some(TyKind::ErrorUnion {
+            error: source_error,
+            ..
+        }) = self.ty_kind(inner_ty)
+        else {
+            return;
+        };
+        let return_ty = self
+            .active_execution_frames()
+            .find_map(|frame| frame.return_type);
+        let Some(return_ty) = return_ty else {
+            return;
+        };
+        let return_ty = self.substitute_ty_generics(return_ty);
+        let Some((target_error, _)) = self.expected_error_union_parts(return_ty) else {
+            return;
+        };
+        if self.const_function_types_match(source_error, target_error) {
+            return;
+        }
+
+        let callee = match self.resolved_const_into_error_method(source_error, target_error) {
+            ResolvedConstCalleeSelection::Unique(callee) => callee,
+            ResolvedConstCalleeSelection::NoMatch => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::CONST,
+                    span,
+                    "automatic `IntoError` conversion during const evaluation requires a unique concrete trait witness",
+                ));
+                return;
+            }
+            ResolvedConstCalleeSelection::Ambiguous => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::CONST,
+                    span,
+                    "ambiguous automatic `IntoError` conversion during const evaluation",
+                ));
+                return;
+            }
+        };
+        let is_const = self
+            .function_signatures_for_module(callee.function_id.module_id)
+            .and_then(|signatures| {
+                signatures
+                    .as_ref()
+                    .functions
+                    .get(&callee.function_id.def_id)
+                    .map(|signature| signature.is_const)
+            })
+            .unwrap_or(false);
+        if !is_const {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::CONST,
+                span,
+                "automatic `IntoError` conversion during const evaluation requires `into_error` to be declared `const fn`",
+            ));
+            return;
+        }
+        if let Some(frame) = self.call_locals.last_mut() {
+            frame.try_error_conversions.insert(span, callee);
         }
     }
 

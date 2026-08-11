@@ -662,7 +662,7 @@ fn propagate(value: SourceError!i32) TargetError!i32 {
 }
 
 #[test]
-fn const_error_propagation_rejects_automatic_into_error_conversion() {
+fn const_error_propagation_accepts_const_into_error_conversion() {
     let checked = pipeline_const_declarations(
         r#"
 trait IntoError[Target] {
@@ -691,10 +691,43 @@ const fn propagate(value: SourceError!i32) TargetError!i32 {
 "#,
     );
 
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn const_error_propagation_rejects_runtime_into_error_conversion() {
+    let checked = pipeline_const_declarations(
+        r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    _,
+}
+
+extend SourceError : IntoError[TargetError] {
+    fn into_error(self) TargetError {
+        TargetError::Converted
+    }
+}
+
+const fn propagate(value: SourceError!i32) TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("automatic `IntoError` conversion is not available during const evaluation")),
+            .contains("requires `into_error` to be declared `const fn`")),
         "{:?}",
         checked.diagnostics
     );

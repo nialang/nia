@@ -96,3 +96,87 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_into_error_is_const_propagation_protocol() {
+    let root = temp_dir("emit_exe_std_into_error_is_const_propagation_protocol");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::fs;
+using std::process;
+
+enum SourceError: i32 {
+    Missing = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Wrapped = 2,
+    Unexpected = 3,
+    _,
+}
+
+extend SourceError : error::IntoError[TargetError] {
+    const fn into_error(self) TargetError {
+        switch self {
+            SourceError::Missing => TargetError::Wrapped,
+            _ => TargetError::Unexpected,
+        }
+    }
+}
+
+const fn propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize) {
+    !(value.?)
+}
+
+const fn propagateStd(value: fs::Error!usize) process::ExitCode!usize {
+    !(value.?)
+}
+
+const success = propagate(!(20, 22));
+const failure = propagate(SourceError::Missing!);
+const standardFailure = propagateStd(fs::Error::NotFound!);
+const width: usize = switch success {
+    !(left, right) => left + right,
+    cause! => 0,
+} + switch failure {
+    !value => value.0 + value.1,
+    TargetError::Wrapped! => 8,
+    cause! => 0,
+} + switch standardFailure {
+    !value => value,
+    cause! => cause as i32 as usize,
+};
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if width != 52 {
+        return process::exit(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe const std IntoError propagation");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
