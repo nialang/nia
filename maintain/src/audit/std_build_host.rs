@@ -29,7 +29,7 @@ impl Options {
     pub fn for_repository(root: &Path) -> Self {
         Self {
             print: false,
-            snapshot: root.join("tools/fixtures/std-build-host-dependencies.json"),
+            snapshot: root.join("maintain/fixtures/std-build-host-dependencies.json"),
         }
     }
 }
@@ -183,7 +183,7 @@ mod tests {
     fn maintained_snapshot_matches_source_closure() {
         let root = repository_root();
         let expected: Snapshot = serde_json::from_str(
-            &fs::read_to_string(root.join("tools/fixtures/std-build-host-dependencies.json"))
+            &fs::read_to_string(root.join("maintain/fixtures/std-build-host-dependencies.json"))
                 .expect("read maintained snapshot"),
         )
         .expect("decode maintained snapshot");

@@ -68,7 +68,7 @@ members = [
     "crates/nia-flow-check",
     "crates/nia-opt",
     "crates/nia-cli",
-    "tools/nia-maintain",
+    "maintain",
 ]
 
 [workspace.package]

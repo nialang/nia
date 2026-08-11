@@ -65,6 +65,8 @@ backends directly.
 - `crates/nia-build/src/output_recovery.rs`: journaled multi-output recovery.
 - `lib/std/build/core.nia`, `types.nia`, and `plan.nia`: public build-script API,
   owned mutable records, validation, and Nia-side plan encoding.
+- `maintain/`: repository-local structural audits, crate reports, performance
+  and build baselines, and their enforced fixtures.
 
 ## 4. Standard Library
 
@@ -120,6 +122,7 @@ focused owners should run first.
 | Build output/cache | `nia-build::coordinator` or `action_cache` | output locks, recovery journal, corruption and race tests |
 | Standard-library API | owning `lib/std` layer | facade/provider isolation, allocator/error cleanup, examples |
 | Toolchain layout | `nia-toolchain` | CLI, Driver, loader, cache domains, relocation tests |
+| Repository audit or baseline | `maintain/` | owning fixture, workflow contract, affected compiler or std subsystem |
 
 For architectural work, read `project-conventions.md`,
 `compiler-maintenance.md`, the relevant crate README, and the implementation
