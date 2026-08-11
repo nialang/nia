@@ -71,6 +71,18 @@ policy, but must consume registry values directly rather than exporting aliases.
 `lib/toolchain.meta` is generated registry data, and the workspace package
 version is the only release-version input.
 
+Fingerprint domains are owner-local `nia_query::FingerprintDomain` constants,
+not raw builder strings or a central list detached from the hashed inputs. Each
+distinct input contract has one domain declaration; deliberate reuse shares
+that declaration. Changing the encoded inputs or their meaning requires a
+domain-version increment, and the compatibility audit rejects malformed,
+duplicated, or inline production domains.
+
+A future public-version reset, compatibility epoch, or development-schema
+renumbering requires its own release proposal after audit and representative
+project testing. The registry preserves current values until that proposal is
+accepted; it does not make a reset implicit.
+
 - Never serialize a session-local index or infer stable identity from allocation
   order, module number, query slot, pointer value, or debug formatting.
 - Reclaiming stores use owner/index/generation or an equivalent stale-handle

@@ -6,6 +6,7 @@ from tools.compatibility_audit import (
     fingerprint_domain_errors,
     global_identity_errors,
     release_version_errors,
+    typed_fingerprint_domain_errors,
 )
 
 
@@ -29,11 +30,14 @@ class CompatibilityAuditTests(unittest.TestCase):
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
-            'QueryFingerprintBuilder::new("nia.owner.product.v2");\n',
+            "const PRODUCT_DOMAIN: FingerprintDomain =\n"
+            '    FingerprintDomain::new("nia.owner.product.v2");\n'
+            "QueryFingerprintBuilder::new(PRODUCT_DOMAIN);\n",
             encoding="utf-8",
         )
 
         self.assertEqual(fingerprint_domain_errors(root), [])
+        self.assertEqual(typed_fingerprint_domain_errors(root), [])
 
     def test_rejects_unversioned_constructor_domain(self):
         temporary, root = self.repository()
@@ -44,6 +48,40 @@ class CompatibilityAuditTests(unittest.TestCase):
         )
 
         self.assertRegex(fingerprint_domain_errors(root)[0], "owner-product")
+
+    def test_rejects_malformed_typed_domain(self):
+        temporary, root = self.repository()
+        self.addCleanup(temporary.cleanup)
+        (root / "crates/owner/src/lib.rs").write_text(
+            "const PRODUCT_DOMAIN: FingerprintDomain =\n"
+            '    FingerprintDomain::new("nia.owner..product.v2");\n',
+            encoding="utf-8",
+        )
+
+        self.assertRegex(fingerprint_domain_errors(root)[0], "owner..product")
+
+    def test_rejects_raw_versioned_constructor_domain(self):
+        temporary, root = self.repository()
+        self.addCleanup(temporary.cleanup)
+        (root / "crates/owner/src/lib.rs").write_text(
+            'QueryFingerprintBuilder::new("nia.owner.product.v2");\n',
+            encoding="utf-8",
+        )
+
+        self.assertRegex(typed_fingerprint_domain_errors(root)[0], "raw literal")
+
+    def test_rejects_duplicate_typed_domain_declarations(self):
+        temporary, root = self.repository()
+        self.addCleanup(temporary.cleanup)
+        (root / "crates/owner/src/lib.rs").write_text(
+            "const FIRST_DOMAIN: FingerprintDomain =\n"
+            '    FingerprintDomain::new("nia.owner.product.v2");\n'
+            "const SECOND_DOMAIN: FingerprintDomain =\n"
+            '    FingerprintDomain::new("nia.owner.product.v2");\n',
+            encoding="utf-8",
+        )
+
+        self.assertRegex(typed_fingerprint_domain_errors(root)[0], "duplicate")
 
     def test_rejects_registered_magic_outside_registry(self):
         temporary, root = self.repository()

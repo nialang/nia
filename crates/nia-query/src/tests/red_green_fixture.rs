@@ -15,7 +15,9 @@ impl QueryKey<TestContext> for StableInput {
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
-        let mut builder = QueryFingerprintBuilder::new("nia.query.test.stable-input.v1");
+        let mut builder = QueryFingerprintBuilder::new(FingerprintDomain::new(
+            "nia.query.test.stable-input.v1",
+        ));
         builder.write_u64(*value as u64);
         Some(builder.finish())
     }
@@ -60,7 +62,7 @@ impl QueryKey<RedGreenContext> for RedGreenInput {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.red-green-input.v1",
+            FingerprintDomain::new("nia.query.test.red-green-input.v1"),
             *value,
         ))
     }
@@ -87,7 +89,7 @@ impl QueryKey<RedGreenContext> for StableParity {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.stable-parity.v1",
+            FingerprintDomain::new("nia.query.test.stable-parity.v1"),
             *value,
         ))
     }
@@ -114,7 +116,7 @@ impl QueryKey<RedGreenContext> for StableParityParent {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.stable-parity-parent.v1",
+            FingerprintDomain::new("nia.query.test.stable-parity-parent.v1"),
             *value,
         ))
     }
@@ -165,7 +167,7 @@ impl QueryKey<RedGreenContext> for SemanticParityParent {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.semantic-parity-parent.v1",
+            FingerprintDomain::new("nia.query.test.semantic-parity-parent.v1"),
             *value,
         ))
     }
@@ -192,7 +194,7 @@ impl QueryKey<RedGreenContext> for StableModulo {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.stable-modulo.v1",
+            FingerprintDomain::new("nia.query.test.stable-modulo.v1"),
             *value,
         ))
     }
@@ -223,7 +225,7 @@ impl QueryKey<RedGreenContext> for StableModuloBatchParent {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.stable-modulo-batch-parent.v1",
+            FingerprintDomain::new("nia.query.test.stable-modulo-batch-parent.v1"),
             *value,
         ))
     }
@@ -270,7 +272,7 @@ impl QueryKey<ValidationRaceContext> for ValidationRaceInput {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.validation-race-input.v1",
+            FingerprintDomain::new("nia.query.test.validation-race-input.v1"),
             *value,
         ))
     }
@@ -297,13 +299,13 @@ impl QueryKey<ValidationRaceContext> for ValidationRaceDerived {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            "nia.query.test.validation-race-derived.v1",
+            FingerprintDomain::new("nia.query.test.validation-race-derived.v1"),
             *value,
         ))
     }
 }
 
-fn test_usize_fingerprint(domain: &str, value: usize) -> QueryFingerprint {
+fn test_usize_fingerprint(domain: FingerprintDomain, value: usize) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u64(value as u64);
     builder.finish()

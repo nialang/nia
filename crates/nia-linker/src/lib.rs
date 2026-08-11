@@ -8,11 +8,36 @@ use std::{
 use std::os::unix::fs::PermissionsExt;
 
 use nia_backend_ir::{CodegenUnitKey, IncrementalLinkInputs};
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target_config::TargetConfig;
 
-const LINK_RESULT_FINGERPRINT_DOMAIN: &str = "nia.link-result-components.v2";
-const ARCHIVE_RESULT_FINGERPRINT_DOMAIN: &str = "nia.archive-result-components.v1";
+const LINK_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-components.v2");
+const ARCHIVE_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.archive-result-components.v1");
+const ARCHIVE_TOOLCHAIN_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.archive-toolchain.v1");
+const ARCHIVE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-target.v1");
+const ARCHIVE_TOOL_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-tool.v1");
+const ARCHIVE_OPTIONS_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-options.v1");
+const ARCHIVE_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.archive-result-cache-key.v1");
+const ARCHIVE_INPUTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.archive-result-inputs.v1");
+const STATIC_ARCHIVE_LINK_INPUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.static-archive-link-input.v1");
+const LINK_RESULT_CACHE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-cache-key.v2");
+const LINK_RESULT_INPUTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-inputs.v2");
+const LINK_RESULT_TOOLCHAIN_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-toolchain.v1");
+const LINK_RESULT_TARGET_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-target.v2");
+const LINK_RESULT_LINKER_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-linker.v2");
+const LINK_RESULT_OPTIONS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-options.v2");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LinkResultFingerprint([u64; 2]);
@@ -400,18 +425,18 @@ impl ArchiveOptions {
             path: program_path.clone(),
             error,
         })?;
-        let mut toolchain = QueryFingerprintBuilder::new("nia.archive-toolchain.v1");
+        let mut toolchain = QueryFingerprintBuilder::new(ARCHIVE_TOOLCHAIN_DOMAIN);
         for part in toolchain_identity.parts() {
             toolchain.write_u64(part);
         }
-        let mut target = QueryFingerprintBuilder::new("nia.archive-target.v1");
+        let mut target = QueryFingerprintBuilder::new(ARCHIVE_TARGET_DOMAIN);
         target.write_str(&self.target.arch);
         target.write_str(&self.target.os);
         target.write_str(&self.target.abi);
-        let mut tool = QueryFingerprintBuilder::new("nia.archive-tool.v1");
+        let mut tool = QueryFingerprintBuilder::new(ARCHIVE_TOOL_DOMAIN);
         tool.write_str(&program_path.to_string_lossy());
         tool.write_bytes(&tool_bytes);
-        let mut options = QueryFingerprintBuilder::new("nia.archive-options.v1");
+        let mut options = QueryFingerprintBuilder::new(ARCHIVE_OPTIONS_DOMAIN);
         options.write_str(nia_compat::COMPILER_VERSION);
         options.write_str("rcsD");
         Ok(ArchiveEnvironmentFingerprint {
@@ -428,9 +453,9 @@ impl ArchiveOptions {
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<ArchiveFingerprintSet, LinkerConfigError> {
         let environment = self.environment_fingerprint(toolchain_identity)?;
-        let mut cache_key = QueryFingerprintBuilder::new("nia.archive-result-cache-key.v1");
+        let mut cache_key = QueryFingerprintBuilder::new(ARCHIVE_CACHE_KEY_DOMAIN);
         cache_key.write_u64(inputs.len() as u64);
-        let mut input_component = QueryFingerprintBuilder::new("nia.archive-result-inputs.v1");
+        let mut input_component = QueryFingerprintBuilder::new(ARCHIVE_INPUTS_DOMAIN);
         input_component.write_u64(inputs.len() as u64);
         for input in inputs.as_slice() {
             write_codegen_unit_key(&mut cache_key, &input.key);
@@ -551,7 +576,7 @@ impl StaticArchiveLinkInput {
         path: impl Into<PathBuf>,
         bytes: &[u8],
     ) -> Self {
-        let mut fingerprint = QueryFingerprintBuilder::new("nia.static-archive-link-input.v1");
+        let mut fingerprint = QueryFingerprintBuilder::new(STATIC_ARCHIVE_LINK_INPUT_DOMAIN);
         fingerprint.write_bytes(bytes);
         Self {
             package: package.into(),
@@ -593,9 +618,9 @@ impl LinkOptions {
         let Some(environment) = self.result_environment_fingerprint(toolchain_identity)? else {
             return Ok(None);
         };
-        let mut cache_key = QueryFingerprintBuilder::new("nia.link-result-cache-key.v2");
+        let mut cache_key = QueryFingerprintBuilder::new(LINK_RESULT_CACHE_KEY_DOMAIN);
         cache_key.write_u64(inputs.len() as u64);
-        let mut input_component = QueryFingerprintBuilder::new("nia.link-result-inputs.v2");
+        let mut input_component = QueryFingerprintBuilder::new(LINK_RESULT_INPUTS_DOMAIN);
         input_component.write_u64(inputs.len() as u64);
         for input in inputs.as_slice() {
             write_codegen_unit_key(&mut cache_key, &input.key);
@@ -657,11 +682,11 @@ impl LinkOptions {
             Ok(bytes) => bytes,
             Err(_) => return Ok(None),
         };
-        let mut toolchain = QueryFingerprintBuilder::new("nia.link-result-toolchain.v1");
+        let mut toolchain = QueryFingerprintBuilder::new(LINK_RESULT_TOOLCHAIN_DOMAIN);
         for part in toolchain_identity.parts() {
             toolchain.write_u64(part);
         }
-        let mut target = QueryFingerprintBuilder::new("nia.link-result-target.v2");
+        let mut target = QueryFingerprintBuilder::new(LINK_RESULT_TARGET_DOMAIN);
         target.write_str(&self.target.arch);
         target.write_str(&self.target.os);
         target.write_str(&self.target.abi);
@@ -673,12 +698,12 @@ impl LinkOptions {
         }
         write_strings(&mut target, &self.default_library_paths_for_linker(&linker));
 
-        let mut linker_component = QueryFingerprintBuilder::new("nia.link-result-linker.v2");
+        let mut linker_component = QueryFingerprintBuilder::new(LINK_RESULT_LINKER_DOMAIN);
         linker_component.write_str(&linker_path.to_string_lossy());
         linker_component.write_bytes(&linker_bytes);
         linker_component.write_u8(linker_flavor_tag(linker.flavor));
 
-        let mut options = QueryFingerprintBuilder::new("nia.link-result-options.v2");
+        let mut options = QueryFingerprintBuilder::new(LINK_RESULT_OPTIONS_DOMAIN);
         options.write_str(nia_compat::COMPILER_VERSION);
         write_optional_string(&mut options, self.entry.as_deref());
         options.write_u8(link_mode_tag(self.mode));

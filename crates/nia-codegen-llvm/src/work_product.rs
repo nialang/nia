@@ -2,9 +2,10 @@
 use std::io;
 
 use nia_backend_ir::{CodegenUnitFingerprint, CodegenUnitKey};
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
-const FINGERPRINT_SET_DOMAIN: &str = "nia.llvm.codegen-unit-components.v2";
+const FINGERPRINT_SET_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.codegen-unit-components.v2");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodegenUnitFingerprintComponents {

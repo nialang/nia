@@ -23,7 +23,7 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleIdsQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(stable_module_sequence_fingerprint(
-            "nia.compiler.program-signature-module-ids.v1",
+            PROGRAM_SIGNATURE_MODULE_IDS_DOMAIN,
             value,
         ))
     }
@@ -57,7 +57,7 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleEligibilityQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(bool_query_fingerprint(
-            "nia.compiler.program-signature-module-eligibility.v1",
+            PROGRAM_SIGNATURE_MODULE_ELIGIBILITY_DOMAIN,
             *value,
         ))
     }

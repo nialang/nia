@@ -9,7 +9,7 @@ use std::{
 };
 
 use nia_compat::formats::{GENERATED_FILE_CACHE, GENERATED_FILE_ENTRY};
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_toolchain::ToolchainIdentity;
 
 use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock};
@@ -30,6 +30,26 @@ pub(crate) use external_command::{
 };
 
 static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const GENERATED_FILE_COMPILER_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-compiler.v1");
+const GENERATED_FILE_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-resource-layout.v1");
+const GENERATED_FILE_STANDARD_LIBRARY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-standard-library.v1");
+const GENERATED_FILE_BUILD_PROTOCOL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-build-protocol.v1");
+const GENERATED_FILE_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-fingerprint.v1");
+const ACTION_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.action-cache-mutation-lock.v1");
+const GENERATED_FILE_KEY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-key.v1");
+const GENERATED_FILE_CONTENTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-contents.v1");
+const GENERATED_FILE_OUTPUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-output.v1");
+const GENERATED_FILE_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.generated-file-payload.v1");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionCacheReport {
@@ -119,20 +139,17 @@ struct GeneratedFileToolchainComponents {
 impl GeneratedFileToolchainComponents {
     fn new(identity: &ToolchainIdentity) -> Self {
         Self {
-            compiler: text_component(
-                "nia.build.generated-file-compiler.v1",
-                identity.compiler_version(),
-            ),
+            compiler: text_component(GENERATED_FILE_COMPILER_DOMAIN, identity.compiler_version()),
             resource_layout: integer_component(
-                "nia.build.generated-file-resource-layout.v1",
+                GENERATED_FILE_RESOURCE_LAYOUT_DOMAIN,
                 identity.resource_layout_schema(),
             ),
             standard_library: integer_component(
-                "nia.build.generated-file-standard-library.v1",
+                GENERATED_FILE_STANDARD_LIBRARY_DOMAIN,
                 identity.std_schema(),
             ),
             build_protocol: integer_component(
-                "nia.build.generated-file-build-protocol.v1",
+                GENERATED_FILE_BUILD_PROTOCOL_DOMAIN,
                 identity.build_protocol_schema(),
             ),
         }
@@ -162,8 +179,7 @@ impl GeneratedFileFingerprintSet {
             standard_library: toolchain.standard_library,
             build_protocol: toolchain.build_protocol,
         };
-        let mut fingerprint =
-            QueryFingerprintBuilder::new("nia.build.generated-file-fingerprint.v1");
+        let mut fingerprint = QueryFingerprintBuilder::new(GENERATED_FILE_FINGERPRINT_DOMAIN);
         fingerprint.write_fingerprint(cache_key);
         fingerprint.write_fingerprint(components.contents);
         fingerprint.write_fingerprint(components.output);
@@ -418,7 +434,7 @@ impl GeneratedFileCache {
     }
 
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
-        let mut builder = QueryFingerprintBuilder::new("nia.build.action-cache-mutation-lock.v1");
+        let mut builder = QueryFingerprintBuilder::new(ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
         let lock = self
             .root
@@ -516,8 +532,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
         fingerprint,
         components,
     };
-    let mut expected_fingerprint =
-        QueryFingerprintBuilder::new("nia.build.generated-file-fingerprint.v1");
+    let mut expected_fingerprint = QueryFingerprintBuilder::new(GENERATED_FILE_FINGERPRINT_DOMAIN);
     expected_fingerprint.write_fingerprint(cache_key);
     expected_fingerprint.write_fingerprint(components.contents);
     expected_fingerprint.write_fingerprint(components.output);
@@ -552,7 +567,7 @@ fn action_identity(action: &ActionKey) -> Vec<u8> {
 }
 
 fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.generated-file-key.v1");
+    let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_KEY_DOMAIN);
     builder.write_str(action.package().as_str());
     builder.write_str(action.name());
     builder.finish()
@@ -563,31 +578,31 @@ fn action_fingerprint(identity: &[u8]) -> Option<QueryFingerprint> {
     let package = read_bytes(&mut cursor, identity.len())?;
     let name = read_bytes(&mut cursor, identity.len())?;
     (usize::try_from(cursor.position()).ok()? == identity.len()).then_some(())?;
-    let mut builder = QueryFingerprintBuilder::new("nia.build.generated-file-key.v1");
+    let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_KEY_DOMAIN);
     builder.write_bytes(&package);
     builder.write_bytes(&name);
     Some(builder.finish())
 }
 
 fn contents_fingerprint(contents: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.generated-file-contents.v1");
+    let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_CONTENTS_DOMAIN);
     builder.write_bytes(contents);
     builder.finish()
 }
 
 fn output_fingerprint(identity: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.generated-file-output.v1");
+    let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_OUTPUT_DOMAIN);
     builder.write_bytes(identity);
     builder.finish()
 }
 
-fn text_component(domain: &str, value: &str) -> QueryFingerprint {
+fn text_component(domain: FingerprintDomain, value: &str) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_str(value);
     builder.finish()
 }
 
-fn integer_component(domain: &str, value: u32) -> QueryFingerprint {
+fn integer_component(domain: FingerprintDomain, value: u32) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u64(u64::from(value));
     builder.finish()
@@ -655,7 +670,7 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
 }
 
 fn payload_checksum(bytes: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.generated-file-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_PAYLOAD_DOMAIN);
     builder.write_bytes(bytes);
     builder.finish()
 }

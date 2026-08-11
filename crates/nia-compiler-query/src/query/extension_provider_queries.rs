@@ -157,7 +157,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(stable_module_sequence_fingerprint(
-            "nia.compiler.extension-provider-module-ids.v1",
+            EXTENSION_PROVIDER_MODULE_IDS_DOMAIN,
             value,
         ))
     }
@@ -185,7 +185,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleEligibilityQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(bool_query_fingerprint(
-            "nia.compiler.extension-provider-module-eligibility.v1",
+            EXTENSION_PROVIDER_MODULE_ELIGIBILITY_DOMAIN,
             *value,
         ))
     }

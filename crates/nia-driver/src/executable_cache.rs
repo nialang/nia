@@ -11,8 +11,10 @@ use nia_linker::{
     LinkResultCacheKey, LinkResultFingerprint, LinkResultFingerprintComponents,
     LinkResultFingerprintSet, LinkResultInvalidation,
 };
-use nia_query::QueryFingerprintBuilder;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
+const LINK_RESULT_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.link-result-payload.v2");
 static LINK_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -297,7 +299,7 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
 }
 
 fn payload_checksum(bytes: &[u8]) -> LinkResultFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.link-result-payload.v2");
+    let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
     builder.write_bytes(bytes);
     LinkResultFingerprint::from_parts(builder.finish().parts())
 }

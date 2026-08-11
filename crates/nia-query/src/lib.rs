@@ -6,6 +6,9 @@ pub use resources::{
     effective_memory_limit_bytes, llvm_memory_task_capacity,
 };
 
+const SEMANTIC_VALUE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.query.semantic-value.v1");
+
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -70,6 +73,68 @@ impl QueryFingerprint {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FingerprintDomain(&'static str);
+
+impl FingerprintDomain {
+    pub const fn new(domain: &'static str) -> Self {
+        assert!(
+            valid_fingerprint_domain(domain),
+            "invalid fingerprint domain"
+        );
+        Self(domain)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+const fn valid_fingerprint_domain(domain: &str) -> bool {
+    let bytes = domain.as_bytes();
+    if bytes.len() < 8
+        || bytes[0] != b'n'
+        || bytes[1] != b'i'
+        || bytes[2] != b'a'
+        || bytes[3] != b'.'
+    {
+        return false;
+    }
+    let mut version_start = bytes.len();
+    while version_start > 0 && bytes[version_start - 1].is_ascii_digit() {
+        version_start -= 1;
+    }
+    if version_start < 2
+        || version_start == bytes.len()
+        || bytes[version_start - 2] != b'.'
+        || bytes[version_start - 1] != b'v'
+        || bytes[version_start] == b'0'
+    {
+        return false;
+    }
+    let domain_end = version_start - 2;
+    if domain_end <= 4 {
+        return false;
+    }
+    let mut index = 4;
+    let mut requires_alphanumeric = true;
+    while index < domain_end {
+        let byte = bytes[index];
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() {
+            requires_alphanumeric = false;
+        } else if byte == b'.' || byte == b'-' {
+            if requires_alphanumeric {
+                return false;
+            }
+            requires_alphanumeric = true;
+        } else {
+            return false;
+        }
+        index += 1;
+    }
+    !requires_alphanumeric
+}
+
 pub struct QueryFingerprintBuilder {
     state: [u64; 2],
 }
@@ -80,11 +145,11 @@ impl QueryFingerprintBuilder {
     const SECOND_OFFSET: u64 = 0x6c62_272e_07bb_0142;
     const SECOND_PRIME: u64 = 0x9e37_79b1_85eb_ca87;
 
-    pub fn new(domain: &str) -> Self {
+    pub fn new(domain: FingerprintDomain) -> Self {
         let mut builder = Self {
             state: [Self::FIRST_OFFSET, Self::SECOND_OFFSET],
         };
-        builder.write_str(domain);
+        builder.write_str(domain.as_str());
         builder
     }
 
@@ -389,7 +454,7 @@ struct QuerySlot<V> {
 impl<V> QuerySlot<V> {
     fn next_semantic_fingerprint(&self, query_name: &str) -> QueryFingerprint {
         let revision = self.fingerprint_revision.fetch_add(1, Ordering::Relaxed);
-        let mut builder = QueryFingerprintBuilder::new("nia.query.semantic-value.v1");
+        let mut builder = QueryFingerprintBuilder::new(SEMANTIC_VALUE_DOMAIN);
         builder.write_str(query_name);
         builder.write_u64(u64::from(self.node_id.db_id.0));
         builder.write_u64(u64::from(self.node_id.index));

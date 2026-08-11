@@ -21,7 +21,7 @@ use nia_imports::StableModuleKey;
 use nia_item_signatures::{self as item_signatures, ItemSignatures};
 use nia_item_tree::SignatureItemSet;
 use nia_node_id::{NodeChildPath, NodeMap, NodePosition, NodeSite, SyntaxKind, VersionedNodeKey};
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceVersion;
 use nia_symbol_table::SymbolTable;
 use nia_ty::{
@@ -47,6 +47,16 @@ mod storage;
 
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
+const TYPE_RESOLUTION_ENTRY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.signature-type-resolution.entry.v1");
+const TYPE_LOWERING_ENTRY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.signature-type-lowering.entry.v1");
+const ITEM_SIGNATURES_ENTRY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.signature-item-signatures.entry.v1");
+const EXTENSION_VALIDATION_DIAGNOSTICS_ENTRY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.extension-validation-diagnostics.entry.v1");
+const EXECUTABLE_VALUE_REF_EDGES_ENTRY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.executable-value-ref-edges.entry.v1");
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -2834,31 +2844,31 @@ fn signature_set_tag(value: SignatureItemSet) -> u8 {
 }
 
 fn checksum(encoded: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.signature-type-resolution.entry.v1");
+    let mut builder = QueryFingerprintBuilder::new(TYPE_RESOLUTION_ENTRY_DOMAIN);
     builder.write_bytes(encoded);
     builder.finish()
 }
 
 fn type_lowering_checksum(encoded: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.signature-type-lowering.entry.v1");
+    let mut builder = QueryFingerprintBuilder::new(TYPE_LOWERING_ENTRY_DOMAIN);
     builder.write_bytes(encoded);
     builder.finish()
 }
 
 fn item_signatures_checksum(encoded: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.signature-item-signatures.entry.v1");
+    let mut builder = QueryFingerprintBuilder::new(ITEM_SIGNATURES_ENTRY_DOMAIN);
     builder.write_bytes(encoded);
     builder.finish()
 }
 
 fn extension_validation_diagnostics_checksum(encoded: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.extension-validation-diagnostics.entry.v1");
+    let mut builder = QueryFingerprintBuilder::new(EXTENSION_VALIDATION_DIAGNOSTICS_ENTRY_DOMAIN);
     builder.write_bytes(encoded);
     builder.finish()
 }
 
 fn executable_value_ref_edges_checksum(encoded: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.executable-value-ref-edges.entry.v1");
+    let mut builder = QueryFingerprintBuilder::new(EXECUTABLE_VALUE_REF_EDGES_ENTRY_DOMAIN);
     builder.write_bytes(encoded);
     builder.finish()
 }

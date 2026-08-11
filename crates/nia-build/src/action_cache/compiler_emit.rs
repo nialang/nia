@@ -11,21 +11,38 @@ use std::{
 use nia_compat::formats::{COMPILER_EMIT_CACHE, COMPILER_EMIT_ENTRY};
 use nia_compiler_query::SourceContentFingerprint;
 use nia_driver::{ExecutableCacheEnvironment, ExecutableCacheReference, SourceInputManifest};
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE,
     compiler_check::{
-        CompilerCheckCacheIdentity, FingerprintComponents, SourceRecord, action_fingerprint,
-        bytes_fingerprint, integer_fingerprint, invalidations as compiler_invalidations, read_tag,
-        source_records_fingerprint,
+        COMPILER_CHECK_MODULE_DOMAIN, COMPILER_CHECK_OPTIMIZATION_DOMAIN,
+        COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, COMPILER_CHECK_RUNTIME_DOMAIN,
+        COMPILER_CHECK_TARGET_DOMAIN, CompilerCheckCacheIdentity, FingerprintComponents,
+        SourceRecord, action_fingerprint, bytes_fingerprint, integer_fingerprint,
+        invalidations as compiler_invalidations, read_tag, source_records_fingerprint,
     },
     fingerprint_text, logical_path_identity, read_bytes, read_fingerprint, read_u64, write_bytes,
     write_fingerprint, write_text,
 };
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, TargetSpec, lock::ScopedFileLock};
+
+const COMPILER_EMIT_LINK_INPUT_CONTENT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.link-input-content.v1");
+const COMPILER_EMIT_ARTIFACT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.artifact.v1");
+const COMPILER_EMIT_OUTPUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.output.v1");
+const COMPILER_EMIT_LINK_ENVIRONMENT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.link-environment.v1");
+const COMPILER_EMIT_LINK_INPUTS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.link-inputs.v1");
+const COMPILER_EMIT_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.fingerprint.v1");
+const COMPILER_EMIT_REFERENCE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-emit.reference.v1");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EmitFingerprintComponents {
@@ -70,7 +87,7 @@ impl CompilerEmitCacheLinkInput {
     pub(crate) fn from_bytes(artifact: crate::ArtifactKey, bytes: &[u8]) -> Self {
         Self {
             artifact,
-            fingerprint: bytes_fingerprint("nia.build.compiler-emit.link-input-content.v1", bytes),
+            fingerprint: bytes_fingerprint(COMPILER_EMIT_LINK_INPUT_CONTENT_DOMAIN, bytes),
             byte_len: bytes.len(),
         }
     }
@@ -105,13 +122,13 @@ impl CompilerEmitCacheIdentity {
         let link_inputs = link_inputs_identity(input.link_inputs);
         let components = EmitFingerprintComponents {
             compiler: compiler.fingerprints.components,
-            artifact: bytes_fingerprint("nia.build.compiler-emit.artifact.v1", &artifact),
-            output: bytes_fingerprint("nia.build.compiler-emit.output.v1", &output),
+            artifact: bytes_fingerprint(COMPILER_EMIT_ARTIFACT_DOMAIN, &artifact),
+            output: bytes_fingerprint(COMPILER_EMIT_OUTPUT_DOMAIN, &output),
             link_environment: bytes_fingerprint(
-                "nia.build.compiler-emit.link-environment.v1",
+                COMPILER_EMIT_LINK_ENVIRONMENT_DOMAIN,
                 &link_environment,
             ),
-            link_inputs: bytes_fingerprint("nia.build.compiler-emit.link-inputs.v1", &link_inputs),
+            link_inputs: bytes_fingerprint(COMPILER_EMIT_LINK_INPUTS_DOMAIN, &link_inputs),
         };
         let fingerprints = EmitFingerprintSet {
             cache_key: compiler.fingerprints.cache_key,
@@ -363,7 +380,7 @@ impl CompilerEmitCache {
     }
 
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
-        let mut builder = QueryFingerprintBuilder::new("nia.build.action-cache-mutation-lock.v1");
+        let mut builder = QueryFingerprintBuilder::new(super::ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
         let lock = self
             .root
@@ -470,17 +487,14 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let reference = ExecutableCacheReference::decode(&reference)?;
     let compiler = FingerprintComponents {
         sources: source_records_fingerprint(&sources),
-        module: bytes_fingerprint("nia.build.compiler-check.module.v1", &module),
-        package_roots: bytes_fingerprint(
-            "nia.build.compiler-check.package-roots.v1",
-            &package_roots,
-        ),
-        target: bytes_fingerprint("nia.build.compiler-check.target.v1", &target),
+        module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, &module),
+        package_roots: bytes_fingerprint(COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, &package_roots),
+        target: bytes_fingerprint(COMPILER_CHECK_TARGET_DOMAIN, &target),
         optimization: integer_fingerprint(
-            "nia.build.compiler-check.optimization.v1",
+            COMPILER_CHECK_OPTIMIZATION_DOMAIN,
             u64::from(optimization),
         ),
-        runtime: integer_fingerprint("nia.build.compiler-check.runtime.v1", u64::from(runtime)),
+        runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(runtime)),
         compiler: fingerprints.components.compiler.compiler,
         resource_layout: fingerprints.components.compiler.resource_layout,
         standard_library: fingerprints.components.compiler.standard_library,
@@ -488,13 +502,13 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     };
     let components = EmitFingerprintComponents {
         compiler,
-        artifact: bytes_fingerprint("nia.build.compiler-emit.artifact.v1", &artifact),
-        output: bytes_fingerprint("nia.build.compiler-emit.output.v1", &output),
+        artifact: bytes_fingerprint(COMPILER_EMIT_ARTIFACT_DOMAIN, &artifact),
+        output: bytes_fingerprint(COMPILER_EMIT_OUTPUT_DOMAIN, &output),
         link_environment: bytes_fingerprint(
-            "nia.build.compiler-emit.link-environment.v1",
+            COMPILER_EMIT_LINK_ENVIRONMENT_DOMAIN,
             &link_environment,
         ),
-        link_inputs: bytes_fingerprint("nia.build.compiler-emit.link-inputs.v1", &link_inputs),
+        link_inputs: bytes_fingerprint(COMPILER_EMIT_LINK_INPUTS_DOMAIN, &link_inputs),
     };
     (components == fingerprints.components).then_some(())?;
     (action_fingerprint(&action)? == fingerprints.cache_key).then_some(())?;
@@ -649,7 +663,7 @@ fn combined_fingerprint(
     cache_key: QueryFingerprint,
     components: EmitFingerprintComponents,
 ) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.compiler-emit.fingerprint.v1");
+    let mut builder = QueryFingerprintBuilder::new(COMPILER_EMIT_FINGERPRINT_DOMAIN);
     builder.write_fingerprint(cache_key);
     for component in [
         components.compiler.sources,
@@ -673,7 +687,7 @@ fn combined_fingerprint(
 }
 
 fn reference_checksum(reference: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.build.compiler-emit.reference.v1");
+    let mut builder = QueryFingerprintBuilder::new(COMPILER_EMIT_REFERENCE_DOMAIN);
     builder.write_bytes(reference);
     builder.finish()
 }
@@ -706,14 +720,14 @@ mod tests {
         }];
         let compiler = FingerprintComponents {
             sources: source_records_fingerprint(&sources),
-            module: bytes_fingerprint("nia.build.compiler-check.module.v1", &module),
-            package_roots: bytes_fingerprint("nia.build.compiler-check.package-roots.v1", &[]),
-            target: bytes_fingerprint("nia.build.compiler-check.target.v1", &target),
+            module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, &module),
+            package_roots: bytes_fingerprint(COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, &[]),
+            target: bytes_fingerprint(COMPILER_CHECK_TARGET_DOMAIN, &target),
             optimization: integer_fingerprint(
-                "nia.build.compiler-check.optimization.v1",
+                COMPILER_CHECK_OPTIMIZATION_DOMAIN,
                 u64::from(optimization),
             ),
-            runtime: integer_fingerprint("nia.build.compiler-check.runtime.v1", u64::from(runtime)),
+            runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(runtime)),
             compiler: fingerprint(6),
             resource_layout: fingerprint(7),
             standard_library: fingerprint(8),
@@ -728,13 +742,13 @@ mod tests {
         )]);
         let components = EmitFingerprintComponents {
             compiler,
-            artifact: bytes_fingerprint("nia.build.compiler-emit.artifact.v1", &artifact),
-            output: bytes_fingerprint("nia.build.compiler-emit.output.v1", &output),
+            artifact: bytes_fingerprint(COMPILER_EMIT_ARTIFACT_DOMAIN, &artifact),
+            output: bytes_fingerprint(COMPILER_EMIT_OUTPUT_DOMAIN, &output),
             link_environment: bytes_fingerprint(
-                "nia.build.compiler-emit.link-environment.v1",
+                COMPILER_EMIT_LINK_ENVIRONMENT_DOMAIN,
                 &link_environment,
             ),
-            link_inputs: bytes_fingerprint("nia.build.compiler-emit.link-inputs.v1", &link_inputs),
+            link_inputs: bytes_fingerprint(COMPILER_EMIT_LINK_INPUTS_DOMAIN, &link_inputs),
         };
         let cache_key = action_fingerprint(&action).expect("canonical action identity");
         CompilerEmitCacheIdentity {
@@ -789,7 +803,7 @@ mod tests {
             .fingerprints
             .components
             .link_environment = bytes_fingerprint(
-            "nia.build.compiler-emit.link-environment.v1",
+            COMPILER_EMIT_LINK_ENVIRONMENT_DOMAIN,
             &malformed_environment.link_environment,
         );
         malformed_environment.fingerprints.fingerprint = combined_fingerprint(

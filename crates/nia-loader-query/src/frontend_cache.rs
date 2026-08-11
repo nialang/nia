@@ -26,7 +26,7 @@ use nia_defs::{
 };
 use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
-use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
@@ -40,6 +40,18 @@ const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
 const MAX_USING_SELECTOR_DEPTH: usize = 256;
+const PROVIDER_SUMMARY_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.provider-summary-payload.v1");
+const PROVIDER_DEMAND_PLAN_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.provider-demand-plan-payload.v1");
+const DEPENDENCY_MANIFEST_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.dependency-manifest-payload.v1");
+const FACADE_FACTS_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.facade-facts-payload.v1");
+const MODULE_DEPENDENCIES_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.module-dependencies-payload.v1");
+const PUBLIC_SURFACE_FACTS_PAYLOAD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.public-surface-facts-payload.v1");
 static FRONTEND_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -2525,37 +2537,37 @@ fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
 }
 
 fn payload_checksum(payload: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.provider-summary-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROVIDER_SUMMARY_PAYLOAD_DOMAIN);
     builder.write_bytes(payload);
     builder.finish()
 }
 
 fn provider_demand_plan_checksum(payload: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.provider-demand-plan-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROVIDER_DEMAND_PLAN_PAYLOAD_DOMAIN);
     builder.write_bytes(payload);
     builder.finish()
 }
 
 fn dependency_manifest_checksum(payload: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.dependency-manifest-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(DEPENDENCY_MANIFEST_PAYLOAD_DOMAIN);
     builder.write_bytes(payload);
     builder.finish()
 }
 
 fn facade_facts_checksum(payload: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.facade-facts-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(FACADE_FACTS_PAYLOAD_DOMAIN);
     builder.write_bytes(payload);
     builder.finish()
 }
 
 fn module_dependencies_checksum(payload: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.module-dependencies-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(MODULE_DEPENDENCIES_PAYLOAD_DOMAIN);
     builder.write_bytes(payload);
     builder.finish()
 }
 
 fn public_surface_facts_checksum(payload: &[u8]) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.frontend.public-surface-facts-payload.v1");
+    let mut builder = QueryFingerprintBuilder::new(PUBLIC_SURFACE_FACTS_PAYLOAD_DOMAIN);
     builder.write_bytes(payload);
     builder.finish()
 }

@@ -42,8 +42,9 @@ use nia_public_surface::{
     compute_using_scopes_from_surfaces_with_symbols,
 };
 use nia_query::{
-    QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
-    QueryFrame, QueryKey, QueryProviderPolicy, QueryResult, QueryStoragePolicy, QueryTrace,
+    FingerprintDomain, QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder,
+    QueryFingerprintPolicy, QueryFrame, QueryKey, QueryProviderPolicy, QueryResult,
+    QueryStoragePolicy, QueryTrace,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -73,6 +74,49 @@ mod program;
 mod program_signature_queries;
 mod providers;
 mod registry;
+
+const PROVIDER_FACT_WORKLIST_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.provider-fact-worklist.v1");
+const PROVIDER_FACT_REVISION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.provider-fact-revision.v1");
+const PROVIDER_DEMAND_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.provider-demand.v1");
+const CHECK_CERTIFICATE_INPUT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.check-certificate-input.v1");
+const MODULE_GRAPH_PATH_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-graph-path.v1");
+const MODULE_GRAPH_ENTRY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-graph-entry.v1");
+const MODULE_GRAPH_PARENT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-graph-parent.v1");
+const MODULE_GRAPH_CHILD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-graph-child.v1");
+const MODULE_PACKAGE_ROOT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-package-root.v1");
+const LOADED_MODULES_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.loaded-modules.v1");
+const PARSE_OK_MODULE_IDS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.parse-ok-module-ids.v1");
+const SEMANTIC_MODULE_IDS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.semantic-module-ids.v1");
+const MODULE_SOURCE_PATH_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-source-path.v1");
+const MODULE_SOURCE_VERSION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-source-version.v1");
+const PUBLIC_SURFACE_MODULE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.public-surface-module.v1");
+const USING_SCOPE_MODULE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.using-scope-module.v1");
+const PROGRAM_SIGNATURE_MODULE_IDS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.program-signature-module-ids.v1");
+const PROGRAM_SIGNATURE_MODULE_ELIGIBILITY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.program-signature-module-eligibility.v1");
+const EXTENSION_PROVIDER_MODULE_IDS_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.extension-provider-module-ids.v1");
+const EXTENSION_PROVIDER_MODULE_ELIGIBILITY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.extension-provider-module-eligibility.v1");
+const PROVIDER_SUMMARY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.provider-summary.v1");
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -661,7 +705,7 @@ fn resolve_stable_module_sequence(
 }
 
 fn provider_fact_worklist_fingerprint(worklist: &crate::ProviderFactSnapshot) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-fact-worklist.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROVIDER_FACT_WORKLIST_DOMAIN);
     builder.write_fingerprint(provider_fact_revision_fingerprint(worklist.revision()));
     builder.write_fingerprint(provider_fact_revision_fingerprint(
         worklist.reset_revision(),
@@ -680,7 +724,7 @@ fn provider_fact_worklist_fingerprint(worklist: &crate::ProviderFactSnapshot) ->
 }
 
 fn provider_fact_revision_fingerprint(revision: crate::ProviderFactRevision) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-fact-revision.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROVIDER_FACT_REVISION_DOMAIN);
     for part in revision.fingerprint_parts() {
         builder.write_u64(part);
     }
@@ -688,7 +732,7 @@ fn provider_fact_revision_fingerprint(revision: crate::ProviderFactRevision) -> 
 }
 
 fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-demand.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROVIDER_DEMAND_DOMAIN);
     builder.write_str(demand.source_path.identity().normalized_path());
     match &demand.request {
         crate::ProviderRequest::Method {
@@ -734,7 +778,7 @@ fn check_certificate_input_fingerprint(
     graph: &nia_imports::ModuleGraphSnapshot,
     provider_facts: &crate::ProviderFactSnapshot,
 ) -> FrontendCheckInputFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.check-certificate-input.v1");
+    let mut builder = QueryFingerprintBuilder::new(CHECK_CERTIFICATE_INPUT_DOMAIN);
     builder.write_fingerprint(QueryFingerprint::from_parts(program_sources.parts()));
     let mut modules = graph.modules().collect::<Vec<_>>();
     modules.sort_unstable_by(|left, right| {
@@ -811,7 +855,7 @@ fn visibility_tag(visibility: nia_ids::Visibility) -> u8 {
 }
 
 fn module_graph_path_fingerprint(path: &Option<nia_imports::ModulePath>) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.module-graph-path.v1");
+    let mut builder = QueryFingerprintBuilder::new(MODULE_GRAPH_PATH_DOMAIN);
     let Some(path) = path else {
         builder.write_u8(0);
         return builder.finish();
@@ -825,14 +869,17 @@ fn module_graph_path_fingerprint(path: &Option<nia_imports::ModulePath>) -> Quer
     builder.finish()
 }
 
-fn stable_module_key_fingerprint(domain: &str, key: &StableModuleKey) -> QueryFingerprint {
+fn stable_module_key_fingerprint(
+    domain: FingerprintDomain,
+    key: &StableModuleKey,
+) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     write_stable_module_key(&mut builder, key);
     builder.finish()
 }
 
 fn optional_stable_module_key_fingerprint(
-    domain: &str,
+    domain: FingerprintDomain,
     key: Option<&StableModuleKey>,
 ) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
@@ -848,7 +895,7 @@ fn optional_stable_module_key_fingerprint(
 fn module_graph_child_fingerprint(
     child: &Option<(StableModuleKey, nia_ids::Visibility)>,
 ) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.module-graph-child.v1");
+    let mut builder = QueryFingerprintBuilder::new(MODULE_GRAPH_CHILD_DOMAIN);
     let Some((key, visibility)) = child else {
         builder.write_u8(0);
         return builder.finish();
@@ -869,7 +916,7 @@ fn write_stable_module_key(builder: &mut QueryFingerprintBuilder, key: &StableMo
 }
 
 fn stable_module_sequence_fingerprint(
-    domain: &str,
+    domain: FingerprintDomain,
     sequence: &StableModuleSequence,
 ) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
@@ -880,13 +927,16 @@ fn stable_module_sequence_fingerprint(
     builder.finish()
 }
 
-fn source_path_fingerprint(domain: &str, path: &SourcePath) -> QueryFingerprint {
+fn source_path_fingerprint(domain: FingerprintDomain, path: &SourcePath) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_str(path.as_str());
     builder.finish()
 }
 
-fn source_version_fingerprint(domain: &str, version: SourceVersion) -> QueryFingerprint {
+fn source_version_fingerprint(
+    domain: FingerprintDomain,
+    version: SourceVersion,
+) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u64(u64::from(version.id.0));
     builder.write_u64(version.revision.0);
@@ -896,7 +946,7 @@ fn source_version_fingerprint(domain: &str, version: SourceVersion) -> QueryFing
 fn provider_summary_fingerprint(
     summary: &nia_provider_summary::ProviderSummary,
 ) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-summary.v1");
+    let mut builder = QueryFingerprintBuilder::new(PROVIDER_SUMMARY_DOMAIN);
     builder.write_u64(summary.providers().len() as u64);
     for provider in summary.providers() {
         provider_type_ref_fingerprint(&mut builder, &provider.target.ty);
@@ -932,7 +982,7 @@ fn provider_type_ref_fingerprint(
     builder.write_u8(u8::from(type_ref.semantic_is_conservative));
 }
 
-fn bool_query_fingerprint(domain: &str, value: bool) -> QueryFingerprint {
+fn bool_query_fingerprint(domain: FingerprintDomain, value: bool) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u8(u8::from(value));
     builder.finish()
