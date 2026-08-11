@@ -8,6 +8,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_compat::formats::{
+    OUTPUT_TRANSACTION, OUTPUT_TRANSACTION_JOURNAL, OUTPUT_TRANSACTION_PREPARED,
+};
 use nia_query::QueryFingerprintBuilder;
 
 use crate::{
@@ -15,9 +18,6 @@ use crate::{
     lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
 };
 
-const JOURNAL_MAGIC: &[u8; 8] = b"NIATXN02";
-const PREPARED_MAGIC: &[u8; 8] = b"NIAPRP01";
-const JOURNAL_SCHEMA: &str = "v2";
 pub(crate) const OUTPUT_TRANSACTION_DIRECTORY: &str = ".nia-transactions";
 const MAX_JOURNAL_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUTS: usize = 4096;
@@ -454,11 +454,11 @@ fn encode_journal(header: &JournalHeader) -> Vec<u8> {
         });
         write_text(&mut payload, &output.path.protocol_path());
     }
-    encode_envelope(JOURNAL_MAGIC, &payload)
+    encode_envelope(OUTPUT_TRANSACTION_JOURNAL.magic, &payload)
 }
 
 fn decode_journal(encoded: &[u8]) -> Option<JournalHeader> {
-    let payload = decode_envelope(encoded, JOURNAL_MAGIC)?;
+    let payload = decode_envelope(encoded, OUTPUT_TRANSACTION_JOURNAL.magic)?;
     let mut cursor = Cursor::new(payload);
     let package = read_text(&mut cursor, payload.len())?;
     let action = read_text(&mut cursor, payload.len())?;
@@ -504,11 +504,11 @@ fn encode_prepared(had_previous: &[bool]) -> Vec<u8> {
     let mut payload = Vec::with_capacity(8 + had_previous.len());
     payload.extend_from_slice(&(had_previous.len() as u64).to_le_bytes());
     payload.extend(had_previous.iter().map(|value| u8::from(*value)));
-    encode_envelope(PREPARED_MAGIC, &payload)
+    encode_envelope(OUTPUT_TRANSACTION_PREPARED.magic, &payload)
 }
 
 fn decode_prepared(encoded: &[u8], expected_count: usize) -> Option<Vec<bool>> {
-    let payload = decode_envelope(encoded, PREPARED_MAGIC)?;
+    let payload = decode_envelope(encoded, OUTPUT_TRANSACTION_PREPARED.magic)?;
     let mut cursor = Cursor::new(payload);
     let count = usize::try_from(read_u64(&mut cursor)?).ok()?;
     (count == expected_count && count <= MAX_OUTPUTS).then_some(())?;
@@ -640,7 +640,7 @@ fn resolve_build_path(build_dir: &Path, logical: &LogicalPath) -> PathBuf {
 fn journal_root(build_dir: &Path) -> PathBuf {
     build_dir
         .join(OUTPUT_TRANSACTION_DIRECTORY)
-        .join(JOURNAL_SCHEMA)
+        .join(OUTPUT_TRANSACTION.path_component)
 }
 
 fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
@@ -1408,7 +1408,7 @@ mod tests {
         };
         let encoded = encode_journal(&header);
         assert_eq!(decode_journal(&encoded), Some(header.clone()));
-        let mut unknown_kind_payload = decode_envelope(&encoded, JOURNAL_MAGIC)
+        let mut unknown_kind_payload = decode_envelope(&encoded, OUTPUT_TRANSACTION_JOURNAL.magic)
             .expect("journal payload")
             .to_vec();
         let kind_offset = {
@@ -1420,7 +1420,13 @@ mod tests {
             usize::try_from(cursor.position()).expect("kind offset")
         };
         unknown_kind_payload[kind_offset] = u8::MAX;
-        assert!(decode_journal(&encode_envelope(JOURNAL_MAGIC, &unknown_kind_payload)).is_none());
+        assert!(
+            decode_journal(&encode_envelope(
+                OUTPUT_TRANSACTION_JOURNAL.magic,
+                &unknown_kind_payload,
+            ))
+            .is_none()
+        );
         assert!(decode_journal(&encoded[..encoded.len() - 1]).is_none());
         let mut trailing = encoded.clone();
         trailing.push(0);

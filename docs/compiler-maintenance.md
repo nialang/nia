@@ -64,6 +64,13 @@ diagnostic result and the invariant/ICE boundary it intentionally leaves.
 Hot-path identities are typed, compact, and session-local. Persistent identity
 is a separate canonical representation.
 
+Cross-component release, toolchain, ABI, persisted-format, and cache-namespace
+identities are owned by the dependency-free `nia-compat` registry. Product
+owners retain their encoders, decoders, bounds, checksums, and corruption
+policy, but must consume registry values directly rather than exporting aliases.
+`lib/toolchain.meta` is generated registry data, and the workspace package
+version is the only release-version input.
+
 - Never serialize a session-local index or infer stable identity from allocation
   order, module number, query slot, pointer value, or debug formatting.
 - Reclaiming stores use owner/index/generation or an equivalent stale-handle

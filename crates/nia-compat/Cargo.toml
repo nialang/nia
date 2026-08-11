@@ -1,13 +1,13 @@
 [package]
-name = "nia-diagnostic"
+name = "nia-compat"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
-[dependencies]
-nia-compat.workspace = true
-nia-span.workspace = true
-
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "nia-compat"
+path = "src/main.rs"

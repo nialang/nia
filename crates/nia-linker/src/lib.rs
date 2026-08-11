@@ -412,7 +412,7 @@ impl ArchiveOptions {
         tool.write_str(&program_path.to_string_lossy());
         tool.write_bytes(&tool_bytes);
         let mut options = QueryFingerprintBuilder::new("nia.archive-options.v1");
-        options.write_str(env!("CARGO_PKG_VERSION"));
+        options.write_str(nia_compat::COMPILER_VERSION);
         options.write_str("rcsD");
         Ok(ArchiveEnvironmentFingerprint {
             toolchain: finish_archive_fingerprint(toolchain),
@@ -679,7 +679,7 @@ impl LinkOptions {
         linker_component.write_u8(linker_flavor_tag(linker.flavor));
 
         let mut options = QueryFingerprintBuilder::new("nia.link-result-options.v2");
-        options.write_str(env!("CARGO_PKG_VERSION"));
+        options.write_str(nia_compat::COMPILER_VERSION);
         write_optional_string(&mut options, self.entry.as_deref());
         options.write_u8(link_mode_tag(self.mode));
         write_dynamic_linker(&mut options, &self.dynamic_linker);

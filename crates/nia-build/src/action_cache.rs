@@ -8,6 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_compat::formats::{GENERATED_FILE_CACHE, GENERATED_FILE_ENTRY};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_toolchain::ToolchainIdentity;
 
@@ -28,8 +29,6 @@ pub(crate) use external_command::{
     ExternalCommandCache, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,
 };
 
-const GENERATED_FILE_MAGIC: &[u8; 8] = b"NIAGEN01";
-const GENERATED_FILE_SCHEMA: &str = "v1";
 static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -363,7 +362,7 @@ impl GeneratedFileCache {
         self.root
             .join("actions")
             .join("generated-files")
-            .join(GENERATED_FILE_SCHEMA)
+            .join(GENERATED_FILE_CACHE.path_component)
             .join(fingerprint_text(cache_key))
     }
 
@@ -425,7 +424,7 @@ impl GeneratedFileCache {
             .root
             .join("coordination")
             .join("action-cache-mutations")
-            .join(GENERATED_FILE_SCHEMA)
+            .join(GENERATED_FILE_CACHE.path_component)
             .join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
@@ -469,7 +468,7 @@ fn encode_entry(identity: &GeneratedFileCacheIdentity, payload: &[u8]) -> Vec<u8
     let fingerprints = identity.fingerprints;
     let mut encoded =
         Vec::with_capacity(120 + identity.action.len() + identity.output.len() + payload.len());
-    encoded.extend_from_slice(GENERATED_FILE_MAGIC);
+    encoded.extend_from_slice(GENERATED_FILE_ENTRY.magic);
     for fingerprint in [
         fingerprints.cache_key,
         fingerprints.fingerprint,
@@ -501,7 +500,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *GENERATED_FILE_MAGIC).then_some(())?;
+    (magic == *GENERATED_FILE_ENTRY.magic).then_some(())?;
     let cache_key = read_fingerprint(&mut cursor)?;
     let fingerprint = read_fingerprint(&mut cursor)?;
     let components = GeneratedFileFingerprintComponents {

@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::path::Path;
 
+use nia_compat::formats::{BUILD_PLAN, RUNNER_CONFIG};
 use nia_target_config::TargetConfig;
 
-use crate::{
-    BUILD_PLAN_SCHEMA_VERSION, BuildError, BuildInvocation, BuildStepSelection, OptimizationMode,
-};
+use crate::{BuildError, BuildInvocation, BuildStepSelection, OptimizationMode};
 
-pub(crate) const RUNNER_CONFIG_SCHEMA_VERSION: u32 = 1;
-pub(crate) const RUNNER_CONFIG_MAGIC: &[u8; 8] = b"NIARUNCF";
-pub(crate) const RUNNER_CONFIG_MAGIC_TEXT: &str = "NIARUNCF";
 pub(crate) const RUNNER_CONFIG_MAX_BYTES: usize = 1024 * 1024;
 
 pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError> {
@@ -30,7 +26,7 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_target(&mut payload, invocation.toolchain.host_target())?;
     write_target(&mut payload, invocation.toolchain.artifact_target())?;
     write_u32(&mut payload, optimization_tag(invocation.optimization));
-    write_u32(&mut payload, BUILD_PLAN_SCHEMA_VERSION);
+    write_u32(&mut payload, BUILD_PLAN.schema);
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
         BuildStepSelection::Default => payload.push(0),
@@ -44,8 +40,8 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
         return Err(BuildError::RunnerConfigurationTooLarge { len: payload.len() });
     }
     let mut encoded = Vec::with_capacity(24 + payload.len());
-    encoded.extend_from_slice(RUNNER_CONFIG_MAGIC);
-    write_u32(&mut encoded, RUNNER_CONFIG_SCHEMA_VERSION);
+    encoded.extend_from_slice(RUNNER_CONFIG.magic);
+    write_u32(&mut encoded, RUNNER_CONFIG.schema);
     write_u32(&mut encoded, payload.len() as u32);
     write_u64(&mut encoded, payload_checksum(&payload));
     encoded.extend_from_slice(&payload);
@@ -151,7 +147,6 @@ mod tests {
 
     #[test]
     fn round_trip_preserves_typed_runner_configuration() {
-        assert_eq!(RUNNER_CONFIG_MAGIC_TEXT.as_bytes(), RUNNER_CONFIG_MAGIC);
         let invocation = invocation(BuildStepSelection::Named("install".to_string()));
         let decoded = decode(&encode(&invocation).expect("encode runner configuration"))
             .expect("decode runner configuration");
@@ -165,7 +160,7 @@ mod tests {
             *invocation.toolchain.artifact_target()
         );
         assert_eq!(decoded.optimization, 5);
-        assert_eq!(decoded.plan_schema, BUILD_PLAN_SCHEMA_VERSION);
+        assert_eq!(decoded.plan_schema, BUILD_PLAN.schema);
         assert_eq!(decoded.step.as_deref(), Some("install"));
     }
 
@@ -187,7 +182,7 @@ mod tests {
         assert_eq!(decode(&bad_magic), Err(DecodeError::Magic));
 
         let mut bad_version = baseline.clone();
-        bad_version[8..12].copy_from_slice(&(RUNNER_CONFIG_SCHEMA_VERSION + 1).to_le_bytes());
+        bad_version[8..12].copy_from_slice(&(RUNNER_CONFIG.schema + 1).to_le_bytes());
         assert_eq!(decode(&bad_version), Err(DecodeError::Version));
 
         let mut bad_length = baseline.clone();
@@ -272,11 +267,11 @@ mod tests {
         if encoded.len() < 24 {
             return Err(DecodeError::Truncated);
         }
-        if &encoded[..8] != RUNNER_CONFIG_MAGIC {
+        if &encoded[..8] != RUNNER_CONFIG.magic {
             return Err(DecodeError::Magic);
         }
         let version = u32::from_le_bytes(encoded[8..12].try_into().unwrap());
-        if version != RUNNER_CONFIG_SCHEMA_VERSION {
+        if version != RUNNER_CONFIG.schema {
             return Err(DecodeError::Version);
         }
         let payload_len = u32::from_le_bytes(encoded[12..16].try_into().unwrap()) as usize;

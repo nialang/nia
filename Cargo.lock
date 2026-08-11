@@ -229,6 +229,7 @@ name = "nia-build"
 version = "0.4.3"
 dependencies = [
  "libc",
+ "nia-compat",
  "nia-compiler-query",
  "nia-driver",
  "nia-imports",
@@ -246,6 +247,7 @@ name = "nia-cli"
 version = "0.4.3"
 dependencies = [
  "nia-build",
+ "nia-compat",
  "nia-driver",
  "nia-ice",
  "nia-linker",
@@ -275,6 +277,7 @@ dependencies = [
  "nia-backend-ir",
  "nia-backend-lower",
  "nia-body-ir",
+ "nia-compat",
  "nia-compiler-query",
  "nia-const-check",
  "nia-const-eval",
@@ -301,6 +304,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-compat"
+version = "0.4.3"
+
+[[package]]
 name = "nia-compiler-query"
 version = "0.4.3"
 dependencies = [
@@ -312,6 +319,7 @@ dependencies = [
  "nia-body-check",
  "nia-body-ir",
  "nia-closure-check",
+ "nia-compat",
  "nia-const-check",
  "nia-const-ir",
  "nia-defs",
@@ -436,6 +444,7 @@ dependencies = [
 name = "nia-diagnostic"
 version = "0.4.3"
 dependencies = [
+ "nia-compat",
  "nia-span",
 ]
 
@@ -447,6 +456,7 @@ dependencies = [
  "nia-backend-ir",
  "nia-body-ir",
  "nia-codegen-llvm",
+ "nia-compat",
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-function-ir",
@@ -671,6 +681,7 @@ name = "nia-linker"
 version = "0.4.3"
 dependencies = [
  "nia-backend-ir",
+ "nia-compat",
  "nia-query",
  "nia-source",
  "nia-target-config",
@@ -697,6 +708,7 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-ast-walk",
+ "nia-compat",
  "nia-compiler-query",
  "nia-defs",
  "nia-diagnostic",
@@ -978,6 +990,7 @@ dependencies = [
 name = "nia-toolchain"
 version = "0.4.3"
 dependencies = [
+ "nia-compat",
  "nia-query",
  "nia-target-config",
 ]

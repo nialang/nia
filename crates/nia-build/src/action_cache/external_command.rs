@@ -7,6 +7,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
+use nia_compat::formats::{EXTERNAL_COMMAND_CACHE, EXTERNAL_COMMAND_ENTRY};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_toolchain::ToolchainIdentity;
 
@@ -19,9 +20,6 @@ use crate::{
     ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
     PlanPackage, lock::ScopedFileLock,
 };
-
-const MAGIC: &[u8; 8] = b"NIACMD03";
-const SCHEMA: &str = "v3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FingerprintComponents {
@@ -343,7 +341,7 @@ impl ExternalCommandCache {
     fn key_dir(&self, cache_key: QueryFingerprint) -> PathBuf {
         self.root
             .join("actions/external-commands")
-            .join(SCHEMA)
+            .join(EXTERNAL_COMMAND_CACHE.path_component)
             .join(fingerprint_text(cache_key))
     }
 
@@ -413,7 +411,7 @@ impl ExternalCommandCache {
         let lock = self
             .root
             .join("coordination/action-cache-mutations")
-            .join(SCHEMA)
+            .join(EXTERNAL_COMMAND_CACHE.path_component)
             .join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
@@ -436,7 +434,7 @@ struct DecodedEntry {
 
 fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(MAGIC);
+    encoded.extend_from_slice(EXTERNAL_COMMAND_ENTRY.magic);
     write_fingerprint(&mut encoded, identity.fingerprints.cache_key);
     write_fingerprint(&mut encoded, identity.fingerprints.fingerprint);
     for component in identity.fingerprints.components.values() {
@@ -470,7 +468,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *MAGIC).then_some(())?;
+    (magic == *EXTERNAL_COMMAND_ENTRY.magic).then_some(())?;
     let cache_key = read_fingerprint(&mut cursor)?;
     let fingerprint = read_fingerprint(&mut cursor)?;
     let components = FingerprintComponents {

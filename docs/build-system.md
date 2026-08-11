@@ -78,9 +78,11 @@ The installed layout is versioned and relocatable as one directory:
 ```
 
 With no override, `nia` resolves `lib/nia` relative to its executable. Source
-development passes `--resource-root <checkout>/lib` explicitly. The manifest
-owns the resource-layout, compiler, std, and build-protocol compatibility
-identity; absolute installation paths are deliberately excluded. Layout
+development passes `--resource-root <checkout>/lib` explicitly. The
+dependency-free `nia-compat` registry owns the resource-layout, compiler, std,
+and build-protocol compatibility identity. `toolchain.meta` is generated from
+that registry and layout validation checks the generated values; absolute
+installation paths are deliberately excluded. Layout
 validation happens before user source is read, and the resolved layout is
 threaded through CLI, Driver, loader, build coordinator, generated runner, and
 `std::build`. There is no checkout-derived std fallback.
@@ -174,9 +176,10 @@ same relationship through `CommandArgument::artifactInput` for executable
 artifacts or `CommandArgument::objectInput` for ObjectSet directories. The
 builder validates the handle owner, requires its matching emit step, retains
 the typed artifact input, and adds the producer edge. Freeze applies the same
-closure check to every Artifact-root program and input. Declared-input cache
-schema v3 fingerprints regular files and recursively validated directory trees
-in canonical entry order; symlinks and other non-regular entries are rejected.
+closure check to every Artifact-root program and input. The registered
+declared-input cache format fingerprints regular files and recursively validated
+directory trees in canonical entry order; symlinks and other non-regular entries
+are rejected.
 The coordinator closes stdin, forwards
 stdout/stderr while retaining a bounded 64-KiB tail for each stream, enforces a
 seven-minute timeout, and retires the owned process group on timeout or after
@@ -207,9 +210,9 @@ separate filesystem directory entries switch in one indivisible rename.
 Explicit uncacheable actions remain unsupported; no path falls back to a runner
 callback.
 
-Process-death recovery state for these transactions lives under
-`.nia-build/.nia-transactions/v2/`, outside the disposable cache. A versioned,
-checksummed journal records the stable action key, ordered logical Build
+Process-death recovery state for these transactions lives under the registered
+namespace below `.nia-build/.nia-transactions/`, outside the disposable cache.
+A versioned, checksummed journal records the stable action key, ordered logical Build
 outputs with their `File`/`Directory` kind, and logical stage/commit paths
 before an output producer can mutate staging. Regular files and recursively
 validated directory trees are synced before acceptance. Once every staged
@@ -295,8 +298,8 @@ rather than exposing cache paths or copying bytes into a coordinator cache.
 Restore validates the current archive environment before publishing through a
 staged file.
 
-Build protocol schema 10 carries `StaticArchive` as a distinct artifact kind and
-an ordered static-archive input list on compiler-emit actions. Archive emit asks
+The registered build protocol carries `StaticArchive` as a distinct artifact
+kind and an ordered static-archive input list on compiler-emit actions. Archive emit asks
 Driver for native objects and the typed archive, then publishes the result as a
 journaled file transaction. Coordinator does not archive a published ObjectSet
 directory and does not keep a second copy of the archive bytes.
@@ -332,8 +335,9 @@ stable package/name identity, current physical path, and content fingerprint;
 the invocation receives exact paths in declaration order without `-l` name
 guessing or directory scans. Package/name and bytes enter Driver link-result
 identity, while the physical path is excluded so relocation can reuse the same
-result. Compiler-emit action-cache schema v3 records the same ordered stable
-identity and content fingerprints in a dedicated input component, preventing a
+result. The registered compiler-emit action-cache format records the same
+ordered stable identity and content fingerprints in a dedicated input
+component, preventing a
 coordinator cache hit from restoring an executable linked against stale archive
 bytes. A system `ar`/`llvm-ar` command does not become a second linker/cache
 owner.
@@ -449,9 +453,9 @@ and separate compiler, resource-layout, std, and build-protocol compatibility
 components. Successful compiler-check and compiler-emit actions additionally
 have bounded action records.
 
-Build protocol schema 6 adds canonical local-package root declarations and
-typed package-rooted command inputs. It retains the schema 5 separation of
-external-command environment and cache policies.
+The registered build protocol includes canonical local-package root
+declarations, typed package-rooted command inputs, and separate external-command
+environment and cache policies.
 `ExternalCommandOptions::search` defaults to inherited process
 environment plus `Uncacheable`, preserving the behavior of existing build
 scripts. `withClearedEnvironment` starts the child with an empty environment,
@@ -460,8 +464,8 @@ after which `withEnvironment` supplies the command's explicit values.
 by a typed command input. Plan freeze accepts that declaration only with a
 cleared environment and at least one declared output.
 
-Eligible external commands have immutable records under
-`.nia-cache/actions/external-commands/v2/`. Their identity includes the stable
+Eligible external commands have immutable records under the registry-selected
+namespace below `.nia-cache/actions/external-commands/`. Their identity includes the stable
 action and command declaration, logical working directory, explicit
 environment, logical paths plus contents of declared regular-file inputs,
 logical dependency-artifact inputs when present, ordered logical outputs, the
@@ -517,8 +521,8 @@ a generated root or generated import invalidates the exact dependent compiler
 closure as `Sources`; an unrelated package-source artifact remains reusable,
 and the converse holds for edits to that package source.
 
-Compiler-check records live under
-`.nia-cache/actions/compiler-checks/v1/`. Their identity includes the stable
+Compiler-check records live under the registry-selected namespace below
+`.nia-cache/actions/compiler-checks/`. Their identity includes the stable
 action key, module root and import mapping, target, optimization, runtime,
 sorted logical source identities with content fingerprints and lengths, and
 separate compiler, resource-layout, std, and build-protocol components.
@@ -540,8 +544,8 @@ and retire corruption under a scoped mutation lock. Source, module, target,
 optimization, runtime, and toolchain component changes remain distinct miss
 reasons.
 
-Compiler-emit records live under
-`.nia-cache/actions/compiler-emits/v1/`. They reuse the complete compiler
+Compiler-emit records live under the registry-selected namespace below
+`.nia-cache/actions/compiler-emits/`. They reuse the complete compiler
 source/module/target/toolchain identity with the effective freestanding runtime
 and additionally bind the declared artifact identity and runtime, logical
 output, and current linker/target/options environment to a fixed-width typed

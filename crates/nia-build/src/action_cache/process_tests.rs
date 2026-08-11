@@ -218,7 +218,7 @@ fn cross_process_publishers_and_readers_share_one_complete_entry() {
     let mutation_locks = root
         .join("coordination")
         .join("action-cache-mutations")
-        .join(GENERATED_FILE_SCHEMA);
+        .join(GENERATED_FILE_CACHE.path_component);
     assert_eq!(
         fs::read_dir(mutation_locks)
             .expect("read mutation lock directory")

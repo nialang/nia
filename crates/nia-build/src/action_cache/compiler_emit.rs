@@ -8,6 +8,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
+use nia_compat::formats::{COMPILER_EMIT_CACHE, COMPILER_EMIT_ENTRY};
 use nia_compiler_query::SourceContentFingerprint;
 use nia_driver::{ExecutableCacheEnvironment, ExecutableCacheReference, SourceInputManifest};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
@@ -25,9 +26,6 @@ use super::{
     write_fingerprint, write_text,
 };
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, TargetSpec, lock::ScopedFileLock};
-
-const MAGIC: &[u8; 8] = b"NIAKCE03";
-const SCHEMA: &str = "v3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EmitFingerprintComponents {
@@ -312,7 +310,7 @@ impl CompilerEmitCache {
         self.root
             .join("actions")
             .join("compiler-emits")
-            .join(SCHEMA)
+            .join(COMPILER_EMIT_CACHE.path_component)
             .join(fingerprint_text(cache_key))
     }
 
@@ -372,7 +370,7 @@ impl CompilerEmitCache {
             .join("coordination")
             .join("action-cache-mutations")
             .join("compiler-emits")
-            .join(SCHEMA)
+            .join(COMPILER_EMIT_CACHE.path_component)
             .join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
@@ -401,7 +399,7 @@ fn encode_entry(
     reference: ExecutableCacheReference,
 ) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(MAGIC);
+    encoded.extend_from_slice(COMPILER_EMIT_ENTRY.magic);
     write_fingerprint_set(&mut encoded, identity.fingerprints);
     write_bytes(&mut encoded, &identity.action);
     write_bytes(&mut encoded, &identity.module);
@@ -432,7 +430,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
-    (magic == *MAGIC).then_some(())?;
+    (magic == *COMPILER_EMIT_ENTRY.magic).then_some(())?;
     let fingerprints = read_fingerprint_set(&mut cursor)?;
     let action = read_bytes(&mut cursor, encoded.len())?;
     let module = read_bytes(&mut cursor, encoded.len())?;
