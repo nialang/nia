@@ -241,6 +241,7 @@ impl<'a> BackendValidator<'a> {
             struct_fields_lookup_cache: RefCell::new(HashMap::new()),
             union_fields_lookup_cache: RefCell::new(HashMap::new()),
             local_tys: Vec::new(),
+            body_tys: Vec::new(),
             current_item: None,
             current_subject: None,
         }
@@ -257,6 +258,7 @@ pub(super) struct BackendValidator<'a> {
     struct_fields_lookup_cache: AggregateFieldsLookup,
     union_fields_lookup_cache: AggregateFieldsLookup,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
+    body_tys: Vec<InternedTyId>,
     current_item: Option<String>,
     current_subject: Option<&'static str>,
 }

@@ -716,6 +716,203 @@ fn validates_backend_ir_error_type_before_llvm() {
 }
 
 #[test]
+fn validates_backend_ir_propagation_contract_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
+    let source_result_ty = interner.intern(TyKind::ErrorUnion {
+        error: i32_ty,
+        value: i32_ty,
+    });
+    let target_result_ty = interner.intern(TyKind::ErrorUnion {
+        error: bool_ty,
+        value: i32_ty,
+    });
+    let span = Span::default();
+    let function = |def_id: u64,
+                    name: &str,
+                    input_ty,
+                    return_ty,
+                    kind,
+                    success_ty,
+                    error_conversion: Option<FunctionExpr>| {
+        BackendFunction {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(def_id),
+            },
+            name: sym(name),
+            link_name: None,
+            generics: Vec::new(),
+            params: vec![BackendParam {
+                local_id: Some(LocalId(0)),
+                name: Some(sym("value")),
+                receiver: None,
+                passing_ty: input_ty,
+                local_ty: input_ty,
+                span,
+            }],
+            return_type: return_ty,
+            is_extern: false,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: Some(FunctionBody {
+                span,
+                locals: vec![
+                    FunctionLocal {
+                        id: LocalId(0),
+                        name: local_name("value"),
+                        kind: FunctionLocalKind::Param,
+                        ty: input_ty,
+                        span,
+                    },
+                    FunctionLocal {
+                        id: LocalId(1),
+                        name: local_name("success"),
+                        kind: FunctionLocalKind::MutableBinding,
+                        ty: success_ty,
+                        span,
+                    },
+                ],
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![
+                    FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Try {
+                            value: FunctionExpr {
+                                span,
+                                ty: input_ty,
+                                kind: FunctionExprKind::Local(LocalId(0)),
+                            },
+                            kind,
+                            error_conversion,
+                            success_local: LocalId(1),
+                            success_target: FunctionBlockId(1),
+                            span,
+                        },
+                    },
+                    FunctionBlock {
+                        id: FunctionBlockId(1),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail { value: None, span },
+                    },
+                ],
+                entry: FunctionBlockId(0),
+                ty: return_ty,
+            }),
+            span,
+        }
+    };
+    let functions = vec![
+        function(
+            0,
+            "optionalConversion",
+            optional_i32_ty,
+            optional_i32_ty,
+            FunctionTryKind::Optional,
+            i32_ty,
+            Some(FunctionExpr {
+                span,
+                ty: bool_ty,
+                kind: FunctionExprKind::Bool(false),
+            }),
+        ),
+        function(
+            1,
+            "kindMismatch",
+            optional_i32_ty,
+            optional_i32_ty,
+            FunctionTryKind::ErrorUnion,
+            i32_ty,
+            None,
+        ),
+        function(
+            2,
+            "successMismatch",
+            source_result_ty,
+            source_result_ty,
+            FunctionTryKind::ErrorUnion,
+            bool_ty,
+            None,
+        ),
+        function(
+            3,
+            "directErrorMismatch",
+            source_result_ty,
+            target_result_ty,
+            FunctionTryKind::ErrorUnion,
+            i32_ty,
+            None,
+        ),
+        function(
+            4,
+            "conversionMismatch",
+            source_result_ty,
+            target_result_ty,
+            FunctionTryKind::ErrorUnion,
+            i32_ty,
+            Some(FunctionExpr {
+                span,
+                ty: i32_ty,
+                kind: FunctionExprKind::Integer("0".to_string()),
+            }),
+        ),
+    ];
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        functions,
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+    let summaries = output
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        "optional propagation cannot carry an error conversion",
+        "propagation kind does not match its input union type",
+        "propagation success local type does not match the input success payload",
+        "direct propagation error type does not match the return error payload",
+        "propagation conversion type does not match the return error payload",
+    ] {
+        assert!(
+            summaries.iter().any(|summary| summary.contains(expected)),
+            "missing `{expected}` in {summaries:?}"
+        );
+    }
+}
+
+#[test]
 fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

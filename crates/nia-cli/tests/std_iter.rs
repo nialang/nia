@@ -15,13 +15,29 @@ fn emit_exe_std_iterator_for_each_accepts_borrowed_closure() {
         r#"
 using std::process;
 
+static mut invocationCount: i32 = 0;
+static mut total: i32 = 0;
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
     (1..5).iter().forEach(&[offset](value: i32) () {
-        _ = value;
-        _ = offset;
+        invocationCount += 1;
+        total += value + offset;
     });
+    (1..3).iter().forEach(&[](value: i32) () {
+        invocationCount += 1;
+        total += value;
+    });
+    let mut values: [3]i32 = [1, 2, 3];
+    (&mut values).iterMut().forEach(&[](value: &mut i32) () {
+        value.* += 1;
+    });
+    if invocationCount != 6 or total != 17
+        or values[0] != 2 or values[1] != 3 or values[2] != 4
+    {
+        return process::exit(1)!;
+    }
     !()
 }
 "#,
@@ -65,7 +81,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let summary = (1..5).iter().fold((0, 0), &[](state: (i32, i32), value: i32) (i32, i32) {
         (state.0 + value, state.1 + 1)
     });
-    if total != 14 or summary.0 != 10 or summary.1 != 4 {
+    let prefix = (1..6).iter().take(3).fold(0, &[](acc: i32, value: i32) i32 {
+        acc + value
+    });
+    if total != 14 or summary.0 != 10 or summary.1 != 4 or prefix != 6 {
         return process::exit(1)!;
     }
     !()
@@ -93,6 +112,98 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_iterator_try_fold_preserves_error_and_stops_consuming() {
+    let root = temp_dir("emit_exe_std_iterator_try_fold_preserves_error_and_stops_consuming");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::process;
+
+enum FoldError: i32 {
+    Rejected = 7,
+    _,
+}
+
+extend FoldError : error::IntoError[process::ExitCode] {
+    const fn into_error(self) process::ExitCode {
+        switch self {
+            FoldError::Rejected => {},
+            _ => {},
+        }
+        process::exit(9)
+    }
+}
+
+static mut invocationCount: i32 = 0;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let offset = 1;
+    let summary = (1..5).iter().tryFold(
+        (0, 0),
+        &[offset](state: (i32, i32), value: i32) FoldError!(i32, i32) {
+            invocationCount += 1;
+            !(state.0 + value + offset, state.1 + 1)
+        },
+    ).?;
+    if summary.0 != 14 or summary.1 != 4 or invocationCount != 4 {
+        return process::exit(1)!;
+    }
+
+    invocationCount = 0;
+    let failed = (1..6).iter().tryFold(
+        0,
+        &[](sum: i32, value: i32) FoldError!i32 {
+            invocationCount += 1;
+            if value == 3 {
+                FoldError::Rejected!
+            } else {
+                !(sum + value)
+            }
+        },
+    );
+    switch failed {
+        !value => {
+            _ = value;
+            return process::exit(2)!;
+        },
+        FoldError::Rejected! => {},
+        error! => {
+            _ = error;
+            return process::exit(3)!;
+        },
+    }
+    if invocationCount != 3 {
+        return process::exit(4)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std iterator tryFold");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_iterator_position_consumes_items_with_borrowed_predicate() {
     let root = temp_dir("emit_exe_std_iterator_position_consumes_items_with_borrowed_predicate");
     let main = root.join("main.nia");
@@ -102,10 +213,13 @@ fn emit_exe_std_iterator_position_consumes_items_with_borrowed_predicate() {
         r#"
 using std::process;
 
+static mut predicateCount: i32 = 0;
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let target = 4;
     let index = (1..6).iter().position(&[target](value: i32) bool {
+        predicateCount += 1;
         value == target
     });
     switch index {
@@ -115,11 +229,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
         null => return process::exit(2)!,
     }
     let missing = (1..4).iter().position(&[](value: i32) bool {
+        predicateCount += 1;
         value == 9
     });
     switch missing {
         ?_ => return process::exit(3)!,
         null => {},
+    }
+    if predicateCount != 7 {
+        return process::exit(4)!;
     }
     !()
 }

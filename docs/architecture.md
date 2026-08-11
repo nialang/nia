@@ -987,6 +987,12 @@ keeps success extraction, error conversion, trait witness resolution, executable
 reachability, and defer ordering explicit. LLVM lowering evaluates the converted
 return value before tail defers, matching the order of an explicit conversion
 followed by propagation.
+The backend validator checks this failure-edge contract before LLVM: the try
+kind must match the input and enclosing return union, the success local must
+match the input success payload, optional propagation cannot carry a conversion,
+and either the direct or converted error payload must match the return error.
+Malformed products are internal diagnostics rather than LLVM type failures or
+silently ignored conversions.
 
 Const checking applies the same protocol at its semantic boundary. It resolves
 the unique `IntoError[Target]` witness, verifies that the selected method is a

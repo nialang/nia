@@ -15,8 +15,8 @@ pub(super) use nia_body_ir::{
 pub(super) use nia_diagnostic::{Diagnostic, DiagnosticCategory, codes};
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind,
-    FunctionFieldInit, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionScope,
-    FunctionScopeId, FunctionTerminator,
+    FunctionFieldInit, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
 };
 pub(super) use nia_ids::{
     BuiltinTraitMethod, ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId,

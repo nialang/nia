@@ -135,6 +135,27 @@ where I: Iterator
         accumulator
     }
 
+    pub fn tryFold[Accumulator, Error](
+        self,
+        initial: Accumulator,
+        callback: &Fn(Accumulator, [I as Iterator]::Item) Error!Accumulator,
+    ) Error!Accumulator {
+        let mut iter = self;
+        let mut accumulator = initial;
+        let mut done = false;
+        while done == false {
+            switch iter.next() {
+                ?value => {
+                    accumulator = callback(accumulator, value).?;
+                },
+                null => {
+                    done = true;
+                },
+            }
+        }
+        !accumulator
+    }
+
     pub fn position(self, predicate: &Fn([I as Iterator]::Item) bool) ?usize {
         let mut iter = self;
         let mut index: usize = 0;
