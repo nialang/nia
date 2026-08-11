@@ -14,10 +14,13 @@ import sys
 import tempfile
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import NotRequired, TypedDict, cast
 
-from tools.nia_tools.baseline.compiler import machine_metadata
+from tools.nia_tools.common.machine import MachineMetadata, machine_metadata
+from tools.nia_tools.common.json_data import JsonObject, JsonValue, decode_json
+from tools.nia_tools.common.resources import probe_resources
 from tools.nia_tools.repository import REPOSITORY_ROOT
 
 
@@ -47,50 +50,108 @@ MEASUREMENT_COUNTER_PREFIXES = (
 )
 
 
-def read_text(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None
+@dataclass(frozen=True)
+class Options:
+    nia: Path
+    resource_root: Path
+    fixture: Path
+    output: Path
+    timeout_seconds: int
+    repetitions: int
+    keep_workspace: bool
 
 
-def parse_limit(value: str | None) -> int | None:
-    if value is None:
-        return None
-    value = value.strip()
-    if not value or value == "max":
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+type Number = int | float
+
+
+class TimingReport(TypedDict):
+    schema_version: int
+    process: JsonObject
+    counters: JsonObject
+    timings: list[JsonObject]
+    kind: NotRequired[str | None]
+
+
+class ActionReport(TypedDict):
+    schema_version: int
+    kind: str
+    success: bool
+    counters: dict[str, int]
+
+
+class Measurement(TypedDict):
+    process: JsonObject
+    stages: dict[str, JsonObject]
+    counters: JsonObject
+
+
+class BuildReports(TypedDict):
+    actions: ActionReport
+    measurement: Measurement
+    outer_timing: TimingReport
+
+
+class BuildResult(BuildReports):
+    name: str
+    command: list[str]
+    return_code: int
+    wall_seconds_observed: float
+    available_memory_bytes_before: int | None
+    corrupted_action_cache_entries: NotRequired[int]
+
+
+class AcceptanceCheck(TypedDict):
+    state: str
+    counter: str
+    expected: int | str
+    found: int
+    passed: bool
+
+
+class AcceptanceReport(TypedDict):
+    passed: bool
+    checks: list[AcceptanceCheck]
+
+
+class Distribution(TypedDict):
+    median: Number
+    p95: Number
+    min: Number
+    max: Number
+
+
+class StateSummary(TypedDict):
+    name: str
+    sample_count: int
+    wall_seconds_observed: Distribution
+    process: dict[str, Distribution]
+    stages: dict[str, Distribution]
+    counters: dict[str, Distribution]
+
+
+class BuildRunSample(TypedDict):
+    sample: int
+    acceptance: AcceptanceReport
+    results: list[BuildResult]
+
+
+class AggregateAcceptance(TypedDict):
+    passed: bool
+    samples: list[AcceptanceReport]
+
+
+class BuildBaseline(TypedDict):
+    schema_version: int
+    kind: str
+    machine: MachineMetadata
+    fixture: str
+    runs: list[BuildRunSample]
+    acceptance: AggregateAcceptance
+    summary: list[StateSummary]
 
 
 def available_memory_bytes() -> int | None:
-    candidates: list[int] = []
-    meminfo = read_text(Path("/proc/meminfo"))
-    if meminfo is not None:
-        for line in meminfo.splitlines():
-            if line.startswith("MemAvailable:"):
-                try:
-                    candidates.append(int(line.split()[1]) * 1024)
-                except (IndexError, ValueError):
-                    pass
-                break
-
-    cgroup = read_text(Path("/proc/self/cgroup"))
-    if cgroup is not None:
-        for line in cgroup.splitlines():
-            if not line.startswith("0::"):
-                continue
-            relative = line[3:].lstrip("/")
-            root = Path("/sys/fs/cgroup") / relative
-            limit = parse_limit(read_text(root / "memory.max"))
-            current = parse_limit(read_text(root / "memory.current"))
-            if limit is not None and current is not None:
-                candidates.append(max(0, limit - current))
-            break
-    return min(candidates) if candidates else None
+    return probe_resources().available_memory_bytes()
 
 
 def require_memory_headroom() -> int | None:
@@ -145,27 +206,37 @@ def run_bounded(
     )
 
 
-def json_lines(stderr: str) -> list[dict[str, Any]]:
-    reports = []
+def json_lines(stderr: str) -> list[JsonObject]:
+    reports: list[JsonObject] = []
     for line in stderr.splitlines():
         try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
+            value = decode_json(line, "build timing report")
+        except ValueError:
             continue
-        if isinstance(value, dict) and value.get("schema_version") == 1:
+        if (
+            isinstance(value, dict)
+            and type(value.get("schema_version")) is int
+            and value["schema_version"] == 1
+        ):
             reports.append(value)
     return reports
 
 
-def parse_build_reports(stderr: str, succeeded: bool) -> dict[str, Any]:
-    reports = json_lines(stderr)
-    timings = [
-        report
-        for report in reports
-        if report.get("kind") is None
-        and isinstance(report.get("process"), dict)
-        and isinstance(report.get("counters"), dict)
-    ]
+def parse_build_reports(stderr: str, succeeded: bool) -> BuildReports:
+    timings: list[TimingReport] = []
+    for report in json_lines(stderr):
+        if report.get("kind") is not None:
+            continue
+        if not isinstance(report.get("process"), dict) or not isinstance(
+            report.get("counters"), dict
+        ):
+            continue
+        raw_timings = report.get("timings")
+        if not isinstance(raw_timings, list):
+            continue
+        if not all(isinstance(entry, dict) for entry in raw_timings):
+            raise ValueError("build timing report timings contain a non-object entry")
+        timings.append(cast(TimingReport, report))
     outer = [
         report
         for report in timings
@@ -173,12 +244,14 @@ def parse_build_reports(stderr: str, succeeded: bool) -> dict[str, Any]:
     ]
     if len(outer) != 1:
         raise ValueError(f"expected one outer build timing report, found {len(outer)}")
-    counters = outer[0]["counters"]
-    stages = {}
+    outer_report = outer[0]
+    counters = outer_report["counters"]
+    timing_entries = outer_report["timings"]
+    stages: dict[str, JsonObject] = {}
     for name in BUILD_STAGE_NAMES:
         entries = [
             entry
-            for entry in outer[0].get("timings", [])
+            for entry in timing_entries
             if entry.get("kind") == "stage" and entry.get("name") == name
         ]
         if len(entries) != 1:
@@ -189,37 +262,40 @@ def parse_build_reports(stderr: str, succeeded: bool) -> dict[str, Any]:
         for name, value in counters.items()
         if name.startswith(MEASUREMENT_COUNTER_PREFIXES)
     }
+    action_counters: dict[str, int] = {}
+    for name in (
+        "build.steps_executed",
+        "build.actions_executed",
+        "build.action_failures",
+    ):
+        value = counters.get(name, 0)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"outer build counter {name!r} is not an integer")
+        action_counters[name] = value
     return {
         "actions": {
             "schema_version": 1,
             "kind": "nia-build-coordinator-actions",
             "success": succeeded,
-            "counters": {
-                name: counters.get(name, 0)
-                for name in (
-                    "build.steps_executed",
-                    "build.actions_executed",
-                    "build.action_failures",
-                )
-            },
+            "counters": action_counters,
         },
         "measurement": {
-            "process": outer[0]["process"],
+            "process": outer_report["process"],
             "stages": stages,
             "counters": measured_counters,
         },
-        "outer_timing": outer[0],
+        "outer_timing": outer_report,
     }
 
 
-def counter(result: dict[str, Any], name: str) -> int:
+def counter(result: BuildResult, name: str) -> int:
     value = result["measurement"]["counters"].get(name, 0)
-    if not isinstance(value, int):
+    if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"counter {name!r} is not an integer")
     return value
 
 
-def validate_workload(results: list[dict[str, Any]]) -> None:
+def validate_workload(results: list[BuildResult]) -> None:
     expected_names = (
         "clean",
         "warm",
@@ -247,7 +323,7 @@ def validate_workload(results: list[dict[str, Any]]) -> None:
         raise ValueError("failed action state did not report exactly one action failure")
 
 
-def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
+def workload_acceptance(results: list[BuildResult]) -> AcceptanceReport:
     clean = results[0]
     warm = results[1]
     source_edit = results[2]
@@ -256,9 +332,9 @@ def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
     recovered_warm = results[5]
     failed_action = results[6]
     expected_actions = counter(clean, "build.action_cache_lookups")
-    checks = []
+    checks: list[AcceptanceCheck] = []
 
-    def exact(state: str, result: dict[str, Any], name: str, expected: int) -> None:
+    def exact(state: str, result: BuildResult, name: str, expected: int) -> None:
         found = counter(result, name)
         checks.append(
             {
@@ -270,7 +346,7 @@ def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
             }
         )
 
-    def positive(state: str, result: dict[str, Any], name: str) -> None:
+    def positive(state: str, result: BuildResult, name: str) -> None:
         found = counter(result, name)
         checks.append(
             {
@@ -314,8 +390,6 @@ def workload_acceptance(results: list[dict[str, Any]]) -> dict[str, Any]:
     positive("module_map_edit", module_map_edit, "link.result_reuse_misses")
 
     corrupted_entries = corrupt_cache.get("corrupted_action_cache_entries", 0)
-    if not isinstance(corrupted_entries, int):
-        raise ValueError("corrupted action-cache entry count is not an integer")
     checks.append(
         {
             "state": "corrupt_cache",
@@ -382,7 +456,7 @@ def nearest_rank(values: list[float | int], percentile: float) -> float | int:
     return ordered[index]
 
 
-def distribution(values: list[float | int]) -> dict[str, float | int]:
+def distribution(values: list[Number]) -> Distribution:
     return {
         "median": statistics.median(values),
         "p95": nearest_rank(values, 0.95),
@@ -391,14 +465,22 @@ def distribution(values: list[float | int]) -> dict[str, float | int]:
     }
 
 
-def summarize_runs(runs: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    summaries = []
+def numeric_value(value: JsonValue, context: str) -> Number:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{context} is not numeric")
+    return value
+
+
+def summarize_runs(runs: list[list[BuildResult]]) -> list[StateSummary]:
+    summaries: list[StateSummary] = []
     for state_index, first in enumerate(runs[0]):
         samples = [run[state_index] for run in runs]
         counter_names = sorted(
-            set().union(
-                *(sample["measurement"]["counters"].keys() for sample in samples)
-            )
+            {
+                str(name)
+                for sample in samples
+                for name in sample["measurement"]["counters"].keys()
+            }
         )
         summaries.append(
             {
@@ -409,7 +491,13 @@ def summarize_runs(runs: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
                 ),
                 "process": {
                     name: distribution(
-                        [sample["measurement"]["process"][name] for sample in samples]
+                        [
+                            numeric_value(
+                                sample["measurement"]["process"][name],
+                                f"process metric {name}",
+                            )
+                            for sample in samples
+                        ]
                     )
                     for name in ("wall_seconds", "max_rss_bytes")
                     if all(
@@ -420,7 +508,10 @@ def summarize_runs(runs: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
                 "stages": {
                     name: distribution(
                         [
-                            sample["measurement"]["stages"][name]["total_seconds"]
+                            numeric_value(
+                                sample["measurement"]["stages"][name]["total_seconds"],
+                                f"stage metric {name}",
+                            )
                             for sample in samples
                         ]
                     )
@@ -462,7 +553,7 @@ def run_state(
     *,
     step: str | None = None,
     expect_success: bool = True,
-) -> dict[str, Any]:
+) -> BuildResult:
     command = build_command(nia, resource_root, workspace, step)
     result, elapsed, available = run_bounded(command, workspace, timeout_seconds)
     succeeded = result.returncode == 0
@@ -505,7 +596,7 @@ def corrupt_action_cache(workspace: Path) -> int:
 
 def run_workload(
     nia: Path, resource_root: Path, fixture: Path, timeout_seconds: int
-) -> tuple[list[dict[str, Any]], Path]:
+) -> tuple[list[BuildResult], Path]:
     temporary = Path(tempfile.mkdtemp(prefix="nia-build-baseline-"))
     workspace = temporary / "representative"
     shutil.copytree(fixture, workspace)
@@ -557,7 +648,7 @@ def run_workload(
         raise
 
 
-def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> Options:
     parser = argparse.ArgumentParser(
         prog="python3 -m tools baseline build", description=__doc__
     )
@@ -568,7 +659,23 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--keep-workspace", action="store_true")
-    return parser.parse_args(arguments)
+    namespace = parser.parse_args(arguments)
+    paths = (namespace.nia, namespace.resource_root, namespace.fixture, namespace.output)
+    if not all(isinstance(value, Path) for value in paths):
+        raise TypeError("argparse did not produce Paths for build baseline options")
+    if not isinstance(namespace.timeout_seconds, int) or not isinstance(
+        namespace.repetitions, int
+    ):
+        raise TypeError("argparse did not produce integer build baseline limits")
+    return Options(
+        nia=paths[0],
+        resource_root=paths[1],
+        fixture=paths[2],
+        output=paths[3],
+        timeout_seconds=namespace.timeout_seconds,
+        repetitions=namespace.repetitions,
+        keep_workspace=bool(namespace.keep_workspace),
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -589,14 +696,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     temporaries: list[Path] = []
     try:
-        runs = []
+        runs: list[list[BuildResult]] = []
         for _ in range(args.repetitions):
             results, temporary = run_workload(
                 nia, resource_root, fixture, args.timeout_seconds
             )
             runs.append(results)
             temporaries.append(temporary)
-        baseline = {
+        baseline: BuildBaseline = {
             "schema_version": 3,
             "kind": "nia-build-baseline",
             "machine": machine_metadata(),

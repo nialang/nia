@@ -11,12 +11,12 @@ from tools.nia_tools.audit.std_build_host import (
 
 
 class StdBuildHostAuditTests(unittest.TestCase):
-    def test_maintained_snapshot_matches_source_closure(self):
+    def test_maintained_snapshot_matches_source_closure(self) -> None:
         expected = json.loads(DEFAULT_SNAPSHOT.read_text(encoding="utf-8"))
 
         self.assertEqual(snapshot(), expected)
 
-    def test_follows_package_imports_and_declared_provider_modules(self):
+    def test_follows_package_imports_and_declared_provider_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             std = Path(temporary) / "std"
             (std / "build").mkdir(parents=True)
@@ -48,7 +48,7 @@ class StdBuildHostAuditTests(unittest.TestCase):
                 ],
             )
 
-    def test_rejects_missing_package_dependency(self):
+    def test_rejects_missing_package_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             std = Path(temporary) / "std"
             std.mkdir()

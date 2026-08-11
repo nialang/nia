@@ -9,6 +9,7 @@ import os
 import re
 import tomllib
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from tools.nia_tools.repository import REPOSITORY_ROOT
@@ -68,8 +69,13 @@ VERSION_AUTHORITIES = {
 }
 
 
+@dataclass(frozen=True)
+class Options:
+    root: Path
+
+
 def source_files(root: Path) -> list[Path]:
-    files = []
+    files: list[Path] = []
     for directory, names, filenames in os.walk(root):
         names[:] = [name for name in names if name not in {".git", "target"}]
         files.extend(Path(directory) / filename for filename in filenames)
@@ -101,22 +107,24 @@ def decode_string(value: str) -> str:
 
 def registered_magics(root: Path) -> set[bytes]:
     source = (root / REGISTRY).read_text(encoding="utf-8")
-    magics = set()
+    magics: set[bytes] = set()
     for match in BYTE_STRING.finditer(source):
         if not match.group(1).startswith("NIA"):
             continue
         value = ast.literal_eval(f'b"{match.group(1)}"')
+        if not isinstance(value, bytes):
+            continue
         if len(value) == 8:
             magics.add(value)
     return magics
 
 
 def fingerprint_domain_errors(root: Path) -> list[str]:
-    errors = []
+    errors: list[str] = []
     for path in production_rust_sources(root):
         source = production_source(path)
         relative = path.relative_to(root)
-        checked = set()
+        checked: set[tuple[int, str]] = set()
         for match in CONSTRUCTOR_DOMAIN.finditer(source):
             domain = decode_string(match.group(1))
             checked.add((match.start(1), domain))
@@ -132,12 +140,12 @@ def fingerprint_domain_errors(root: Path) -> list[str]:
 
 
 def typed_fingerprint_domain_errors(root: Path) -> list[str]:
-    errors = []
+    errors: list[str] = []
     declarations: dict[str, list[str]] = {}
     for path in production_rust_sources(root):
         source = production_source(path)
         relative = path.relative_to(root)
-        declaration_spans = []
+        declaration_spans: list[tuple[int, int]] = []
         for match in TYPED_DOMAIN_DECLARATION.finditer(source):
             declaration_spans.append(match.span(2))
             declarations.setdefault(match.group(2), []).append(
@@ -164,7 +172,7 @@ def typed_fingerprint_domain_errors(root: Path) -> list[str]:
 
 
 def global_identity_errors(root: Path) -> list[str]:
-    errors = []
+    errors: list[str] = []
     registry_path = root / REGISTRY
     magics = registered_magics(root)
     for path in rust_sources(root):
@@ -176,6 +184,8 @@ def global_identity_errors(root: Path) -> list[str]:
             if not match.group(1).startswith("NIA"):
                 continue
             value = ast.literal_eval(f'b"{match.group(1)}"')
+            if not isinstance(value, bytes):
+                continue
             if value in magics:
                 errors.append(f"{relative}: registered magic is defined outside nia-compat")
         for name in FORBIDDEN_IDENTITY_NAMES:
@@ -193,7 +203,7 @@ def workspace_version(root: Path) -> str:
 
 def release_version_errors(root: Path) -> list[str]:
     version = workspace_version(root)
-    errors = []
+    errors: list[str] = []
     for path in source_files(root):
         relative = path.relative_to(root)
         if relative in VERSION_AUTHORITIES or path.suffix not in TEXT_SUFFIXES:
@@ -216,12 +226,15 @@ def audit(root: Path = ROOT) -> list[str]:
     ]
 
 
-def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> Options:
     parser = argparse.ArgumentParser(
         prog="python3 -m tools audit compatibility", description=__doc__
     )
     parser.add_argument("--root", type=Path, default=ROOT)
-    return parser.parse_args(arguments)
+    namespace = parser.parse_args(arguments)
+    if not isinstance(namespace.root, Path):
+        raise TypeError("argparse did not produce a Path for --root")
+    return Options(root=namespace.root)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:

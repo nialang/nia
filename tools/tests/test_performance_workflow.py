@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from typing import ClassVar, override
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -7,11 +8,14 @@ WORKFLOW = ROOT / ".github" / "workflows" / "performance.yml"
 
 
 class PerformanceWorkflowTests(unittest.TestCase):
+    workflow: ClassVar[str]
+
     @classmethod
-    def setUpClass(cls):
+    @override
+    def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_runs_complete_controlled_runner_baseline(self):
+    def test_runs_complete_controlled_runner_baseline(self) -> None:
         self.assertIn("python3 -m tools check", self.workflow)
         self.assertIn("python3 -m tools baseline compiler", self.workflow)
         self.assertIn("python3 -m tools baseline compare", self.workflow)
@@ -21,7 +25,7 @@ class PerformanceWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("--allow-machine-mismatch", self.workflow)
 
-    def test_downloads_latest_completed_main_baseline(self):
+    def test_downloads_latest_completed_main_baseline(self) -> None:
         self.assertIn("--branch main", self.workflow)
         self.assertIn("--status completed", self.workflow)
         self.assertIn('--name "${artifact_name}"', self.workflow)
@@ -30,7 +34,7 @@ class PerformanceWorkflowTests(unittest.TestCase):
         self.assertIn('test -f "${destination}/baseline.json"', self.workflow)
         self.assertIn("steps.main_baseline.outputs.available", self.workflow)
 
-    def test_rolls_forward_every_collected_main_baseline(self):
+    def test_rolls_forward_every_collected_main_baseline(self) -> None:
         self.assertIn('echo "candidate_available=true"', self.workflow)
         self.assertIn(
             "if: always() && github.ref == 'refs/heads/main' && "
@@ -41,27 +45,33 @@ class PerformanceWorkflowTests(unittest.TestCase):
         self.assertIn("name: nia-perf-candidate", self.workflow)
         self.assertIn("retention-days: 14", self.workflow)
 
-    def test_failure_artifact_does_not_require_a_completed_candidate(self):
+    def test_failure_artifact_does_not_require_a_completed_candidate(self) -> None:
         self.assertIn("tee target/nia-perf/candidate.log", self.workflow)
         self.assertIn(
             "if test -f target/nia-perf/candidate.json", self.workflow
         )
         self.assertIn("target/nia-perf/artifact/candidate.log", self.workflow)
 
-    def test_uses_current_official_action_runtimes(self):
+    def test_uses_current_official_action_runtimes(self) -> None:
         for action in [
             "actions/checkout@v7",
             "actions/setup-python@v6",
+            "actions/setup-node@v6",
             "actions/cache@v6",
             "actions/upload-artifact@v7",
         ]:
             self.assertIn(action, self.workflow)
         self.assertNotIn("@v4", self.workflow)
 
-    def test_installs_repository_python_version(self):
+    def test_installs_repository_python_version(self) -> None:
         self.assertIn('python-version-file: ".python-version"', self.workflow)
+        self.assertIn('node-version-file: ".node-version"', self.workflow)
+        self.assertIn("npm ci --prefix tools --ignore-scripts", self.workflow)
+        self.assertIn("cache-dependency-path: tools/package-lock.json", self.workflow)
+        for command in ("python3 --version", "node --version", "npm --version"):
+            self.assertIn(command, self.workflow)
 
-    def test_publishes_baseline_provenance_in_step_summary(self):
+    def test_publishes_baseline_provenance_in_step_summary(self) -> None:
         self.assertIn("BASELINE_RUN_ID", self.workflow)
         self.assertIn("BASELINE_ARTIFACT_NAME", self.workflow)
         self.assertIn("steps.main_baseline.outputs.run_id", self.workflow)
@@ -69,12 +79,12 @@ class PerformanceWorkflowTests(unittest.TestCase):
         self.assertIn("GITHUB_STEP_SUMMARY", self.workflow)
         self.assertIn("Comparison passed", self.workflow)
 
-    def test_installs_and_selects_llvm_22(self):
+    def test_installs_and_selects_llvm_22(self) -> None:
         self.assertIn("LLVM_SYS_221_PREFIX: /usr/lib/llvm-22", self.workflow)
         self.assertIn("llvm-toolchain-noble-22", self.workflow)
         self.assertIn("llvm-22-dev lld-22", self.workflow)
 
-    def test_tracks_and_reports_the_latest_rust_stable_identity(self):
+    def test_tracks_and_reports_the_latest_rust_stable_identity(self) -> None:
         self.assertIn("rustup toolchain install stable", self.workflow)
         self.assertIn("--component clippy --component rustfmt", self.workflow)
         for command in [

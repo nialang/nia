@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from typing import override
 
 from tools.nia_tools.repository import PYTHON_VERSION_FILE
 
@@ -18,6 +19,7 @@ class PythonVersion:
             raise ValueError(".python-version must contain one major.minor version")
         return cls(*(int(part) for part in parts))
 
+    @override
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}"
 

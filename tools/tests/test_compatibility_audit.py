@@ -11,7 +11,7 @@ from tools.nia_tools.audit.compatibility import (
 
 
 class CompatibilityAuditTests(unittest.TestCase):
-    def repository(self) -> tuple[tempfile.TemporaryDirectory, Path]:
+    def repository(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
         (root / "crates/nia-compat/src").mkdir(parents=True)
@@ -26,7 +26,7 @@ class CompatibilityAuditTests(unittest.TestCase):
         )
         return temporary, root
 
-    def test_accepts_versioned_fingerprint_domains(self):
+    def test_accepts_versioned_fingerprint_domains(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
@@ -39,7 +39,7 @@ class CompatibilityAuditTests(unittest.TestCase):
         self.assertEqual(fingerprint_domain_errors(root), [])
         self.assertEqual(typed_fingerprint_domain_errors(root), [])
 
-    def test_rejects_unversioned_constructor_domain(self):
+    def test_rejects_unversioned_constructor_domain(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
@@ -49,7 +49,7 @@ class CompatibilityAuditTests(unittest.TestCase):
 
         self.assertRegex(fingerprint_domain_errors(root)[0], "owner-product")
 
-    def test_rejects_malformed_typed_domain(self):
+    def test_rejects_malformed_typed_domain(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
@@ -60,7 +60,7 @@ class CompatibilityAuditTests(unittest.TestCase):
 
         self.assertRegex(fingerprint_domain_errors(root)[0], "owner..product")
 
-    def test_rejects_raw_versioned_constructor_domain(self):
+    def test_rejects_raw_versioned_constructor_domain(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
@@ -70,7 +70,7 @@ class CompatibilityAuditTests(unittest.TestCase):
 
         self.assertRegex(typed_fingerprint_domain_errors(root)[0], "raw literal")
 
-    def test_rejects_duplicate_typed_domain_declarations(self):
+    def test_rejects_duplicate_typed_domain_declarations(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
@@ -83,7 +83,7 @@ class CompatibilityAuditTests(unittest.TestCase):
 
         self.assertRegex(typed_fingerprint_domain_errors(root)[0], "duplicate")
 
-    def test_rejects_registered_magic_outside_registry(self):
+    def test_rejects_registered_magic_outside_registry(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "crates/owner/src/lib.rs").write_text(
@@ -93,7 +93,7 @@ class CompatibilityAuditTests(unittest.TestCase):
 
         self.assertRegex(global_identity_errors(root)[0], "outside nia-compat")
 
-    def test_rejects_workspace_version_outside_authorities(self):
+    def test_rejects_workspace_version_outside_authorities(self) -> None:
         temporary, root = self.repository()
         self.addCleanup(temporary.cleanup)
         (root / "README.md").write_text("current version: 1.2.3\n", encoding="utf-8")

@@ -10,6 +10,17 @@ The required CPython major/minor version is declared in the repository
 must use the same major/minor version; changing it requires running the complete
 tool test and audit gate on the replacement interpreter.
 
+Install the locked static checker once per checkout:
+
+```sh
+npm ci --prefix tools --ignore-scripts
+```
+
+`tools/package-lock.json` is the dependency authority. Do not install a floating
+Pyright version or commit `node_modules/`. The Node major used to run that
+checker is declared once in the repository `.node-version`; managed workflows
+consume the same file.
+
 Commands are grouped by purpose:
 
 ```text
@@ -25,8 +36,8 @@ python3 -m tools check
 `audit` commands enforce repository invariants and return no report on success.
 `report` commands produce deterministic maintainer evidence without changing
 the repository. `baseline` commands own repeatable measurements and their
-machine-readable schemas. `check` runs all tool tests followed by every fast
-audit; it does not run compiler or build baselines.
+machine-readable schemas. `check` runs strict Pyright, all tool tests, and every
+fast audit; it does not run compiler or build baselines.
 
 Fixtures belong in `tools/fixtures/`, tests in `tools/tests/`, and shared
 implementation support in `tools/nia_tools/common/`. Do not add another

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from collections.abc import Callable, Sequence
@@ -25,6 +26,22 @@ class Command:
 def check(arguments: Sequence[str] | None = None) -> int:
     if arguments:
         raise SystemExit("usage: python3 -m tools check")
+
+    tools_root = REPOSITORY_ROOT / "tools"
+    typechecker = tools_root / "node_modules" / ".bin" / "pyright"
+    if not typechecker.is_file():
+        print(
+            "Pyright is not installed; run `npm ci --prefix tools --ignore-scripts`",
+            file=sys.stderr,
+        )
+        return 1
+    typecheck = subprocess.run(
+        [str(typechecker), "--project", str(tools_root / "pyrightconfig.json")],
+        cwd=tools_root,
+        check=False,
+    )
+    if typecheck.returncode != 0:
+        return typecheck.returncode
 
     suite = unittest.defaultTestLoader.discover(
         str(REPOSITORY_ROOT / "tools" / "tests"),

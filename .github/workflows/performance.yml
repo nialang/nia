@@ -45,6 +45,22 @@ jobs:
         with:
           python-version-file: ".python-version"
 
+      - name: Install maintenance Node dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".node-version"
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+
+      - name: Report maintenance toolchain identity
+        run: |
+          python3 --version
+          node --version
+          npm --version
+
+      - name: Install locked maintenance dependencies
+        run: npm ci --prefix tools --ignore-scripts
+
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
