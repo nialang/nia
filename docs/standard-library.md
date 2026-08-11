@@ -621,6 +621,13 @@ or use the explicit `mem::CallableAllocation` boundary and its sole
 Callable-view calls are currently runtime-only, so `mapError` and `orElse` are
 not const operations.
 
+`std::iter::Iterator::forEach` and `fold` are eager operations with borrowed
+readonly callbacks. `forEach` invokes `Fn(Item) ()`; `fold` invokes
+`Fn(Accumulator, Item) Accumulator` and owns only the accumulator and source
+iterator during the call. Neither operation stores a callable or extends its
+lifetime, so capturing closures are valid while the call is active and lazy
+iterator adapters remain a separate ownership design.
+
 Build-plan text and paths must be owned by the builder/plan arena or copied into
 the serialized plan. A borrowed text slice, `PathView`, module import, or target name
 cannot survive plan freeze merely because its current build-script stack frame

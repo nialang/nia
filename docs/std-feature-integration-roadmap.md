@@ -46,6 +46,9 @@ operation without replacing ownership-sensitive named result structs.
 The error roadmap's next std slice adds `orElse` with the same borrowed callable
 lifetime. Its callback returns one explicit `Target!Value` layer, so it can
 recover or replace a failure while tuple success values remain unchanged.
+The iterator slice now adds eager `Iterator::fold`, whose callback is borrowed
+only for the fold invocation and whose accumulator is owned by the operation;
+capturing callbacks do not escape into a lazy adapter.
 
 ## 2. Candidate API Families
 
