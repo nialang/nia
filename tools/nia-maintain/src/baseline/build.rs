@@ -1128,6 +1128,7 @@ pub fn run(options: &Options) -> MaintainResult<()> {
         },
         summary: summarize_runs(&runs)?,
     };
+    let acceptance_passed = baseline.acceptance.passed;
     let output = absolute_path(&options.output)?;
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)
@@ -1148,7 +1149,14 @@ pub fn run(options: &Options) -> MaintainResult<()> {
             eprintln!("workspace: {}", temporary.persist().display());
         }
     }
-    Ok(())
+    if acceptance_passed {
+        Ok(())
+    } else {
+        Err(format!(
+            "build baseline acceptance failed; evidence written to {}",
+            output.display()
+        ))
+    }
 }
 
 #[cfg(test)]
