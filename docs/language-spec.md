@@ -1146,7 +1146,7 @@ fn read(value: i32!i32) i32!i32 {
 
 ```nia
 pub trait IntoError[Target] {
-    fn into_error(self) Target;
+    const fn into_error(self) Target;
 }
 ```
 
@@ -1160,6 +1160,12 @@ evaluated once, the conversion is skipped on success, and the compiler does not
 introduce allocation or type erasure. An `IntoError` implementation is expected
 to be an infallible error mapping; conversions that add values not present in
 the source, such as an operation name or path, remain explicit adapters.
+
+Automatic conversion is available during const evaluation only when the
+selected `into_error` witness is a `const fn`. Const evaluation performs that
+call only on the failure edge, just like runtime lowering; exact-type and
+optional propagation do not need a witness. A runtime-only `into_error`
+implementation is rejected in const code rather than executed as a fallback.
 
 Error unions also provide the explicit `mapError` extension:
 
@@ -1180,11 +1186,6 @@ including when the callback is an inline closure. `mapError` is an explicit
 mapping operation and is not an additional automatic propagation conversion.
 Callable-view calls are runtime-only, so `mapError` is not available in const
 evaluation.
-
-Automatic `IntoError` conversion is currently a runtime-only propagation
-feature. Const evaluation rejects it even when the selected method is declared
-`const fn`; exact-type optional and error propagation remain available in const
-code.
 
 Patterns can destructure optional and error-union values:
 

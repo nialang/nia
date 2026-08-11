@@ -6,7 +6,7 @@ using pkg::os;
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
 
 extend os::Error : error::IntoError[Error] {
-    fn into_error(self) Error {
+    const fn into_error(self) Error {
         switch self {
             os::Error::PermissionDenied => Error::PermissionDenied,
             os::Error::NotFound => Error::NotFound,

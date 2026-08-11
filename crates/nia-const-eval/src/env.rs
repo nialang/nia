@@ -399,6 +399,22 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    fn prepare_resolved_try(
+        &mut self,
+        _span: Span,
+        _expr: &ResolvedConstExpr,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn convert_resolved_try_error(
+        &mut self,
+        _span: Span,
+        value: ConstValue,
+    ) -> Result<ConstValue, ConstError> {
+        Ok(value)
+    }
+
     fn build_resolved_aggregate(
         &mut self,
         _span: Span,

@@ -1878,3 +1878,41 @@ fn main() i32 { 0 }
         );
     }
 }
+
+#[test]
+fn unused_const_function_rejects_runtime_into_error_witness() {
+    let root = temp_dir("unused_const_function_rejects_runtime_into_error_witness");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+struct SourceError {}
+struct TargetError {}
+
+extend SourceError : IntoError[TargetError] {
+    fn into_error(self) TargetError {
+        {}
+    }
+}
+
+const fn propagate(value: SourceError!usize) TargetError!usize {
+    !(value.?)
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("requires `into_error` to be declared `const fn`")),
+        "{:?}",
+        program.diagnostics
+    );
+}

@@ -6,7 +6,7 @@ use crate::{
     },
     support::{
         cast_const_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
-        is_float_primitive, primitive_integer_layout, validate_assignment_shape,
+        enum_next_value, is_float_primitive, primitive_integer_layout, validate_assignment_shape,
     },
 };
 use nia_const_eval::{
@@ -137,6 +137,13 @@ impl ConstCommonEnv for Analyzer<'_> {
         let ty = self.substitute_ty_generics(ty);
         let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
             return Ok(value);
+        };
+        let value = match value {
+            ConstValue::Enum {
+                variant,
+                payload: nia_const_eval::ConstEnumPayload::Unit,
+            } => ConstValue::Int(self.const_enum_variant_integer_value(span, variant)?),
+            value => value,
         };
         let value = match value {
             ConstValue::Int(value) => {
@@ -389,6 +396,64 @@ impl ConstCommonEnv for Analyzer<'_> {
     }
 }
 
+impl Analyzer<'_> {
+    fn const_enum_variant_integer_value(
+        &mut self,
+        span: Span,
+        variant_id: GlobalDefId,
+    ) -> Result<IntConst, ConstError> {
+        if variant_id.module_id == self.input.defs.module_id
+            && let Some(ConstValue::Int(value)) = self.enum_values.get(&variant_id.def_id)
+        {
+            return Ok(*value);
+        }
+        let enums = if variant_id.module_id == self.input.defs.module_id {
+            self.input.module.enums().to_vec()
+        } else {
+            let module = self
+                .input
+                .program
+                .module
+                .and_then(|query| query(variant_id.module_id))
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: "const enum module is unavailable during cast".to_string(),
+                })?;
+            module.enums().to_vec()
+        };
+        let item_enum = enums
+            .into_iter()
+            .find(|item_enum| {
+                item_enum
+                    .variants()
+                    .iter()
+                    .any(|variant| variant.def_id() == variant_id)
+            })
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const enum variant is unavailable during cast".to_string(),
+            })?;
+        let mut next_value = IntConst::from_i128(0);
+        for variant in item_enum.variants() {
+            let value = if let Some(expr) = variant.value() {
+                self.with_execution_module(variant_id.module_id, |this| {
+                    nia_const_eval::eval_resolved_const_int_expr(expr, this)
+                })?
+            } else {
+                next_value
+            };
+            if variant.def_id() == variant_id {
+                return Ok(value);
+            }
+            next_value = enum_next_value(value);
+        }
+        Err(ConstError {
+            span,
+            message: "const enum variant is unavailable during cast".to_string(),
+        })
+    }
+}
+
 pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
     let path = Path::new(path);
     if path.is_absolute() {
@@ -496,6 +561,32 @@ impl ResolvedConstEnv for Analyzer<'_> {
             self.check_resolved_const_assignment(assign.rhs().span(), assign);
         }
         Ok(())
+    }
+
+    fn prepare_resolved_try(
+        &mut self,
+        span: Span,
+        expr: &ResolvedConstExpr,
+    ) -> Result<(), ConstError> {
+        if let Some(inner_ty) = self.resolved_const_arg_runtime_type(expr, None) {
+            self.prepare_resolved_const_try_error_conversion(span, inner_ty);
+        }
+        Ok(())
+    }
+
+    fn convert_resolved_try_error(
+        &mut self,
+        span: Span,
+        value: ConstValue,
+    ) -> Result<ConstValue, ConstError> {
+        let Some(callee) = self
+            .active_execution_frames()
+            .find_map(|frame| frame.try_error_conversions.get(&span).cloned())
+        else {
+            return Ok(value);
+        };
+        self.eval_selected_const_method(span, callee, vec![value])
+            .map(|output| output.value)
     }
 
     fn build_resolved_aggregate(

@@ -99,6 +99,12 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::FunctionPointer => {
                     "indirect function calls are not available during const evaluation".to_string()
                 }
+                ResolvedCall::TraitMethod { method_name, .. }
+                    if *method_name == nia_symbol::known::INTO_ERROR =>
+                {
+                    "automatic `IntoError` conversion during const evaluation requires `into_error` to be declared `const fn`"
+                        .to_string()
+                }
                 _ => "const expression can only call `const fn`".to_string(),
             };
             self.diagnostics

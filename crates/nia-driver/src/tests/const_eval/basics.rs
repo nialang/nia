@@ -849,3 +849,109 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn const_function_try_converts_errors_through_const_into_error() {
+    let root = temp_dir("const_function_try_converts_errors_through_const_into_error");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait IntoError[Target] {
+    const fn into_error(self) Target;
+}
+
+enum SourceError: i32 {
+    Failed = 1,
+    _,
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    Unknown = 3,
+    _,
+}
+
+extend SourceError : IntoError[TargetError] {
+    const fn into_error(self) TargetError {
+        switch self {
+            SourceError::Failed => TargetError::Converted,
+            _ => TargetError::Unknown,
+        }
+    }
+}
+
+const fn propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize) {
+    !(value.?)
+}
+
+const success: TargetError!(usize, usize) = propagate(!(2usize, 3usize));
+const failure: TargetError!(usize, usize) = propagate(SourceError::Failed!);
+const successWidth: usize = switch success {
+    !payload => payload.0 + payload.1,
+    cause! => 0,
+};
+const failureWidth: usize = switch failure {
+    !payload => payload.0 + payload.1,
+    cause! => switch cause {
+        TargetError::Converted => 4usize,
+        _ => 0,
+    },
+};
+
+fn main() i32 {
+    let values: [successWidth + failureWidth]i32 = [0; successWidth + failureWidth];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_function_try_instantiates_generic_into_error_witness() {
+    let root = temp_dir("const_function_try_instantiates_generic_into_error_witness");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait IntoError[Target] {
+    const fn into_error(self) Target;
+}
+
+struct SourceError[T] {
+    value: T,
+}
+
+enum TargetError: i32 {
+    Converted = 1,
+    _,
+}
+
+extend[T] SourceError[T] : IntoError[TargetError] {
+    const fn into_error(self) TargetError {
+        TargetError::Converted
+    }
+}
+
+const fn propagate(value: SourceError[i32]!usize) TargetError!usize {
+    !(value.?)
+}
+
+const failure = propagate(SourceError[i32] { value: 7 }!);
+const width: usize = switch failure {
+    !value => value,
+    TargetError::Converted! => 4,
+    cause! => 0,
+};
+
+fn main() i32 {
+    let values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

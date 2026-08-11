@@ -68,30 +68,22 @@ pub enum Error {
 }
 
 extend Error {
-    pub fn asExitCode(self) process::ExitCode {
+    pub const fn asExitCode(self) process::ExitCode {
         switch self {
             Error::UnknownStep => process::exit(2),
-            Error::Invalid { operation, subject } => {
-                _ = operation;
-                _ = subject;
+            Error::Invalid { operation: _, subject: _ } => {
                 process::exit(22)
             },
-            Error::Failure { operation, subject, cause } => {
-                _ = operation;
-                _ = subject;
+            Error::Failure { operation: _, subject: _, cause } => {
                 cause.asExitCode()
             },
-            Error::Internal(operation) => {
-                _ = operation;
+            Error::Internal(_) => {
                 process::exit(255)
             },
-            Error::StepCycle { step, dependency } => {
-                _ = step;
-                _ = dependency;
+            Error::StepCycle { step: _, dependency: _ } => {
                 process::exit(22)
             },
-            Error::StepFailed(step) => {
-                _ = step;
+            Error::StepFailed(_) => {
                 process::exit(1)
             },
             Error::MissingDefaultStep => process::exit(22),
@@ -100,7 +92,7 @@ extend Error {
 }
 
 extend ErrorCause {
-    fn asExitCode(self) process::ExitCode {
+    const fn asExitCode(self) process::ExitCode {
         switch self {
             ErrorCause::Memory(cause) => switch cause {
                 mem::Error::OutOfMemory => process::exit(12),
@@ -116,8 +108,7 @@ extend ErrorCause {
             },
             ErrorCause::FileSystemOperation(cause) => cause.asExitCode(),
             ErrorCause::Process(cause) => cause.asExitCode(),
-            ErrorCause::Exit(cause) => {
-                _ = cause;
+            ErrorCause::Exit(_) => {
                 process::exit(1)
             },
         }
@@ -131,7 +122,7 @@ extend[T] Error!T {
 }
 
 extend Error : error::IntoError[process::ExitCode] {
-    fn into_error(self) process::ExitCode {
+    const fn into_error(self) process::ExitCode {
         self.asExitCode()
     }
 }

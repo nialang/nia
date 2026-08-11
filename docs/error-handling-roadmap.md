@@ -25,9 +25,10 @@ then this file is deleted.
 - Runtime body checking records the conversion as a resolved trait call;
   typed BIR, Function IR, executable reachability, defer ordering, and LLVM
   lowering preserve that failure-edge call.
-- Const checking rejects automatic `IntoError` conversion, including a selected
-  method declared `const fn`. Exact-type optional and error propagation remain
-  available in const code.
+- Const checking accepts automatic `IntoError` conversion only when the selected
+  witness is a `const fn`. The evaluator invokes it on the failure edge and
+  preserves exact-type and optional propagation without a witness. Runtime-only
+  witnesses receive a dedicated const diagnostic.
 - `std::error` currently exposes `IntoError[Target]` and the explicit
   `Source!T::cast_error()` helper. Contextual mappings that add operation/path
   information remain explicit adapters.
@@ -46,20 +47,22 @@ callable signature from a direct `&closure` pointer, so an inline closure's
 explicit return type supplies the target error without a result annotation.
 Runtime conformance proves success bypasses the mapper and failure invokes it
 once; the preserved success payload is a tuple, covering the complete generic
-error-union/callable/tuple lowering path. Const conversion, fallible mapping,
-and richer recovery operations remain undecided and are not silently included
-in this slice.
+error-union/callable/tuple lowering path. The second slice adds const
+`IntoError` propagation, upgrades the standard protocol and existing standard
+witnesses to `const fn`, and proves both tuple-success preservation and
+failure-only conversion through emitted code. Fallible mapping and richer
+recovery operations remain undecided and are not silently included.
 
 ## 2. Decisions And Open Questions
 
 Each selected API has a written decision and a representative source example.
 Open questions block only the behavior they affect.
 
-1. Should automatic `IntoError` conversion become available in const code?
-   The review must define the required const trait-call proof, reject methods
-   that can perform runtime-only work, and specify whether conversion remains
-   one failure-edge call. If the proof is not implementable without a second
-   semantic model, retain the current rejection and improve its diagnostic.
+1. Resolved: automatic `IntoError` conversion is available in const code when
+   the selected witness is a `const fn`. The proof is ordinary unique trait
+   resolution plus the selected function signature's const capability. Runtime
+   and const evaluation both perform one failure-edge call; no runtime-only
+   fallback exists.
 2. The canonical infallible error-mapping API is the error-union method
    `mapError`. It maps only the error arm, preserves the success value,
    evaluates the source once, and borrows its callable for the synchronous call.
@@ -97,11 +100,10 @@ Open questions block only the behavior they affect.
    exact conversion, `IntoError`, and proposed mapping APIs. Record current
    diagnostics and ensure the matrix is independent of std implementation
    details.
-2. If const conversion is accepted, extend const semantic call checking and
-   const IR/evaluation with a failure-edge conversion product. Validate const
-   eligibility, generic substitutions, deterministic diagnostics, and cache
-   fingerprints. Otherwise make the current rejection a durable contract and
-   improve the diagnostic/tests only.
+2. Const conversion is accepted and implemented through const semantic call
+   checking, an invocation-local failure-edge witness, and resolved evaluation.
+   Validate const eligibility, generic substitutions, deterministic diagnostics,
+   and cache fingerprints as additional witnesses are added.
 3. Implement the selected mapping operation at one explicit semantic boundary.
    Lower success and failure paths separately, preserve single evaluation and
    defer order, and carry callable view/owner provenance through BIR, Function
@@ -134,8 +136,8 @@ silently diverge in evaluation count, error-arm selection, or cleanup order.
   callback signature errors.
 - Runtime tests prove success skips conversion, failure converts exactly once,
   the source is evaluated once, and defers run in the specified order.
-- Const tests prove accepted const mappings (if any), reject runtime-only calls,
-  and preserve exact-type propagation. Incremental tests cover the conversion
+- Const tests prove accepted const mappings, reject runtime-only calls, and
+  preserve exact-type propagation. Incremental tests cover the conversion
   witness and mapping callable in fingerprints and invalidation.
 - LLVM/backend validation tests reject malformed failure-edge products and prove
   the converted error reaches the caller in the required ABI representation.

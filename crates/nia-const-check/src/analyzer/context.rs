@@ -635,6 +635,131 @@ impl Analyzer<'_> {
         (candidates.len() == 1).then(|| candidates.remove(0).1)
     }
 
+    pub(super) fn resolved_const_into_error_method(
+        &mut self,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
+    ) -> ResolvedConstCalleeSelection {
+        let execution_module_id = self.current_execution_module_id();
+        let Some(visible_extensions) = self
+            .input
+            .program
+            .visible_extensions
+            .and_then(|query| query(execution_module_id))
+        else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        let witnesses =
+            visible_extensions.all_trait_witnesses_named(&nia_symbol::known::INTO_ERROR);
+        let mut trait_ids = witnesses
+            .iter()
+            .filter_map(|(_, witness)| match witness.trait_id {
+                Some(TraitId::Source(trait_id)) => Some(trait_id),
+                Some(TraitId::Builtin(_)) | None => None,
+            })
+            .filter(|trait_id| {
+                self.global_defs(trait_id.module_id)
+                    .and_then(|defs| defs.as_ref().defs.get(trait_id.def_id).cloned())
+                    .is_some_and(|def| {
+                        def.kind == DefKind::Trait
+                            && def.name == nia_symbol::known::INTO_ERROR_TRAIT
+                    })
+            })
+            .collect::<Vec<_>>();
+        trait_ids.sort_unstable();
+        trait_ids.dedup();
+
+        let mut candidates = Vec::new();
+        for trait_id in trait_ids {
+            let trait_ty = TraitId::Source(trait_id);
+            let resolution = self.resolve_trait_obligation(source_ty, trait_ty, vec![target_ty]);
+            let TraitResolution::User(user_impl) = resolution else {
+                continue;
+            };
+            let Some(solver_module_id) = self.ensure_trait_solver_module(source_ty, &[target_ty])
+            else {
+                continue;
+            };
+            let Some(impl_signature) = self
+                .trait_impls_for_solver_module(solver_module_id)
+                .get(user_impl.impl_index)
+                .cloned()
+            else {
+                continue;
+            };
+            if impl_signature.trait_id != trait_ty {
+                continue;
+            }
+            let Some((_, witness)) = witnesses.iter().find(|(_, witness)| {
+                witness.def_id.module_id == impl_signature.module_id
+                    && witness.impl_id == impl_signature.impl_id
+                    && witness.trait_id == Some(trait_ty)
+            }) else {
+                continue;
+            };
+            if witness.trait_args.len() != 1 {
+                continue;
+            }
+            let function_id = witness.def_id;
+            let Some(signature) = self
+                .function_signatures_for_module(function_id.module_id)
+                .and_then(|signatures| {
+                    signatures
+                        .as_ref()
+                        .functions
+                        .get(&function_id.def_id)
+                        .cloned()
+                })
+            else {
+                continue;
+            };
+            if signature.params.len() != 1
+                || signature.params[0].receiver != Some(nia_ids::ReceiverKind::Value)
+                || signature.is_variadic
+            {
+                continue;
+            }
+            let instantiation = ConstGenericInstantiation {
+                type_substitutions: user_impl.substitutions,
+                const_substitutions: user_impl.const_substitutions,
+            };
+            let Some(witness_target_ty) = self.const_expected_param_type(
+                function_id.module_id,
+                witness.trait_args[0],
+                &instantiation.type_substitutions,
+                &instantiation.const_substitutions,
+            ) else {
+                continue;
+            };
+            let Some(return_ty) = self.const_expected_param_type(
+                function_id.module_id,
+                signature.return_type,
+                &instantiation.type_substitutions,
+                &instantiation.const_substitutions,
+            ) else {
+                continue;
+            };
+            let witness_target_ty = self.normalize_projection(witness_target_ty);
+            let return_ty = self.normalize_projection(return_ty);
+            if !self.const_function_types_match(witness_target_ty, target_ty)
+                || !self.const_function_types_match(return_ty, target_ty)
+            {
+                continue;
+            }
+            candidates.push(ResolvedConstCallee {
+                function_id,
+                receiver: None,
+                target_instantiation: instantiation,
+            });
+        }
+
+        match candidates.len() {
+            0 => ResolvedConstCalleeSelection::NoMatch,
+            1 => ResolvedConstCalleeSelection::Unique(candidates.remove(0)),
+            _ => ResolvedConstCalleeSelection::Ambiguous,
+        }
+    }
+
     pub(super) fn resolved_const_enum_variant(
         &self,
         expr: &ResolvedConstExpr,

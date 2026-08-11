@@ -881,18 +881,11 @@ impl<'a> BodyChecker<'a> {
                         if !self.types_match(error, return_error) {
                             match self.resolve_into_error_conversion(span, error, return_error) {
                                 Ok(Some(conversion)) => {
-                                    if self.body_filter.checks_const_declarations() {
-                                        self.reject_const_operation(
-                                            span,
-                                            "automatic `IntoError` conversion is not available during const evaluation",
-                                        );
-                                    } else {
-                                        self.record_resolved_node_call(
-                                            span,
-                                            &expr.node_key,
-                                            conversion,
-                                        );
-                                    }
+                                    self.record_resolved_node_call(
+                                        span,
+                                        &expr.node_key,
+                                        conversion,
+                                    );
                                 }
                                 Ok(None) => {
                                     self.diagnostics.push(Diagnostic::user_error_at(
