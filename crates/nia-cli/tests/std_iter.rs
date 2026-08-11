@@ -91,3 +91,56 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_iterator_position_consumes_items_with_borrowed_predicate() {
+    let root = temp_dir("emit_exe_std_iterator_position_consumes_items_with_borrowed_predicate");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let target = 4;
+    let index = (1..6).iter().position(&[target](value: i32) bool {
+        value == target
+    });
+    switch index {
+        ?found => if found != 3 {
+            return process::exit(1)!;
+        },
+        null => return process::exit(2)!,
+    }
+    let missing = (1..4).iter().position(&[](value: i32) bool {
+        value == 9
+    });
+    switch missing {
+        ?_ => return process::exit(3)!,
+        null => {},
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std iterator position");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

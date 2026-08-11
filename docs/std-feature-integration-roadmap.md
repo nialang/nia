@@ -49,6 +49,9 @@ recover or replace a failure while tuple success values remain unchanged.
 The iterator slice now adds eager `Iterator::fold`, whose callback is borrowed
 only for the fold invocation and whose accumulator is owned by the operation;
 capturing callbacks do not escape into a lazy adapter.
+It also adds eager `Iterator::position`, which consumes each item through a
+borrowed predicate and returns only a positional index, so it never needs to
+retain an item or callback.
 
 ## 2. Candidate API Families
 
