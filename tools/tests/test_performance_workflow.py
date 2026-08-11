@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "performance.yml"
 
 
@@ -12,6 +12,9 @@ class PerformanceWorkflowTests(unittest.TestCase):
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
 
     def test_runs_complete_controlled_runner_baseline(self):
+        self.assertIn("python3 -m tools check", self.workflow)
+        self.assertIn("python3 -m tools baseline compiler", self.workflow)
+        self.assertIn("python3 -m tools baseline compare", self.workflow)
         self.assertIn("--repeat 3", self.workflow)
         self.assertIn(
             "--runner-class github-hosted-ubuntu-24.04-x64", self.workflow
@@ -48,11 +51,15 @@ class PerformanceWorkflowTests(unittest.TestCase):
     def test_uses_current_official_action_runtimes(self):
         for action in [
             "actions/checkout@v7",
+            "actions/setup-python@v6",
             "actions/cache@v6",
             "actions/upload-artifact@v7",
         ]:
             self.assertIn(action, self.workflow)
         self.assertNotIn("@v4", self.workflow)
+
+    def test_installs_repository_python_version(self):
+        self.assertIn('python-version-file: ".python-version"', self.workflow)
 
     def test_publishes_baseline_provenance_in_step_summary(self):
         self.assertIn("BASELINE_RUN_ID", self.workflow)

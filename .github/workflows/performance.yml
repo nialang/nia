@@ -40,6 +40,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install maintenance Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
@@ -77,12 +82,8 @@ jobs:
           restore-keys: |
             nia-perf-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Test performance tooling
-        run: |
-          python3 -m unittest \
-            tools.test_perf \
-            tools.test_perf_compare \
-            tools.test_performance_workflow
+      - name: Check maintenance tooling
+        run: python3 -m tools check
 
       - name: Download latest completed main baseline
         id: main_baseline
@@ -131,7 +132,7 @@ jobs:
         run: |
           mkdir -p target/nia-perf
           set -o pipefail
-          python3 tools/perf.py \
+          python3 -m tools baseline compiler \
             --repeat 3 \
             --runner-class github-hosted-ubuntu-24.04-x64 \
             --output target/nia-perf/candidate.json \
@@ -141,7 +142,7 @@ jobs:
         if: steps.main_baseline.outputs.available == 'true'
         run: |
           set +e
-          python3 tools/perf_compare.py \
+          python3 -m tools baseline compare \
             "${{ steps.main_baseline.outputs.path }}" \
             target/nia-perf/candidate.json \
             > target/nia-perf/comparison.json

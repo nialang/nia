@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.compatibility_audit import (
+from tools.nia_tools.audit.compatibility import (
     fingerprint_domain_errors,
     global_identity_errors,
     release_version_errors,

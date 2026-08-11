@@ -1,6 +1,6 @@
 import unittest
 
-from tools.perf_compare import compare_baselines
+from tools.nia_tools.baseline.compare import compare_baselines
 
 
 def result(name, wall, rss, queries, allocations):

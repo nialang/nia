@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from tools.perf import (
+from tools.nia_tools.baseline.compiler import (
     large_codegen_source,
     machine_metadata,
     require_allocation_instrumentation,

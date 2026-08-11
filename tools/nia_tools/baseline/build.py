@@ -13,16 +13,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-try:
-    from tools.perf import machine_metadata
-except ModuleNotFoundError:
-    from perf import machine_metadata
+from tools.nia_tools.baseline.compiler import machine_metadata
+from tools.nia_tools.repository import REPOSITORY_ROOT
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 DEFAULT_NIA = ROOT / "target" / "release" / "nia"
 DEFAULT_RESOURCE_ROOT = ROOT / "lib"
 DEFAULT_FIXTURE = ROOT / "benchmarks" / "build" / "representative"
@@ -558,8 +557,10 @@ def run_workload(
         raise
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python3 -m tools baseline build", description=__doc__
+    )
     parser.add_argument("--nia", type=Path, default=DEFAULT_NIA)
     parser.add_argument("--resource-root", type=Path, default=DEFAULT_RESOURCE_ROOT)
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
@@ -567,11 +568,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--keep-workspace", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(arguments)
 
 
-def main() -> int:
-    args = parse_args()
+def main(arguments: Sequence[str] | None = None) -> int:
+    args = parse_args(arguments)
     nia = args.nia.resolve()
     resource_root = args.resource_root.resolve()
     fixture = args.fixture.resolve()

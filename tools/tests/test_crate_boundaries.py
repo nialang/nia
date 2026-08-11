@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.crate_boundaries import rust_source_metrics, workspace_boundaries
+from tools.nia_tools.report.crate_boundaries import rust_source_metrics, workspace_boundaries
 
 
 class CrateBoundaryTests(unittest.TestCase):

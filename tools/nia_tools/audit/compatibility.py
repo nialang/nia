@@ -8,10 +8,12 @@ import ast
 import os
 import re
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
 
+from tools.nia_tools.repository import REPOSITORY_ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 REGISTRY = Path("crates/nia-compat/src/lib.rs")
 DOMAIN_IDENTITY = (
     r"nia\.[a-z0-9]+(?:-[a-z0-9]+)*"
@@ -214,14 +216,16 @@ def audit(root: Path = ROOT) -> list[str]:
     ]
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python3 -m tools audit compatibility", description=__doc__
+    )
     parser.add_argument("--root", type=Path, default=ROOT)
-    return parser.parse_args()
+    return parser.parse_args(arguments)
 
 
-def main() -> int:
-    errors = audit(parse_args().root.resolve())
+def main(arguments: Sequence[str] | None = None) -> int:
+    errors = audit(parse_args(arguments).root.resolve())
     if errors:
         raise SystemExit("compatibility audit failed:\n" + "\n".join(errors))
     return 0

@@ -4,7 +4,7 @@ Nia keeps a fixed workload suite for architecture and performance changes. Run
 the complete baseline from the repository root with:
 
 ```sh
-python3 tools/perf.py
+python3 -m tools baseline compiler
 ```
 
 The runner builds the release compiler once with the dedicated `perf-alloc`
@@ -15,15 +15,15 @@ release binary accidentally finding an installed-layout sibling. The compiler,
 resource root, output path, and repeat count are explicit options:
 
 ```sh
-python3 tools/perf.py --resource-root lib --repeat 3 \
+python3 -m tools baseline compiler --resource-root lib --repeat 3 \
   --output target/nia-perf/before.json
-python3 tools/perf.py --no-build --workload traits --workload const_eval
+python3 -m tools baseline compiler --no-build --workload traits --workload const_eval
 ```
 
 Controlled CI runners may additionally attach an explicit comparison identity:
 
 ```sh
-python3 tools/perf.py --repeat 3 \
+python3 -m tools baseline compiler --repeat 3 \
   --runner-class github-hosted-ubuntu-24.04-x64
 ```
 
@@ -73,8 +73,8 @@ native libraries, so maximum RSS remains the whole-process measure.
 thread while owned query values are cloned, so heap-owned vectors and maps are
 counted without treating their shallow `size_of` as deep size.
 
-`tools/perf.py` selects the feature automatically. When `--no-build` or a
-custom `--compiler` is used, the runner rejects a timing report without
+The compiler baseline command selects the feature automatically. When
+`--no-build` or a custom `--compiler` is used, the runner rejects a timing report without
 allocation counters. To build that binary manually:
 
 ```sh
@@ -135,10 +135,10 @@ Collect before and after results on the same machine or controlled runner, then
 compare their per-workload medians:
 
 ```sh
-python3 tools/perf.py --repeat 3 --output target/nia-perf/before.json
+python3 -m tools baseline compiler --repeat 3 --output target/nia-perf/before.json
 # build or select the candidate compiler
-python3 tools/perf.py --repeat 3 --output target/nia-perf/after.json
-python3 tools/perf_compare.py \
+python3 -m tools baseline compiler --repeat 3 --output target/nia-perf/after.json
+python3 -m tools baseline compare \
   target/nia-perf/before.json target/nia-perf/after.json
 ```
 

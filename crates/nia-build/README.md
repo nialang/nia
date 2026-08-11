@@ -102,8 +102,9 @@ the repository's resource-accounted harness and bounded process-tree cleanup.
 The principal end-to-end contracts live in
 [`nia-cli/tests/build_cases.rs`](../nia-cli/tests/build_cases.rs); the
 representative clean/warm/edit/corruption workload lives under
-[`benchmarks/build/`](../../benchmarks/build/) and
-[`tools/build_baseline.py`](../../tools/build_baseline.py).
+[`benchmarks/build/`](../../benchmarks/build/) and is run through
+`python3 -m tools baseline build`. The maintenance command is documented in
+[`tools/README.md`](../../tools/README.md).
 
 Historical migration matrices, dated measurements, and hosted-run identifiers
 belong in Git history and generated evidence, not in this maintained contract.

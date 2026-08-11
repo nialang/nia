@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from tools.build_baseline import (
+from tools.nia_tools.baseline.build import (
     BUILD_STAGE_NAMES,
     build_command,
     corrupt_action_cache,
