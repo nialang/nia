@@ -1,3 +1,8 @@
+// Borrowed slice operations and iterators.
+//
+// Slice adapters never own or extend the lifetime of their backing storage.
+// Allocator-taking operations return independent owned results.
+
 using pkg::cmp;
 using pkg::iter;
 using pkg::iter::range;

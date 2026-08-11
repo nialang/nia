@@ -85,7 +85,9 @@ pub struct RelativePathView {
     path: PathView,
 }
 
-pub struct PathBuf {
+// Path owns allocator-backed scalar text. PathView is its borrowed counterpart.
+// Construction, mutation, and deinit keep allocator provenance explicit.
+pub struct Path {
     text: string::String,
 }
 

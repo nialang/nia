@@ -1,3 +1,8 @@
+// Iterator adapters and eager callback consumers.
+//
+// `forEach`, `fold`, `tryFold`, and `position` borrow callbacks only for the
+// active call. Lazy adapters own their iterator state but no borrowed callback.
+
 pub(pkg) module range;
 
 using pkg::iter::range;

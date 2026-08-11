@@ -277,8 +277,8 @@ with the fallible `std::debug::print(...).?` boundary, and
   ownership, build/std entry points, tests, and common change paths.
 - [docs/build-system.md](docs/build-system.md): build ownership, plan/action
   contracts, acceptance evidence, and resource discipline.
-- [docs/standard-library.md](docs/standard-library.md): std layering,
-  build-host dependency audit, and API maturity rules.
+- [lib/README.md](lib/README.md): standard-library facade, ownership, error,
+  callback, and conformance boundaries.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
   discipline, acceptance rules, and roadmap-retirement policy.
 - [docs/platform-support.md](docs/platform-support.md): current platform

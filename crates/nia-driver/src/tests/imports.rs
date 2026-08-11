@@ -1020,7 +1020,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let pathText = string::String::fromSlice(allocator, &"workflow-λ.txt").exit().?;
-    let mut path = fs::PathBuf::fromString(pathText);
+    let mut path = fs::Path::fromString(pathText);
     defer path.deinit(allocator).exit().?;
 
     let mut file = fs::File::create(path.view(), fs::CreateOptions::init()).exit().?;
@@ -1050,7 +1050,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     write(
         &narrow_path,
         r#"
-using std::{PathBuf, PathView, String};
+using std::{Path, PathView, String};
 using std::fmt::Format;
 using std::fs::{CreateOptions, File};
 using std::io::{FileWriter, Writer};
@@ -1084,7 +1084,7 @@ pub fn main(init: Init) ExitCode!() {
     }
 
     let pathText = String::fromSlice(allocator, &"workflow-λ.txt").exit().?;
-    let mut path = PathBuf::fromString(pathText);
+    let mut path = Path::fromString(pathText);
     defer path.deinit(allocator).exit().?;
 
     let mut file = File::create(path.view(), CreateOptions::init()).exit().?;

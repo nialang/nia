@@ -3701,7 +3701,7 @@ A conforming Nia compiler supports:
 
 Borrowed scalar text uses the language-native `&[char]` representation.
 `std::fs::PathView` remains a nominal borrowed path over `&[char]`, while
-`std::String` and `std::fs::PathBuf` own caller-allocated storage.
+`std::String` and `std::fs::Path` own caller-allocated storage.
 `String` is the sole public owned/mutable scalar-text type; `StringBuf` is not a
 compatibility alias. `String::fromSlice(allocator, text)` copies borrowed scalar
 text, and `text()` returns its canonical read-only `&[char]` view.
@@ -3737,16 +3737,16 @@ index zero, and these operations are allocation-free.
 `Eq[String]`, so equal owned text has equal hash output.
 `String::fromOwnedSlice` adopts an allocator-owned scalar slice without
 changing its allocator provenance, and `intoOwnedSlice(allocator)` transfers
-the exact initialized allocation out while emptying the string. `PathBuf` does
-not repeat that low-level adoption boundary: `PathBuf::fromString` transfers an
+the exact initialized allocation out while emptying the string. `Path` does
+not repeat that low-level adoption boundary: `Path::fromString` transfers an
 owned string, while `fromView` and `fromUtf8` allocate and copy.
-`PathBuf::fromView(allocator, path)` copies a borrowed path and reports
-`mem::Error`; `PathBuf::fromUtf8(allocator, bytes)` preserves `TextError` rather
+`Path::fromView(allocator, path)` copies a borrowed path and reports
+`mem::Error`; `Path::fromUtf8(allocator, bytes)` preserves `TextError` rather
 than collapsing decoding and allocation failures into filesystem errors.
 `joinComponent(allocator, text)` reserves the complete mutation before changing
-visible text, so allocation failure preserves the original path. Pure PathBuf
+visible text, so allocation failure preserves the original path. Pure Path
 construction, mutation, and release report `mem::Error`.
-`PathView::encode(storage)` and `PathBuf::encode(storage)` are the checked
+`PathView::encode(storage)` and `Path::encode(storage)` are the checked
 scalar-to-native-byte conversion operations. They return
 `PathError::ContainsNul` for an embedded NUL and `PathError::TooLong` when the
 caller's storage cannot contain the encoded bytes plus its terminator.

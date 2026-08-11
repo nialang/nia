@@ -1,3 +1,9 @@
+// Typed error conversion and recovery operations.
+//
+// `IntoError` is an infallible cause-preserving conversion used by `.?`.
+// `mapError` and `orElse` evaluate the receiver once and borrow their callback
+// only for the active call; contextual domain information remains explicit.
+
 pub trait IntoError[Target] {
     const fn into_error(self) Target;
 }

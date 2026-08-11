@@ -1,3 +1,8 @@
+// Allocator-explicit owned collections and their borrowed iterators.
+//
+// Collection values remain cheap to move and do not store an allocator. Calls
+// that grow, clone, transfer, or release storage state that boundary directly.
+
 pub(pkg) module array_list;
 pub(pkg) module hash_map;
 

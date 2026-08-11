@@ -98,21 +98,21 @@ extend BuildPaths {
         toolchainResourceRoot: fs::PathView,
     ) Error!BuildPaths {
         let mut paths: BuildPaths = {
-            packageRoot: fs::PathBuf::init(),
-            buildDir: fs::PathBuf::init(),
-            cacheDir: fs::PathBuf::init(),
-            toolchainExecutable: fs::PathBuf::init(),
-            toolchainResourceRoot: fs::PathBuf::init(),
+            packageRoot: fs::Path::init(),
+            buildDir: fs::Path::init(),
+            cacheDir: fs::Path::init(),
+            toolchainExecutable: fs::Path::init(),
+            toolchainResourceRoot: fs::Path::init(),
         };
         let mut transferred = false;
         defer if not transferred {
             paths.deinit(allocator).?;
         };
-        paths.packageRoot = fs::PathBuf::fromView(allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
-        paths.buildDir = fs::PathBuf::fromView(allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
-        paths.cacheDir = fs::PathBuf::fromView(allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
-        paths.toolchainExecutable = fs::PathBuf::fromView(allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
-        paths.toolchainResourceRoot = fs::PathBuf::fromView(allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
+        paths.packageRoot = fs::Path::fromView(allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
+        paths.buildDir = fs::Path::fromView(allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
+        paths.cacheDir = fs::Path::fromView(allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
+        paths.toolchainExecutable = fs::Path::fromView(allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
+        paths.toolchainResourceRoot = fs::Path::fromView(allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
         transferred = true;
         !paths
     }
@@ -1934,7 +1934,7 @@ extend ExternalCommandStep {
         let mut command: ExternalCommandStep = {
             program: string::String::init(),
             arguments: collections::ArrayList[OwnedCommandArgument]::init(),
-            workingDirectory: fs::PathBuf::init(),
+            workingDirectory: fs::Path::init(),
             resourceClass: options.resourceClass,
             environmentPolicy: options.environmentPolicy,
             cachePolicy: options.cachePolicy,
@@ -1948,7 +1948,7 @@ extend ExternalCommandStep {
             allocator,
             options.program,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        command.workingDirectory = fs::PathBuf::fromView(
+        command.workingDirectory = fs::Path::fromView(
             allocator,
             options.workingDirectory,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
@@ -2318,14 +2318,14 @@ extend Package {
         let mut package: Package = {
             index: index,
             name: string::String::init(),
-            root: fs::PathBuf::init(),
+            root: fs::Path::init(),
         };
         let mut transferred = false;
         defer if not transferred {
             package.deinit(allocator).?;
         };
         package.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Package(index)).?;
-        package.root = fs::PathBuf::fromView(allocator, options.root).asBuildError(Operation::Retain, Subject::Package(index)).?;
+        package.root = fs::Path::fromView(allocator, options.root).asBuildError(Operation::Retain, Subject::Package(index)).?;
         transferred = true;
         !package
     }
@@ -2354,7 +2354,7 @@ extend Module {
                 ?package => package,
                 null => PackageHandle::init(ownerId, 0),
             },
-            rootSource: fs::PathBuf::init(),
+            rootSource: fs::Path::init(),
             optimization: optimization,
             imports: collections::ArrayList[OwnedModuleImport]::init(),
         };
@@ -2363,7 +2363,7 @@ extend Module {
             moduleRecord.deinit(allocator).?;
         };
         moduleRecord.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
-        moduleRecord.rootSource = fs::PathBuf::fromView(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
+        moduleRecord.rootSource = fs::Path::fromView(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
         moduleRecord.imports = cloneModuleImports(allocator, options.imports, ownerId).?;
         transferred = true;
         !moduleRecord
@@ -2431,14 +2431,14 @@ extend OwnedModuleImport {
                 ?package => package,
                 null => PackageHandle::init(ownerId, 0),
             },
-            path: fs::PathBuf::init(),
+            path: fs::Path::init(),
         };
         let mut transferred = false;
         defer if not transferred {
             owned.deinit(allocator).?;
         };
         owned.name = string::String::fromSlice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
-        owned.path = fs::PathBuf::fromView(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
+        owned.path = fs::Path::fromView(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
         transferred = true;
         !owned
     }

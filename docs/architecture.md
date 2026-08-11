@@ -2171,8 +2171,8 @@ product rather than a module list. Each entry keeps its stable
 `CodegenUnitKey`, content `CodegenUnitFingerprint`, and object payload together;
 the collection constructor rejects duplicate or descending keys, so ordering is
 part of the typed contract instead of linker policy. The Driver may change only
-the payload representation while writing objects, producing
-`IncrementalLinkInputs<PathBuf>` with the same key and fingerprint. The linker
+the payload representation while writing objects, producing the same keyed and
+fingerprinted `IncrementalLinkInputs<std::path::PathBuf>` product. The linker
 accepts that typed collection directly and emits object arguments in its
 existing order. It has no plain path-list entry point, no key recovery from file
 names, and no secondary ordering truth source.
@@ -2373,7 +2373,7 @@ arguments. `CommandArgument::artifactInput(executable)` gives an ordinary
 external command a declared Artifact-root input and the same automatic producer
 edge; foreign handles and executables without an emit step are rejected. The
 options and `ModuleImport` values are borrowed call descriptors.
-Every value retained by `Build` is copied into `String`, `PathBuf`, an owned
+Every value retained by `Build` is copied into `String`, `Path`, an owned
 argument list, or an owned import record before the call returns. Fallible
 ownership transfer uses conditional `defer` rollback; deep records are released
 in reverse order, all cleanup is attempted, and the first cleanup error is
@@ -2418,12 +2418,12 @@ than mutating an accepted record. Inherited and uncacheable commands remain on
 the ordinary execution path and cannot report cache hits.
 
 Borrowed scalar text uses `&[char]` directly. `fs::PathView` adds nominal path
-semantics over borrowed scalar text, while `std::String` and `fs::PathBuf`
+semantics over borrowed scalar text, while `std::String` and `fs::Path`
 own caller-allocated storage.
-`PathBuf::fromUtf8` preserves typed text decoding failures, and pure owned path
-operations report allocator failures directly. `PathBuf::joinComponent` is the
+`Path::fromUtf8` preserves typed text decoding failures, and pure owned path
+operations report allocator failures directly. `Path::joinComponent` is the
 single component-join operation; it reserves the full append before changing
-visible path text. `PathView::encode` and `PathBuf::encode` are the checked
+visible path text. `PathView::encode` and `Path::encode` are the checked
 scalar-to-native-byte boundary. Together with checked
 `NativePathView::fromBytes`, they are the only constructors of the borrowed
 native representation. Path-taking filesystem calls preserve both their

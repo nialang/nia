@@ -103,7 +103,7 @@ pub struct PackageOptions {
 pub(pkg) struct Package {
     index: usize,
     name: string::String,
-    root: fs::PathBuf,
+    root: fs::Path,
 }
 
 pub struct AggregateStep {
@@ -229,7 +229,7 @@ pub(pkg) struct OwnedCommandEnvironmentInput {
 pub struct ExternalCommandStep {
     program: string::String,
     arguments: collections::ArrayList[OwnedCommandArgument],
-    workingDirectory: fs::PathBuf,
+    workingDirectory: fs::Path,
     resourceClass: ActionResourceClass,
     environmentPolicy: CommandEnvironmentPolicy,
     cachePolicy: CommandCachePolicy,
@@ -275,7 +275,7 @@ pub struct Module {
     name: string::String,
     sourceRoot: ModuleSourceRoot,
     package: PackageHandle,
-    rootSource: fs::PathBuf,
+    rootSource: fs::Path,
     optimization: OptimizationMode,
     imports: collections::ArrayList[OwnedModuleImport],
 }
@@ -292,7 +292,7 @@ pub struct OwnedModuleImport {
     name: string::String,
     sourceRoot: ModuleSourceRoot,
     package: PackageHandle,
-    path: fs::PathBuf,
+    path: fs::Path,
 }
 
 pub struct ExecutableOptions {
@@ -343,11 +343,11 @@ pub struct StaticArchiveTarget {
 }
 
 pub struct BuildPaths {
-    packageRoot: fs::PathBuf,
-    buildDir: fs::PathBuf,
-    cacheDir: fs::PathBuf,
-    toolchainExecutable: fs::PathBuf,
-    toolchainResourceRoot: fs::PathBuf,
+    packageRoot: fs::Path,
+    buildDir: fs::Path,
+    cacheDir: fs::Path,
+    toolchainExecutable: fs::Path,
+    toolchainResourceRoot: fs::Path,
 }
 
 pub struct Build {

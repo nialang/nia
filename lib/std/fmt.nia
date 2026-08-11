@@ -1,3 +1,8 @@
+// Formatting traits, template parsing, and checked writer dispatch.
+//
+// Checked formatting preserves writer failures. Unchecked formatting is only
+// for boundaries whose writer contract makes failure impossible or irrelevant.
+
 pub(pkg) module core;
 pub(pkg) module primitive;
 pub(pkg) module template;

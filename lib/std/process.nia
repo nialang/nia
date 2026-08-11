@@ -1,3 +1,9 @@
+// Process startup views, commands, child handles, environment, and exit codes.
+//
+// Command configuration is borrowed until spawn lowers it into invocation-owned
+// native storage. Child streams and handles require explicit close or wait
+// operations, and spawn failures retain their stage and underlying cause.
+
 pub(pkg) module args;
 pub(pkg) module child;
 pub(pkg) module command;
