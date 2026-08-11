@@ -159,6 +159,7 @@ struct EmptySourceError {}
 struct EmptyTargetError {}
 
 static mut conversionCount: i32 = 0;
+static mut sourceCount: i32 = 0;
 
 extend SourceError : error::IntoError[TargetError] {
     fn into_error(self) TargetError {
@@ -197,6 +198,7 @@ fn propagateEmpty() EmptyTargetError!() {
 }
 
 fn source(succeed: bool) SourceError!i32 {
+    sourceCount += 1;
     if succeed {
         !41
     } else {
@@ -226,6 +228,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if conversionCount != 0 {
         return process::exit(5)!;
     }
+    if sourceCount != 1 {
+        return process::exit(12)!;
+    }
     switch propagate[SourceError, TargetError](source(false)) {
         !value => {
             _ = value;
@@ -239,6 +244,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if conversionCount != 1 {
         return process::exit(6)!;
+    }
+    if sourceCount != 2 {
+        return process::exit(13)!;
     }
     conversionCount = 0;
     switch propagateWithDefer() {

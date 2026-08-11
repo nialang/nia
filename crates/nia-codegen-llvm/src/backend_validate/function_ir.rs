@@ -3,7 +3,7 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
     FunctionExprKind, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
-    FunctionTerminator, validate_function_body,
+    FunctionTerminator, FunctionTryKind, validate_function_body,
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
@@ -28,6 +28,7 @@ impl BackendValidator<'_> {
                 .map(|local| (local.id, local.ty))
                 .collect(),
         );
+        self.body_tys.push(body.ty);
         for local in &body.locals {
             self.current_subject = Some("local");
             self.validate_runtime_type(local.ty, local.span);
@@ -39,6 +40,7 @@ impl BackendValidator<'_> {
             }
             self.validate_terminator(&block.terminator);
         }
+        self.body_tys.pop();
         self.local_tys.pop();
     }
 
@@ -91,13 +93,23 @@ impl BackendValidator<'_> {
             }
             FunctionTerminator::Try {
                 value,
+                kind,
                 error_conversion,
+                success_local,
+                span,
                 ..
             } => {
                 self.validate_expr(value);
                 if let Some(conversion) = error_conversion {
                     self.validate_expr(conversion);
                 }
+                self.validate_try_contract(
+                    value,
+                    *kind,
+                    error_conversion.as_ref(),
+                    *success_local,
+                    *span,
+                );
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 nia_function_ir::FunctionForHeader::Infinite => {}
@@ -112,6 +124,85 @@ impl BackendValidator<'_> {
             | FunctionTerminator::Branch { .. }
             | FunctionTerminator::Next { .. } => {}
         }
+    }
+
+    fn validate_try_contract(
+        &mut self,
+        value: &FunctionExpr,
+        kind: FunctionTryKind,
+        error_conversion: Option<&FunctionExpr>,
+        success_local: nia_ids::LocalId,
+        span: Span,
+    ) {
+        let value_kind = self.ty_kind(value.ty).cloned();
+        let (source_error_ty, success_ty) = match (kind, value_kind) {
+            (FunctionTryKind::Optional, Some(TyKind::Optional { elem })) => (None, elem),
+            (FunctionTryKind::ErrorUnion, Some(TyKind::ErrorUnion { error, value })) => {
+                (Some(error), value)
+            }
+            _ => {
+                self.invalid_try(span, "propagation kind does not match its input union type");
+                return;
+            }
+        };
+
+        if let Some(local_ty) = self
+            .local_tys
+            .last()
+            .and_then(|locals| locals.get(&success_local))
+            .copied()
+            && !self.same_type(local_ty, success_ty)
+        {
+            self.invalid_try(
+                span,
+                "propagation success local type does not match the input success payload",
+            );
+        }
+
+        let Some(body_ty) = self.body_tys.last().copied() else {
+            self.invalid_try(span, "propagation is not owned by a function body");
+            return;
+        };
+        match (kind, self.ty_kind(body_ty).cloned()) {
+            (FunctionTryKind::Optional, Some(TyKind::Optional { .. })) => {
+                if error_conversion.is_some() {
+                    self.invalid_try(span, "optional propagation carries an error conversion");
+                }
+            }
+            (
+                FunctionTryKind::ErrorUnion,
+                Some(TyKind::ErrorUnion {
+                    error: target_error_ty,
+                    ..
+                }),
+            ) => {
+                let propagated_error_ty = error_conversion
+                    .map(|conversion| conversion.ty)
+                    .or(source_error_ty);
+                if !propagated_error_ty
+                    .is_some_and(|error_ty| self.same_type(error_ty, target_error_ty))
+                {
+                    let message = if error_conversion.is_some() {
+                        "propagation conversion type does not match the return error payload"
+                    } else {
+                        "direct propagation error type does not match the return error payload"
+                    };
+                    self.invalid_try(span, message);
+                }
+            }
+            _ => self.invalid_try(
+                span,
+                "propagation kind does not match the function return union",
+            ),
+        }
+    }
+
+    fn invalid_try(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR contains invalid propagation: {message}"),
+        ));
     }
 
     fn validate_expr(&mut self, expr: &FunctionExpr) {

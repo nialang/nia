@@ -323,11 +323,15 @@ last `limit` values in reverse order. `Take` does not claim a false
 `DoubleEndedIterator` implementation merely to make `take(...).rev()` type
 check.
 
-`forEach(callback)` is the synchronous callback form for an already-created
-iterator. It consumes the iterator and borrows `&Fn(Item) ()` only for the call;
-it does not retain or allocate callable state. Ordinary control-flow scans still
-prefer direct `for`. Lazy mapping/filtering needs an owned sized callable and is
-not represented by storing this borrowed view.
+`forEach(callback)`, `fold(initial, callback)`, `tryFold(initial, callback)`, and
+`position(predicate)` are synchronous callback operations for an already-created
+iterator. They consume the iterator and borrow their readonly callable only for
+the call; none retains or allocates callable state. `fold` owns its accumulator,
+while `tryFold` returns `Error!Accumulator`, stops at the first callback failure,
+and preserves that concrete error. `position` stops at the first match and
+returns `?usize`. Ordinary control-flow scans still prefer direct `for`. Lazy
+mapping/filtering needs an owned sized callable and is not represented by
+storing one of these borrowed views.
 
 Borrowed `ArrayList` parameters follow the same rule: both `&ArrayList[T]` and
 `&mut ArrayList[T]` are directly iterable and yield `&T`. Mutable element
@@ -614,6 +618,12 @@ explicit domain adapters. Inline closures participate in ordinary generic
 inference through their explicit return type, so a result annotation is not
 required merely to select `Target`.
 
+The retained filesystem, I/O, allocator, and build adapters that convert an
+error union before attaching an operation, path, subject, or cleanup phase are
+part of that contextual boundary, not compatibility aliases. Immediate
+cause-preserving propagation uses direct `.?`; `cast_error()` remains the
+explicit operation when the converted union itself is needed as a value.
+
 The callback view is valid only for the `mapError` call. Lazy std adapters must
 not store this view; an adapter that outlives the call must own a sized callable
 or use the explicit `mem::CallableAllocation` boundary and its sole
@@ -621,12 +631,15 @@ or use the explicit `mem::CallableAllocation` boundary and its sole
 Callable-view calls are currently runtime-only, so `mapError` and `orElse` are
 not const operations.
 
-`std::iter::Iterator::forEach` and `fold` are eager operations with borrowed
-readonly callbacks. `forEach` invokes `Fn(Item) ()`; `fold` invokes
-`Fn(Accumulator, Item) Accumulator` and owns only the accumulator and source
-iterator during the call. Neither operation stores a callable or extends its
-lifetime, so capturing closures are valid while the call is active and lazy
-iterator adapters remain a separate ownership design.
+`std::iter::Iterator::forEach`, `fold`, and `tryFold` are eager operations with
+borrowed readonly callbacks. `forEach` invokes `Fn(Item) ()`; `fold` invokes
+`Fn(Accumulator, Item) Accumulator`; and `tryFold` invokes
+`Fn(Accumulator, Item) Error!Accumulator`. The fold operations own only the
+accumulator and source iterator during the call. `tryFold` returns immediately
+on callback failure without consuming later items and does not convert or erase
+the callback's concrete error. None stores a callable or extends its lifetime,
+so capturing closures are valid while the call is active and lazy iterator
+adapters remain a separate ownership design.
 `Iterator::position` follows the same rule with `Fn(Item) bool` and returns
 `?usize`; it consumes items while returning only the matching index, avoiding
 an ownership promise for the consumed value.

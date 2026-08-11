@@ -54,6 +54,9 @@ The command inserts its path as argv[0] and performs UTF-8/C argv and envp
 lowering only during `spawn` or `run`; ordinary callers do not build
 `CStringView` values or raw pointer arrays. `withoutEnvironment` selects an
 explicitly empty envp.
+`11_iterator_closures.nia` shows eager iterator algorithms with borrowed
+capturing closures, a tuple accumulator, positional lookup, and direct error
+propagation from output.
 
 Run an example from the repository root with:
 
@@ -131,5 +134,7 @@ should receive that same handle.
   formatted output.
 - `10_process_command.nia`: typed child-process paths, scalar arguments and
   exact environment entries, inherited stdio, and termination status handling.
+- `11_iterator_closures.nia`: eager `fold` and `position` callbacks, tuple
+  accumulation, borrowed captures, and direct error propagation.
 - `modules/main.nia`: file modules, aliases, selected `using`, `pub using`, and
   formatted results from imported code.

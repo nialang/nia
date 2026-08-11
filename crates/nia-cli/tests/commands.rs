@@ -123,6 +123,7 @@ fn repository_examples_parse_and_check() {
         "08_general_purpose_allocator.nia",
         "09_hash_map.nia",
         "10_process_command.nia",
+        "11_iterator_closures.nia",
         "modules/main.nia",
     ];
 

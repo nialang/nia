@@ -261,11 +261,18 @@ impl<'a> FunctionIrValidator<'a> {
             }
             FunctionTerminator::Try {
                 value,
+                kind,
                 error_conversion,
                 success_local,
                 ..
             } => {
                 self.validate_value_expr(value)?;
+                if matches!(kind, crate::FunctionTryKind::Optional) && error_conversion.is_some() {
+                    return Err(FunctionIrError::new(
+                        value.span,
+                        "optional propagation cannot carry an error conversion",
+                    ));
+                }
                 if let Some(conversion) = error_conversion {
                     self.validate_value_expr(conversion)?;
                 }
@@ -318,11 +325,18 @@ impl<'a> FunctionIrValidator<'a> {
             }
             FunctionTerminator::Try {
                 value,
+                kind,
                 error_conversion,
                 success_local,
                 ..
             } => {
                 self.validate_value_expr(value)?;
+                if matches!(kind, crate::FunctionTryKind::Optional) && error_conversion.is_some() {
+                    return Err(FunctionIrError::new(
+                        value.span,
+                        "optional propagation cannot carry an error conversion",
+                    ));
+                }
                 if let Some(conversion) = error_conversion {
                     self.validate_value_expr(conversion)?;
                 }

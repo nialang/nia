@@ -1,0 +1,40 @@
+using std::debug;
+using std::fmt;
+using std::process;
+using process::{ExitCode, Init, exit};
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+
+    let offset = 1;
+    // Eager iterator callbacks are borrowed only for this call. A tuple is a
+    // compact accumulator when both positions are local to the calculation.
+    let summary = (1..5).iter().fold(
+        (0, 0),
+        &[offset](state: (i32, i32), value: i32) (i32, i32) {
+            (state.0 + value + offset, state.1 + 1)
+        },
+    );
+    let target = 3;
+    let position = (1..5).iter().position(&[target](value: i32) bool {
+        value == target
+    });
+
+    let found = switch position {
+        ?index => index,
+        null => return exit(1)!,
+    };
+    if summary.0 != 14 or summary.1 != 4 or found != 2 {
+        return exit(2)!;
+    }
+
+    let mut sum = summary.0;
+    let mut count = summary.1;
+    let mut foundIndex = found;
+    debug::print(&"iterator sum={} count={} position={}\n", &[
+        &sum,
+        &count,
+        &foundIndex,
+    ]).?;
+    !()
+}
