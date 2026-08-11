@@ -952,14 +952,20 @@ impl<'a> BodyChecker<'a> {
 
         let mut matches = Vec::new();
         let mut ambiguous = false;
+        let mut has_named_protocol = false;
+        let mut has_valid_protocol = false;
+        let mut has_malformed_protocol = false;
         for trait_id in trait_ids {
             if self.definition_name(trait_id) != Some(known::INTO_ERROR_TRAIT) {
                 continue;
             }
+            has_named_protocol = true;
             let Some(signature) = self.resolved_trait_signature(trait_id) else {
+                has_malformed_protocol = true;
                 continue;
             };
             if signature.generics.len() != 1 {
+                has_malformed_protocol = true;
                 continue;
             }
             let Some(method) = signature
@@ -967,6 +973,7 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .find(|method| method.name == known::INTO_ERROR)
             else {
+                has_malformed_protocol = true;
                 continue;
             };
             if !method.signature.generic_params.is_empty()
@@ -974,8 +981,10 @@ impl<'a> BodyChecker<'a> {
                 || method.signature.params[0].receiver != Some(nia_ids::ReceiverKind::Value)
                 || method.signature.is_variadic
             {
+                has_malformed_protocol = true;
                 continue;
             }
+            has_valid_protocol = true;
             let receiver_kind = nia_ids::ReceiverKind::Value;
             let trait_args = vec![target_ty];
             let (substitutions, const_substitutions) =
@@ -1028,7 +1037,91 @@ impl<'a> BodyChecker<'a> {
             ));
             return Err(());
         }
+        if matches.is_empty() && has_named_protocol && has_malformed_protocol && !has_valid_protocol
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "malformed `IntoError` protocol while propagating `{}` to `{}`: expected `into_error(self) Target`",
+                    self.ty_name(source_ty),
+                    self.ty_name(target_ty)
+                ),
+            ));
+            return Err(());
+        }
+        if matches.is_empty()
+            && has_valid_protocol
+            && self.has_into_error_chain(source_ty, target_ty)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "error propagation does not chain `IntoError` conversions from `{}` to `{}`",
+                    self.ty_name(source_ty),
+                    self.ty_name(target_ty)
+                ),
+            ));
+            return Err(());
+        }
         Ok(matches.pop())
+    }
+
+    fn has_into_error_chain(&mut self, source_ty: InternedTyId, target_ty: InternedTyId) -> bool {
+        let mut trait_ids = self
+            .program_signature_scope
+            .trait_ids_with_method_named(&known::INTO_ERROR);
+        if let Some(def_id) = self.defs.module_scope.types.get(&known::INTO_ERROR_TRAIT)
+            && self
+                .defs
+                .defs
+                .get(def_id)
+                .is_some_and(|def| def.kind == DefKind::Trait)
+        {
+            trait_ids.push(GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            });
+        }
+        trait_ids.sort_unstable();
+        trait_ids.dedup();
+        trait_ids.into_iter().any(|trait_id| {
+            if self.definition_name(trait_id) != Some(known::INTO_ERROR_TRAIT) {
+                return false;
+            }
+            let trait_id = nia_ty::TraitId::Source(trait_id);
+            self.program_trait_impls
+                .iter()
+                .filter(|implementation| implementation.trait_id == trait_id)
+                .filter_map(|implementation| implementation.trait_args.first().copied())
+                .any(|middle_ty| {
+                    if self.types_match(middle_ty, target_ty) {
+                        return false;
+                    }
+                    let first = self.current_context_resolve_trait_obligation(
+                        source_ty,
+                        trait_id,
+                        vec![middle_ty],
+                    );
+                    if !matches!(
+                        first,
+                        nia_trait_solve::TraitResolution::User(_)
+                            | nia_trait_solve::TraitResolution::Assumed(_)
+                    ) {
+                        return false;
+                    }
+                    matches!(
+                        self.current_context_resolve_trait_obligation(
+                            middle_ty,
+                            trait_id,
+                            vec![target_ty],
+                        ),
+                        nia_trait_solve::TraitResolution::User(_)
+                            | nia_trait_solve::TraitResolution::Assumed(_)
+                    )
+                })
+        })
     }
 
     fn check_range_expr(

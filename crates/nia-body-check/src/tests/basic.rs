@@ -580,10 +580,9 @@ fn propagate(value: SourceError!i32) TargetError!i32 {
     );
 
     assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("to implement `IntoError[")),
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("does not chain `IntoError` conversions")),
         "{:?}",
         checked.diagnostics
     );
@@ -652,10 +651,9 @@ fn propagate(value: SourceError!i32) TargetError!i32 {
     );
 
     assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("to implement `IntoError[")),
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("malformed `IntoError` protocol")),
         "{:?}",
         checked.diagnostics
     );
