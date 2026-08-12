@@ -1223,4 +1223,25 @@ mod tests {
                 if matches!(*error, PlanError::GeneratedSourceProducerOutsideClosure { .. })
         ));
     }
+
+    #[test]
+    fn decoded_draft_cannot_introduce_a_third_compiler_target() {
+        let mut draft = draft(false);
+        let emit = draft
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "emit")
+            .unwrap();
+        let ActionKind::CompilerEmit { target, .. } = &mut emit.kind else {
+            unreachable!()
+        };
+        target.arch = "third-architecture".to_string();
+
+        let bytes = encode_draft_without_freeze(&draft);
+        assert!(matches!(
+            BuildPlan::decode(&bytes),
+            Err(PlanCodecError::Semantic(error))
+                if matches!(*error, PlanError::InvalidActionTarget(_))
+        ));
+    }
 }
