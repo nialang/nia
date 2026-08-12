@@ -35,11 +35,6 @@ use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
-mod assignment;
-mod patterns;
-mod ranges;
-pub use assignment::write_resolved_const_place;
-
 enum ConstEvalFlow {
     Value(ConstValue),
     Return(ConstValue),
@@ -187,6 +182,12 @@ macro_rules! eval_resolved_value_or_return_flow {
     };
 }
 
+mod arrays;
+mod assignment;
+mod patterns;
+mod ranges;
+pub use assignment::write_resolved_const_place;
+
 fn eval_resolved_const_expr_flow(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
@@ -263,10 +264,10 @@ fn eval_resolved_const_expr_flow(
             }
         }
         ResolvedConstExprKind::Index { lhs, index } => {
-            return eval_resolved_array_index_flow(span, lhs, index, env);
+            return arrays::eval_resolved_array_index_flow(span, lhs, index, env);
         }
         ResolvedConstExprKind::Slice { lhs, range } => {
-            return eval_resolved_array_slice_flow(span, lhs, range, env);
+            return arrays::eval_resolved_array_slice_flow(span, lhs, range, env);
         }
         ResolvedConstExprKind::Tuple(elems) => {
             let mut values = Vec::with_capacity(elems.len());
@@ -289,7 +290,7 @@ fn eval_resolved_const_expr_flow(
             })?
         }
         ResolvedConstExprKind::ArrayLiteral { elems, .. } => {
-            return eval_resolved_array_literal_flow(elems, env);
+            return arrays::eval_resolved_array_literal_flow(elems, env);
         }
         ResolvedConstExprKind::StructLiteral { ty, fields } => {
             return eval_resolved_struct_literal_flow(span, *ty, fields, env);
@@ -587,10 +588,10 @@ fn eval_const_expr_flow(
             }
         },
         EarlyConstExprKind::Index { lhs, index } => {
-            return eval_array_index_flow(expr.span, lhs, index, env);
+            return arrays::eval_array_index_flow(expr.span, lhs, index, env);
         }
         EarlyConstExprKind::Slice { lhs, range } => {
-            return eval_array_slice_flow(expr.span, lhs, range, env);
+            return arrays::eval_array_slice_flow(expr.span, lhs, range, env);
         }
         EarlyConstExprKind::Tuple(elems) => {
             let mut values = Vec::with_capacity(elems.len());
@@ -613,7 +614,7 @@ fn eval_const_expr_flow(
             })?
         }
         EarlyConstExprKind::ArrayLiteral { elems, .. } => {
-            return eval_array_literal_flow(elems, env);
+            return arrays::eval_array_literal_flow(elems, env);
         }
         EarlyConstExprKind::StructLiteral { fields, .. } => {
             return eval_struct_literal_flow(fields, env);
@@ -1246,307 +1247,6 @@ fn eval_resolved_const_switch_match_body(
         bind_result.and_then(|()| eval_resolved_const_switch_arm_body(matched.arm.body(), env));
     env.pop_const_scope();
     result
-}
-
-fn eval_array_literal_flow(
-    elems: &EarlyConstArrayElements,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    match elems {
-        EarlyConstArrayElements::List(elems) => {
-            let mut values = Vec::with_capacity(elems.len());
-            for elem in elems {
-                values.push(eval_value_or_return_flow!(elem, env));
-            }
-            Ok(ConstEvalFlow::Value(ConstValue::Array(values)))
-        }
-        EarlyConstArrayElements::Repeat { value, count } => {
-            let value = eval_value_or_return_flow!(value, env);
-            let count_span = count.span;
-            let count_value = match eval_value_or_return_flow!(count, env) {
-                ConstValue::Int(value) => value,
-                _ => {
-                    return Err(ConstError {
-                        span: count_span,
-                        message: "const array repeat count must be an integer".to_string(),
-                    });
-                }
-            };
-            let count = int_to_array_len(count_span, count_value)?;
-            let count = usize::try_from(count).map_err(|_| ConstError {
-                span: count_span,
-                message: "const array repeat count is too large".to_string(),
-            })?;
-            Ok(ConstEvalFlow::Value(ConstValue::Array(vec![value; count])))
-        }
-    }
-}
-
-fn eval_resolved_array_literal_flow(
-    elems: &ResolvedConstArrayElements,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    match elems.kind() {
-        ResolvedConstArrayElementsKind::List(elems) => {
-            let mut values = Vec::with_capacity(elems.len());
-            for elem in elems {
-                values.push(eval_resolved_value_or_return_flow!(elem, env));
-            }
-            Ok(ConstEvalFlow::Value(ConstValue::Array(values)))
-        }
-        ResolvedConstArrayElementsKind::Repeat { value, count } => {
-            let value = eval_resolved_value_or_return_flow!(value, env);
-            let count_span = count.span();
-            let count_value = match eval_resolved_value_or_return_flow!(count, env) {
-                ConstValue::Int(value) => value,
-                _ => {
-                    return Err(ConstError {
-                        span: count_span,
-                        message: "const array repeat count must be an integer".to_string(),
-                    });
-                }
-            };
-            let count = int_to_array_len(count_span, count_value)?;
-            let count = usize::try_from(count).map_err(|_| ConstError {
-                span: count_span,
-                message: "const array repeat count is too large".to_string(),
-            })?;
-            Ok(ConstEvalFlow::Value(ConstValue::Array(vec![value; count])))
-        }
-    }
-}
-
-fn eval_array_index_flow(
-    span: Span,
-    lhs: &EarlyConstExpr,
-    index: &EarlyConstExpr,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let values = match eval_value_or_return_flow!(lhs, env) {
-        ConstValue::Array(values) => values,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const index access requires an array value".to_string(),
-            });
-        }
-    };
-    let index_span = index.span;
-    let index_value = match eval_value_or_return_flow!(index, env) {
-        ConstValue::Int(value) => value,
-        _ => {
-            return Err(ConstError {
-                span: index_span,
-                message: "const array index must be an integer".to_string(),
-            });
-        }
-    };
-    let index = int_to_array_len(index_span, index_value)?;
-    let index = usize::try_from(index).map_err(|_| ConstError {
-        span: index_span,
-        message: "const array index is too large".to_string(),
-    })?;
-    values
-        .get(index)
-        .cloned()
-        .map(ConstEvalFlow::Value)
-        .ok_or_else(|| ConstError {
-            span,
-            message: format!("const array index {index} is out of bounds"),
-        })
-}
-
-fn eval_resolved_array_index_flow(
-    span: Span,
-    lhs: &ResolvedConstExpr,
-    index: &ResolvedConstExpr,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let values = match eval_resolved_value_or_return_flow!(lhs, env) {
-        ConstValue::Array(values) => values,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const index access requires an array value".to_string(),
-            });
-        }
-    };
-    let index_span = index.span();
-    let index_value = match eval_resolved_value_or_return_flow!(index, env) {
-        ConstValue::Int(value) => value,
-        _ => {
-            return Err(ConstError {
-                span: index_span,
-                message: "const array index must be an integer".to_string(),
-            });
-        }
-    };
-    let index = int_to_array_len(index_span, index_value)?;
-    let index = usize::try_from(index).map_err(|_| ConstError {
-        span: index_span,
-        message: "const array index is too large".to_string(),
-    })?;
-    values
-        .get(index)
-        .cloned()
-        .map(ConstEvalFlow::Value)
-        .ok_or_else(|| ConstError {
-            span,
-            message: format!("const array index {index} is out of bounds"),
-        })
-}
-
-fn eval_array_slice_flow(
-    span: Span,
-    lhs: &EarlyConstExpr,
-    range: &EarlyConstSliceRange,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let values = match eval_value_or_return_flow!(lhs, env) {
-        ConstValue::Array(values) => values,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const slicing requires an array value".to_string(),
-            });
-        }
-    };
-    let len = values.len();
-    let start = match &range.start {
-        Some(start) => match eval_slice_bound_flow(start, env)? {
-            SliceBoundFlow::Value(value) => value,
-            SliceBoundFlow::Flow(flow) => return Ok(flow),
-        },
-        None => 0,
-    };
-    let mut end = match &range.end {
-        Some(end) => match eval_slice_bound_flow(end, env)? {
-            SliceBoundFlow::Value(value) => value,
-            SliceBoundFlow::Flow(flow) => return Ok(flow),
-        },
-        None => len,
-    };
-    if range.inclusive {
-        end = end.checked_add(1).ok_or_else(|| ConstError {
-            span,
-            message: "const slice inclusive end is too large".to_string(),
-        })?;
-    }
-    if start > end || end > len {
-        return Err(ConstError {
-            span,
-            message: format!("const slice range {start}..{end} is out of bounds"),
-        });
-    }
-    Ok(ConstEvalFlow::Value(ConstValue::Array(
-        values[start..end].to_vec(),
-    )))
-}
-
-fn eval_resolved_array_slice_flow(
-    span: Span,
-    lhs: &ResolvedConstExpr,
-    range: &ResolvedConstSliceRange,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let values = match eval_resolved_value_or_return_flow!(lhs, env) {
-        ConstValue::Array(values) => values,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const slicing requires an array value".to_string(),
-            });
-        }
-    };
-    let len = values.len();
-    let start = match range.start() {
-        Some(start) => match eval_resolved_slice_bound_flow(start, env)? {
-            SliceBoundFlow::Value(value) => value,
-            SliceBoundFlow::Flow(flow) => return Ok(flow),
-        },
-        None => 0,
-    };
-    let mut end = match range.end() {
-        Some(end) => match eval_resolved_slice_bound_flow(end, env)? {
-            SliceBoundFlow::Value(value) => value,
-            SliceBoundFlow::Flow(flow) => return Ok(flow),
-        },
-        None => len,
-    };
-    if range.is_inclusive() {
-        end = end.checked_add(1).ok_or_else(|| ConstError {
-            span,
-            message: "const slice inclusive end is too large".to_string(),
-        })?;
-    }
-    if start > end || end > len {
-        return Err(ConstError {
-            span,
-            message: format!("const slice range {start}..{end} is out of bounds"),
-        });
-    }
-    Ok(ConstEvalFlow::Value(ConstValue::Array(
-        values[start..end].to_vec(),
-    )))
-}
-
-enum SliceBoundFlow {
-    Value(usize),
-    Flow(ConstEvalFlow),
-}
-
-fn eval_slice_bound_flow(
-    expr: &EarlyConstExpr,
-    env: &mut impl EarlyConstEnv,
-) -> Result<SliceBoundFlow, ConstError> {
-    let span = expr.span;
-    let value = match eval_const_expr_flow(expr, env)? {
-        ConstEvalFlow::Value(value) => value,
-        flow => return Ok(SliceBoundFlow::Flow(flow)),
-    };
-    let value = match value {
-        ConstValue::Int(value) => value,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const slice bound must be an integer".to_string(),
-            });
-        }
-    };
-    let value = int_to_array_len(span, value)?;
-    usize::try_from(value)
-        .map_err(|_| ConstError {
-            span,
-            message: "const slice bound is too large".to_string(),
-        })
-        .map(SliceBoundFlow::Value)
-}
-
-fn eval_resolved_slice_bound_flow(
-    expr: &ResolvedConstExpr,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<SliceBoundFlow, ConstError> {
-    let span = expr.span();
-    let value = match eval_resolved_const_expr_flow(expr, env)? {
-        ConstEvalFlow::Value(value) => value,
-        flow => return Ok(SliceBoundFlow::Flow(flow)),
-    };
-    let value = match value {
-        ConstValue::Int(value) => value,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const slice bound must be an integer".to_string(),
-            });
-        }
-    };
-    let value = int_to_array_len(span, value)?;
-    usize::try_from(value)
-        .map_err(|_| ConstError {
-            span,
-            message: "const slice bound is too large".to_string(),
-        })
-        .map(SliceBoundFlow::Value)
 }
 
 fn eval_struct_literal_flow(
