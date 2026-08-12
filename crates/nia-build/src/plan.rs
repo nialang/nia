@@ -2034,6 +2034,75 @@ mod tests {
         ));
     }
 
+    fn build_working_directory_draft(
+        produced_directory: &str,
+        working_directory: &str,
+        command_dependencies: Vec<&str>,
+    ) -> BuildPlanDraft {
+        let mut value = draft(false);
+        value.artifacts[0].kind = PlanArtifactKind::ObjectSet;
+        value.artifacts[0].output =
+            LogicalPath::new(LogicalPathRoot::Build, produced_directory).unwrap();
+        value.actions.push(PlanAction {
+            key: action_key("consume"),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(LogicalPathRoot::Build, working_directory)
+                    .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: step_key("consume"),
+            action: action_key("consume"),
+            dependencies: command_dependencies.into_iter().map(step_key).collect(),
+        });
+        value
+    }
+
+    #[test]
+    fn freeze_requires_a_producer_for_build_rooted_working_directories() {
+        let value =
+            build_working_directory_draft("generated/other", "generated/work", vec!["emit"]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingBuildInputProducer { path, .. })
+                if path.protocol_path() == "generated/work"
+        ));
+    }
+
+    #[test]
+    fn freeze_requires_working_directory_producers_in_the_consumer_closure() {
+        let value = build_working_directory_draft("generated/work", "generated/work", vec![]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::BuildInputProducerOutsideClosure { path, producer, .. })
+                if path.protocol_path() == "generated/work" && producer.name() == "emit"
+        ));
+    }
+
+    #[test]
+    fn freeze_accepts_object_set_outputs_as_working_directories() {
+        let value = build_working_directory_draft("generated/work", "generated/work", vec!["emit"]);
+
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn freeze_accepts_the_invocation_build_root_as_a_working_directory() {
+        let value = build_working_directory_draft("generated/work", "", vec![]);
+
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
     #[test]
     fn artifact_program_requires_its_emit_step_in_the_dependency_closure() {
         let mut value = draft(false);

@@ -137,7 +137,10 @@ pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
 
     for action in &draft.actions {
         let ActionKind::ExternalCommand {
-            program, inputs, ..
+            program,
+            working_directory,
+            inputs,
+            ..
         } = &action.kind
         else {
             continue;
@@ -151,11 +154,20 @@ pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
             }
             _ => None,
         };
-        for input in build_program.into_iter().chain(
-            inputs
-                .iter()
-                .filter(|input| matches!(input.root(), LogicalPathRoot::Build)),
-        ) {
+        // The empty Build root is invocation-owned infrastructure. Any deeper
+        // working directory must already exist when the process is spawned,
+        // so it is a scheduling dependency just like a program or input path.
+        let build_working_directory = (matches!(working_directory.root(), LogicalPathRoot::Build)
+            && !working_directory.is_empty())
+        .then_some(working_directory);
+        let build_inputs = inputs
+            .iter()
+            .filter(|input| matches!(input.root(), LogicalPathRoot::Build));
+        for input in build_program
+            .into_iter()
+            .chain(build_working_directory)
+            .chain(build_inputs)
+        {
             let input_producers = producers
                 .iter()
                 .filter(|(output, _)| output.produces(input))
