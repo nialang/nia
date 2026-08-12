@@ -592,10 +592,8 @@ fn validate_transaction_paths(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("");
-    if !staged_name.starts_with(".nia-command-")
-        || !staged_name.ends_with(".stage")
-        || !committed_name.starts_with(".nia-command-")
-        || !committed_name.ends_with(".committed")
+    if !transaction_directory_name_is_valid(staged_name, ".stage")
+        || !transaction_directory_name_is_valid(committed_name, ".committed")
         || staged_name.strip_suffix(".stage") != committed_name.strip_suffix(".committed")
     {
         return Err(io::Error::new(
@@ -604,6 +602,19 @@ fn validate_transaction_paths(
         ));
     }
     Ok(())
+}
+
+fn transaction_directory_name_is_valid(name: &str, suffix: &str) -> bool {
+    let Some(identity) = name
+        .strip_prefix(".nia-command-")
+        .and_then(|name| name.strip_suffix(suffix))
+    else {
+        return false;
+    };
+    let parts = identity.split('-').collect::<Vec<_>>();
+    // Two components are the persisted pre-generation format. Recovery must
+    // keep accepting those journals across upgrades; new writers use three.
+    matches!(parts.len(), 2 | 3) && parts.iter().all(|part| part.parse::<u64>().is_ok())
 }
 
 fn build_relative_path(build_dir: &Path, path: &Path) -> io::Result<LogicalPath> {
@@ -878,8 +889,11 @@ mod tests {
             .collect::<Vec<_>>();
         let parent = destinations[0].parent().expect("output parent");
         fs::create_dir_all(parent).expect("create output parent");
-        let staged = parent.join(".nia-command-test-0.stage");
-        let committed = parent.join(".nia-command-test-0.committed");
+        // Use the pre-generation writer format to keep upgrade recovery under
+        // test while production writers emit pid/start-time/sequence names.
+        let legacy_name = format!(".nia-command-{}-0", std::process::id());
+        let staged = parent.join(format!("{legacy_name}.stage"));
+        let committed = parent.join(format!("{legacy_name}.committed"));
         fs::create_dir(&staged).expect("create staging directory");
         let journal = OutputTransactionJournal::create(
             &build_dir,
