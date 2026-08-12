@@ -16,6 +16,10 @@ use nia_symbol::{
     KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, symbol_text_or_unresolved,
 };
 
+mod index;
+
+pub use index::TypeExposureIndex;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicSurfaceComputation {
     pub surfaces: PublicSurfaces,
@@ -33,11 +37,6 @@ pub struct PublicSurfaceExports {
 pub struct PublicUsingScopes {
     pub using_scopes: HashMap<ModuleId, ModuleUsingScope>,
     pub diagnostics: Vec<(ModuleId, Diagnostic)>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct TypeExposureIndex {
-    names_by_target: HashMap<GlobalDefId, Vec<SymbolId>>,
 }
 
 fn symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> String {
@@ -93,68 +92,6 @@ fn invalid_self_name_segment(segment: &UsingPathSegment) -> Diagnostic {
         segment.span,
         "using `self` requires the host path to end in a named module or type",
     )
-}
-
-impl TypeExposureIndex {
-    pub fn from_defs_surfaces_and_using_scopes<D: Borrow<DefCollection>>(
-        defs_by_module: &[D],
-        surfaces: &PublicSurfaces,
-        using_scopes: &HashMap<ModuleId, ModuleUsingScope>,
-    ) -> Self {
-        let mut names_by_target: HashMap<GlobalDefId, Vec<SymbolId>> = HashMap::new();
-        for defs in defs_by_module {
-            let defs = defs.borrow();
-            for (def_id, def) in defs.defs.iter() {
-                if !matches!(
-                    def.kind,
-                    DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
-                ) {
-                    continue;
-                }
-                names_by_target
-                    .entry(GlobalDefId {
-                        module_id: defs.module_id,
-                        def_id,
-                    })
-                    .or_default()
-                    .push(def.name);
-            }
-        }
-        for surface in surfaces.iter().map(|(_, surface)| surface) {
-            for (name, item) in &surface.types {
-                names_by_target
-                    .entry(GlobalDefId {
-                        module_id: item.target_module,
-                        def_id: item.target_def_id,
-                    })
-                    .or_default()
-                    .push(*name);
-            }
-        }
-        for using_scope in using_scopes.values() {
-            for (name, entry) in &using_scope.types {
-                names_by_target
-                    .entry(GlobalDefId {
-                        module_id: entry.target_module,
-                        def_id: entry.target_def_id,
-                    })
-                    .or_default()
-                    .push(*name);
-            }
-        }
-        for names in names_by_target.values_mut() {
-            names.sort();
-            names.dedup();
-        }
-        Self { names_by_target }
-    }
-
-    pub fn names_for(&self, target: GlobalDefId) -> &[SymbolId] {
-        self.names_by_target
-            .get(&target)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
 }
 
 /// Compute every module's exported public surface and per-module using scope.
@@ -257,6 +194,10 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
         surfaces.insert(surface);
     }
 
+    // Re-exports form a monotonic graph: each successful expansion only adds
+    // a module or item to a surface. Iterate until no new entry appears, then
+    // diagnose unresolved paths once; this preserves valid forward re-exports
+    // while preventing cycles from spinning forever.
     let max_iterations = defs_by_module
         .iter()
         .map(|defs| defs.borrow().module_usings.len())
@@ -337,6 +278,8 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
     }
 
     // Final pass: any still-unresolved pub using is a missing item or cycle.
+    // A module whose paths are not processed yet is intentionally deferred to
+    // its owner, so diagnostics remain stable across incremental scheduling.
     for defs in defs_by_module {
         let defs = defs.borrow();
         let process_used_paths = graph
@@ -458,6 +401,9 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
         .and_then(|std| std.children.get(&known::BUILTIN).copied())
         .and_then(|builtin| surfaces.public_type(builtin, &known::LEN_TYPE));
     let mut using_scopes: HashMap<ModuleId, ModuleUsingScope> = HashMap::new();
+    // Public surfaces are already closed over re-exports. Resolve each local
+    // using declaration against that immutable snapshot, recording aliases in
+    // source order so duplicate diagnostics point at the later declaration.
     for defs in defs_by_module {
         let defs = defs.borrow();
         let process_used_paths = graph
