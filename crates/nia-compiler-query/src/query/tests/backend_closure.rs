@@ -429,6 +429,16 @@ fn main() i32 {
         "unreachable recursive aggregate should not force layout diagnostics: {:?}",
         resolve_diagnostic_bundle(db.context(), &module.layout_diagnostics)
     );
+    let recursive_def = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| (def.name == sym("Recursive")).then_some(def_id))
+        .expect("recursive struct definition");
+    assert!(
+        !module.layouts.structs.contains_key(&recursive_def),
+        "unreachable recursive aggregate should not be laid out"
+    );
 
     let backend_lowering = db.expect_get(BackendLoweringQuery);
     let backend_module = backend_lowering
