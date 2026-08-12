@@ -383,6 +383,35 @@ fn main() i32 {
 }
 
 #[test]
+fn const_compound_assignment_evaluates_index_once() {
+    let root = temp_dir("const_compound_assignment_evaluates_index_once");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn width() usize {
+    let mut values: [2]usize = [4, 9];
+    let mut calls = 0usize;
+    values[{
+        calls += 1;
+        0usize
+    }] += 1;
+    values[0] * 100 + values[1] * 10 + calls
+}
+
+const n: usize = width();
+
+fn main() i32 {
+    let values: [591]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_for_in_rejects_range_iter_method() {
     let root = temp_dir("const_for_in_rejects_range_iter_method");
     write(

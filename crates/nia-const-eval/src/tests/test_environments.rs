@@ -61,6 +61,33 @@ fn main() bool {
 }
 
 #[test]
+fn const_block_restores_scope_after_statement_error() {
+    let (module, errors) = nia_parser::parse_module(
+        r#"
+fn main() usize {
+    {
+        missing;
+        1
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+    let lowered = nia_const_ir::lower_expr_early(expr).unwrap();
+    let mut env = ScopeErrorEnv::default();
+
+    let error = eval_early_const_int_expr(&lowered, &mut env)
+        .expect_err("unknown statement value must fail const evaluation");
+
+    assert!(error.message.starts_with("unknown const value `"));
+    assert_eq!(env.scope_depth, 0, "failed block must restore its scope");
+}
+
+#[test]
 fn old_at_builtin_expr_syntax_is_rejected_by_parser() {
     let (_module, errors) = nia_parser::parse_module(
         r#"
@@ -170,6 +197,47 @@ impl EarlyConstEnv for ConfigEnv {
         let mut builtin = BTreeMap::new();
         builtin.insert(sym("target"), ConstValue::Struct(target));
         Ok(ConstValue::Struct(builtin))
+    }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        _builtin: LayoutBuiltin,
+        _type_arg: &EarlyConstTypeArg,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
+            span,
+            message: "layout builtins are not available in this test".to_string(),
+        })
+    }
+}
+
+#[derive(Default)]
+struct ScopeErrorEnv {
+    scope_depth: usize,
+}
+
+impl ConstCommonEnv for ScopeErrorEnv {
+    fn push_const_scope(&mut self, _span: Span) -> Result<(), ConstError> {
+        self.scope_depth += 1;
+        Ok(())
+    }
+
+    fn pop_const_scope(&mut self) {
+        self.scope_depth -= 1;
+    }
+}
+
+impl EarlyConstEnv for ScopeErrorEnv {
+    fn resolve_name(
+        &mut self,
+        span: Span,
+        name: &EarlyConstName,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
+            span,
+            message: format!("unknown const value `{}`", self.symbol_name(name.display())),
+        })
     }
 
     fn resolve_layout_builtin(
