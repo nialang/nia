@@ -222,7 +222,7 @@ impl Drop for TemporaryCleanup {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::draft;
+    use super::super::test_support::draft;
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
