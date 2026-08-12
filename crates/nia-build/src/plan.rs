@@ -442,6 +442,15 @@ pub enum PlanError {
         artifact: ArtifactKey,
         reason: &'static str,
     },
+    MissingBuildInputProducer {
+        action: Box<ActionKey>,
+        path: Box<LogicalPath>,
+    },
+    BuildInputProducerOutsideClosure {
+        action: Box<ActionKey>,
+        path: Box<LogicalPath>,
+        producer: Box<ActionKey>,
+    },
     MissingGeneratedSourceProducer {
         action: Box<ActionKey>,
         module: Box<ModuleKey>,
@@ -482,6 +491,7 @@ impl BuildPlan {
         validate_step_cycles(&draft.steps)?;
         validate_artifact_dependencies(&draft.actions, &draft.steps)?;
         validate_output_ownership(&draft.actions, &draft.artifacts)?;
+        validate_build_input_dependencies(&draft)?;
         validate_generated_source_dependencies(&draft)?;
 
         Ok(Self {
@@ -1169,6 +1179,77 @@ fn dependency_action_closure(
     Ok(actions)
 }
 
+fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanError> {
+    let artifacts: BTreeMap<_, _> = draft
+        .artifacts
+        .iter()
+        .map(|artifact| (&artifact.key, &artifact.output))
+        .collect();
+    let mut producers = Vec::<(&LogicalPath, &ActionKey)>::new();
+    for action in &draft.actions {
+        for output in action_outputs(action, &artifacts)? {
+            producers.push((output, &action.key));
+        }
+    }
+    let steps_by_action: BTreeMap<_, Vec<&PlanStep>> =
+        draft.steps.iter().fold(BTreeMap::new(), |mut steps, step| {
+            steps.entry(&step.action).or_default().push(step);
+            steps
+        });
+    let step_by_key: BTreeMap<_, _> = draft.steps.iter().map(|step| (&step.key, step)).collect();
+
+    for action in &draft.actions {
+        let ActionKind::ExternalCommand {
+            program, inputs, ..
+        } = &action.kind
+        else {
+            continue;
+        };
+        let Some(consumer_steps) = steps_by_action.get(&action.key) else {
+            continue;
+        };
+        let build_program = match program {
+            CommandProgram::Path(path) if matches!(path.root(), LogicalPathRoot::Build) => {
+                Some(path)
+            }
+            _ => None,
+        };
+        for input in build_program.into_iter().chain(
+            inputs
+                .iter()
+                .filter(|input| matches!(input.root(), LogicalPathRoot::Build)),
+        ) {
+            let input_producers = producers
+                .iter()
+                .filter(|(output, _)| logical_paths_overlap(input, output))
+                .map(|(_, action)| *action)
+                .collect::<Vec<_>>();
+            if input_producers.is_empty() {
+                return Err(PlanError::MissingBuildInputProducer {
+                    action: Box::new(action.key.clone()),
+                    path: Box::new(input.clone()),
+                });
+            }
+            // A declared input is a scheduling edge as well as a cache key.
+            // Check every step because one action may be exposed through
+            // several steps with independently incomplete dependency closures.
+            for consumer_step in consumer_steps {
+                let dependency_actions = dependency_action_closure(consumer_step, &step_by_key)?;
+                for producer in &input_producers {
+                    if !dependency_actions.contains(*producer) {
+                        return Err(PlanError::BuildInputProducerOutsideClosure {
+                            action: Box::new(action.key.clone()),
+                            path: Box::new(input.clone()),
+                            producer: Box::new((*producer).clone()),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_generated_source_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanError> {
     let modules: BTreeMap<_, _> = draft
         .modules
@@ -1266,22 +1347,7 @@ fn validate_output_ownership(
         .collect();
     let mut owners: BTreeMap<LogicalPath, ActionKey> = BTreeMap::new();
     for action in actions {
-        let outputs: Vec<&LogicalPath> = match &action.kind {
-            ActionKind::CompilerEmit { artifact, .. } => {
-                let Some(output) = artifacts.get(artifact) else {
-                    return Err(PlanError::MissingArtifact {
-                        action: action.key.clone(),
-                        artifact: artifact.clone(),
-                    });
-                };
-                vec![*output]
-            }
-            ActionKind::ExternalCommand { outputs, .. } => outputs.iter().collect(),
-            ActionKind::GeneratedFile { output, .. } => vec![output],
-            ActionKind::InstallArtifact { destination, .. } => vec![destination],
-            _ => Vec::new(),
-        };
-        for output in outputs {
+        for output in action_outputs(action, &artifacts)? {
             if output.is_empty()
                 || !matches!(output.root(), LogicalPathRoot::Build)
                 || output.components().first().is_some_and(|component| {
@@ -1293,16 +1359,55 @@ fn validate_output_ownership(
                     path: output.clone(),
                 });
             }
-            if let Some(first) = owners.insert(output.clone(), action.key.clone()) {
+            // Output ownership is hierarchical: owning a path also owns every
+            // descendant. Exact-path locks cannot serialize actions whose
+            // separately declared outputs overlap in the physical build tree.
+            if let Some((owned, first)) = owners
+                .iter()
+                .find(|(owned, _)| logical_paths_overlap(owned, output))
+            {
+                let collision = if owned.components().len() >= output.components().len() {
+                    (*owned).clone()
+                } else {
+                    output.clone()
+                };
                 return Err(PlanError::OutputCollision(Box::new(OutputCollision {
-                    path: output.clone(),
-                    first,
+                    path: collision,
+                    first: first.clone(),
                     second: action.key.clone(),
                 })));
             }
+            owners.insert(output.clone(), action.key.clone());
         }
     }
     Ok(())
+}
+
+fn logical_paths_overlap(left: &LogicalPath, right: &LogicalPath) -> bool {
+    left.root() == right.root()
+        && (left.components().starts_with(right.components())
+            || right.components().starts_with(left.components()))
+}
+
+fn action_outputs<'a>(
+    action: &'a PlanAction,
+    artifacts: &BTreeMap<&ArtifactKey, &'a LogicalPath>,
+) -> Result<Vec<&'a LogicalPath>, PlanError> {
+    match &action.kind {
+        ActionKind::CompilerEmit { artifact, .. } => {
+            let Some(output) = artifacts.get(artifact) else {
+                return Err(PlanError::MissingArtifact {
+                    action: action.key.clone(),
+                    artifact: artifact.clone(),
+                });
+            };
+            Ok(vec![*output])
+        }
+        ActionKind::ExternalCommand { outputs, .. } => Ok(outputs.iter().collect()),
+        ActionKind::GeneratedFile { output, .. } => Ok(vec![output]),
+        ActionKind::InstallArtifact { destination, .. } => Ok(vec![destination]),
+        _ => Ok(Vec::new()),
+    }
 }
 
 fn reject_duplicate_by<T, K: Ord + Clone>(
@@ -1759,6 +1864,31 @@ mod tests {
             BuildPlan::freeze(value),
             Err(PlanError::OutputCollision(_))
         ));
+    }
+
+    #[test]
+    fn freeze_rejects_nested_output_ownership() {
+        for (artifact_output, generated_output, conflicting_path) in [
+            ("app", "app/metadata", "app/metadata"),
+            ("app/binary", "app", "app/binary"),
+        ] {
+            let mut value = draft(false);
+            value.artifacts[0].output =
+                LogicalPath::new(LogicalPathRoot::Build, artifact_output).unwrap();
+            value.actions.push(PlanAction {
+                key: action_key("generate"),
+                kind: ActionKind::GeneratedFile {
+                    output: LogicalPath::new(LogicalPathRoot::Build, generated_output).unwrap(),
+                    contents: vec![],
+                },
+            });
+
+            let error = BuildPlan::freeze(value).unwrap_err();
+            let PlanError::OutputCollision(collision) = error else {
+                panic!("expected output collision, got {error:?}");
+            };
+            assert_eq!(collision.path.protocol_path(), conflicting_path);
+        }
     }
 
     fn add_install_action(
@@ -2235,6 +2365,115 @@ mod tests {
             panic!("expected external command action");
         };
         assert_eq!(outputs.len(), 2);
+    }
+
+    fn build_input_draft(
+        generated_output: &str,
+        command_input: &str,
+        command_dependencies: Vec<&str>,
+    ) -> BuildPlanDraft {
+        let mut value = draft(false);
+        let generated = LogicalPath::new(LogicalPathRoot::Build, generated_output).unwrap();
+        let input = LogicalPath::new(LogicalPathRoot::Build, command_input).unwrap();
+        value.actions.extend([
+            PlanAction {
+                key: action_key("generate"),
+                kind: ActionKind::GeneratedFile {
+                    output: generated,
+                    contents: b"input".to_vec(),
+                },
+            },
+            PlanAction {
+                key: action_key("consume"),
+                kind: ActionKind::ExternalCommand {
+                    resource_class: ActionResourceClass::Io,
+                    environment_policy: CommandEnvironmentPolicy::Inherit,
+                    cache_policy: CommandCachePolicy::Uncacheable,
+                    program: CommandProgram::Search("tool".to_string()),
+                    arguments: vec![CommandArgument::InputPath(input.clone())],
+                    working_directory: LogicalPath::new(
+                        LogicalPathRoot::Package(PackageKey::root()),
+                        "",
+                    )
+                    .unwrap(),
+                    environment: Vec::new(),
+                    inputs: vec![input],
+                    outputs: Vec::new(),
+                },
+            },
+        ]);
+        value.steps.extend([
+            PlanStep {
+                key: step_key("generate"),
+                action: action_key("generate"),
+                dependencies: Vec::new(),
+            },
+            PlanStep {
+                key: step_key("consume"),
+                action: action_key("consume"),
+                dependencies: command_dependencies.into_iter().map(step_key).collect(),
+            },
+        ]);
+        value
+    }
+
+    #[test]
+    fn freeze_requires_a_producer_for_build_rooted_command_inputs() {
+        let value = build_input_draft("generated/other.txt", "generated/input.txt", vec![]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingBuildInputProducer { path, .. })
+                if path.protocol_path() == "generated/input.txt"
+        ));
+    }
+
+    #[test]
+    fn freeze_requires_build_input_producers_in_the_consumer_closure() {
+        let value = build_input_draft("generated/input.txt", "generated/input.txt", vec![]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::BuildInputProducerOutsideClosure { producer, .. })
+                if producer.name() == "generate"
+        ));
+    }
+
+    #[test]
+    fn freeze_accepts_directory_build_inputs_after_their_producer() {
+        let value = build_input_draft("generated", "generated/input.txt", vec!["generate"]);
+
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn freeze_requires_generated_build_programs_in_the_consumer_closure() {
+        let mut value = build_input_draft("tools/generated", "unused/input.txt", vec![]);
+        let consume = value
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "consume")
+            .unwrap();
+        let ActionKind::ExternalCommand {
+            program,
+            arguments,
+            inputs,
+            ..
+        } = &mut consume.kind
+        else {
+            panic!("expected external command action");
+        };
+        *program = CommandProgram::Path(
+            LogicalPath::new(LogicalPathRoot::Build, "tools/generated").unwrap(),
+        );
+        arguments.clear();
+        inputs.clear();
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::BuildInputProducerOutsideClosure { producer, .. })
+                if producer.name() == "generate"
+        ));
     }
 
     #[test]
