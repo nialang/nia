@@ -184,6 +184,40 @@ fn main(box: Box, other: Box) i32 {
 }
 
 #[test]
+fn trait_method_selection_uses_argument_types() {
+    let checked = pipeline(
+        r#"
+trait PickBool {
+    fn pick(self, value: bool) bool;
+}
+
+trait PickInt {
+    fn pick(self, value: i32) bool;
+}
+
+struct Box {}
+
+extend Box : PickBool {
+    fn pick(self, value: bool) bool {
+        value
+    }
+}
+
+extend Box : PickInt {
+    fn pick(self, value: i32) bool {
+        value != 0
+    }
+}
+
+fn main(box: Box) bool {
+    box.pick(true)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn attributes_provider_demand_to_calling_function() {
     let checked = pipeline_without_visible_extensions(
         r#"
