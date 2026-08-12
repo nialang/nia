@@ -1,302 +1,36 @@
+//! Syntax-directed lowering from AST nodes into early const IR.
+
 use crate::*;
 
 use nia_ids::{InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::VersionedNodeKey;
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
-use nia_symbol::{SymbolId, known, symbol_text_from_optional_resolver};
-use nia_symbol_table::SymbolTable;
+use nia_symbol::{SymbolId, known};
 
+mod context;
+use context::ConstLowerContext;
+pub use context::{EarlyConstLowerInputs, ResolvedConstLowerInputs};
+
+// Early lowering is deliberately usable before semantic analysis finishes. It
+// preserves missing names, locals, and types as `None`/`Unresolved` so syntax-
+// directed const consumers can still inspect the expression. Resolved lowering
+// uses the stricter context below and then passes the result through `resolve`,
+// which rejects every required semantic identity that is still absent.
+/// Lowers an expression without requiring semantic identity tables.
+///
+/// Names, locals, and types that cannot be identified yet remain explicitly
+/// unresolved in the returned early IR.
 pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<EarlyConstExpr, ConstLowerError> {
     lower_expr_internal(expr, &EarlyConstLowerInputs::default())
 }
 
+/// Lowers an expression into early IR, attaching any semantic facts supplied
+/// by `context` while preserving facts that are not available yet.
 pub fn lower_expr_early_with_context(
     expr: &nia_ast::Expr,
     context: &EarlyConstLowerInputs<'_>,
 ) -> Result<EarlyConstExpr, ConstLowerError> {
     lower_expr_internal(expr, context)
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct EarlyConstLowerInputs<'a> {
-    pub semantic_uses: Option<&'a SemanticUseTable>,
-    pub symbols: Option<&'a SymbolTable>,
-}
-
-impl<'a> EarlyConstLowerInputs<'a> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_semantic_uses(mut self, semantic_uses: &'a SemanticUseTable) -> Self {
-        self.semantic_uses = Some(semantic_uses);
-        self
-    }
-
-    pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
-        self.symbols = Some(symbols);
-        self
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct ResolvedConstLowerInputs<'a> {
-    pub semantic_uses: &'a SemanticUseTable,
-    pub symbols: Option<&'a SymbolTable>,
-}
-
-impl<'a> ResolvedConstLowerInputs<'a> {
-    pub fn new(semantic_uses: &'a SemanticUseTable) -> Self {
-        Self {
-            semantic_uses,
-            symbols: None,
-        }
-    }
-
-    pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
-        self.symbols = Some(symbols);
-        self
-    }
-}
-
-pub(crate) trait ConstLowerContext {
-    fn has_semantic_facts(&self) -> bool;
-
-    fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution>;
-
-    fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
-
-    fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId>;
-
-    fn resolve_name(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<ConstNameResolution>, ConstLowerError>;
-
-    fn lower_local_use(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<LocalId>, ConstLowerError>;
-
-    fn lower_local_id(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<LocalId>, ConstLowerError>;
-
-    fn lower_type_id(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<InternedTyId>, ConstLowerError>;
-
-    fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ConstLowerError>;
-
-    fn symbol_name(&self, symbol: SymbolId) -> String {
-        symbol_text_from_optional_resolver(None, symbol)
-    }
-}
-
-impl ConstLowerContext for EarlyConstLowerInputs<'_> {
-    fn has_semantic_facts(&self) -> bool {
-        self.semantic_uses.is_some()
-    }
-
-    fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution> {
-        self.semantic_uses.and_then(|semantic_uses| {
-            semantic_uses
-                .node_associated_const_projection(key)
-                .cloned()
-                .map(ConstNameResolution::AssociatedConstProjection)
-                .or_else(|| {
-                    semantic_uses
-                        .node_builtin_associated_value(key)
-                        .map(ConstNameResolution::BuiltinAssociatedValue)
-                })
-                .or_else(|| {
-                    semantic_uses
-                        .node_const_generic_use(key)
-                        .map(|name| ConstNameResolution::GenericParam(*name))
-                })
-                .or_else(|| {
-                    semantic_uses
-                        .node_value_use(key)
-                        .map(ConstNameResolution::from)
-                })
-        })
-    }
-
-    fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
-        self.semantic_uses
-            .and_then(|semantic_uses| semantic_uses.node_type_use(key))
-    }
-
-    fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
-        self.semantic_uses
-            .and_then(|semantic_uses| semantic_uses.node_type_prefix(key))
-    }
-
-    fn resolve_name(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<ConstNameResolution>, ConstLowerError> {
-        Ok(self.probe_name_resolution(key))
-    }
-
-    fn lower_local_use(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<LocalId>, ConstLowerError> {
-        Ok(self
-            .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.node_value_use(key))
-            .and_then(|value_use| match value_use {
-                SemanticValueUse::Local(local_id) => Some(local_id),
-                SemanticValueUse::Global(_) => None,
-            }))
-    }
-
-    fn lower_local_id(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<LocalId>, ConstLowerError> {
-        Ok(self
-            .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.node_local_def(key)))
-    }
-
-    fn lower_type_id(
-        &self,
-        key: &VersionedNodeKey,
-        _span: Span,
-    ) -> Result<Option<InternedTyId>, ConstLowerError> {
-        Ok(self
-            .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.node_type_use(key)))
-    }
-
-    fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ConstLowerError> {
-        self.symbols
-            .map(|symbols| {
-                symbols.intern(text).map_err(|collision| ConstLowerError {
-                    span,
-                    message: collision.to_string(),
-                })
-            })
-            .transpose()
-    }
-
-    fn symbol_name(&self, symbol: SymbolId) -> String {
-        symbol_text_from_optional_resolver(self.symbols.map(|symbols| symbols as _), symbol)
-    }
-}
-
-impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
-    fn has_semantic_facts(&self) -> bool {
-        true
-    }
-
-    fn probe_name_resolution(&self, key: &VersionedNodeKey) -> Option<ConstNameResolution> {
-        self.semantic_uses
-            .node_associated_const_projection(key)
-            .cloned()
-            .map(ConstNameResolution::AssociatedConstProjection)
-            .or_else(|| {
-                self.semantic_uses
-                    .node_builtin_associated_value(key)
-                    .map(ConstNameResolution::BuiltinAssociatedValue)
-            })
-            .or_else(|| {
-                self.semantic_uses
-                    .node_const_generic_use(key)
-                    .map(|name| ConstNameResolution::GenericParam(*name))
-            })
-            .or_else(|| {
-                self.semantic_uses
-                    .node_value_use(key)
-                    .map(ConstNameResolution::from)
-            })
-    }
-
-    fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
-        self.semantic_uses.node_type_use(key)
-    }
-
-    fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
-        self.semantic_uses.node_type_prefix(key)
-    }
-
-    fn resolve_name(
-        &self,
-        key: &VersionedNodeKey,
-        span: Span,
-    ) -> Result<Option<ConstNameResolution>, ConstLowerError> {
-        self.probe_name_resolution(key)
-            .map(Some)
-            .ok_or_else(|| unresolved_error(span, "const name"))
-    }
-
-    fn lower_local_use(
-        &self,
-        key: &VersionedNodeKey,
-        span: Span,
-    ) -> Result<Option<LocalId>, ConstLowerError> {
-        match self.semantic_uses.node_value_use(key) {
-            Some(SemanticValueUse::Local(local_id)) => Ok(Some(local_id)),
-            Some(SemanticValueUse::Global(_)) | None => {
-                Err(unresolved_error(span, "const assignment target"))
-            }
-        }
-    }
-
-    fn lower_local_id(
-        &self,
-        key: &VersionedNodeKey,
-        span: Span,
-    ) -> Result<Option<LocalId>, ConstLowerError> {
-        self.semantic_uses
-            .node_local_def(key)
-            .map(Some)
-            .ok_or_else(|| unresolved_error(span, "const local binding"))
-    }
-
-    fn lower_type_id(
-        &self,
-        key: &VersionedNodeKey,
-        span: Span,
-    ) -> Result<Option<InternedTyId>, ConstLowerError> {
-        self.semantic_uses
-            .node_type_use(key)
-            .map(Some)
-            .ok_or_else(|| unresolved_error(span, "const type"))
-    }
-
-    fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ConstLowerError> {
-        let Some(symbols) = self.symbols else {
-            return Err(ConstLowerError {
-                span,
-                message: "const lowering requires a symbol table for dynamic field names"
-                    .to_string(),
-            });
-        };
-        symbols
-            .intern(text)
-            .map(Some)
-            .map_err(|collision| ConstLowerError {
-                span,
-                message: collision.to_string(),
-            })
-    }
-
-    fn symbol_name(&self, symbol: SymbolId) -> String {
-        symbol_text_from_optional_resolver(self.symbols.map(|symbols| symbols as _), symbol)
-    }
 }
 
 fn lower_expr_internal(
@@ -384,7 +118,7 @@ fn lower_expr_internal(
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => EarlyConstExprKind::ArrayLiteral {
-            ty: lower_type_id(context, &ty.node_key, ty.span)?,
+            ty: Some(lower_type_arg(ty, context)?),
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::StructLiteral { fields } => EarlyConstExprKind::StructLiteral {
@@ -395,7 +129,7 @@ fn lower_expr_internal(
                 .collect::<Result<Vec<_>, _>>()?,
         },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => EarlyConstExprKind::StructLiteral {
-            ty: lower_type_id(context, &ty.node_key, ty.span)?,
+            ty: Some(lower_type_arg(ty, context)?),
             fields: fields
                 .iter()
                 .map(|field| lower_field_init_with_context(field, context))
@@ -481,6 +215,8 @@ fn lower_expr_internal(
     })
 }
 
+/// Lowers directly to resolved IR and fails if any required semantic identity
+/// is absent from `context`.
 pub fn lower_expr_resolved_with_context(
     expr: &nia_ast::Expr,
     context: &ResolvedConstLowerInputs<'_>,
@@ -618,7 +354,7 @@ fn lower_call_with_context(
             }
             return Ok(EarlyConstExprKind::LayoutBuiltin {
                 builtin,
-                type_arg: EarlyConstTypeArg::from_type_ref(type_arg, context)?,
+                type_arg: lower_type_arg(type_arg, context)?,
             });
         }
         if name == known::OFFSET {
@@ -642,7 +378,7 @@ fn lower_call_with_context(
                 });
             };
             return Ok(EarlyConstExprKind::FieldOffsetBuiltin {
-                type_arg: EarlyConstTypeArg::from_type_ref(type_arg, context)?,
+                type_arg: lower_type_arg(type_arg, context)?,
                 field: lower_string_literal_name(field, arg.span, context)?,
             });
         }
@@ -860,12 +596,27 @@ fn lower_type_args_with_context(
         .collect()
 }
 
+fn lower_type_arg(
+    ty: &nia_ast::TypeRef,
+    context: &dyn ConstLowerContext,
+) -> Result<EarlyConstTypeArg, ConstLowerError> {
+    Ok(EarlyConstTypeArg {
+        span: ty.span,
+        ty_span: ty.span,
+        ty: lower_type_id(context, &ty.node_key, ty.span)?,
+    })
+}
+
 fn lower_generic_args_with_context(
     args: &[nia_ast::BracketArg],
     context: &dyn ConstLowerContext,
 ) -> Result<Vec<EarlyConstGenericArg>, ConstLowerError> {
     args.iter()
         .map(|arg| {
+            // The parser retains both interpretations for ambiguous bracket
+            // arguments such as `N`. Semantic facts decide whether `N` is a
+            // type or const value. Before those facts exist, keep the type
+            // interpretation so early lowering remains deterministic.
             if let Some(ty) = &arg.ty
                 && (context.probe_type_id(&ty.node_key).is_some()
                     || !context.has_semantic_facts()
@@ -900,6 +651,9 @@ fn lower_assign_target_with_context(
     context: &dyn ConstLowerContext,
 ) -> Result<EarlyConstAssignTarget, ConstLowerError> {
     let mut path = Vec::new();
+    // Recursion reaches the local first and appends projections while
+    // unwinding. The resulting path is root-to-leaf, which is the order both
+    // const checking and evaluation consume during read and writeback.
     let (span, name, local_id) = lower_assign_target_base_with_context(expr, context, &mut path)?;
     Ok(EarlyConstAssignTarget::Local {
         span,
@@ -1003,21 +757,13 @@ fn lower_array_elements_with_context(
     }
 }
 
-fn resolve_name(
-    context: &dyn ConstLowerContext,
-    key: &VersionedNodeKey,
-    span: Span,
-) -> Result<Option<ConstNameResolution>, ConstLowerError> {
-    context.resolve_name(key, span)
-}
-
 fn lower_const_name(
     name: &SymbolId,
     key: &VersionedNodeKey,
     span: Span,
     context: &dyn ConstLowerContext,
 ) -> Result<EarlyConstName, ConstLowerError> {
-    match resolve_name(context, key, span)? {
+    match context.resolve_name(key, span)? {
         Some(resolution) => Ok(EarlyConstName::resolved(*name, resolution)),
         None => Ok(EarlyConstName::unresolved(*name)),
     }
@@ -1039,7 +785,7 @@ fn lower_local_use(
     context.lower_local_use(key, span)
 }
 
-pub(crate) fn lower_type_id(
+fn lower_type_id(
     context: &dyn ConstLowerContext,
     key: &VersionedNodeKey,
     span: Span,
@@ -1047,526 +793,8 @@ pub(crate) fn lower_type_id(
     context.lower_type_id(key, span)
 }
 
-pub fn resolve_function(
-    function: EarlyConstFunction,
-) -> Result<ResolvedConstFunction, ConstLowerError> {
-    let params = function
-        .params
-        .into_iter()
-        .map(resolve_const_param)
-        .collect::<Result<Vec<_>, _>>()?;
-    let body = resolve_const_block(function.body)?;
-    Ok(ResolvedConstFunction::from_parts(
-        function.span,
-        params,
-        body,
-    ))
-}
-
-fn resolve_const_param(param: EarlyConstParam) -> Result<ResolvedConstParam, ConstLowerError> {
-    let local_id = param
-        .local_id
-        .ok_or_else(|| unresolved_error(param.span, "const function parameter local"))?;
-    Ok(ResolvedConstParam::new(
-        param.span,
-        param.name,
-        local_id,
-        param.ty,
-        param.receiver,
-    ))
-}
-
-fn resolve_const_block(block: EarlyConstBlock) -> Result<ResolvedConstBlock, ConstLowerError> {
-    let stmts = block
-        .stmts
-        .into_iter()
-        .map(resolve_const_stmt)
-        .collect::<Result<Vec<_>, _>>()?;
-    let tail = block
-        .tail
-        .map(|tail| resolve_expr(*tail).map(Box::new))
-        .transpose()?;
-    Ok(ResolvedConstBlock::new(block.span, stmts, tail))
-}
-
-fn resolve_const_stmt(stmt: EarlyConstStmt) -> Result<ResolvedConstStmt, ConstLowerError> {
-    let kind = match stmt.kind {
-        EarlyConstStmtKind::Binding(binding) => {
-            ResolvedConstStmtKind::Binding(resolve_const_binding(binding)?)
-        }
-        EarlyConstStmtKind::Expr(expr) => ResolvedConstStmtKind::Expr(resolve_expr(expr)?),
-        EarlyConstStmtKind::Return(expr) => {
-            ResolvedConstStmtKind::Return(expr.map(resolve_expr).transpose()?)
-        }
-        EarlyConstStmtKind::Break => ResolvedConstStmtKind::Break,
-        EarlyConstStmtKind::Continue => ResolvedConstStmtKind::Continue,
-        EarlyConstStmtKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => ResolvedConstStmtKind::If {
-            cond: resolve_expr(cond)?,
-            then_branch: resolve_const_block(then_branch)?,
-            else_branch: else_branch.map(resolve_const_block).transpose()?,
-        },
-        EarlyConstStmtKind::ForIn(for_in) => {
-            ResolvedConstStmtKind::ForIn(resolve_const_for_in(*for_in)?)
-        }
-        EarlyConstStmtKind::While { cond, body } => ResolvedConstStmtKind::While {
-            cond: resolve_expr(cond)?,
-            body: resolve_const_block(body)?,
-        },
-        EarlyConstStmtKind::Loop { body } => ResolvedConstStmtKind::Loop {
-            body: resolve_const_block(body)?,
-        },
-    };
-    Ok(ResolvedConstStmt::new(stmt.span, kind))
-}
-
-fn resolve_const_binding(
-    binding: EarlyConstBinding,
-) -> Result<ResolvedConstBinding, ConstLowerError> {
-    let local_id = binding
-        .local_id
-        .ok_or_else(|| unresolved_error(binding.span, "const local binding"))?;
-    Ok(ResolvedConstBinding::new(
-        binding.span,
-        binding.name,
-        local_id,
-        binding.explicit_type,
-        binding.is_mutable,
-        resolve_expr(binding.value)?,
-    ))
-}
-
-fn resolve_const_for_in(for_in: EarlyConstForIn) -> Result<ResolvedConstForIn, ConstLowerError> {
-    Ok(ResolvedConstForIn::new(
-        resolve_const_pattern(for_in.pattern)?,
-        resolve_expr(for_in.iter)?,
-        resolve_const_block(for_in.body)?,
-    ))
-}
-
-pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowerError> {
-    let span = expr.span;
-    let kind = match expr.kind {
-        EarlyConstExprKind::Integer(value) => ResolvedConstExprKind::Integer(value),
-        EarlyConstExprKind::Char(value) => ResolvedConstExprKind::Char(value),
-        EarlyConstExprKind::ByteChar(value) => ResolvedConstExprKind::ByteChar(value),
-        EarlyConstExprKind::Float(value) => ResolvedConstExprKind::Float(value),
-        EarlyConstExprKind::String(value) => ResolvedConstExprKind::String(value),
-        EarlyConstExprKind::ByteString(value) => ResolvedConstExprKind::ByteString(value),
-        EarlyConstExprKind::Bool(value) => ResolvedConstExprKind::Bool(value),
-        EarlyConstExprKind::Null => ResolvedConstExprKind::Null,
-        EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
-            ResolvedConstExprKind::Name(name.into_resolution(span)?)
-        }
-        EarlyConstExprKind::Field { lhs, name } => ResolvedConstExprKind::Field {
-            lhs: Box::new(resolve_expr(*lhs)?),
-            name,
-        },
-        EarlyConstExprKind::Method { receiver, name } => ResolvedConstExprKind::Method {
-            receiver: Box::new(resolve_expr(*receiver)?),
-            name,
-        },
-        EarlyConstExprKind::AssociatedFunction { target, name } => {
-            ResolvedConstExprKind::AssociatedFunction {
-                target: match target {
-                    EarlyConstAssociatedTarget::Type(target) => {
-                        ResolvedConstAssociatedTarget::Type(resolve_type_arg(target)?)
-                    }
-                    EarlyConstAssociatedTarget::Nominal { def_id, args } => {
-                        ResolvedConstAssociatedTarget::Nominal {
-                            def_id,
-                            args: args
-                                .into_iter()
-                                .map(resolve_type_arg)
-                                .collect::<Result<Vec<_>, _>>()?,
-                        }
-                    }
-                },
-                name,
-            }
-        }
-        EarlyConstExprKind::Index { lhs, index } => ResolvedConstExprKind::Index {
-            lhs: Box::new(resolve_expr(*lhs)?),
-            index: Box::new(resolve_expr(*index)?),
-        },
-        EarlyConstExprKind::Slice { lhs, range } => ResolvedConstExprKind::Slice {
-            lhs: Box::new(resolve_expr(*lhs)?),
-            range: resolve_const_slice_range(range)?,
-        },
-        EarlyConstExprKind::Tuple(elems) => ResolvedConstExprKind::Tuple(
-            elems
-                .into_iter()
-                .map(resolve_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        EarlyConstExprKind::TupleField { lhs, index } => ResolvedConstExprKind::TupleField {
-            lhs: Box::new(resolve_expr(*lhs)?),
-            index,
-        },
-        EarlyConstExprKind::ArrayLiteral { ty, elems } => ResolvedConstExprKind::ArrayLiteral {
-            ty,
-            elems: resolve_const_array_elements(elems)?,
-        },
-        EarlyConstExprKind::StructLiteral { ty, fields } => ResolvedConstExprKind::StructLiteral {
-            ty,
-            fields: fields
-                .into_iter()
-                .map(resolve_const_field_init)
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
-            ResolvedConstExprKind::EnumStructLiteral {
-                variant: Box::new(resolve_expr(*variant)?),
-                fields: fields
-                    .into_iter()
-                    .map(resolve_const_field_init)
-                    .collect::<Result<Vec<_>, _>>()?,
-            }
-        }
-        EarlyConstExprKind::CompileError { message } => ResolvedConstExprKind::CompileError {
-            message: Box::new(resolve_expr(*message)?),
-        },
-        EarlyConstExprKind::Trap => ResolvedConstExprKind::Trap,
-        EarlyConstExprKind::BuiltinConstValue(builtin) => {
-            ResolvedConstExprKind::BuiltinConstValue(builtin)
-        }
-        EarlyConstExprKind::BuiltinValue(builtin) => ResolvedConstExprKind::BuiltinValue(builtin),
-        EarlyConstExprKind::LayoutBuiltin { builtin, type_arg } => {
-            ResolvedConstExprKind::LayoutBuiltin {
-                builtin,
-                type_arg: resolve_type_arg(type_arg)?,
-            }
-        }
-        EarlyConstExprKind::FieldOffsetBuiltin { type_arg, field } => {
-            ResolvedConstExprKind::FieldOffsetBuiltin {
-                type_arg: resolve_type_arg(type_arg)?,
-                field,
-            }
-        }
-        EarlyConstExprKind::Embed { path } => ResolvedConstExprKind::Embed { path },
-        EarlyConstExprKind::Call {
-            callee,
-            generic_args,
-            args,
-        } => ResolvedConstExprKind::Call {
-            callee: Box::new(resolve_expr(*callee)?),
-            generic_args: generic_args
-                .into_iter()
-                .map(|arg| match arg {
-                    EarlyConstGenericArg::Type(arg) => {
-                        resolve_type_arg(arg).map(ResolvedConstGenericArg::Type)
-                    }
-                    EarlyConstGenericArg::Const(expr) => {
-                        resolve_expr(expr).map(ResolvedConstGenericArg::Const)
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-            args: args
-                .into_iter()
-                .map(resolve_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        EarlyConstExprKind::Unary { op, expr } => ResolvedConstExprKind::Unary {
-            op,
-            expr: Box::new(resolve_expr(*expr)?),
-        },
-        EarlyConstExprKind::OptionalSome { expr } => ResolvedConstExprKind::OptionalSome {
-            expr: Box::new(resolve_expr(*expr)?),
-        },
-        EarlyConstExprKind::ErrorOk { expr } => ResolvedConstExprKind::ErrorOk {
-            expr: Box::new(resolve_expr(*expr)?),
-        },
-        EarlyConstExprKind::ErrorErr { expr } => ResolvedConstExprKind::ErrorErr {
-            expr: Box::new(resolve_expr(*expr)?),
-        },
-        EarlyConstExprKind::Try { expr } => ResolvedConstExprKind::Try {
-            expr: Box::new(resolve_expr(*expr)?),
-        },
-        EarlyConstExprKind::Binary { lhs, op, rhs } => ResolvedConstExprKind::Binary {
-            lhs: Box::new(resolve_expr(*lhs)?),
-            op,
-            rhs: Box::new(resolve_expr(*rhs)?),
-        },
-        EarlyConstExprKind::Assign(assign) => {
-            ResolvedConstExprKind::Assign(Box::new(resolve_const_assign(*assign)?))
-        }
-        EarlyConstExprKind::Range(range) => {
-            ResolvedConstExprKind::Range(resolve_const_range(range)?)
-        }
-        EarlyConstExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => ResolvedConstExprKind::If {
-            cond: Box::new(resolve_expr(*cond)?),
-            then_branch: resolve_const_block(then_branch)?,
-            else_branch: else_branch
-                .map(|else_branch| resolve_expr(*else_branch).map(Box::new))
-                .transpose()?,
-        },
-        EarlyConstExprKind::Switch(switch) => {
-            ResolvedConstExprKind::Switch(Box::new(resolve_const_switch(*switch)?))
-        }
-        EarlyConstExprKind::Cast { expr, ty } => ResolvedConstExprKind::Cast {
-            expr: Box::new(resolve_expr(*expr)?),
-            ty: ty.ok_or_else(|| unresolved_error(span, "const cast type"))?,
-        },
-        EarlyConstExprKind::Block(block) => {
-            ResolvedConstExprKind::Block(resolve_const_block(block)?)
-        }
-    };
-    Ok(ResolvedConstExpr::from_parts(span, kind))
-}
-
-fn resolve_const_assign(assign: EarlyConstAssign) -> Result<ResolvedConstAssign, ConstLowerError> {
-    Ok(ResolvedConstAssign::new(
-        resolve_const_assign_target(assign.lhs)?,
-        assign.op,
-        resolve_expr(assign.rhs)?,
-    ))
-}
-
-fn resolve_const_assign_target(
-    target: EarlyConstAssignTarget,
-) -> Result<ResolvedConstAssignTarget, ConstLowerError> {
-    match target {
-        EarlyConstAssignTarget::Local {
-            span,
-            name,
-            local_id,
-            path,
-        } => {
-            let local_id =
-                local_id.ok_or_else(|| unresolved_error(span, "const assignment target"))?;
-            Ok(ResolvedConstAssignTarget::local(
-                span,
-                name,
-                local_id,
-                path.into_iter()
-                    .map(resolve_const_assign_path_elem)
-                    .collect::<Result<Vec<_>, _>>()?,
-            ))
-        }
-    }
-}
-
-fn resolve_const_assign_path_elem(
-    elem: EarlyConstAssignPathElem,
-) -> Result<ResolvedConstAssignPathElem, ConstLowerError> {
-    match elem {
-        EarlyConstAssignPathElem::Field { span, name } => {
-            Ok(ResolvedConstAssignPathElem::field(span, name))
-        }
-        EarlyConstAssignPathElem::Index { span, index } => Ok(ResolvedConstAssignPathElem::index(
-            span,
-            resolve_expr(index)?,
-        )),
-    }
-}
-
-fn resolve_const_switch(switch: EarlyConstSwitch) -> Result<ResolvedConstSwitch, ConstLowerError> {
-    Ok(ResolvedConstSwitch::new(
-        switch.span,
-        resolve_expr(switch.target)?,
-        switch
-            .arms
-            .into_iter()
-            .map(resolve_const_switch_arm)
-            .collect::<Result<Vec<_>, _>>()?,
-    ))
-}
-
-fn resolve_const_switch_arm(
-    arm: EarlyConstSwitchArm,
-) -> Result<ResolvedConstSwitchArm, ConstLowerError> {
-    Ok(ResolvedConstSwitchArm::new(
-        arm.span,
-        arm.patterns
-            .into_iter()
-            .map(resolve_const_pattern)
-            .collect::<Result<Vec<_>, _>>()?,
-        resolve_const_switch_arm_body(arm.body)?,
-    ))
-}
-
-fn resolve_const_pattern(
-    pattern: EarlyConstPattern,
-) -> Result<ResolvedConstPattern, ConstLowerError> {
-    match pattern {
-        EarlyConstPattern::Wildcard { span } => Ok(ResolvedConstPattern::wildcard(span)),
-        EarlyConstPattern::Bind {
-            name,
-            local_id,
-            span,
-        } => Ok(ResolvedConstPattern::bind(
-            name,
-            local_id.ok_or_else(|| unresolved_error(span, "const switch pattern local"))?,
-            span,
-        )),
-        EarlyConstPattern::Pointer { pattern, span } => Ok(ResolvedConstPattern::pointer(
-            resolve_const_pattern(*pattern)?,
-            span,
-        )),
-        EarlyConstPattern::MutPointer { pattern, span } => Ok(ResolvedConstPattern::mut_pointer(
-            resolve_const_pattern(*pattern)?,
-            span,
-        )),
-        EarlyConstPattern::OptionalSome { pattern, span } => Ok(
-            ResolvedConstPattern::optional_some(resolve_const_pattern(*pattern)?, span),
-        ),
-        EarlyConstPattern::OptionalNull { span } => Ok(ResolvedConstPattern::optional_null(span)),
-        EarlyConstPattern::ErrorOk { pattern, span } => Ok(ResolvedConstPattern::error_ok(
-            resolve_const_pattern(*pattern)?,
-            span,
-        )),
-        EarlyConstPattern::ErrorErr { pattern, span } => Ok(ResolvedConstPattern::error_err(
-            resolve_const_pattern(*pattern)?,
-            span,
-        )),
-        EarlyConstPattern::Tuple { patterns, span } => Ok(ResolvedConstPattern::tuple(
-            patterns
-                .into_iter()
-                .map(resolve_const_pattern)
-                .collect::<Result<Vec<_>, _>>()?,
-            span,
-        )),
-        EarlyConstPattern::EnumVariant {
-            variant,
-            fields,
-            span,
-        } => Ok(ResolvedConstPattern::enum_variant(
-            resolve_expr(variant)?,
-            match fields {
-                ConstEnumPatternFields::Tuple(fields) => ConstEnumPatternFields::Tuple(
-                    fields
-                        .into_iter()
-                        .map(resolve_const_pattern)
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                ConstEnumPatternFields::Named(fields) => ConstEnumPatternFields::Named(
-                    fields
-                        .into_iter()
-                        .map(|field| {
-                            Ok(ConstNamedPatternField {
-                                name: field.name,
-                                pattern: resolve_const_pattern(field.pattern)?,
-                                span: field.span,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, ConstLowerError>>()?,
-                ),
-            },
-            span,
-        )),
-        EarlyConstPattern::Expr(expr) => resolve_expr(expr).map(ResolvedConstPattern::expr),
-        EarlyConstPattern::Range {
-            start,
-            end,
-            inclusive,
-            span,
-        } => Ok(ResolvedConstPattern::range(
-            resolve_expr(start)?,
-            resolve_expr(end)?,
-            inclusive,
-            span,
-        )),
-    }
-}
-
-fn resolve_const_switch_arm_body(
-    body: EarlyConstSwitchArmBody,
-) -> Result<ResolvedConstSwitchArmBody, ConstLowerError> {
-    match body {
-        EarlyConstSwitchArmBody::Expr(expr) => {
-            resolve_expr(expr).map(ResolvedConstSwitchArmBody::expr)
-        }
-        EarlyConstSwitchArmBody::Stmt(stmt) => {
-            resolve_const_stmt(*stmt).map(ResolvedConstSwitchArmBody::stmt)
-        }
-        EarlyConstSwitchArmBody::Block(block) => {
-            resolve_const_block(block).map(ResolvedConstSwitchArmBody::block)
-        }
-    }
-}
-
-fn resolve_const_array_elements(
-    elems: EarlyConstArrayElements,
-) -> Result<ResolvedConstArrayElements, ConstLowerError> {
-    match elems {
-        EarlyConstArrayElements::List(elems) => elems
-            .into_iter()
-            .map(resolve_expr)
-            .collect::<Result<Vec<_>, _>>()
-            .map(ResolvedConstArrayElements::list),
-        EarlyConstArrayElements::Repeat { value, count } => Ok(ResolvedConstArrayElements::repeat(
-            resolve_expr(*value)?,
-            resolve_expr(*count)?,
-        )),
-    }
-}
-
-fn resolve_const_range(range: EarlyConstRange) -> Result<ResolvedConstRange, ConstLowerError> {
-    Ok(ResolvedConstRange::new(
-        range
-            .start
-            .map(|start| resolve_expr(*start).map(Box::new))
-            .transpose()?,
-        range
-            .end
-            .map(|end| resolve_expr(*end).map(Box::new))
-            .transpose()?,
-        range.inclusive,
-    ))
-}
-
-fn resolve_const_slice_range(
-    range: EarlyConstSliceRange,
-) -> Result<ResolvedConstSliceRange, ConstLowerError> {
-    Ok(ResolvedConstSliceRange::new(
-        range
-            .start
-            .map(|start| resolve_expr(*start).map(Box::new))
-            .transpose()?,
-        range
-            .end
-            .map(|end| resolve_expr(*end).map(Box::new))
-            .transpose()?,
-        range.inclusive,
-    ))
-}
-
-fn resolve_const_field_init(
-    field: EarlyConstFieldInit,
-) -> Result<ResolvedConstFieldInit, ConstLowerError> {
-    Ok(ResolvedConstFieldInit::new(
-        field.span,
-        field.name,
-        resolve_expr(field.value)?,
-    ))
-}
-
-pub fn resolve_type_arg(
-    type_arg: EarlyConstTypeArg,
-) -> Result<ResolvedConstTypeArg, ConstLowerError> {
-    Ok(ResolvedConstTypeArg::new(
-        type_arg.span,
-        type_arg.ty_span,
-        type_arg
-            .ty
-            .ok_or_else(|| unresolved_error(type_arg.ty_span, "const type argument"))?,
-    ))
-}
-
-pub(crate) fn unresolved_error(span: Span, what: &str) -> ConstLowerError {
-    ConstLowerError {
-        span,
-        message: format!("failed to resolve {what}"),
-    }
-}
-
+/// Lowers a const function body without requiring all semantic identities to
+/// be available yet.
 pub fn lower_function_early(
     function_span: Span,
     function: &nia_ast::FunctionItem,
@@ -1613,9 +841,8 @@ fn lower_function_internal(
                 ty: param
                     .ty
                     .as_ref()
-                    .map(|ty| lower_type_id(context, &ty.node_key, ty.span))
-                    .transpose()?
-                    .flatten(),
+                    .map(|ty| lower_type_arg(ty, context))
+                    .transpose()?,
                 receiver: param.receiver,
             })
         })
@@ -1627,6 +854,7 @@ fn lower_function_internal(
     })
 }
 
+/// Lowers a const function and enforces the resolved-IR identity invariant.
 pub fn lower_function_resolved_with_context(
     function_span: Span,
     function: &nia_ast::FunctionItem,
@@ -1680,9 +908,8 @@ fn lower_stmt_with_context(
                 explicit_type: binding
                     .ty
                     .as_ref()
-                    .map(|ty| lower_type_id(context, &ty.node_key, ty.span))
-                    .transpose()?
-                    .flatten(),
+                    .map(|ty| lower_type_arg(ty, context))
+                    .transpose()?,
                 is_mutable: binding.is_mutable(),
                 value: lower_expr_internal(value, context)?,
             })

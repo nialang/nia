@@ -2,9 +2,10 @@ pub(super) use crate::{
     ConstAssignOp, ConstNameResolution, EarlyConstAssign, EarlyConstAssignTarget, EarlyConstBlock,
     EarlyConstExpr, EarlyConstExprKind, EarlyConstFunction, EarlyConstGenericArg,
     EarlyConstLowerInputs, EarlyConstName, EarlyConstParam, EarlyConstTypeArg,
-    ResolvedConstAssignTargetKind, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFunction,
-    ResolvedConstGenericArg, ResolvedConstLowerInputs, lower_expr_early,
-    lower_expr_early_with_context, lower_expr_resolved_with_context,
+    ResolvedConstAssignPathElemKind, ResolvedConstAssignTargetKind, ResolvedConstExpr,
+    ResolvedConstExprKind, ResolvedConstFunction, ResolvedConstGenericArg,
+    ResolvedConstLowerInputs, lower_expr_early, lower_expr_early_with_context,
+    lower_expr_resolved_with_context, resolve_expr,
 };
 pub(super) use nia_ids::{DefId, GlobalDefId, LayoutBuiltin, LocalId, ModuleIdAllocator};
 pub(super) use nia_node_id::VersionedNodeKey;
