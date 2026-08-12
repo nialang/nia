@@ -2065,6 +2065,48 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn artifact_programs_must_be_emitted_for_the_host_target() {
+        let mut value = draft(false);
+        value.artifact_target.arch = "aarch64".to_string();
+        let artifact_target = value.artifact_target.clone();
+        let emit = value
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "emit")
+            .unwrap();
+        let ActionKind::CompilerEmit { target, .. } = &mut emit.kind else {
+            panic!("expected compiler emit action");
+        };
+        *target = artifact_target;
+        value.actions.push(PlanAction {
+            key: action_key("run"),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Path(
+                    LogicalPath::new(LogicalPathRoot::Artifact(artifact_key("app")), "").unwrap(),
+                ),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidArtifactUse { reason, .. })
+                if reason == "external command programs must be emitted for the host target"
+        ));
+    }
+
     fn artifact_working_directory_draft(
         kind: PlanArtifactKind,
         path: &str,
