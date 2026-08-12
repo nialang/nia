@@ -38,6 +38,59 @@ fn main(value: &i32) i32 {
 }
 
 #[test]
+fn selects_fixed_array_length_over_const_generic_extension() {
+    let checked = pipeline(
+        r#"
+extend[T, N: usize] [N]T {
+    fn rank(&self) i32 {
+        1
+    }
+}
+
+extend[T] [2]T {
+    fn rank(&self) i32 {
+        2
+    }
+}
+
+fn main(values: &[2]i32) i32 {
+    values.rank()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn selects_repeated_type_parameter_over_independent_parameters() {
+    let checked = pipeline(
+        r#"
+struct Pair[A, B] {
+    left: A,
+    right: B,
+}
+
+extend[A, B] Pair[A, B] {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend[T] Pair[T, T] {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+fn main(value: Pair[i32, i32]) i32 {
+    value.rank()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn attributes_provider_demand_to_calling_function() {
     let checked = pipeline_without_visible_extensions(
         r#"
