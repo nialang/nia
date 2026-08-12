@@ -23,6 +23,7 @@ mod pipeline;
 mod places;
 mod products;
 mod projection_obligations;
+mod projection_uses;
 mod provider;
 mod semantic_facts;
 mod signature_scope;
