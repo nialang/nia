@@ -57,6 +57,7 @@ mod env_impl;
 mod expr_types;
 mod generics;
 mod indexing;
+mod switch_patterns;
 mod traits;
 mod ty_substitution;
 mod type_infer;
