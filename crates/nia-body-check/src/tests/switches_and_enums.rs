@@ -49,6 +49,37 @@ fn sum(event: Event) i32 {
 }
 
 #[test]
+fn materializes_const_enum_payloads_at_runtime() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+    Resize { width: i32, height: i32 },
+}
+
+const CLOSED: Event = Event::Closed;
+const DATA: Event = Event::Data(7);
+const RESIZE: Event = Event::Resize { height: 3, width: 5 };
+
+fn score(event: Event) i32 {
+    switch event {
+        Event::Closed => 0,
+        Event::Data(value) => value,
+        Event::Resize { width, height } => width + height,
+    }
+}
+
+fn main() i32 {
+    score(CLOSED) + score(DATA) + score(RESIZE)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn rejects_invalid_payload_enum_constructors_and_patterns() {
     let checked = pipeline(
         r#"

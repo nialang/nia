@@ -476,6 +476,25 @@ fn use_error(value: i32!i32) i32!i32 {
 }
 
 #[test]
+fn materializes_const_ranges_at_runtime() {
+    let checked = pipeline(
+        r#"
+const BOUNDS: usize..usize = 2usize..5usize;
+
+fn first(bounds: usize..usize) usize {
+    bounds.start()
+}
+
+fn main() usize {
+    first(BOUNDS)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn error_propagation_uses_unique_into_error_conversion() {
     let checked = pipeline(
         r#"

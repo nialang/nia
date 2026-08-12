@@ -35,6 +35,29 @@ fn main() i32 {
 }
 
 #[test]
+fn materializes_const_tuples_optionals_and_error_unions_at_runtime() {
+    let checked = pipeline(
+        r#"
+const PAIR: (i32, bool) = (40, true);
+const SOME: ?i32 = ?2;
+const NONE: ?i32 = null;
+const OK: i32!i32 = !3;
+const ERR: i32!i32 = 4!;
+
+fn main() i32 {
+    let some = switch SOME { ?value => value, null => 0 };
+    let none = switch NONE { ?value => value, null => 0 };
+    let ok = switch OK { !value => value, error! => error };
+    let err = switch ERR { !value => value, error! => error };
+    PAIR.0 + some + none + ok + err
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn tuple_projection_reports_target_and_bounds_errors() {
     let checked = pipeline(
         r#"

@@ -199,6 +199,25 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
+#[test]
+fn materializes_frozen_const_array_pointers_as_runtime_slices() {
+    let checked = pipeline_with_len_provider(
+        r#"
+const values: &[usize] = &[3]usize[5, 9, 13];
+
+fn main() usize {
+    values.len() + values[1]
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        !body_ir_contains_error_expr(&checked.ir),
+        "{:#?}",
+        checked.ir
+    );
+}
+
 fn body_ir_contains_error_expr(ir: &nia_body_ir::BodyIr) -> bool {
     ir.function_bodies
         .values()
@@ -249,9 +268,16 @@ fn typed_expr_contains_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
         | nia_body_ir::TypedExprKind::Unary { expr: array, .. }
         | nia_body_ir::TypedExprKind::Cast { expr: array, .. }
         | nia_body_ir::TypedExprKind::Discard(array)
+        | nia_body_ir::TypedExprKind::OptionalSome { expr: array }
+        | nia_body_ir::TypedExprKind::ErrorOk { expr: array }
+        | nia_body_ir::TypedExprKind::ErrorErr { expr: array }
         | nia_body_ir::TypedExprKind::TraitObjectUpcast { expr: array, .. }
         | nia_body_ir::TypedExprKind::TraitObjectCoercion { expr: array, .. } => {
             typed_expr_contains_error_expr(array)
+        }
+        nia_body_ir::TypedExprKind::Tuple(elems)
+        | nia_body_ir::TypedExprKind::EnumVariant { fields: elems, .. } => {
+            elems.iter().any(typed_expr_contains_error_expr)
         }
         nia_body_ir::TypedExprKind::Binary { lhs, rhs, .. }
         | nia_body_ir::TypedExprKind::Index { lhs, index: rhs } => {
