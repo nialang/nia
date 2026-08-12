@@ -490,15 +490,16 @@ fn decode_journal(encoded: &[u8]) -> Option<JournalHeader> {
             kind,
         });
     }
-    let unique_outputs = outputs
-        .iter()
-        .map(|output| &output.path)
-        .collect::<BTreeSet<_>>();
-    (unique_outputs.len() == outputs.len()
-        && outputs
-            .iter()
-            .all(|output| !output.path.components().is_empty()))
-    .then_some(())?;
+    // Rollback treats every destination as an independent rename target.
+    // Nested destinations would make the result depend on output order and
+    // could move a parent while a child backup is still being reconstructed.
+    let outputs_are_disjoint = outputs.iter().enumerate().all(|(index, output)| {
+        !output.path.components().is_empty()
+            && outputs[index + 1..]
+                .iter()
+                .all(|other| !output.path.overlaps(&other.path))
+    });
+    outputs_are_disjoint.then_some(())?;
     (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
     Some(JournalHeader {
         action: ActionKey::new(PackageKey::new(package).ok()?, action).ok()?,
@@ -1397,7 +1398,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_codec_rejects_truncation_trailing_bytes_and_duplicate_outputs() {
+    fn journal_codec_rejects_truncation_trailing_bytes_and_overlapping_outputs() {
         let output =
             LogicalPath::new(LogicalPathRoot::Build, "tool/result.txt").expect("logical output");
         let header = JournalHeader {
@@ -1453,5 +1454,19 @@ mod tests {
             ..header
         };
         assert!(decode_journal(&encode_journal(&duplicate)).is_none());
+        let nested = JournalHeader {
+            outputs: vec![
+                TransactionOutput {
+                    path: LogicalPath::new(LogicalPathRoot::Build, "tool").unwrap(),
+                    kind: TransactionOutputKind::Directory,
+                },
+                TransactionOutput {
+                    path: LogicalPath::new(LogicalPathRoot::Build, "tool/result.txt").unwrap(),
+                    kind: TransactionOutputKind::File,
+                },
+            ],
+            ..duplicate
+        };
+        assert!(decode_journal(&encode_journal(&nested)).is_none());
     }
 }

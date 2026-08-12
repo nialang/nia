@@ -179,6 +179,12 @@ impl LogicalPath {
         self.components.join("/")
     }
 
+    pub(crate) fn overlaps(&self, other: &Self) -> bool {
+        self.root == other.root
+            && (self.components.starts_with(&other.components)
+                || other.components.starts_with(&self.components))
+    }
+
     fn is_empty(&self) -> bool {
         self.components.is_empty()
     }
@@ -1221,7 +1227,7 @@ fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanE
         ) {
             let input_producers = producers
                 .iter()
-                .filter(|(output, _)| logical_paths_overlap(input, output))
+                .filter(|(output, _)| input.overlaps(output))
                 .map(|(_, action)| *action)
                 .collect::<Vec<_>>();
             if input_producers.is_empty() {
@@ -1362,10 +1368,7 @@ fn validate_output_ownership(
             // Output ownership is hierarchical: owning a path also owns every
             // descendant. Exact-path locks cannot serialize actions whose
             // separately declared outputs overlap in the physical build tree.
-            if let Some((owned, first)) = owners
-                .iter()
-                .find(|(owned, _)| logical_paths_overlap(owned, output))
-            {
+            if let Some((owned, first)) = owners.iter().find(|(owned, _)| owned.overlaps(output)) {
                 let collision = if owned.components().len() >= output.components().len() {
                     (*owned).clone()
                 } else {
@@ -1381,12 +1384,6 @@ fn validate_output_ownership(
         }
     }
     Ok(())
-}
-
-fn logical_paths_overlap(left: &LogicalPath, right: &LogicalPath) -> bool {
-    left.root() == right.root()
-        && (left.components().starts_with(right.components())
-            || right.components().starts_with(left.components()))
 }
 
 fn action_outputs<'a>(
