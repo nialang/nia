@@ -816,6 +816,10 @@ fn resolve_namespace_path(
     local_modules: &SymbolMap<ModuleId>,
     path: &[UsingPathSegment],
 ) -> Result<ResolvedNamespace, Diagnostic> {
+    // Resolve the first segment against roots and local module aliases, then
+    // walk exported module surfaces. A type becomes a namespace only when it
+    // is an enum; other types must not accidentally expose members through a
+    // `using` path.
     let defs_by_module = context.defs_by_module;
     let graph = context.graph;
     let surfaces = context.surfaces;
@@ -979,6 +983,9 @@ fn item_visibility_allows(
     accessing_module: ModuleId,
     visibility: Visibility,
 ) -> bool {
+    // `PublicOnly` is used while closing re-export surfaces. `Visible` is for
+    // local scopes and additionally permits private items in the accessing
+    // module, matching ordinary module name lookup.
     match mode {
         UsingLookupMode::PublicOnly => visibility == Visibility::Public,
         UsingLookupMode::Visible => {
@@ -1246,6 +1253,9 @@ fn expand_module_host(
     match selector {
         UsingSelector::SelfName => UsingExpansion::Unresolved,
         UsingSelector::Wildcard { .. } => {
+            // Wildcard expansion merges declarations from the graph with the
+            // already-computed surface. The graph preserves source spans for
+            // direct child modules; re-exported entries use their item's span.
             let mut entries = Vec::new();
             if let Some(parent) = context.graph.get(target_module) {
                 for declaration in &parent.declarations {
@@ -1732,6 +1742,9 @@ fn expand_enum_host(
     let Some(enum_scope) = target_defs.scopes.enum_members.get(&enum_id.def_id) else {
         return UsingExpansion::Unresolved;
     };
+    // Enum wildcard selectors import variants as values; the enum itself is
+    // imported only through `self`. Nested hosts are rejected because enum
+    // variants are not namespaces.
     match selector {
         UsingSelector::SelfName => {
             let Some(def) = target_defs.defs.get(enum_id.def_id) else {
