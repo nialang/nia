@@ -2,6 +2,7 @@
 mod env;
 mod eval;
 mod literals;
+mod numeric;
 mod value;
 
 pub use env::*;
