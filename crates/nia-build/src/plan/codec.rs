@@ -847,7 +847,7 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{draft, generated_source_draft, static_archive_link_draft};
+    use super::super::test_support::{draft, generated_source_draft, static_archive_link_draft};
     use super::*;
 
     fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
