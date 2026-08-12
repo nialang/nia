@@ -1,4 +1,11 @@
-use crate::lower::{ConstLowerContext, lower_type_id, unresolved_error};
+//! Const IR data shared by lowering, checking, evaluation, and static analysis.
+//!
+//! Early IR mirrors const-capable syntax and can retain unresolved semantic
+//! identities. Resolved IR is the downstream contract: required names, locals,
+//! and types have concrete ids, while only contextually inferred annotations
+//! remain optional.
+
+use crate::resolve::unresolved_error;
 use crate::*;
 use nia_ids::{
     BuiltinConstValue, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
@@ -10,6 +17,10 @@ use nia_symbol::SymbolId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Per-module resolved const products indexed by their semantic owners.
+///
+/// Initializers are kept separate by execution/storage role so query clients do
+/// not need to reinterpret a single heterogeneous expression table.
 pub struct ResolvedConstModule {
     enums: Vec<ResolvedConstEnum>,
     global_initializers: HashMap<GlobalDefId, ResolvedConstExpr>,
@@ -175,6 +186,7 @@ impl ResolvedConstEnumVariant {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// An identity-complete const expression ready for checking and evaluation.
 pub struct ResolvedConstExpr {
     span: Span,
     kind: ResolvedConstExprKind,
@@ -249,6 +261,8 @@ impl ResolvedConstExpr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A resolved const function with semantic local ids on parameters and every
+/// binding pattern in its body.
 pub struct ResolvedConstFunction {
     span: Span,
     params: Vec<ResolvedConstParam>,
@@ -329,6 +343,8 @@ impl ResolvedConstParam {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A lexical const block. Statement order and the optional tail expression are
+/// preserved because const evaluation follows source evaluation order.
 pub struct ResolvedConstBlock {
     span: Span,
     stmts: Vec<ResolvedConstStmt>,
@@ -863,6 +879,11 @@ pub enum ResolvedConstSwitchArmBodyKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Expression forms accepted after the early-to-resolved validation boundary.
+///
+/// Optional literal type ids represent contextual inference, not unresolved
+/// semantic facts. Required types such as casts and builtin type arguments use
+/// non-optional resolved ids in their owning nodes.
 pub enum ResolvedConstExprKind {
     Integer(String),
     Char(String),
@@ -1139,6 +1160,7 @@ impl ResolvedConstTypeArg {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Syntax-oriented const function IR that may still lack semantic identities.
 pub struct EarlyConstFunction {
     pub span: Span,
     pub params: Vec<EarlyConstParam>,
@@ -1146,11 +1168,13 @@ pub struct EarlyConstFunction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// An early function parameter. The outer type option records whether syntax
+/// supplied a type; the inner type id may remain unresolved until validation.
 pub struct EarlyConstParam {
     pub span: Span,
     pub name: SymbolId,
     pub local_id: Option<LocalId>,
-    pub ty: Option<InternedTyId>,
+    pub ty: Option<EarlyConstTypeArg>,
     pub receiver: Option<nia_ids::ReceiverKind>,
 }
 
@@ -1190,11 +1214,13 @@ pub enum EarlyConstStmtKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// An early local binding whose explicit annotation, when present in syntax,
+/// remains distinguishable from a binding that relies on inference.
 pub struct EarlyConstBinding {
     pub span: Span,
     pub name: SymbolId,
     pub local_id: Option<LocalId>,
-    pub explicit_type: Option<InternedTyId>,
+    pub explicit_type: Option<EarlyConstTypeArg>,
     pub is_mutable: bool,
     pub value: EarlyConstExpr,
 }
@@ -1315,6 +1341,7 @@ pub enum EarlyConstSwitchArmBody {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A const expression produced by syntax lowering before identity validation.
 pub struct EarlyConstExpr {
     pub span: Span,
     pub kind: EarlyConstExprKind,
@@ -1331,6 +1358,7 @@ impl EarlyConstExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Preserves a display symbol even when semantic name resolution has not run.
 pub enum EarlyConstName {
     Unresolved(SymbolId),
     Resolved {
@@ -1376,6 +1404,12 @@ impl EarlyConstName {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Const-capable syntax forms with optional semantic ids where early lowering
+/// is allowed to proceed before name and type analysis completes.
+///
+/// Aggregate literal types use `Option<EarlyConstTypeArg>` so `None` means the
+/// source omitted a type, while a present type argument may independently carry
+/// a not-yet-resolved type id.
 pub enum EarlyConstExprKind {
     Integer(String),
     Char(String),
@@ -1413,11 +1447,11 @@ pub enum EarlyConstExprKind {
         index: usize,
     },
     ArrayLiteral {
-        ty: Option<InternedTyId>,
+        ty: Option<EarlyConstTypeArg>,
         elems: EarlyConstArrayElements,
     },
     StructLiteral {
-        ty: Option<InternedTyId>,
+        ty: Option<EarlyConstTypeArg>,
         fields: Vec<EarlyConstFieldInit>,
     },
     EnumStructLiteral {
@@ -1583,6 +1617,11 @@ pub struct EarlyConstFieldInit {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A type occurrence carried through early lowering.
+///
+/// `ty == None` means semantic type identity is not available yet. This differs
+/// from an untyped aggregate literal, whose optional type lives on the literal
+/// expression itself and intentionally survives into resolved IR for inference.
 pub struct EarlyConstTypeArg {
     pub span: Span,
     pub ty_span: Span,
@@ -1613,20 +1652,8 @@ pub enum ResolvedConstAssociatedTarget {
     },
 }
 
-impl EarlyConstTypeArg {
-    pub(crate) fn from_type_ref(
-        ty: &nia_ast::TypeRef,
-        context: &dyn ConstLowerContext,
-    ) -> Result<Self, ConstLowerError> {
-        Ok(Self {
-            span: ty.span,
-            ty_span: ty.span,
-            ty: lower_type_id(context, &ty.node_key, ty.span)?,
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A structural failure while lowering syntax or validating early IR.
 pub struct ConstLowerError {
     pub span: Span,
     pub message: String,

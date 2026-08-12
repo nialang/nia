@@ -109,6 +109,64 @@ fn resolved_lowering_uses_local_uses_for_assignment_targets() {
 }
 
 #[test]
+fn assignment_projection_path_is_stored_root_to_leaf() {
+    let root_key = expr_key(20);
+    let expr = nia_ast::Expr {
+        span: Span::new(0, 12),
+        node_key: expr_key(21),
+        kind: nia_ast::ExprKind::Assign {
+            lhs: Box::new(nia_ast::Expr {
+                span: Span::new(0, 10),
+                node_key: expr_key(22),
+                kind: nia_ast::ExprKind::Field {
+                    lhs: Box::new(nia_ast::Expr {
+                        span: Span::new(0, 8),
+                        node_key: expr_key(23),
+                        kind: nia_ast::ExprKind::Index {
+                            lhs: Box::new(nia_ast::Expr {
+                                span: span(),
+                                node_key: root_key.clone(),
+                                kind: nia_ast::ExprKind::Ident(sym("values")),
+                            }),
+                            index: nia_ast::IndexArg::Expr(Box::new(nia_ast::Expr {
+                                span: other_span(),
+                                node_key: expr_key(24),
+                                kind: nia_ast::ExprKind::Integer("1".to_string()),
+                            })),
+                        },
+                    }),
+                    name: sym("field"),
+                },
+            }),
+            op: nia_ast::AssignOp::Assign,
+            rhs: Box::new(nia_ast::Expr {
+                span: span(),
+                node_key: expr_key(25),
+                kind: nia_ast::ExprKind::Integer("2".to_string()),
+            }),
+        },
+    };
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_local_value_use(root_key, LocalId(3));
+    let semantic_uses = semantic_uses.finish();
+    let context = ResolvedConstLowerInputs::new(&semantic_uses);
+
+    let lowered = lower_expr_resolved_with_context(&expr, &context)
+        .expect("nested assignment target should lower");
+    let ResolvedConstExprKind::Assign(assign) = lowered.kind() else {
+        panic!("expression should lower to assignment");
+    };
+    let ResolvedConstAssignTargetKind::Local { path, .. } = assign.lhs().kind();
+    assert!(matches!(
+        path.as_slice(),
+        [first, second]
+            if matches!(first.kind(), ResolvedConstAssignPathElemKind::Index { .. })
+                && matches!(second.kind(), ResolvedConstAssignPathElemKind::Field { name, .. }
+                    if *name == sym("field"))
+    ));
+}
+
+#[test]
 fn resolved_lowering_requires_type_ids() {
     let expr = nia_ast::Expr {
         span: span(),
@@ -140,6 +198,39 @@ fn resolved_lowering_requires_type_ids() {
     let err = lower_expr_resolved_with_context(&expr, &context)
         .expect_err("resolved lowering must reject unresolved types");
     assert_eq!(err.message, "failed to resolve const type");
+}
+
+#[test]
+fn early_lowering_preserves_unresolved_explicit_literal_type() {
+    let expr = nia_ast::Expr {
+        span: span(),
+        node_key: expr_key(30),
+        kind: nia_ast::ExprKind::TypedArrayLiteral {
+            ty: nia_ast::TypeRef {
+                span: other_span(),
+                node_key: type_key(30),
+                text: "i32".to_string(),
+                kind: nia_ast::TypeKind::Path {
+                    segments: vec![nia_ast::TypePathSegment {
+                        kind: nia_ast::PathSegmentKind::Name(sym("i32")),
+                        args: Vec::new(),
+                    }],
+                },
+            },
+            elems: nia_ast::ArrayElements::List(Vec::new()),
+        },
+    };
+
+    let early = lower_expr_early(&expr).expect("early typed literal should lower");
+    let EarlyConstExprKind::ArrayLiteral { ty: Some(ty), .. } = early.kind() else {
+        panic!("explicit literal type must survive early lowering");
+    };
+    assert_eq!(ty.ty_span, other_span());
+    assert_eq!(ty.ty, None);
+
+    let err = resolve_expr(early).expect_err("explicit literal type must resolve");
+    assert_eq!(err.span, other_span());
+    assert_eq!(err.message, "failed to resolve const type argument");
 }
 
 #[test]

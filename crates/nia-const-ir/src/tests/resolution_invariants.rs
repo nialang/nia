@@ -100,3 +100,101 @@ fn resolved_expr_rejects_unresolved_type_args() {
     let err = ResolvedConstExpr::new(expr).expect_err("unresolved type arg must be rejected");
     assert_eq!(err.message, "failed to resolve const type argument");
 }
+
+#[test]
+fn resolved_expr_rejects_unresolved_explicit_array_literal_type() {
+    let expr = EarlyConstExpr {
+        span: span(),
+        kind: EarlyConstExprKind::ArrayLiteral {
+            ty: Some(EarlyConstTypeArg {
+                span: span(),
+                ty_span: other_span(),
+                ty: None,
+            }),
+            elems: crate::EarlyConstArrayElements::List(Vec::new()),
+        },
+    };
+
+    let err = resolve_expr(expr).expect_err("explicit array type must resolve");
+    assert_eq!(err.span, other_span());
+    assert_eq!(err.message, "failed to resolve const type argument");
+}
+
+#[test]
+fn resolved_expr_preserves_context_inferred_array_literal() {
+    let expr = EarlyConstExpr {
+        span: span(),
+        kind: EarlyConstExprKind::ArrayLiteral {
+            ty: None,
+            elems: crate::EarlyConstArrayElements::List(Vec::new()),
+        },
+    };
+
+    let resolved = resolve_expr(expr).expect("untyped array literal should remain inferable");
+    assert!(matches!(
+        resolved.kind(),
+        ResolvedConstExprKind::ArrayLiteral { ty: None, .. }
+    ));
+}
+
+#[test]
+fn resolved_function_rejects_unresolved_explicit_parameter_type() {
+    let function = EarlyConstFunction {
+        span: span(),
+        params: vec![EarlyConstParam {
+            span: span(),
+            name: sym("value"),
+            local_id: Some(LocalId(0)),
+            ty: Some(EarlyConstTypeArg {
+                span: span(),
+                ty_span: other_span(),
+                ty: None,
+            }),
+            receiver: None,
+        }],
+        body: EarlyConstBlock {
+            span: span(),
+            stmts: Vec::new(),
+            tail: None,
+        },
+    };
+
+    let err =
+        ResolvedConstFunction::new(function).expect_err("explicit parameter type must resolve");
+    assert_eq!(err.span, other_span());
+    assert_eq!(
+        err.message,
+        "failed to resolve const function parameter type"
+    );
+}
+
+#[test]
+fn resolved_function_rejects_unresolved_explicit_binding_type() {
+    let function = EarlyConstFunction {
+        span: span(),
+        params: Vec::new(),
+        body: EarlyConstBlock {
+            span: span(),
+            stmts: vec![crate::EarlyConstStmt {
+                span: span(),
+                kind: crate::EarlyConstStmtKind::Binding(crate::EarlyConstBinding {
+                    span: span(),
+                    name: sym("value"),
+                    local_id: Some(LocalId(0)),
+                    explicit_type: Some(EarlyConstTypeArg {
+                        span: span(),
+                        ty_span: other_span(),
+                        ty: None,
+                    }),
+                    is_mutable: false,
+                    value: int_expr("1"),
+                }),
+            }],
+            tail: None,
+        },
+    };
+
+    let err = ResolvedConstFunction::new(function).expect_err("explicit binding type must resolve");
+    assert_eq!(err.span, other_span());
+    assert_eq!(err.message, "failed to resolve const local binding type");
+}
