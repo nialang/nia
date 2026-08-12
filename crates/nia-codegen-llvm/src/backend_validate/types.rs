@@ -4,12 +4,12 @@ use std::collections::HashSet;
 use nia_backend_ir::BackendField;
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
-use nia_layout::TypeLayout;
+use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagged_union_layout};
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEquivalence};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 
-use super::{BackendValidator, align_to, primitive_layout};
+use super::{BackendValidator, primitive_layout};
 
 impl BackendValidator<'_> {
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
@@ -324,30 +324,18 @@ impl BackendValidator<'_> {
         }
         match self.index.ty_kind(ty)? {
             TyKind::Tuple(elems) => {
-                let mut size = 0u64;
-                let mut align = 1u64;
+                let mut layouts = Vec::with_capacity(elems.len());
                 for elem in elems {
-                    let elem = self.layout_of_with_active(*elem, active)?;
-                    size = align_to(size, elem.align).saturating_add(elem.size);
-                    align = align.max(elem.align);
+                    layouts.push(self.layout_of_with_active(*elem, active)?);
                 }
-                Some(TypeLayout {
-                    size: align_to(size, align),
-                    align,
-                })
+                sequential_layout(&layouts)
             }
             TyKind::ClosureState { captures, .. } => {
-                let mut size = 0u64;
-                let mut align = 1u64;
+                let mut layouts = Vec::with_capacity(captures.len());
                 for capture in captures {
-                    let capture = self.layout_of_with_active(*capture, active)?;
-                    size = align_to(size, capture.align).saturating_add(capture.size);
-                    align = align.max(capture.align);
+                    layouts.push(self.layout_of_with_active(*capture, active)?);
                 }
-                Some(TypeLayout {
-                    size: align_to(size, align),
-                    align,
-                })
+                sequential_layout(&layouts)
             }
             TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
             TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
@@ -361,41 +349,26 @@ impl BackendValidator<'_> {
             | TyKind::SlicePointee { .. }
             | TyKind::TraitObjectPointee { .. }
             | TyKind::CallablePointee { .. } => None,
-            TyKind::Range { bound: None, .. } => Some(TypeLayout { size: 0, align: 1 }),
-            TyKind::Range {
-                kind,
-                bound: Some(bound),
-            } => {
-                let field_count = match kind {
-                    RangeTyKind::Exclusive | RangeTyKind::Inclusive => 2,
-                    RangeTyKind::From | RangeTyKind::To | RangeTyKind::ToInclusive => 1,
-                    RangeTyKind::Full => 0,
+            TyKind::Range { kind, bound } => {
+                let bound_layout = match bound {
+                    Some(bound) => Some(self.layout_of_with_active(*bound, active)?),
+                    None => None,
                 };
-                let bound_layout = self.layout_of_with_active(*bound, active)?;
-                Some(TypeLayout {
-                    size: align_to(
-                        bound_layout.size.saturating_mul(field_count),
-                        bound_layout.align,
-                    ),
-                    align: bound_layout.align,
-                })
+                range_layout(*kind, bound_layout.as_ref())
             }
             TyKind::Array { len, elem } => {
                 let len = self.array_len_value(len)?;
                 let elem_layout = self.layout_of_with_active(*elem, active)?;
-                Some(TypeLayout {
-                    size: elem_layout.size.saturating_mul(len),
-                    align: elem_layout.align,
-                })
+                array_layout(&elem_layout, len)
             }
             TyKind::Optional { elem } => {
                 let elem_layout = self.layout_of_with_active(*elem, active)?;
-                Some(tagged_union_layout(&[elem_layout]))
+                tagged_union_layout(&[elem_layout])
             }
             TyKind::ErrorUnion { error, value } => {
                 let error_layout = self.layout_of_with_active(*error, active)?;
                 let value_layout = self.layout_of_with_active(*value, active)?;
-                Some(tagged_union_layout(&[error_layout, value_layout]))
+                tagged_union_layout(&[error_layout, value_layout])
             }
             TyKind::Nominal {
                 def_id,
@@ -618,21 +591,5 @@ impl TypeEquivalence for BackendValidator<'_> {
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         self.same_type(left, right)
-    }
-}
-
-fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
-    let tag_layout = TypeLayout { size: 1, align: 1 };
-    let payload_size = payloads.iter().map(|layout| layout.size).max().unwrap_or(0);
-    let payload_align = payloads
-        .iter()
-        .map(|layout| layout.align)
-        .max()
-        .unwrap_or(1);
-    let align = tag_layout.align.max(payload_align);
-    let payload_offset = align_to(tag_layout.size, payload_align);
-    TypeLayout {
-        size: align_to(payload_offset.saturating_add(payload_size), align),
-        align,
     }
 }

@@ -21,8 +21,11 @@ use nia_ty::{
 mod abi;
 mod aggregate;
 
-use abi::{align_to, tagged_union_layout, tagged_union_layout_with_tag};
-pub use abi::{array_layout, primitive_layout, union_layout_from_fields, vector_layout};
+use abi::{align_to, tagged_union_layout_with_tag};
+pub use abi::{
+    array_layout, primitive_layout, range_layout, sequential_layout, tagged_union_layout,
+    union_layout_from_fields, vector_layout,
+};
 use aggregate::{
     PendingEnumFieldLayout, PendingFieldLayout, place_enum_fields, place_struct_fields,
 };
@@ -876,17 +879,11 @@ impl<'a> LayoutComputer<'a> {
     }
 
     fn tuple_layout(&mut self, span: Span, elems: &[InternedTyId]) -> Option<TypeLayout> {
-        let mut size = 0u64;
-        let mut align = 1u64;
+        let mut layouts = Vec::with_capacity(elems.len());
         for elem in elems {
-            let elem = self.layout_ty(*elem, span)?;
-            size = align_to(size, elem.align).saturating_add(elem.size);
-            align = align.max(elem.align);
+            layouts.push(self.layout_ty(*elem, span)?);
         }
-        Some(TypeLayout {
-            size: align_to(size, align),
-            align,
-        })
+        sequential_layout(&layouts).or_else(|| self.layout_overflow(span, "tuple"))
     }
 
     fn range_layout(
@@ -895,27 +892,17 @@ impl<'a> LayoutComputer<'a> {
         kind: RangeTyKind,
         bound: Option<InternedTyId>,
     ) -> Option<TypeLayout> {
-        let field_count = match kind {
-            RangeTyKind::Exclusive | RangeTyKind::Inclusive => 2,
-            RangeTyKind::From | RangeTyKind::To | RangeTyKind::ToInclusive => 1,
-            RangeTyKind::Full => 0,
+        let bound_layout = match bound {
+            Some(bound) => Some(self.layout_ty(bound, span)?),
+            None => None,
         };
-        let Some(bound) = bound else {
-            return (field_count == 0).then_some(TypeLayout { size: 0, align: 1 });
-        };
-        let bound_layout = self.layout_ty(bound, span)?;
-        Some(TypeLayout {
-            size: align_to(
-                bound_layout.size.saturating_mul(field_count),
-                bound_layout.align,
-            ),
-            align: bound_layout.align,
-        })
+        crate::range_layout(kind, bound_layout.as_ref())
+            .or_else(|| self.layout_overflow(span, "range"))
     }
 
     fn optional_layout(&mut self, span: Span, elem: InternedTyId) -> Option<TypeLayout> {
         let elem_layout = self.layout_ty(elem, span)?;
-        Some(tagged_union_layout(&[elem_layout]))
+        tagged_union_layout(&[elem_layout]).or_else(|| self.layout_overflow(span, "optional"))
     }
 
     fn error_union_layout(
@@ -926,7 +913,8 @@ impl<'a> LayoutComputer<'a> {
     ) -> Option<TypeLayout> {
         let error_layout = self.layout_ty(error, span)?;
         let value_layout = self.layout_ty(value, span)?;
-        Some(tagged_union_layout(&[error_layout, value_layout]))
+        tagged_union_layout(&[error_layout, value_layout])
+            .or_else(|| self.layout_overflow(span, "error union"))
     }
 
     fn nominal_layout(
@@ -1188,7 +1176,9 @@ impl<'a> LayoutComputer<'a> {
                     })
                     .collect::<Option<Vec<_>>>()?,
             };
-            let (payload, fields) = place_enum_fields(pending);
+            let Some((payload, fields)) = place_enum_fields(pending) else {
+                return self.layout_overflow(variant.span, "enum payload");
+            };
             variants.push(EnumVariantLayout {
                 def_id: variant.def_id,
                 payload,
@@ -1197,24 +1187,32 @@ impl<'a> LayoutComputer<'a> {
         }
         let has_payload = variants.iter().any(|variant| !variant.fields.is_empty());
         let layout = if has_payload {
-            tagged_union_layout_with_tag(
+            let Some(layout) = tagged_union_layout_with_tag(
                 &tag,
                 &variants
                     .iter()
                     .map(|variant| variant.payload.clone())
                     .collect::<Vec<_>>(),
-            )
+            ) else {
+                return self.layout_overflow(span, "enum");
+            };
+            layout
         } else {
             tag.clone()
         };
-        let payload_offset = has_payload.then(|| {
+        let payload_offset = if has_payload {
             let payload_align = variants
                 .iter()
                 .map(|variant| variant.payload.align)
                 .max()
                 .unwrap_or(1);
-            align_to(tag.size, payload_align)
-        });
+            let Some(offset) = align_to(tag.size, payload_align) else {
+                return self.layout_overflow(span, "enum payload offset");
+            };
+            Some(offset)
+        } else {
+            None
+        };
         let enum_layout = EnumLayout {
             layout: layout.clone(),
             tag,
@@ -1341,7 +1339,11 @@ impl<'a> LayoutComputer<'a> {
     ) -> Option<StructLayout> {
         let fields =
             self.layout_fields(key, &signature.fields, substitutions, const_substitutions)?;
-        Some(place_struct_fields(fields))
+        let Some(layout) = place_struct_fields(fields) else {
+            self.visiting_structs.remove(key);
+            return self.layout_overflow(signature.span, "struct");
+        };
+        Some(layout)
     }
 
     fn sorted_field_layout(
@@ -1361,7 +1363,11 @@ impl<'a> LayoutComputer<'a> {
                 .then_with(|| right.layout.size.cmp(&left.layout.size))
                 .then_with(|| left.source_index.cmp(&right.source_index))
         });
-        Some(place_struct_fields(fields))
+        let Some(layout) = place_struct_fields(fields) else {
+            self.visiting_structs.remove(key);
+            return self.layout_overflow(signature.span, "struct");
+        };
+        Some(layout)
     }
 
     fn layout_fields(
@@ -1419,12 +1425,25 @@ impl<'a> LayoutComputer<'a> {
                 layout: field_layout,
             });
         }
-        let layout = union_layout_from_fields(fields.iter().map(|field| &field.layout));
+        let Some(layout) = union_layout_from_fields(fields.iter().map(|field| &field.layout))
+        else {
+            self.visiting_unions.remove(key);
+            return self.layout_overflow(signature.span, "union");
+        };
         Some(StructLayout { layout, fields })
     }
 }
 
 impl LayoutComputer<'_> {
+    fn layout_overflow<T>(&mut self, span: Span, kind: &str) -> Option<T> {
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::STATIC_CHECK,
+            span,
+            format!("{kind} layout size overflowed"),
+        ));
+        None
+    }
+
     fn normalize_ty(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }

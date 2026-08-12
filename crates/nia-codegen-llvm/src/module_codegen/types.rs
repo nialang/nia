@@ -523,11 +523,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(payload_offset) = layout.payload_offset else {
             return Ok(tag);
         };
-        let padding = payload_offset.saturating_sub(layout.tag.size);
+        let padding = payload_offset
+            .checked_sub(layout.tag.size)
+            .ok_or_else(|| self.error(span, "enum payload offset precedes its tag"))?;
         if padding > u32::MAX as u64 {
             return Err(self.error(span, "enum payload padding is too large for LLVM"));
         }
-        let storage_size = layout.layout.size.saturating_sub(payload_offset);
+        let storage_size = layout
+            .layout
+            .size
+            .checked_sub(payload_offset)
+            .ok_or_else(|| self.error(span, "enum payload exceeds its layout size"))?;
         let storage_align = layout
             .variants
             .iter()
@@ -548,18 +554,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         let tag_ty: BasicTypeEnum<'ctx> = self.context.i8_type().into();
-        let max_align = payloads
-            .iter()
-            .filter_map(|ty| self.layout_of(*ty))
-            .map(|layout| layout.align)
-            .max()
-            .unwrap_or(1);
-        let max_size = payloads
-            .iter()
-            .filter_map(|ty| self.layout_of(*ty))
-            .map(|layout| layout.size)
-            .max()
-            .unwrap_or(0);
+        let mut max_align = 1u64;
+        let mut max_size = 0u64;
+        for payload in payloads {
+            let layout = self
+                .layout_of(*payload)
+                .ok_or_else(|| self.error(span, "missing tagged-union payload layout"))?;
+            max_align = max_align.max(layout.align);
+            max_size = max_size.max(layout.size);
+        }
         let storage = self.union_storage_type(max_size, max_align, span)?;
         Ok(self.context.struct_type(&[tag_ty, storage], false).into())
     }
@@ -575,7 +578,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         let align_ty = self.union_alignment_type(align, span)?;
         let align_size = align;
-        let padding = size.saturating_sub(align_size);
+        let padding = size
+            .checked_sub(align_size)
+            .ok_or_else(|| self.error(span, "union storage alignment exceeds its size"))?;
         let mut fields = vec![align_ty];
         if padding > 0 {
             if padding > u32::MAX as u64 {
@@ -848,9 +853,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(layout) = self.union_layout(def_id, args, const_args) else {
             return Err(self.error(span, "missing union layout"));
         };
+        if layout.layout.size == 0 {
+            return Ok(Vec::new());
+        }
         let align_ty = self.union_alignment_type(layout.layout.align, span)?;
         let align_size = layout.layout.align;
-        let padding = layout.layout.size.saturating_sub(align_size);
+        let padding = layout
+            .layout
+            .size
+            .checked_sub(align_size)
+            .ok_or_else(|| self.error(span, "union alignment exceeds its layout size"))?;
         let mut fields = vec![align_ty];
         if padding > 0 {
             if padding > u32::MAX as u64 {
