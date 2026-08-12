@@ -477,6 +477,13 @@ pub enum PlanError {
         role: &'static str,
         reason: &'static str,
     },
+    InvalidActionTarget(Box<InvalidActionTarget>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidActionTarget {
+    pub action: ActionKey,
+    pub target: TargetSpec,
 }
 
 impl fmt::Display for PlanError {
@@ -495,7 +502,13 @@ impl BuildPlan {
         validate_package_references(&draft)?;
         canonicalize_modules(&mut draft.modules)?;
         canonicalize_artifacts(&mut draft.artifacts, &draft.modules)?;
-        canonicalize_actions(&mut draft.actions, &draft.modules, &draft.artifacts)?;
+        canonicalize_actions(
+            &mut draft.actions,
+            &draft.modules,
+            &draft.artifacts,
+            &draft.host_target,
+            &draft.artifact_target,
+        )?;
         canonicalize_steps(&mut draft.steps, &draft.actions)?;
         validate_step_selection(&draft)?;
         validate_step_cycles(&draft.steps)?;
@@ -760,6 +773,8 @@ fn canonicalize_actions(
     actions: &mut [PlanAction],
     modules: &[PlanModule],
     artifacts: &[PlanArtifact],
+    host_target: &TargetSpec,
+    artifact_target: &TargetSpec,
 ) -> Result<(), PlanError> {
     actions.sort_by(|left, right| left.key.cmp(&right.key));
     reject_duplicate_by(
@@ -773,16 +788,49 @@ fn canonicalize_actions(
         .iter()
         .map(|artifact| (&artifact.key, artifact))
         .collect();
-    let emit_targets: BTreeMap<_, _> = actions
-        .iter()
-        .filter_map(|action| match &action.kind {
-            ActionKind::CompilerEmit {
-                artifact, target, ..
-            } => Some((artifact.clone(), target.clone())),
-            _ => None,
-        })
-        .collect();
+    let mut emit_targets = BTreeMap::new();
+    for action in actions.iter() {
+        let ActionKind::CompilerEmit {
+            artifact, target, ..
+        } = &action.kind
+        else {
+            continue;
+        };
+        // Artifact identity denotes one published value. Multiple emitters
+        // would otherwise be silently collapsed in this target index and only
+        // fail later through incidental output ownership ordering.
+        if emit_targets
+            .insert(artifact.clone(), target.clone())
+            .is_some()
+        {
+            return Err(PlanError::InvalidArtifactUse {
+                action: action.key.clone(),
+                artifact: artifact.clone(),
+                reason: "artifact has multiple compiler emit actions",
+            });
+        }
+    }
     for action in actions {
+        let compiler_target = match &action.kind {
+            ActionKind::CompilerCheck { target, .. } | ActionKind::CompilerEmit { target, .. } => {
+                Some(target)
+            }
+            _ => None,
+        };
+        if let Some(target) = compiler_target
+            && target != host_target
+            && target != artifact_target
+        {
+            // The two plan targets define the complete driver set authorized
+            // by the invocation. Per-action targets may select either role,
+            // but must not smuggle an unvalidated third toolchain target in.
+            return Err(PlanError::InvalidActionTarget(Box::new(
+                InvalidActionTarget {
+                    action: action.key.clone(),
+                    target: target.clone(),
+                },
+            )));
+        }
         match &mut action.kind {
             ActionKind::CompilerCheck { module, .. } if !module_keys.contains(module) => {
                 return Err(PlanError::MissingModule {
@@ -1195,6 +1243,53 @@ mod tests {
                 reason: "linked static archive has no compiler emit dependency",
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn freeze_rejects_compiler_targets_outside_the_plan_pair() {
+        for action_name in ["check", "emit"] {
+            let mut value = draft(false);
+            let action = value
+                .actions
+                .iter_mut()
+                .find(|action| action.key.name() == action_name)
+                .unwrap();
+            let target = match &mut action.kind {
+                ActionKind::CompilerCheck { target, .. }
+                | ActionKind::CompilerEmit { target, .. } => target,
+                _ => unreachable!(),
+            };
+            target.arch = "third-architecture".to_string();
+
+            assert!(matches!(
+                BuildPlan::freeze(value),
+                Err(PlanError::InvalidActionTarget(details))
+                    if details.action.name() == action_name
+                        && details.target.arch == "third-architecture"
+            ));
+        }
+    }
+
+    #[test]
+    fn freeze_rejects_multiple_emitters_for_one_artifact() {
+        let mut value = draft(false);
+        value.actions.push(PlanAction {
+            key: action_key("second-emit"),
+            kind: ActionKind::CompilerEmit {
+                artifact: artifact_key("app"),
+                target: target(),
+                static_archives: Vec::new(),
+            },
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidArtifactUse {
+                action,
+                artifact,
+                reason: "artifact has multiple compiler emit actions",
+            }) if action.name() == "second-emit" && artifact.name() == "app"
         ));
     }
 
