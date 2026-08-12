@@ -19,9 +19,13 @@ use nia_ty::{
 };
 
 mod abi;
+mod aggregate;
 
 use abi::{align_to, tagged_union_layout, tagged_union_layout_with_tag};
 pub use abi::{array_layout, primitive_layout, union_layout_from_fields, vector_layout};
+use aggregate::{
+    PendingEnumFieldLayout, PendingFieldLayout, place_enum_fields, place_struct_fields,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetDataLayout {
@@ -1417,66 +1421,6 @@ impl<'a> LayoutComputer<'a> {
         }
         let layout = union_layout_from_fields(fields.iter().map(|field| &field.layout));
         Some(StructLayout { layout, fields })
-    }
-}
-
-#[derive(Debug, Clone)]
-struct PendingFieldLayout {
-    def_id: DefId,
-    source_index: usize,
-    layout: TypeLayout,
-}
-
-#[derive(Debug, Clone)]
-struct PendingEnumFieldLayout {
-    def_id: Option<DefId>,
-    layout: TypeLayout,
-}
-
-fn place_enum_fields(fields: Vec<PendingEnumFieldLayout>) -> (TypeLayout, Vec<EnumFieldLayout>) {
-    let mut placed = Vec::with_capacity(fields.len());
-    let mut offset = 0u64;
-    let mut max_align = 1u64;
-    for field in fields {
-        offset = align_to(offset, field.layout.align);
-        placed.push(EnumFieldLayout {
-            def_id: field.def_id,
-            offset,
-            layout: field.layout.clone(),
-        });
-        offset = offset.saturating_add(field.layout.size);
-        max_align = max_align.max(field.layout.align);
-    }
-    (
-        TypeLayout {
-            size: align_to(offset, max_align),
-            align: max_align,
-        },
-        placed,
-    )
-}
-
-fn place_struct_fields(fields: Vec<PendingFieldLayout>) -> StructLayout {
-    let mut placed = Vec::new();
-    let mut offset = 0u64;
-    let mut max_align = 1u64;
-    for field in fields {
-        offset = align_to(offset, field.layout.align);
-        placed.push(FieldLayout {
-            def_id: field.def_id,
-            offset,
-            layout: field.layout.clone(),
-        });
-        offset = offset.saturating_add(field.layout.size);
-        max_align = max_align.max(field.layout.align);
-    }
-    let layout = TypeLayout {
-        size: align_to(offset, max_align),
-        align: max_align,
-    };
-    StructLayout {
-        layout,
-        fields: placed,
     }
 }
 
