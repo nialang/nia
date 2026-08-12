@@ -186,11 +186,16 @@ mod aggregates;
 mod arrays;
 mod assignment;
 mod binary;
+mod blocks;
 mod calls;
 mod control_flow;
 mod patterns;
 mod ranges;
 pub use assignment::write_resolved_const_place;
+use blocks::{
+    eval_function_block, eval_function_stmt, eval_function_tail_expr, eval_resolved_function_block,
+    eval_resolved_function_stmt, eval_resolved_function_tail_expr,
+};
 pub use calls::{
     ResolvedConstCallInput, eval_early_const_function_call, eval_resolved_const_function_call,
 };
@@ -483,7 +488,7 @@ fn eval_resolved_const_expr_flow(
         }
         ResolvedConstExprKind::Assign(assign) => {
             env.prepare_resolved_assignment(assign)?;
-            return eval_resolved_assign_expr_flow(span, assign, env);
+            return assignment::eval_resolved_assign_expr_flow(span, assign, env);
         }
         ResolvedConstExprKind::Range(range) => {
             return ranges::eval_resolved_range_expr_flow(range, env);
@@ -781,7 +786,7 @@ fn eval_const_expr_flow(
             return binary::eval_binary_flow(expr.span, lhs, *op, rhs, env);
         }
         EarlyConstExprKind::Assign(assign) => {
-            return eval_assign_expr_flow(expr.span, assign, env);
+            return assignment::eval_assign_expr_flow(expr.span, assign, env);
         }
         EarlyConstExprKind::Range(range) => {
             return ranges::eval_range_expr_flow(range, env);
@@ -1362,323 +1367,5 @@ pub fn eval_resolved_const_array_len_expr(
 ) -> Result<u64, ConstError> {
     with_const_eval_session(env, |env| {
         int_to_array_len(expr.span(), eval_resolved_const_int_expr_inner(expr, env)?)
-    })
-}
-
-fn eval_function_block(
-    block: &EarlyConstBlock,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    if block.stmts.is_empty() {
-        return eval_function_block_without_scope(block, env);
-    }
-    env.push_const_scope(block.span)?;
-    let result = eval_function_block_without_scope(block, env);
-    env.pop_const_scope();
-    result
-}
-
-fn eval_resolved_function_block(
-    block: &ResolvedConstBlock,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    if block.is_empty() {
-        return eval_resolved_function_block_without_scope(block, env);
-    }
-    env.push_const_scope(block.span())?;
-    let result = eval_resolved_function_block_without_scope(block, env);
-    env.pop_const_scope();
-    result
-}
-
-fn eval_resolved_function_block_without_scope(
-    block: &ResolvedConstBlock,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    for stmt in block.stmts() {
-        match eval_resolved_function_stmt(stmt, env)? {
-            ConstEvalFlow::Return(value) => return Ok(ConstEvalFlow::Return(value)),
-            ConstEvalFlow::Propagate(value) => return Ok(ConstEvalFlow::Propagate(value)),
-            ConstEvalFlow::Break => return Ok(ConstEvalFlow::Break),
-            ConstEvalFlow::Continue => return Ok(ConstEvalFlow::Continue),
-            ConstEvalFlow::Value(_) | ConstEvalFlow::Void => {}
-        }
-    }
-    block.tail().map_or(Ok(ConstEvalFlow::Void), |tail| {
-        eval_resolved_function_tail_expr(tail, env)
-    })
-}
-
-fn eval_resolved_function_tail_expr(
-    expr: &ResolvedConstExpr,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    env.prepare_resolved_function_result(expr)?;
-    eval_resolved_const_expr_flow(expr, env)
-}
-
-fn eval_function_block_without_scope(
-    block: &EarlyConstBlock,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    for stmt in &block.stmts {
-        match eval_function_stmt(stmt, env)? {
-            ConstEvalFlow::Return(value) => return Ok(ConstEvalFlow::Return(value)),
-            ConstEvalFlow::Propagate(value) => return Ok(ConstEvalFlow::Propagate(value)),
-            ConstEvalFlow::Break => return Ok(ConstEvalFlow::Break),
-            ConstEvalFlow::Continue => return Ok(ConstEvalFlow::Continue),
-            ConstEvalFlow::Value(_) | ConstEvalFlow::Void => {}
-        }
-    }
-    block
-        .tail
-        .as_deref()
-        .map_or(Ok(ConstEvalFlow::Void), |tail| {
-            eval_function_tail_expr(tail, env)
-        })
-}
-
-fn eval_function_tail_expr(
-    expr: &EarlyConstExpr,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    eval_const_expr_flow(expr, env)
-}
-
-fn eval_function_stmt(
-    stmt: &EarlyConstStmt,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    env.consume_const_eval_step(stmt.span)?;
-    match &stmt.kind {
-        EarlyConstStmtKind::Binding(binding) => match eval_const_expr_flow(&binding.value, env)? {
-            ConstEvalFlow::Value(value) => {
-                env.bind_function_local(stmt.span, binding, value)?;
-                Ok(ConstEvalFlow::Void)
-            }
-            ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
-            ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Propagate(value)),
-            ConstEvalFlow::Break | ConstEvalFlow::Continue => Err(ConstError {
-                span: stmt.span,
-                message: "const binding value cannot contain loop control flow".to_string(),
-            }),
-            ConstEvalFlow::Void => Err(ConstError {
-                span: stmt.span,
-                message: "const function binding requires a value".to_string(),
-            }),
-        },
-        EarlyConstStmtKind::Expr(expr) => match eval_const_expr_flow(expr, env)? {
-            ConstEvalFlow::Value(_) | ConstEvalFlow::Void => Ok(ConstEvalFlow::Void),
-            ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
-            ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Propagate(value)),
-            ConstEvalFlow::Break => Ok(ConstEvalFlow::Break),
-            ConstEvalFlow::Continue => Ok(ConstEvalFlow::Continue),
-        },
-        EarlyConstStmtKind::Return(value) => {
-            let Some(value) = value else {
-                return Err(ConstError {
-                    span: stmt.span,
-                    message: "const function must return a value".to_string(),
-                });
-            };
-            match eval_const_expr_flow(value, env)? {
-                ConstEvalFlow::Value(value)
-                | ConstEvalFlow::Return(value)
-                | ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Return(value)),
-                ConstEvalFlow::Break | ConstEvalFlow::Continue => Err(ConstError {
-                    span: stmt.span,
-                    message: "const return value cannot contain loop control flow".to_string(),
-                }),
-                ConstEvalFlow::Void => Err(ConstError {
-                    span: stmt.span,
-                    message: "const function must return a value".to_string(),
-                }),
-            }
-        }
-        EarlyConstStmtKind::Break => Ok(ConstEvalFlow::Break),
-        EarlyConstStmtKind::Continue => Ok(ConstEvalFlow::Continue),
-        EarlyConstStmtKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => control_flow::eval_if_stmt(cond, then_branch, else_branch.as_ref(), env),
-        EarlyConstStmtKind::ForIn(for_in) => control_flow::eval_for_in_stmt(stmt.span, for_in, env),
-        EarlyConstStmtKind::While { cond, body } => {
-            control_flow::eval_while_stmt(stmt.span, cond, body, env)
-        }
-        EarlyConstStmtKind::Loop { body } => control_flow::eval_loop_stmt(stmt.span, body, env),
-    }
-}
-
-fn eval_resolved_function_stmt(
-    stmt: &ResolvedConstStmt,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    env.consume_const_eval_step(stmt.span())?;
-    match stmt.kind() {
-        ResolvedConstStmtKind::Binding(binding) => {
-            env.prepare_resolved_binding(binding)?;
-            match eval_resolved_const_expr_flow(binding.value(), env)? {
-                ConstEvalFlow::Value(value) => {
-                    env.bind_resolved_function_local(stmt.span(), binding, value)?;
-                    Ok(ConstEvalFlow::Void)
-                }
-                ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
-                ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Propagate(value)),
-                ConstEvalFlow::Break | ConstEvalFlow::Continue => Err(ConstError {
-                    span: stmt.span(),
-                    message: "const binding value cannot contain loop control flow".to_string(),
-                }),
-                ConstEvalFlow::Void => Err(ConstError {
-                    span: stmt.span(),
-                    message: "const function binding requires a value".to_string(),
-                }),
-            }
-        }
-        ResolvedConstStmtKind::Expr(expr) => match eval_resolved_const_expr_flow(expr, env)? {
-            ConstEvalFlow::Value(_) | ConstEvalFlow::Void => Ok(ConstEvalFlow::Void),
-            ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
-            ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Propagate(value)),
-            ConstEvalFlow::Break => Ok(ConstEvalFlow::Break),
-            ConstEvalFlow::Continue => Ok(ConstEvalFlow::Continue),
-        },
-        ResolvedConstStmtKind::Return(value) => {
-            let Some(value) = value else {
-                return Err(ConstError {
-                    span: stmt.span(),
-                    message: "const function must return a value".to_string(),
-                });
-            };
-            env.prepare_resolved_function_result(value)?;
-            match eval_resolved_const_expr_flow(value, env)? {
-                ConstEvalFlow::Value(value)
-                | ConstEvalFlow::Return(value)
-                | ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Return(value)),
-                ConstEvalFlow::Break | ConstEvalFlow::Continue => Err(ConstError {
-                    span: stmt.span(),
-                    message: "const return value cannot contain loop control flow".to_string(),
-                }),
-                ConstEvalFlow::Void => Err(ConstError {
-                    span: stmt.span(),
-                    message: "const function must return a value".to_string(),
-                }),
-            }
-        }
-        ResolvedConstStmtKind::Break => Ok(ConstEvalFlow::Break),
-        ResolvedConstStmtKind::Continue => Ok(ConstEvalFlow::Continue),
-        ResolvedConstStmtKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => control_flow::eval_resolved_if_stmt(cond, then_branch, else_branch.as_ref(), env),
-        ResolvedConstStmtKind::ForIn(for_in) => {
-            control_flow::eval_resolved_for_in_stmt(stmt.span(), for_in, env)
-        }
-        ResolvedConstStmtKind::While { cond, body } => {
-            control_flow::eval_resolved_while_stmt(stmt.span(), cond, body, env)
-        }
-        ResolvedConstStmtKind::Loop { body } => {
-            control_flow::eval_resolved_loop_stmt(stmt.span(), body, env)
-        }
-    }
-}
-
-fn eval_assign_expr_flow(
-    span: Span,
-    assign: &EarlyConstAssign,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let value = match eval_assignment_value_flow(span, assign, env)? {
-        ConstEvalFlow::Value(value) => value,
-        flow @ (ConstEvalFlow::Return(_)
-        | ConstEvalFlow::Propagate(_)
-        | ConstEvalFlow::Break
-        | ConstEvalFlow::Continue) => return Ok(flow),
-        ConstEvalFlow::Void => {
-            return Err(ConstError {
-                span,
-                message: "const assignment requires a value".to_string(),
-            });
-        }
-    };
-    let value = assignment::assign_target_writeback_value(span, &assign.lhs, value, env)?;
-    env.assign_local(span, &assign.lhs, value)?;
-    Ok(ConstEvalFlow::Void)
-}
-
-fn eval_resolved_assign_expr_flow(
-    span: Span,
-    assign: &ResolvedConstAssign,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let value = match eval_resolved_assignment_value_flow(span, assign, env)? {
-        ConstEvalFlow::Value(value) => value,
-        flow @ (ConstEvalFlow::Return(_)
-        | ConstEvalFlow::Propagate(_)
-        | ConstEvalFlow::Break
-        | ConstEvalFlow::Continue) => return Ok(flow),
-        ConstEvalFlow::Void => {
-            return Err(ConstError {
-                span,
-                message: "const assignment requires a value".to_string(),
-            });
-        }
-    };
-    let value = assignment::resolved_assign_target_writeback_value(span, assign.lhs(), value, env)?;
-    env.assign_resolved_local(span, assign.lhs(), value)?;
-    Ok(ConstEvalFlow::Void)
-}
-
-fn eval_assignment_value_flow(
-    span: Span,
-    assign: &EarlyConstAssign,
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let rhs = eval_value_or_return_flow!(&assign.rhs, env);
-    if matches!(assign.op, ConstAssignOp::Assign) {
-        return Ok(ConstEvalFlow::Value(rhs));
-    }
-    let lhs = assignment::eval_assign_target_value(span, &assign.lhs, env)?;
-    let op = assign_op_binary(assign.op).ok_or_else(|| ConstError {
-        span,
-        message: "unsupported const assignment operator".to_string(),
-    })?;
-    eval_numeric_binary_value(lhs, op, rhs)
-        .map(ConstEvalFlow::Value)
-        .map_err(|message| ConstError { span, message })
-}
-
-fn eval_resolved_assignment_value_flow(
-    span: Span,
-    assign: &ResolvedConstAssign,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let rhs = eval_resolved_value_or_return_flow!(assign.rhs(), env);
-    if matches!(assign.op(), ConstAssignOp::Assign) {
-        return Ok(ConstEvalFlow::Value(rhs));
-    }
-    let lhs = assignment::eval_resolved_assign_target_value(span, assign.lhs(), env)?;
-    let op = assign_op_binary(assign.op()).ok_or_else(|| ConstError {
-        span,
-        message: "unsupported const assignment operator".to_string(),
-    })?;
-    eval_numeric_binary_value(lhs, op, rhs)
-        .map(ConstEvalFlow::Value)
-        .map_err(|message| ConstError { span, message })
-}
-
-fn assign_op_binary(op: ConstAssignOp) -> Option<ConstBinaryOp> {
-    Some(match op {
-        ConstAssignOp::Assign => return None,
-        ConstAssignOp::Add => ConstBinaryOp::Add,
-        ConstAssignOp::Sub => ConstBinaryOp::Sub,
-        ConstAssignOp::Shl => ConstBinaryOp::Shl,
-        ConstAssignOp::Shr => ConstBinaryOp::Shr,
-        ConstAssignOp::Mul => ConstBinaryOp::Mul,
-        ConstAssignOp::Div => ConstBinaryOp::Div,
-        ConstAssignOp::Rem => ConstBinaryOp::Rem,
-        ConstAssignOp::BitAnd => ConstBinaryOp::BitAnd,
-        ConstAssignOp::BitXor => ConstBinaryOp::BitXor,
-        ConstAssignOp::BitOr => ConstBinaryOp::BitOr,
     })
 }
