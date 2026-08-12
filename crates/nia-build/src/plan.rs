@@ -1189,9 +1189,9 @@ fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanE
     let artifacts: BTreeMap<_, _> = draft
         .artifacts
         .iter()
-        .map(|artifact| (&artifact.key, &artifact.output))
+        .map(|artifact| (&artifact.key, artifact))
         .collect();
-    let mut producers = Vec::<(&LogicalPath, &ActionKey)>::new();
+    let mut producers = Vec::<(ActionOutput<'_>, &ActionKey)>::new();
     for action in &draft.actions {
         for output in action_outputs(action, &artifacts)? {
             producers.push((output, &action.key));
@@ -1227,7 +1227,7 @@ fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanE
         ) {
             let input_producers = producers
                 .iter()
-                .filter(|(output, _)| input.overlaps(output))
+                .filter(|(output, _)| output.produces(input))
                 .map(|(_, action)| *action)
                 .collect::<Vec<_>>();
             if input_producers.is_empty() {
@@ -1349,11 +1349,12 @@ fn validate_output_ownership(
 ) -> Result<(), PlanError> {
     let artifacts: BTreeMap<_, _> = artifacts
         .iter()
-        .map(|artifact| (&artifact.key, &artifact.output))
+        .map(|artifact| (&artifact.key, artifact))
         .collect();
     let mut owners: BTreeMap<LogicalPath, ActionKey> = BTreeMap::new();
     for action in actions {
         for output in action_outputs(action, &artifacts)? {
+            let output = output.path;
             if output.is_empty()
                 || !matches!(output.root(), LogicalPathRoot::Build)
                 || output.components().first().is_some_and(|component| {
@@ -1386,23 +1387,53 @@ fn validate_output_ownership(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct ActionOutput<'a> {
+    path: &'a LogicalPath,
+    is_directory: bool,
+}
+
+impl ActionOutput<'_> {
+    fn produces(self, input: &LogicalPath) -> bool {
+        self.path == input
+            || (self.is_directory
+                && self.path.root() == input.root()
+                && input.components().starts_with(self.path.components()))
+    }
+}
+
 fn action_outputs<'a>(
     action: &'a PlanAction,
-    artifacts: &BTreeMap<&ArtifactKey, &'a LogicalPath>,
-) -> Result<Vec<&'a LogicalPath>, PlanError> {
+    artifacts: &BTreeMap<&ArtifactKey, &'a PlanArtifact>,
+) -> Result<Vec<ActionOutput<'a>>, PlanError> {
     match &action.kind {
         ActionKind::CompilerEmit { artifact, .. } => {
-            let Some(output) = artifacts.get(artifact) else {
+            let Some(emitted) = artifacts.get(artifact) else {
                 return Err(PlanError::MissingArtifact {
                     action: action.key.clone(),
                     artifact: artifact.clone(),
                 });
             };
-            Ok(vec![*output])
+            Ok(vec![ActionOutput {
+                path: &emitted.output,
+                is_directory: emitted.kind == PlanArtifactKind::ObjectSet,
+            }])
         }
-        ActionKind::ExternalCommand { outputs, .. } => Ok(outputs.iter().collect()),
-        ActionKind::GeneratedFile { output, .. } => Ok(vec![output]),
-        ActionKind::InstallArtifact { destination, .. } => Ok(vec![destination]),
+        ActionKind::ExternalCommand { outputs, .. } => Ok(outputs
+            .iter()
+            .map(|path| ActionOutput {
+                path,
+                is_directory: false,
+            })
+            .collect()),
+        ActionKind::GeneratedFile { output, .. } => Ok(vec![ActionOutput {
+            path: output,
+            is_directory: false,
+        }]),
+        ActionKind::InstallArtifact { destination, .. } => Ok(vec![ActionOutput {
+            path: destination,
+            is_directory: false,
+        }]),
         _ => Ok(Vec::new()),
     }
 }
@@ -2437,8 +2468,26 @@ mod tests {
     }
 
     #[test]
-    fn freeze_accepts_directory_build_inputs_after_their_producer() {
+    fn freeze_rejects_descendants_of_file_build_outputs() {
         let value = build_input_draft("generated", "generated/input.txt", vec!["generate"]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingBuildInputProducer { path, .. })
+                if path.protocol_path() == "generated/input.txt"
+        ));
+    }
+
+    #[test]
+    fn freeze_accepts_descendants_of_object_set_outputs() {
+        let mut value = build_input_draft("unused", "objects/app/member.o", vec!["emit"]);
+        value
+            .actions
+            .retain(|action| action.key.name() != "generate");
+        value.steps.retain(|step| step.key.name() != "generate");
+        value.artifacts[0].kind = PlanArtifactKind::ObjectSet;
+        value.artifacts[0].output =
+            LogicalPath::new(LogicalPathRoot::Build, "objects/app").unwrap();
 
         assert!(BuildPlan::freeze(value).is_ok());
     }
