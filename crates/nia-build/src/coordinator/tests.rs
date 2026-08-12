@@ -2362,6 +2362,28 @@ fn prepare_test_typed_staged_outputs(
 }
 
 #[test]
+fn stale_pid_only_staging_names_do_not_exhaust_new_process_generation() {
+    let invocation = test_invocation();
+    let output = invocation.build_dir.join("tool/result.txt");
+    let parent = output.parent().unwrap();
+    fs::create_dir_all(parent).unwrap();
+    for sequence in 0..128 {
+        fs::create_dir(parent.join(format!(
+            ".nia-command-{}-{sequence}.stage",
+            std::process::id()
+        )))
+        .unwrap();
+    }
+
+    let staged = prepare_test_staged_outputs(&invocation, &[output]).unwrap();
+
+    let name = staged.directory.file_name().unwrap().to_string_lossy();
+    let owner = ProcessIdentity::current();
+    assert!(name.starts_with(&format!(".nia-command-{}-{}-", owner.pid, owner.start_time)));
+    cleanup_staged_outputs(&external_action(), staged, None).unwrap();
+}
+
+#[test]
 fn external_command_publishes_one_declared_output_atomically() {
     let invocation = test_invocation();
     let output = invocation.build_dir.join("tool/result.txt");

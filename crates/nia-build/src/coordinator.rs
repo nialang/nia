@@ -59,7 +59,7 @@ use crate::{
         ExternalCommandCacheIdentity, ExternalCommandCacheLookup, GeneratedFileCache,
         GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
     },
-    lock::{ScopedFileLock, output_lock_path},
+    lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
     output_recovery::{
         OutputTransactionJournal, TransactionOutput, TransactionOutputKind,
         recover_interrupted_output_transactions,

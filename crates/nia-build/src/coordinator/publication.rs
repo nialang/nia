@@ -105,15 +105,16 @@ pub(super) fn prepare_typed_staged_outputs(
     // Staging and committed marker names share one sequence. Refusing an
     // existing committed marker prevents reuse of a name still owned by crash
     // recovery from an earlier process.
+    let owner = ProcessIdentity::current();
     for _ in 0..128 {
         let sequence = STAGED_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let directory = parent.join(format!(
-            ".nia-command-{}-{sequence}.stage",
-            std::process::id()
+            ".nia-command-{}-{}-{sequence}.stage",
+            owner.pid, owner.start_time
         ));
         let committed_directory = parent.join(format!(
-            ".nia-command-{}-{sequence}.committed",
-            std::process::id()
+            ".nia-command-{}-{}-{sequence}.committed",
+            owner.pid, owner.start_time
         ));
         if committed_directory.exists() {
             continue;
@@ -616,11 +617,12 @@ fn create_generated_temporary(
     action: &PlanAction,
     parent: &std::path::Path,
 ) -> Result<(PathBuf, fs::File), CoordinatorError> {
+    let owner = ProcessIdentity::current();
     for _ in 0..128 {
         let sequence = GENERATED_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let path = parent.join(format!(
-            ".nia-generated-{}-{sequence}.tmp",
-            std::process::id()
+            ".nia-generated-{}-{}-{sequence}.tmp",
+            owner.pid, owner.start_time
         ));
         match fs::OpenOptions::new()
             .write(true)

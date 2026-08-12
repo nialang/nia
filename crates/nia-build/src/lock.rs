@@ -20,6 +20,8 @@ use crate::LogicalPath;
 const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 const OUTPUT_LOCK_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.output-lock.v1");
 static LOCK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+#[cfg(not(target_os = "linux"))]
+static PROCESS_GENERATION: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProcessIdentity {
@@ -202,7 +204,14 @@ fn process_start_time(pid: u32) -> Option<u64> {
 
 #[cfg(not(target_os = "linux"))]
 fn process_start_time(_pid: u32) -> Option<u64> {
-    None
+    // Platforms without a process start-time API still need one stable
+    // per-process generation so PID reuse cannot collide with persisted names.
+    Some(*PROCESS_GENERATION.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_nanos() as u64
+    }))
 }
 
 #[cfg(test)]
