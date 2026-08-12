@@ -399,7 +399,6 @@ impl<'a> BodyChecker<'a> {
             substitutions,
             const_substitutions,
         ) {
-            self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
         if self.try_match_type_pattern_with_consts(
@@ -408,7 +407,6 @@ impl<'a> BodyChecker<'a> {
             substitutions,
             const_substitutions,
         ) {
-            self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
         if self.method_receiver_kind(method_id) == Some(ReceiverKind::RefReadOnly)
@@ -420,7 +418,6 @@ impl<'a> BodyChecker<'a> {
                 const_substitutions,
             )
         {
-            self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
         if self.trait_object_extension_target_matches_receiver(
@@ -456,14 +453,6 @@ impl<'a> BodyChecker<'a> {
             is_readonly: true,
             elem,
         }))
-    }
-
-    fn bind_extension_self_from_target(
-        &mut self,
-        target_ty: InternedTyId,
-        substitutions: &mut SymbolMap<InternedTyId>,
-    ) {
-        let _ = (target_ty, substitutions);
     }
 
     fn trait_object_extension_target_matches_receiver(
@@ -971,7 +960,14 @@ impl<'a> BodyChecker<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|param| self.substitute_generics(param.ty, &candidate.target_substitutions))
+            .map(|param| {
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &candidate.target_substitutions,
+                    &candidate.target_const_substitutions,
+                    candidate.self_ty,
+                )
+            })
             .collect()
     }
 
@@ -980,30 +976,105 @@ impl<'a> BodyChecker<'a> {
         call: &MethodCall<'_>,
         candidates: &[MethodCandidate],
     ) -> Vec<MethodCandidate> {
-        if call.type_args.is_some() || call.expected.is_none() {
-            return candidates.to_vec();
-        }
-        candidates
+        let viable = candidates
             .iter()
-            .filter_map(|candidate| {
-                let signature = self
-                    .resolved_function_signature(candidate.method.def_id)
-                    .map(|resolved| resolved.signature)?;
-                let mut substitutions = candidate.target_substitutions.clone();
-                if let Some(expected) = call.expected {
-                    // Context can refine unconstrained method generics, but a
-                    // nested expression may provide an outer expected type.
-                    // Use it only as an inference hint during candidate search.
-                    self.try_match_type_pattern(
-                        signature.return_type,
-                        expected,
-                        &mut substitutions,
-                    );
-                }
-                self.extension_method_where_predicates_can_hold(&candidate.method, &substitutions)
-                    .then(|| candidate.clone())
-            })
-            .collect()
+            .filter(|candidate| self.method_candidate_matches_call(call, candidate))
+            .cloned()
+            .collect::<Vec<_>>();
+        // A lone candidate still owns the detailed type/arity diagnostic.
+        // Multiple rejected overloads have no honest single expected type.
+        if viable.is_empty() && candidates.len() == 1 {
+            candidates.to_vec()
+        } else {
+            viable
+        }
+    }
+
+    fn method_candidate_matches_call(
+        &self,
+        call: &MethodCall<'_>,
+        candidate: &MethodCandidate,
+    ) -> bool {
+        let mut probe = self.clone_for_type_compare();
+        probe.local_types = self.local_types.clone();
+        probe.global_types = self.global_types.clone();
+        probe.const_types = self.const_types.clone();
+        // Rejected overloads are speculative and must not schedule providers
+        // or publish semantic facts through the shared checker state.
+        probe.provider_demands =
+            std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
+        probe.provider_demands_by_function =
+            std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::new()));
+        probe.method_candidate_matches_call_inner(call, candidate) && probe.diagnostics.is_empty()
+    }
+
+    fn method_candidate_matches_call_inner(
+        &mut self,
+        call: &MethodCall<'_>,
+        candidate: &MethodCandidate,
+    ) -> bool {
+        let Some(signature) = self
+            .resolved_function_signature(candidate.method.def_id)
+            .map(|resolved| resolved.signature)
+        else {
+            return false;
+        };
+        let Some(method_args) = self.lowered_method_type_args(call.type_args) else {
+            return false;
+        };
+        let Some(mut substitutions) = self.method_generic_substitutions(
+            MethodGenericContext {
+                span: call.span,
+                self_ty: candidate.self_ty,
+                target_substitutions: &candidate.target_substitutions,
+                target_const_substitutions: &candidate.target_const_substitutions,
+                method_args: call.type_args,
+                lowered_method_args: &method_args,
+                expected: call.expected,
+            },
+            &signature,
+        ) else {
+            return false;
+        };
+        let mut params = self.method_candidate_param_types(candidate, &signature);
+        if call.type_args.is_none() {
+            self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
+                return false;
+            }
+            params = signature
+                .params
+                .iter()
+                .skip(1)
+                .map(|param| {
+                    self.substitute_generics_and_consts_with_self(
+                        param.ty,
+                        &substitutions,
+                        &candidate.target_const_substitutions,
+                        candidate.self_ty,
+                    )
+                })
+                .collect();
+        }
+        self.infer_method_generics_from_where_predicates(
+            &signature,
+            &candidate.method.where_predicates,
+            &mut substitutions,
+        );
+        self.check_where_predicates_hold(
+            &signature.where_predicates,
+            &substitutions,
+            &candidate.target_const_substitutions,
+            call.span,
+        );
+        self.check_where_predicates_hold(
+            &candidate.method.where_predicates,
+            &substitutions,
+            &candidate.target_const_substitutions,
+            call.span,
+        );
+        self.check_direct_call_args(call.span, call.args, &params, false);
+        true
     }
 
     pub(in crate::calls::methods) fn lowered_method_type_args(
@@ -1037,10 +1108,11 @@ impl<'a> BodyChecker<'a> {
                 self.generic_substitutions(&signature.generics, context.lowered_method_args),
             );
         } else if let Some(expected) = context.expected {
-            let return_type = self.substitute_generics_and_consts(
+            let return_type = self.substitute_generics_and_consts_with_self(
                 signature.return_type,
                 &substitutions,
                 context.target_const_substitutions,
+                context.self_ty,
             );
             self.infer_generics_from_type(return_type, expected, &mut substitutions, context.span);
         }

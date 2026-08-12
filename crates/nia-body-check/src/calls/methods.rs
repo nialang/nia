@@ -24,6 +24,7 @@ pub(super) struct MethodCall<'a> {
 
 pub(super) struct MethodGenericContext<'a> {
     pub(super) span: Span,
+    pub(super) self_ty: InternedTyId,
     pub(super) target_substitutions: &'a SymbolMap<InternedTyId>,
     pub(super) target_const_substitutions: &'a SymbolMap<ConstGenericArg>,
     pub(super) method_args: Option<&'a [BracketArg]>,
@@ -306,6 +307,18 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(return_ty);
         }
+        if viable_candidates.is_empty() && candidates.len() > 1 {
+            let name = self.symbol_name(*call.name);
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call.span,
+                format!("no matching method overload `{name}`"),
+            ));
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         if viable_candidates.is_empty() {
             self.record_method_provider_demand(receiver_ty, *call.name);
         }
@@ -399,6 +412,7 @@ impl<'a> BodyChecker<'a> {
                 this.method_generic_substitutions(
                     MethodGenericContext {
                         span: call.span,
+                        self_ty: candidate.self_ty,
                         target_substitutions: &candidate.target_substitutions,
                         target_const_substitutions: &candidate.target_const_substitutions,
                         method_args: call.type_args,

@@ -9,21 +9,6 @@
 use super::*;
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn try_match_type_pattern(
-        &mut self,
-        pattern: InternedTyId,
-        actual: InternedTyId,
-        substitutions: &mut SymbolMap<InternedTyId>,
-    ) -> bool {
-        let mut const_substitutions = SymbolMap::default();
-        self.try_match_type_pattern_with_consts(
-            pattern,
-            actual,
-            substitutions,
-            &mut const_substitutions,
-        )
-    }
-
     pub(super) fn try_match_type_pattern_with_consts(
         &mut self,
         pattern: InternedTyId,

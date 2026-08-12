@@ -91,6 +91,99 @@ fn main(value: Pair[i32, i32]) i32 {
 }
 
 #[test]
+fn method_overload_selection_uses_argument_types() {
+    let checked = pipeline(
+        r#"
+struct Box {}
+
+extend Box {
+    fn pick[T](self, value: T) T {
+        value
+    }
+}
+
+extend Box {
+    fn pick(self, value: i32) i32 {
+        value
+    }
+}
+
+fn main(box: Box) bool {
+    box.pick(true)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn invalid_method_overload_call_reports_no_match() {
+    let checked = pipeline(
+        r#"
+struct Box {}
+
+extend Box {
+    fn pick(self, value: i32) i32 {
+        value
+    }
+}
+
+extend Box {
+    fn pick(self, value: usize) usize {
+        value
+    }
+}
+
+fn main(box: Box) bool {
+    box.pick(true)
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("no matching method overload `pick`")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| !diagnostic
+            .summary
+            .contains("ambiguous method")
+            && !diagnostic.summary.contains("unknown struct field")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn self_parameter_specializes_generic_method_parameter() {
+    let checked = pipeline(
+        r#"
+struct Box {}
+
+extend Box {
+    fn merge[T](self, other: T) bool {
+        true
+    }
+}
+
+extend Box {
+    fn merge(self, other: Self) i32 {
+        1
+    }
+}
+
+fn main(box: Box, other: Box) i32 {
+    let result = box.merge(other);
+    result
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn attributes_provider_demand_to_calling_function() {
     let checked = pipeline_without_visible_extensions(
         r#"
