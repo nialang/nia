@@ -78,6 +78,7 @@ mod associated;
 mod builtin_traits;
 mod resolution;
 mod trait_methods;
+mod type_patterns;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_field_method_call(
