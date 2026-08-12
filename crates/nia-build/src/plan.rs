@@ -11,12 +11,14 @@ use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
 
+mod actions;
 mod codec;
 mod dependencies;
 mod handoff;
 #[cfg(test)]
 mod test_support;
 
+use actions::*;
 pub use codec::*;
 use dependencies::*;
 pub use handoff::*;
@@ -294,6 +296,9 @@ pub enum CommandEnvironmentPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandCachePolicy {
     Uncacheable,
+    /// Cache by the resolved tool, cleared declared environment, and explicit
+    /// `inputs`. The working directory contributes logical location identity,
+    /// but its undeclared contents are deliberately not implicit inputs.
     DeclaredInputs,
 }
 
@@ -764,267 +769,6 @@ fn canonicalize_artifacts(
                 owner: format!("artifact {}", artifact.key.name()),
                 module: artifact.root_module.clone(),
             });
-        }
-    }
-    Ok(())
-}
-
-fn canonicalize_actions(
-    actions: &mut [PlanAction],
-    modules: &[PlanModule],
-    artifacts: &[PlanArtifact],
-    host_target: &TargetSpec,
-    artifact_target: &TargetSpec,
-) -> Result<(), PlanError> {
-    actions.sort_by(|left, right| left.key.cmp(&right.key));
-    reject_duplicate_by(
-        actions,
-        |action| action.key.clone(),
-        PlanError::DuplicateAction,
-    )?;
-    let module_keys: BTreeSet<_> = modules.iter().map(|module| &module.key).collect();
-    let artifact_keys: BTreeSet<_> = artifacts.iter().map(|artifact| &artifact.key).collect();
-    let artifacts_by_key: BTreeMap<_, _> = artifacts
-        .iter()
-        .map(|artifact| (&artifact.key, artifact))
-        .collect();
-    let mut emit_targets = BTreeMap::new();
-    for action in actions.iter() {
-        let ActionKind::CompilerEmit {
-            artifact, target, ..
-        } = &action.kind
-        else {
-            continue;
-        };
-        // Artifact identity denotes one published value. Multiple emitters
-        // would otherwise be silently collapsed in this target index and only
-        // fail later through incidental output ownership ordering.
-        if emit_targets
-            .insert(artifact.clone(), target.clone())
-            .is_some()
-        {
-            return Err(PlanError::InvalidArtifactUse {
-                action: action.key.clone(),
-                artifact: artifact.clone(),
-                reason: "artifact has multiple compiler emit actions",
-            });
-        }
-    }
-    for action in actions {
-        let compiler_target = match &action.kind {
-            ActionKind::CompilerCheck { target, .. } | ActionKind::CompilerEmit { target, .. } => {
-                Some(target)
-            }
-            _ => None,
-        };
-        if let Some(target) = compiler_target
-            && target != host_target
-            && target != artifact_target
-        {
-            // The two plan targets define the complete driver set authorized
-            // by the invocation. Per-action targets may select either role,
-            // but must not smuggle an unvalidated third toolchain target in.
-            return Err(PlanError::InvalidActionTarget(Box::new(
-                InvalidActionTarget {
-                    action: action.key.clone(),
-                    target: target.clone(),
-                },
-            )));
-        }
-        match &mut action.kind {
-            ActionKind::CompilerCheck { module, .. } if !module_keys.contains(module) => {
-                return Err(PlanError::MissingModule {
-                    owner: format!("action {}", action.key.name()),
-                    module: module.clone(),
-                });
-            }
-            ActionKind::CompilerEmit { artifact, .. } if !artifact_keys.contains(artifact) => {
-                return Err(PlanError::MissingArtifact {
-                    action: action.key.clone(),
-                    artifact: artifact.clone(),
-                });
-            }
-            ActionKind::CompilerEmit {
-                artifact,
-                target,
-                static_archives,
-            } => {
-                let Some(emitted) = artifacts_by_key.get(artifact) else {
-                    return Err(PlanError::MissingArtifact {
-                        action: action.key.clone(),
-                        artifact: artifact.clone(),
-                    });
-                };
-                if emitted.kind != PlanArtifactKind::Executable && !static_archives.is_empty() {
-                    return Err(PlanError::InvalidArtifactUse {
-                        action: action.key.clone(),
-                        artifact: artifact.clone(),
-                        reason: "only executable artifacts can link static archives",
-                    });
-                }
-                let mut seen = BTreeSet::new();
-                for archive in static_archives.iter() {
-                    let Some(linked) = artifacts_by_key.get(archive) else {
-                        return Err(PlanError::MissingArtifact {
-                            action: action.key.clone(),
-                            artifact: archive.clone(),
-                        });
-                    };
-                    if linked.kind != PlanArtifactKind::StaticArchive {
-                        return Err(PlanError::InvalidArtifactUse {
-                            action: action.key.clone(),
-                            artifact: archive.clone(),
-                            reason: "executable link inputs must be static archives",
-                        });
-                    }
-                    if !seen.insert(archive.clone()) {
-                        return Err(PlanError::InvalidArtifactUse {
-                            action: action.key.clone(),
-                            artifact: archive.clone(),
-                            reason: "duplicate static archive link input",
-                        });
-                    }
-                    let target_matches = emit_targets
-                        .get(archive)
-                        .is_some_and(|produced_target| produced_target == target);
-                    if !target_matches {
-                        return Err(PlanError::InvalidArtifactUse {
-                            action: action.key.clone(),
-                            artifact: archive.clone(),
-                            reason: "linked static archive has no emit action for the executable target",
-                        });
-                    }
-                }
-            }
-            ActionKind::InstallArtifact { artifact, .. } if !artifact_keys.contains(artifact) => {
-                return Err(PlanError::MissingArtifact {
-                    action: action.key.clone(),
-                    artifact: artifact.clone(),
-                });
-            }
-            ActionKind::InstallArtifact { artifact, .. } => {
-                let Some(installed) = artifacts_by_key.get(artifact) else {
-                    return Err(PlanError::MissingArtifact {
-                        action: action.key.clone(),
-                        artifact: artifact.clone(),
-                    });
-                };
-                if !matches!(
-                    installed.kind,
-                    PlanArtifactKind::Executable | PlanArtifactKind::StaticArchive
-                ) {
-                    return Err(PlanError::InvalidArtifactUse {
-                        action: action.key.clone(),
-                        artifact: artifact.clone(),
-                        reason: "only file artifacts can be installed",
-                    });
-                }
-            }
-            ActionKind::ExternalCommand {
-                program,
-                arguments,
-                environment_policy,
-                cache_policy,
-                environment,
-                inputs,
-                outputs,
-                ..
-            } => {
-                if matches!(program, CommandProgram::Search(name) if name.is_empty()) {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "empty program",
-                    });
-                }
-                if matches!(program, CommandProgram::Search(name) if name.contains('\0')) {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "program contains NUL",
-                    });
-                }
-                if arguments.iter().any(
-                    |argument| matches!(argument, CommandArgument::Literal(value) if value.contains('\0')),
-                ) {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "argument contains NUL",
-                    });
-                }
-                environment.sort();
-                for input in environment.iter() {
-                    if input.name.is_empty()
-                        || input.name.contains(['\0', '='])
-                        || input
-                            .value
-                            .as_ref()
-                            .is_some_and(|value| value.contains('\0'))
-                    {
-                        return Err(PlanError::InvalidCommand {
-                            action: action.key.clone(),
-                            reason: "invalid environment input",
-                        });
-                    }
-                }
-                if environment
-                    .windows(2)
-                    .any(|pair| pair[0].name == pair[1].name)
-                {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "duplicate environment input",
-                    });
-                }
-                if *cache_policy == CommandCachePolicy::DeclaredInputs
-                    && *environment_policy != CommandEnvironmentPolicy::Clear
-                {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "cacheable command must clear inherited environment",
-                    });
-                }
-                if *cache_policy == CommandCachePolicy::DeclaredInputs && outputs.is_empty() {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "cacheable command must declare an output",
-                    });
-                }
-                inputs.sort();
-                outputs.sort();
-                inputs.dedup();
-                outputs.dedup();
-                for argument in arguments.iter() {
-                    let (path, declared, reason) = match argument {
-                        CommandArgument::Literal(_) => continue,
-                        CommandArgument::InputPath(path) => (
-                            path,
-                            inputs.as_slice(),
-                            "input argument path is not declared as an input",
-                        ),
-                        CommandArgument::OutputPath(path) => (
-                            path,
-                            outputs.as_slice(),
-                            "output argument path is not declared as an output",
-                        ),
-                    };
-                    if declared.binary_search(path).is_err() {
-                        return Err(PlanError::InvalidCommand {
-                            action: action.key.clone(),
-                            reason,
-                        });
-                    }
-                }
-                if outputs.iter().any(|output| {
-                    !arguments.iter().any(
-                        |argument| matches!(argument, CommandArgument::OutputPath(path) if path == output),
-                    )
-                }) {
-                    return Err(PlanError::InvalidCommand {
-                        action: action.key.clone(),
-                        reason: "declared output has no staged command argument",
-                    });
-                }
-            }
-            _ => {}
         }
     }
     Ok(())
@@ -2201,6 +1945,148 @@ mod tests {
             .unwrap()
             .dependencies
             .push(step_key("emit"));
+        assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn artifact_inputs_require_a_declared_artifact() {
+        let mut value = draft(false);
+        let missing = artifact_key("missing");
+        let input = LogicalPath::new(LogicalPathRoot::Artifact(missing.clone()), "").unwrap();
+        value.actions.push(PlanAction {
+            key: action_key("consume"),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: vec![CommandArgument::InputPath(input.clone())],
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: vec![input],
+                outputs: Vec::new(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: step_key("consume"),
+            action: action_key("consume"),
+            dependencies: Vec::new(),
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingArtifact { artifact, .. }) if artifact == missing
+        ));
+    }
+
+    #[test]
+    fn artifact_programs_must_be_executable() {
+        let mut value = draft(false);
+        value.artifacts[0].kind = PlanArtifactKind::ObjectSet;
+        value.actions.push(PlanAction {
+            key: action_key("run"),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Path(
+                    LogicalPath::new(LogicalPathRoot::Artifact(artifact_key("app")), "").unwrap(),
+                ),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+        // Invalid declarations are rejected even when no step exposes them.
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidArtifactUse { reason, .. })
+                if reason == "external command programs must be executable artifacts"
+        ));
+    }
+
+    fn artifact_working_directory_draft(
+        kind: PlanArtifactKind,
+        path: &str,
+        dependencies: Vec<&str>,
+    ) -> BuildPlanDraft {
+        let mut value = draft(false);
+        value.artifacts[0].kind = kind;
+        value.actions.push(PlanAction {
+            key: action_key("inspect"),
+            kind: ActionKind::ExternalCommand {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Artifact(artifact_key("app")),
+                    path,
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: step_key("inspect"),
+            action: action_key("inspect"),
+            dependencies: dependencies.into_iter().map(step_key).collect(),
+        });
+        value
+    }
+
+    #[test]
+    fn artifact_working_directories_require_object_sets() {
+        let value =
+            artifact_working_directory_draft(PlanArtifactKind::Executable, "", vec!["emit"]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidArtifactUse { reason, .. })
+                if reason == "external command working directories must be object-set artifacts"
+        ));
+    }
+
+    #[test]
+    fn artifact_working_directories_require_the_emit_dependency() {
+        let value = artifact_working_directory_draft(PlanArtifactKind::ObjectSet, "", vec![]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidCommand { reason, .. })
+                if reason == "artifact working directory has no compiler emit dependency"
+        ));
+    }
+
+    #[test]
+    fn artifact_working_directories_must_name_the_artifact_root() {
+        let value =
+            artifact_working_directory_draft(PlanArtifactKind::ObjectSet, "nested", vec!["emit"]);
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidCommand { reason, .. })
+                if reason == "artifact working directory must name the artifact root"
+        ));
+    }
+
+    #[test]
+    fn object_set_working_directories_accept_the_emit_dependency() {
+        let value = artifact_working_directory_draft(PlanArtifactKind::ObjectSet, "", vec!["emit"]);
+
         assert!(BuildPlan::freeze(value).is_ok());
     }
 }

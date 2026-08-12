@@ -20,32 +20,29 @@ pub(super) fn validate_artifact_dependencies(
         let mut required = BTreeMap::<ArtifactKey, &'static str>::new();
         match action_by_key.get(&step.action).copied() {
             Some(ActionKind::ExternalCommand {
-                program, inputs, ..
+                program,
+                working_directory,
+                inputs,
+                ..
             }) => {
                 if let CommandProgram::Path(program) = program
                     && let LogicalPathRoot::Artifact(artifact) = program.root()
                 {
-                    if !program.components().is_empty() {
-                        return Err(PlanError::InvalidCommand {
-                            action: step.action.clone(),
-                            reason: "artifact program path must name the artifact root",
-                        });
-                    }
                     required.insert(
                         artifact.clone(),
                         "artifact program has no compiler emit dependency",
+                    );
+                }
+                if let LogicalPathRoot::Artifact(artifact) = working_directory.root() {
+                    required.insert(
+                        artifact.clone(),
+                        "artifact working directory has no compiler emit dependency",
                     );
                 }
                 for input in inputs {
                     let LogicalPathRoot::Artifact(artifact) = input.root() else {
                         continue;
                     };
-                    if !input.components().is_empty() {
-                        return Err(PlanError::InvalidCommand {
-                            action: step.action.clone(),
-                            reason: "artifact input path must name the artifact root",
-                        });
-                    }
                     required
                         .entry(artifact.clone())
                         .or_insert("artifact input has no compiler emit dependency");
