@@ -333,6 +333,42 @@ fn main() i32 {
 }
 
 #[test]
+fn preserves_full_range_span_for_slice_trait_calls() {
+    let source = r#"
+fn take[S](items: S) [S as Slice[..]]::Output
+where S: Slice[..] {
+    & items[..]
+}
+"#;
+    let checked = pipeline(source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let range = checked
+        .ir
+        .function_bodies
+        .values()
+        .filter_map(|body| body.tail.as_deref())
+        .find_map(|tail| match &tail.kind {
+            nia_body_ir::TypedExprKind::Call {
+                callee:
+                    nia_body_ir::TypedCallee::BuiltinPlaceMethod(nia_body_ir::BuiltinPlaceMethod {
+                        method: nia_ids::BuiltinTraitMethod::Slice,
+                        ..
+                    }),
+                args,
+            } => args.first(),
+            _ => None,
+        })
+        .expect("lowered Slice call range argument");
+    assert!(matches!(range.kind, nia_body_ir::TypedExprKind::Range(_)));
+    let start = source.find("items[..]").expect("slice expression");
+    assert_eq!(
+        range.span,
+        nia_span::Span::new(start, start + "items[..]".len())
+    );
+}
+
+#[test]
 fn checks_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
