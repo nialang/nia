@@ -76,6 +76,7 @@ pub(super) struct MethodCandidate {
 
 mod associated;
 mod builtin_traits;
+mod pattern_matching;
 mod resolution;
 mod trait_methods;
 mod type_patterns;
