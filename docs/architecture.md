@@ -2090,16 +2090,17 @@ types are encoded recursively from canonical `TyKind` together with their
 resolved layouts.
 
 A source-unit fingerprint contains the unit's complete definitions, including
-function bodies and static initializers, plus every program module's
-declaration, ABI, vtable, const, and layout surface. Other units' bodies and
-initializers are deliberately excluded. This conservative closure makes a
-cross-module ABI/layout change invalidate consumers without making an
-unrelated body edit invalidate every CGU. Optimization policy, artifact kind,
-compiler fingerprint schema, package version, and the LLVM wrapper codegen ABI
-are part of the domain. Native objects additionally include the exact LLVM
-target triple, CPU, and feature string used to construct their target machine.
-Compiler builtins use their own domain over the requested symbol set and the
-same policy/target inputs.
+function bodies and static initializers, plus the exact canonical declaration
+membership required by those definitions. That dependency closure covers the
+referenced ABI, vtable, const, and layout surfaces; declarations from unrelated
+modules are excluded together with other units' bodies and initializers. A
+referenced cross-module ABI/layout change therefore invalidates its consumers,
+while unrelated declaration or body edits do not evict every CGU. Optimization
+policy, artifact kind, compiler fingerprint schema, package version, and the
+LLVM wrapper codegen ABI are part of the domain. Native objects additionally
+include the exact LLVM target triple, CPU, and feature string used to construct
+their target machine. Compiler builtins use their own domain over the requested
+symbol set and the same policy/target inputs.
 
 Spans and display-only local names are excluded because they cannot affect the
 object product. Differential tests require stability across `ModuleId`, type
@@ -2121,8 +2122,8 @@ publishes the resulting bytes after successful emission.
 Persistent entries live under
 `artifacts/objects/<registered-namespace>/<stable-key-digest>/<full-fingerprint>.o`. The full
 fingerprint is a versioned aggregate of four independently versioned components:
-compiler/codegen policy, unit definitions, whole-program declarations/ABI, and
-native target identity. The binary envelope records the aggregate, all four
+compiler/codegen policy, unit definitions, the exact declaration/ABI dependency
+closure, and native target identity. The binary envelope records the aggregate, all four
 components, canonical unit key, payload length, and a domain-separated payload
 checksum. Reads recompute the aggregate from the stored components, validate the
 key and content-addressed path, and reject trailing or truncated data. No prior
