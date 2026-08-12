@@ -626,7 +626,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn method_const_generic_value_from_array_len(
+    pub(super) fn method_const_generic_value_from_array_len(
         &self,
         len: &ArrayLenTy,
     ) -> Option<nia_ty::ConstGenericValue> {

@@ -3,10 +3,17 @@
 //!
 //! Candidate selection treats one pattern as more specific when the general
 //! pattern can bind to it, but the reverse binding is impossible. Repeated
-//! generic parameters share one substitution map so `Pair<T, T>` does not
-//! incorrectly subsume `Pair<U, V>` with distinct element patterns.
+//! type and const parameters share substitution maps so repeated parameters
+//! cannot bind to different components. Recursive probes are transactional:
+//! failed associated-binding alternatives never leak partial substitutions.
 
 use super::*;
+
+#[derive(Clone, Default)]
+struct PatternSubstitutions {
+    types: SymbolMap<InternedTyId>,
+    consts: SymbolMap<nia_ty::ConstGenericArg>,
+}
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn strictly_more_specific(
@@ -22,23 +29,37 @@ impl<'a> BodyChecker<'a> {
         general: InternedTyId,
         specific: InternedTyId,
     ) -> bool {
-        self.pattern_subsumes_inner(general, specific, &mut SymbolMap::default())
+        self.pattern_subsumes_inner(general, specific, &mut PatternSubstitutions::default())
     }
 
     fn pattern_subsumes_inner(
         &mut self,
         general: InternedTyId,
         specific: InternedTyId,
-        substitutions: &mut SymbolMap<InternedTyId>,
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        let mut candidate = substitutions.clone();
+        if !self.pattern_subsumes_candidate(general, specific, &mut candidate) {
+            return false;
+        }
+        *substitutions = candidate;
+        true
+    }
+
+    fn pattern_subsumes_candidate(
+        &mut self,
+        general: InternedTyId,
+        specific: InternedTyId,
+        substitutions: &mut PatternSubstitutions,
     ) -> bool {
         let general = self.normalization.normalize(general);
         let specific = self.normalization.normalize(specific);
         match self.interner.get(general).cloned() {
             Some(TyKind::GenericParam(name)) => {
-                if let Some(existing) = substitutions.get(&name).copied() {
+                if let Some(existing) = substitutions.types.get(&name).copied() {
                     self.patterns_equivalent(existing, specific)
                 } else {
-                    substitutions.insert(name, specific);
+                    substitutions.types.insert(name, specific);
                     true
                 }
             }
@@ -131,7 +152,12 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Array {
                     len: specific_len,
                     elem: specific_elem,
-                }) if self.array_lens_match(&general_len, &specific_len) => {
+                }) if self.array_len_pattern_subsumes(
+                    &general_len,
+                    &specific_len,
+                    substitutions,
+                ) =>
+                {
                     self.pattern_subsumes_inner(general_elem, specific_elem, substitutions)
                 }
                 _ => false,
@@ -259,9 +285,10 @@ impl<'a> BodyChecker<'a> {
                 }) => {
                     general_def == specific_def
                         && general_args.len() == specific_args.len()
-                        && self.const_generic_arg_slices_match(
+                        && self.const_pattern_args_subsume(
                             &general_const_args,
                             &specific_const_args,
+                            substitutions,
                         )
                         && general_args
                             .iter()
@@ -308,9 +335,10 @@ impl<'a> BodyChecker<'a> {
                     general_const == specific_const
                         && general_trait == specific_trait
                         && general_args.len() == specific_args.len()
-                        && self.const_generic_arg_slices_match(
+                        && self.const_pattern_args_subsume(
                             &general_const_args,
                             &specific_const_args,
+                            substitutions,
                         )
                         && general_bindings.len() == specific_bindings.len()
                         && general_args
@@ -327,9 +355,10 @@ impl<'a> BodyChecker<'a> {
                                         && general_binding.trait_id == specific_binding.trait_id
                                         && general_binding.trait_args.len()
                                             == specific_binding.trait_args.len()
-                                        && self.const_generic_arg_slices_match(
+                                        && self.const_pattern_args_subsume(
                                             &general_binding.trait_const_args,
                                             &specific_binding.trait_const_args,
+                                            substitutions,
                                         )
                                         && general_binding
                                             .trait_args
@@ -368,9 +397,10 @@ impl<'a> BodyChecker<'a> {
                 }) => {
                     general_trait == specific_trait
                         && general_args.len() == specific_args.len()
-                        && self.const_generic_arg_slices_match(
+                        && self.const_pattern_args_subsume(
                             &general_const_args,
                             &specific_const_args,
+                            substitutions,
                         )
                         && general_bindings.len() == specific_bindings.len()
                         && general_args
@@ -387,9 +417,10 @@ impl<'a> BodyChecker<'a> {
                                         && general_binding.trait_id == specific_binding.trait_id
                                         && general_binding.trait_args.len()
                                             == specific_binding.trait_args.len()
-                                        && self.const_generic_arg_slices_match(
+                                        && self.const_pattern_args_subsume(
                                             &general_binding.trait_const_args,
                                             &specific_binding.trait_const_args,
+                                            substitutions,
                                         )
                                         && general_binding
                                             .trait_args
@@ -430,9 +461,10 @@ impl<'a> BodyChecker<'a> {
                 }) if general_trait == specific_trait
                     && general_name == specific_name
                     && general_args.len() == specific_args.len()
-                    && self.const_generic_arg_slices_match(
+                    && self.const_pattern_args_subsume(
                         &general_const_args,
                         &specific_const_args,
+                        substitutions,
                     ) =>
                 {
                     self.pattern_subsumes_inner(general_self, specific_self, substitutions)
@@ -454,7 +486,72 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn array_len_pattern_subsumes(
+        &mut self,
+        general: &ArrayLenTy,
+        specific: &ArrayLenTy,
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        if self.array_lens_match(general, specific) {
+            return true;
+        }
+        let ArrayLenTy::GenericParam(name) = general else {
+            return false;
+        };
+        let Some(value) = self.method_const_generic_value_from_array_len(specific) else {
+            return false;
+        };
+        let specific = nia_ty::ConstGenericArg {
+            ty: self.interner.primitive(PrimitiveTy::Usize),
+            value,
+        };
+        self.record_const_pattern_subsumption(*name, specific, substitutions)
+    }
+
+    fn const_pattern_args_subsume(
+        &mut self,
+        general: &[nia_ty::ConstGenericArg],
+        specific: &[nia_ty::ConstGenericArg],
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        general.len() == specific.len()
+            && general.iter().zip(specific).all(|(general, specific)| {
+                self.const_pattern_arg_subsumes(general, specific, substitutions)
+            })
+    }
+
+    fn const_pattern_arg_subsumes(
+        &mut self,
+        general: &nia_ty::ConstGenericArg,
+        specific: &nia_ty::ConstGenericArg,
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        if !self.pattern_subsumes_inner(general.ty, specific.ty, substitutions) {
+            return false;
+        }
+        match general.value {
+            nia_ty::ConstGenericValue::GenericParam(name) => {
+                self.record_const_pattern_subsumption(name, specific.clone(), substitutions)
+            }
+            _ => self.const_generic_args_match(general, specific),
+        }
+    }
+
+    fn record_const_pattern_subsumption(
+        &mut self,
+        name: SymbolId,
+        specific: nia_ty::ConstGenericArg,
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        if let Some(existing) = substitutions.consts.get(&name).cloned() {
+            self.const_generic_args_match(&existing, &specific)
+        } else {
+            substitutions.consts.insert(name, specific);
+            true
+        }
+    }
+
     fn patterns_equivalent(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
-        self.pattern_subsumes(left, right) && self.pattern_subsumes(right, left)
+        self.types_equivalent_without_projection_resolution(left, right)
     }
 }
