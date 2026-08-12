@@ -52,6 +52,7 @@ use nia_ty::{
 };
 use nia_value_resolve::ValueResolution;
 
+mod array_literals;
 mod context;
 mod env_impl;
 mod expr_types;
