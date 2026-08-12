@@ -115,3 +115,42 @@ fn executable_value_refs_include_unqualified_static_uses() {
 
     assert!(edges.globals.contains(&calls), "{:?}", edges.globals);
 }
+
+#[test]
+fn executable_value_refs_include_closure_captures_and_bodies() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+static mut offset: i32 = 1;
+
+fn helper(value: i32) i32 { value }
+
+fn main() i32 {
+    let callback = [base = offset](value: i32) i32 {
+        helper(base + offset + value)
+    };
+    callback(1)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let db = query_db(fixture.program());
+    let defs = db.expect_get(ModuleDefsQuery(module_id));
+    let def_id = |name| GlobalDefId {
+        module_id,
+        def_id: defs.semantic.module_scope.values.get(&sym(name)).unwrap(),
+    };
+
+    let edges = db.expect_get(ExecutableValueRefEdgesQuery(def_id("main")));
+
+    assert!(
+        edges.functions.contains(&def_id("helper")),
+        "{:?}",
+        edges.functions
+    );
+    assert!(
+        edges.globals.contains(&def_id("offset")),
+        "{:?}",
+        edges.globals
+    );
+}
