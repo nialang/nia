@@ -454,6 +454,9 @@ impl<'a> LocalResolver<'a> {
         if let Some(body) = &function.body {
             self.resolve_block(body);
         }
+        // Receiver identities are stack-scoped just like lexical scopes. A
+        // nested closure or method must not leak its `self` binding into the
+        // enclosing function after this callback returns.
         self.self_locals.truncate(self_stack_len);
         self.pop_scope();
     }
