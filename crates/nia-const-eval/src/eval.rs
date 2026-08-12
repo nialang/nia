@@ -36,6 +36,7 @@ use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
 mod assignment;
+mod patterns;
 pub use assignment::write_resolved_const_place;
 
 enum ConstEvalFlow {
@@ -1154,7 +1155,7 @@ fn matching_switch_arm<'a>(
                 continue;
             }
             let mut bindings = Vec::new();
-            if early_pattern_matches(target, pattern, env, &mut bindings)? {
+            if patterns::early_pattern_matches(target, pattern, env, &mut bindings)? {
                 return Ok(Some(ConstSwitchMatch { arm, bindings }));
             }
         }
@@ -1178,7 +1179,7 @@ fn matching_resolved_switch_arm<'a>(
                 continue;
             }
             let mut bindings = Vec::new();
-            if resolved_pattern_matches(target, pattern, env, &mut bindings)? {
+            if patterns::resolved_pattern_matches(target, pattern, env, &mut bindings)? {
                 return Ok(Some(ResolvedConstSwitchMatch { arm, bindings }));
             }
         }
@@ -1187,365 +1188,6 @@ fn matching_resolved_switch_arm<'a>(
         arm,
         bindings: Vec::new(),
     }))
-}
-
-fn early_pattern_matches(
-    target: &ConstValue,
-    pattern: &EarlyConstPattern,
-    env: &mut impl EarlyConstEnv,
-    bindings: &mut Vec<ConstSwitchBinding>,
-) -> Result<bool, ConstError> {
-    match pattern {
-        EarlyConstPattern::Wildcard { .. } => Ok(true),
-        EarlyConstPattern::Bind {
-            name,
-            local_id,
-            span,
-        } => {
-            bindings.push(ConstSwitchBinding {
-                span: *span,
-                name: *name,
-                local_id: *local_id,
-                value: target.clone(),
-            });
-            Ok(true)
-        }
-        EarlyConstPattern::Pointer { pattern, span }
-        | EarlyConstPattern::MutPointer { pattern, span } => match target {
-            ConstValue::Pointer(pointer) => {
-                let value = env.dereference_const_pointer(*span, pointer)?;
-                early_pattern_matches(&value, pattern, env, bindings)
-            }
-            _ => Err(ConstError {
-                span: *span,
-                message: "const pointer pattern requires a pointer target".to_string(),
-            }),
-        },
-        EarlyConstPattern::OptionalSome { pattern, span } => match target {
-            ConstValue::Optional(Some(value)) => {
-                early_pattern_matches(value, pattern, env, bindings)
-            }
-            ConstValue::Optional(None) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const optional switch pattern requires an optional target".to_string(),
-            }),
-        },
-        EarlyConstPattern::OptionalNull { span } => match target {
-            ConstValue::Optional(None) => Ok(true),
-            ConstValue::Optional(Some(_)) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const null switch pattern requires an optional target".to_string(),
-            }),
-        },
-        EarlyConstPattern::ErrorOk { pattern, span } => match target {
-            ConstValue::ErrorUnion(Ok(value)) => {
-                early_pattern_matches(value, pattern, env, bindings)
-            }
-            ConstValue::ErrorUnion(Err(_)) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const error-ok switch pattern requires an error union target".to_string(),
-            }),
-        },
-        EarlyConstPattern::ErrorErr { pattern, span } => match target {
-            ConstValue::ErrorUnion(Err(value)) => {
-                early_pattern_matches(value, pattern, env, bindings)
-            }
-            ConstValue::ErrorUnion(Ok(_)) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const error switch pattern requires an error union target".to_string(),
-            }),
-        },
-        EarlyConstPattern::Tuple { patterns, span } => tuple_pattern_matches(
-            target,
-            patterns,
-            bindings,
-            *span,
-            |value, pattern, bindings| early_pattern_matches(value, pattern, env, bindings),
-        ),
-        EarlyConstPattern::EnumVariant {
-            variant,
-            fields,
-            span,
-        } => {
-            let Some(variant) = early_enum_expr_variant_id(variant, env) else {
-                return Err(ConstError {
-                    span: *span,
-                    message: "const enum pattern requires a resolved enum variant".to_string(),
-                });
-            };
-            enum_pattern_matches(
-                target,
-                variant,
-                fields,
-                bindings,
-                *span,
-                |value, pattern, bindings| early_pattern_matches(value, pattern, env, bindings),
-            )
-        }
-        EarlyConstPattern::Expr(pattern) => {
-            let pattern = eval_const_expr(pattern, env)?;
-            Ok(values_equal(target, &pattern).unwrap_or(false))
-        }
-        EarlyConstPattern::Range {
-            start,
-            end,
-            inclusive,
-            span,
-        } => switch_range_matches(target, start, end, *inclusive, *span, env),
-    }
-}
-
-fn resolved_pattern_matches(
-    target: &ConstValue,
-    pattern: &nia_const_ir::ResolvedConstPattern,
-    env: &mut impl ResolvedConstEnv,
-    bindings: &mut Vec<ConstSwitchBinding>,
-) -> Result<bool, ConstError> {
-    match pattern.kind() {
-        ResolvedConstPatternKind::Wildcard { .. } => Ok(true),
-        ResolvedConstPatternKind::Bind {
-            name,
-            local_id,
-            span,
-        } => {
-            bindings.push(ConstSwitchBinding {
-                span: *span,
-                name: *name,
-                local_id: Some(*local_id),
-                value: target.clone(),
-            });
-            Ok(true)
-        }
-        ResolvedConstPatternKind::Pointer { pattern, span }
-        | ResolvedConstPatternKind::MutPointer { pattern, span } => match target {
-            ConstValue::Pointer(pointer) => {
-                let value = env.dereference_const_pointer(*span, pointer)?;
-                resolved_pattern_matches(&value, pattern, env, bindings)
-            }
-            _ => Err(ConstError {
-                span: *span,
-                message: "const pointer pattern requires a pointer target".to_string(),
-            }),
-        },
-        ResolvedConstPatternKind::OptionalSome { pattern, span } => match target {
-            ConstValue::Optional(Some(value)) => {
-                resolved_pattern_matches(value, pattern, env, bindings)
-            }
-            ConstValue::Optional(None) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const optional switch pattern requires an optional target".to_string(),
-            }),
-        },
-        ResolvedConstPatternKind::OptionalNull { span } => match target {
-            ConstValue::Optional(None) => Ok(true),
-            ConstValue::Optional(Some(_)) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const null switch pattern requires an optional target".to_string(),
-            }),
-        },
-        ResolvedConstPatternKind::ErrorOk { pattern, span } => match target {
-            ConstValue::ErrorUnion(Ok(value)) => {
-                resolved_pattern_matches(value, pattern, env, bindings)
-            }
-            ConstValue::ErrorUnion(Err(_)) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const error-ok switch pattern requires an error union target".to_string(),
-            }),
-        },
-        ResolvedConstPatternKind::ErrorErr { pattern, span } => match target {
-            ConstValue::ErrorUnion(Err(value)) => {
-                resolved_pattern_matches(value, pattern, env, bindings)
-            }
-            ConstValue::ErrorUnion(Ok(_)) => Ok(false),
-            _ => Err(ConstError {
-                span: *span,
-                message: "const error switch pattern requires an error union target".to_string(),
-            }),
-        },
-        ResolvedConstPatternKind::Tuple { patterns, span } => tuple_pattern_matches(
-            target,
-            patterns,
-            bindings,
-            *span,
-            |value, pattern, bindings| resolved_pattern_matches(value, pattern, env, bindings),
-        ),
-        ResolvedConstPatternKind::EnumVariant {
-            variant,
-            fields,
-            span,
-        } => {
-            let Some(variant) = resolved_enum_variant_id(variant, env) else {
-                return Err(ConstError {
-                    span: *span,
-                    message: "const enum pattern requires a resolved enum variant".to_string(),
-                });
-            };
-            enum_pattern_matches(
-                target,
-                variant,
-                fields,
-                bindings,
-                *span,
-                |value, pattern, bindings| resolved_pattern_matches(value, pattern, env, bindings),
-            )
-        }
-        ResolvedConstPatternKind::Expr(pattern) => {
-            let pattern = eval_resolved_const_expr_value(pattern, env)?;
-            Ok(values_equal(target, &pattern).unwrap_or(false))
-        }
-        ResolvedConstPatternKind::Range {
-            start,
-            end,
-            inclusive,
-            span,
-        } => resolved_switch_range_matches(target, start, end, *inclusive, *span, env),
-    }
-}
-
-fn enum_pattern_matches<P>(
-    target: &ConstValue,
-    variant: GlobalDefId,
-    fields: &ConstEnumPatternFields<P>,
-    bindings: &mut Vec<ConstSwitchBinding>,
-    span: Span,
-    mut pattern_matches: impl FnMut(
-        &ConstValue,
-        &P,
-        &mut Vec<ConstSwitchBinding>,
-    ) -> Result<bool, ConstError>,
-) -> Result<bool, ConstError> {
-    let ConstValue::Enum {
-        variant: actual_variant,
-        payload,
-    } = target
-    else {
-        return Err(ConstError {
-            span,
-            message: "const enum pattern requires an enum target".to_string(),
-        });
-    };
-    if *actual_variant != variant {
-        return Ok(false);
-    }
-    match (fields, payload) {
-        (ConstEnumPatternFields::Tuple(patterns), ConstEnumPayload::Tuple(values)) => {
-            if patterns.len() != values.len() {
-                return Err(ConstError {
-                    span,
-                    message: "const enum tuple pattern has the wrong arity".to_string(),
-                });
-            }
-            for (pattern, value) in patterns.iter().zip(values) {
-                if !pattern_matches(value, pattern, bindings)? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
-        (ConstEnumPatternFields::Named(patterns), ConstEnumPayload::Named(values)) => {
-            for field in patterns {
-                let Some(value) = values.get(&field.name) else {
-                    return Err(ConstError {
-                        span: field.span,
-                        message: "const enum named pattern references a missing field".to_string(),
-                    });
-                };
-                if !pattern_matches(value, &field.pattern, bindings)? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
-        _ => Err(ConstError {
-            span,
-            message: "const enum pattern shape does not match its variant payload".to_string(),
-        }),
-    }
-}
-
-fn tuple_pattern_matches<P>(
-    target: &ConstValue,
-    patterns: &[P],
-    bindings: &mut Vec<ConstSwitchBinding>,
-    span: Span,
-    mut pattern_matches: impl FnMut(
-        &ConstValue,
-        &P,
-        &mut Vec<ConstSwitchBinding>,
-    ) -> Result<bool, ConstError>,
-) -> Result<bool, ConstError> {
-    let ConstValue::Tuple(values) = target else {
-        return Err(ConstError {
-            span,
-            message: "const tuple pattern requires a tuple target".to_string(),
-        });
-    };
-    if values.len() != patterns.len() {
-        return Ok(false);
-    }
-    for (value, pattern) in values.iter().zip(patterns) {
-        if !pattern_matches(value, pattern, bindings)? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-fn switch_range_matches(
-    target: &ConstValue,
-    start: &EarlyConstExpr,
-    end: &EarlyConstExpr,
-    inclusive: bool,
-    span: Span,
-    env: &mut impl EarlyConstEnv,
-) -> Result<bool, ConstError> {
-    let ConstValue::Int(target) = target else {
-        return Err(ConstError {
-            span,
-            message: "const switch range requires an integer target".to_string(),
-        });
-    };
-    let start = eval_const_int_expr(start, env)?;
-    let end = eval_const_int_expr(end, env)?;
-    Ok(if inclusive {
-        eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
-            && eval_binary_int_compare(*target, ConstBinaryOp::Le, end)
-    } else {
-        eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
-            && eval_binary_int_compare(*target, ConstBinaryOp::Lt, end)
-    })
-}
-
-fn resolved_switch_range_matches(
-    target: &ConstValue,
-    start: &ResolvedConstExpr,
-    end: &ResolvedConstExpr,
-    inclusive: bool,
-    span: Span,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<bool, ConstError> {
-    let ConstValue::Int(target) = target else {
-        return Err(ConstError {
-            span,
-            message: "const switch range requires an integer target".to_string(),
-        });
-    };
-    let start = eval_resolved_const_int_expr_inner(start, env)?;
-    let end = eval_resolved_const_int_expr_inner(end, env)?;
-    Ok(if inclusive {
-        eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
-            && eval_binary_int_compare(*target, ConstBinaryOp::Le, end)
-    } else {
-        eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
-            && eval_binary_int_compare(*target, ConstBinaryOp::Lt, end)
-    })
 }
 
 fn eval_const_switch_arm_body(
@@ -1570,7 +1212,7 @@ fn eval_const_switch_match_body(
     let bind_result = matched
         .bindings
         .iter()
-        .try_for_each(|binding| bind_pattern_value(binding, env));
+        .try_for_each(|binding| patterns::bind_pattern_value(binding, env));
     let result = bind_result.and_then(|()| eval_const_switch_arm_body(&matched.arm.body, env));
     env.pop_const_scope();
     result
@@ -1598,33 +1240,11 @@ fn eval_resolved_const_switch_match_body(
     let bind_result = matched
         .bindings
         .iter()
-        .try_for_each(|binding| bind_resolved_pattern_value(binding, env));
+        .try_for_each(|binding| patterns::bind_resolved_pattern_value(binding, env));
     let result =
         bind_result.and_then(|()| eval_resolved_const_switch_arm_body(matched.arm.body(), env));
     env.pop_const_scope();
     result
-}
-
-fn bind_pattern_value(
-    binding: &ConstSwitchBinding,
-    env: &mut impl EarlyConstEnv,
-) -> Result<(), ConstError> {
-    env.bind_pattern_local(
-        binding.span,
-        &binding.name,
-        binding.local_id,
-        binding.value.clone(),
-    )
-}
-
-fn bind_resolved_pattern_value(
-    binding: &ConstSwitchBinding,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<(), ConstError> {
-    let local_id = binding
-        .local_id
-        .expect("resolved const switch pattern must have a local id");
-    env.bind_resolved_pattern_local(binding.span, &binding.name, local_id, binding.value.clone())
 }
 
 fn eval_array_literal_flow(
@@ -2913,7 +2533,7 @@ fn eval_resolved_for_in_stmt(
             return Ok(ConstEvalFlow::Void);
         };
         let mut bindings = Vec::new();
-        if !resolved_pattern_matches(&item, for_in.pattern(), env, &mut bindings)? {
+        if !patterns::resolved_pattern_matches(&item, for_in.pattern(), env, &mut bindings)? {
             return Err(ConstError {
                 span,
                 message: "const for-in pattern did not match Iterator::Item".to_string(),
@@ -2922,7 +2542,7 @@ fn eval_resolved_for_in_stmt(
         env.push_const_scope(span)?;
         let bind_result = bindings
             .iter()
-            .try_for_each(|binding| bind_resolved_pattern_value(binding, env));
+            .try_for_each(|binding| patterns::bind_resolved_pattern_value(binding, env));
         let body_result =
             bind_result.and_then(|()| eval_resolved_function_block(for_in.body(), env));
         env.pop_const_scope();
