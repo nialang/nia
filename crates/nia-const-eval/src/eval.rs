@@ -182,6 +182,7 @@ macro_rules! eval_resolved_value_or_return_flow {
     };
 }
 
+mod aggregates;
 mod arrays;
 mod assignment;
 mod patterns;
@@ -293,10 +294,10 @@ fn eval_resolved_const_expr_flow(
             return arrays::eval_resolved_array_literal_flow(elems, env);
         }
         ResolvedConstExprKind::StructLiteral { ty, fields } => {
-            return eval_resolved_struct_literal_flow(span, *ty, fields, env);
+            return aggregates::eval_resolved_struct_literal_flow(span, *ty, fields, env);
         }
         ResolvedConstExprKind::EnumStructLiteral { variant, fields } => {
-            return eval_resolved_enum_struct_literal_flow(span, variant, fields, env);
+            return aggregates::eval_resolved_enum_struct_literal_flow(span, variant, fields, env);
         }
         ResolvedConstExprKind::CompileError { message } => {
             let value = eval_resolved_value_or_return_flow!(message, env);
@@ -372,7 +373,7 @@ fn eval_resolved_const_expr_flow(
                 for arg in args {
                     values.push(eval_resolved_value_or_return_flow!(arg, env));
                 }
-                if let Some(variant) = resolved_enum_variant_id(callee, env) {
+                if let Some(variant) = aggregates::resolved_enum_variant_id(callee, env) {
                     ConstValue::Enum {
                         variant,
                         payload: ConstEnumPayload::Tuple(values),
@@ -566,7 +567,7 @@ fn eval_const_expr_flow(
                 message: format!("invalid byte char literal `{text}` in const expression"),
             })?,
         EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
-            if let Some(variant) = early_enum_variant_id(name, env) {
+            if let Some(variant) = aggregates::early_enum_variant_id(name, env) {
                 ConstValue::Enum {
                     variant,
                     payload: ConstEnumPayload::Unit,
@@ -617,10 +618,10 @@ fn eval_const_expr_flow(
             return arrays::eval_array_literal_flow(elems, env);
         }
         EarlyConstExprKind::StructLiteral { fields, .. } => {
-            return eval_struct_literal_flow(fields, env);
+            return aggregates::eval_struct_literal_flow(fields, env);
         }
         EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
-            return eval_enum_struct_literal_flow(expr.span, variant, fields, env);
+            return aggregates::eval_enum_struct_literal_flow(expr.span, variant, fields, env);
         }
         EarlyConstExprKind::CompileError { message } => {
             let value = eval_value_or_return_flow!(message, env);
@@ -685,7 +686,7 @@ fn eval_const_expr_flow(
                 for arg in args {
                     values.push(eval_value_or_return_flow!(arg, env));
                 }
-                if let Some(variant) = early_enum_expr_variant_id(callee, env) {
+                if let Some(variant) = aggregates::early_enum_expr_variant_id(callee, env) {
                     ConstValue::Enum {
                         variant,
                         payload: ConstEnumPayload::Tuple(values),
@@ -1247,178 +1248,6 @@ fn eval_resolved_const_switch_match_body(
         bind_result.and_then(|()| eval_resolved_const_switch_arm_body(matched.arm.body(), env));
     env.pop_const_scope();
     result
-}
-
-fn eval_struct_literal_flow(
-    fields: &[nia_const_ir::EarlyConstFieldInit],
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    if let Some(field) = check_unique_field_set(
-        fields
-            .iter()
-            .map(|field| NamedField::new(field.span, field.name)),
-    )
-    .into_iter()
-    .next()
-    {
-        return Err(ConstError {
-            span: field.span,
-            message: format!(
-                "duplicate const struct field `{}`",
-                env.symbol_name(field.name)
-            ),
-        });
-    }
-    let mut values = BTreeMap::new();
-    for field in fields {
-        values.insert(field.name, eval_value_or_return_flow!(&field.value, env));
-    }
-    Ok(ConstEvalFlow::Value(ConstValue::Struct(values)))
-}
-
-fn eval_enum_struct_literal_flow(
-    span: Span,
-    variant: &EarlyConstExpr,
-    fields: &[nia_const_ir::EarlyConstFieldInit],
-    env: &mut impl EarlyConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let Some(variant) = early_enum_expr_variant_id(variant, env) else {
-        return Err(ConstError {
-            span,
-            message: "const enum literal requires a resolved enum variant".to_string(),
-        });
-    };
-    if let Some(field) = check_unique_field_set(
-        fields
-            .iter()
-            .map(|field| NamedField::new(field.span, field.name)),
-    )
-    .into_iter()
-    .next()
-    {
-        return Err(ConstError {
-            span: field.span,
-            message: format!(
-                "duplicate const enum field `{}`",
-                env.symbol_name(field.name)
-            ),
-        });
-    }
-    let mut values = BTreeMap::new();
-    for field in fields {
-        values.insert(field.name, eval_value_or_return_flow!(&field.value, env));
-    }
-    Ok(ConstEvalFlow::Value(ConstValue::Enum {
-        variant,
-        payload: ConstEnumPayload::Named(values),
-    }))
-}
-
-fn eval_resolved_struct_literal_flow(
-    span: Span,
-    ty: Option<InternedTyId>,
-    fields: &[ResolvedConstFieldInit],
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    if let Some(field) = check_unique_field_set(
-        fields
-            .iter()
-            .map(|field| NamedField::new(field.span(), field.name())),
-    )
-    .into_iter()
-    .next()
-    {
-        return Err(ConstError {
-            span: field.span,
-            message: format!(
-                "duplicate const struct field `{}`",
-                env.symbol_name(field.name)
-            ),
-        });
-    }
-    let mut values = BTreeMap::new();
-    for field in fields {
-        values.insert(
-            *field.name_symbol(),
-            eval_resolved_value_or_return_flow!(field.value(), env),
-        );
-    }
-    Ok(ConstEvalFlow::Value(
-        env.build_resolved_aggregate(span, ty, values)?,
-    ))
-}
-
-fn eval_resolved_enum_struct_literal_flow(
-    span: Span,
-    variant: &ResolvedConstExpr,
-    fields: &[ResolvedConstFieldInit],
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let Some(variant) = resolved_enum_variant_id(variant, env) else {
-        return Err(ConstError {
-            span,
-            message: "const enum literal requires a resolved enum variant".to_string(),
-        });
-    };
-    if let Some(field) = check_unique_field_set(
-        fields
-            .iter()
-            .map(|field| NamedField::new(field.span(), field.name())),
-    )
-    .into_iter()
-    .next()
-    {
-        return Err(ConstError {
-            span: field.span,
-            message: format!(
-                "duplicate const enum field `{}`",
-                env.symbol_name(field.name)
-            ),
-        });
-    }
-    let mut values = BTreeMap::new();
-    for field in fields {
-        values.insert(
-            *field.name_symbol(),
-            eval_resolved_value_or_return_flow!(field.value(), env),
-        );
-    }
-    Ok(ConstEvalFlow::Value(ConstValue::Enum {
-        variant,
-        payload: ConstEnumPayload::Named(values),
-    }))
-}
-
-fn early_enum_variant_id(
-    name: &nia_const_ir::EarlyConstName,
-    env: &impl ConstCommonEnv,
-) -> Option<GlobalDefId> {
-    let ConstNameResolution::Global(variant) = name.resolution()? else {
-        return None;
-    };
-    env.is_enum_variant(variant).then_some(variant)
-}
-
-fn early_enum_expr_variant_id(
-    expr: &EarlyConstExpr,
-    env: &impl ConstCommonEnv,
-) -> Option<GlobalDefId> {
-    match expr.kind() {
-        EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
-            early_enum_variant_id(name, env)
-        }
-        _ => None,
-    }
-}
-
-fn resolved_enum_variant_id(
-    expr: &ResolvedConstExpr,
-    env: &impl ConstCommonEnv,
-) -> Option<GlobalDefId> {
-    let ConstNameResolution::Global(variant) = expr.name_resolution()? else {
-        return None;
-    };
-    env.is_enum_variant(variant).then_some(variant)
 }
 
 fn eval_const_int_expr(

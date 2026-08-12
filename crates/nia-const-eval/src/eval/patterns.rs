@@ -86,7 +86,7 @@ pub(super) fn early_pattern_matches(
             fields,
             span,
         } => {
-            let Some(variant) = super::early_enum_expr_variant_id(variant, env) else {
+            let Some(variant) = super::aggregates::early_enum_expr_variant_id(variant, env) else {
                 return Err(ConstError {
                     span: *span,
                     message: "const enum pattern requires a resolved enum variant".to_string(),
@@ -196,7 +196,7 @@ pub(super) fn resolved_pattern_matches(
             fields,
             span,
         } => {
-            let Some(variant) = super::resolved_enum_variant_id(variant, env) else {
+            let Some(variant) = super::aggregates::resolved_enum_variant_id(variant, env) else {
                 return Err(ConstError {
                     span: *span,
                     message: "const enum pattern requires a resolved enum variant".to_string(),
