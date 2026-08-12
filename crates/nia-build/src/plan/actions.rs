@@ -174,6 +174,8 @@ pub(super) fn canonicalize_actions(
                     working_directory,
                     inputs,
                     &artifacts_by_key,
+                    &emit_targets,
+                    host_target,
                 )?;
                 if matches!(program, CommandProgram::Search(name) if name.is_empty()) {
                     return Err(PlanError::InvalidCommand {
@@ -281,6 +283,8 @@ fn validate_external_command_artifacts(
     working_directory: &LogicalPath,
     inputs: &[LogicalPath],
     artifacts: &BTreeMap<&ArtifactKey, &PlanArtifact>,
+    emit_targets: &BTreeMap<ArtifactKey, TargetSpec>,
+    host_target: &TargetSpec,
 ) -> Result<(), PlanError> {
     if let CommandProgram::Path(program) = program
         && let LogicalPathRoot::Artifact(artifact) = program.root()
@@ -297,6 +301,18 @@ fn validate_external_command_artifacts(
             PlanArtifactKind::Executable,
             "external command programs must be executable artifacts",
         )?;
+        // Artifact programs execute during the build, so their producer must
+        // target the build host even when the final artifact target differs.
+        if emit_targets
+            .get(artifact)
+            .is_some_and(|target| target != host_target)
+        {
+            return Err(PlanError::InvalidArtifactUse {
+                action: action.clone(),
+                artifact: artifact.clone(),
+                reason: "external command programs must be emitted for the host target",
+            });
+        }
     }
     if let LogicalPathRoot::Artifact(artifact) = working_directory.root() {
         require_artifact_root(
