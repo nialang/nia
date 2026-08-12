@@ -1778,6 +1778,43 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn freeze_rejects_directory_outputs_as_build_programs() {
+        let mut value = build_input_draft("unused", "unused/input.txt", vec!["emit"]);
+        value
+            .actions
+            .retain(|action| action.key.name() != "generate");
+        value.steps.retain(|step| step.key.name() != "generate");
+        value.artifacts[0].kind = PlanArtifactKind::ObjectSet;
+        value.artifacts[0].output =
+            LogicalPath::new(LogicalPathRoot::Build, "tools/generated").unwrap();
+        let consume = value
+            .actions
+            .iter_mut()
+            .find(|action| action.key.name() == "consume")
+            .unwrap();
+        let ActionKind::ExternalCommand {
+            program,
+            arguments,
+            inputs,
+            ..
+        } = &mut consume.kind
+        else {
+            panic!("expected external command action");
+        };
+        *program = CommandProgram::Path(
+            LogicalPath::new(LogicalPathRoot::Build, "tools/generated").unwrap(),
+        );
+        arguments.clear();
+        inputs.clear();
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingBuildInputProducer { path, .. })
+                if path.protocol_path() == "tools/generated"
+        ));
+    }
+
     fn build_working_directory_draft(
         produced_directory: &str,
         working_directory: &str,
@@ -1838,6 +1875,19 @@ mod tests {
         let value = build_working_directory_draft("generated/work", "generated/work", vec!["emit"]);
 
         assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn freeze_rejects_file_outputs_as_working_directories() {
+        let mut value =
+            build_working_directory_draft("generated/work", "generated/work", vec!["emit"]);
+        value.artifacts[0].kind = PlanArtifactKind::Executable;
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::MissingBuildInputProducer { path, .. })
+                if path.protocol_path() == "generated/work"
+        ));
     }
 
     #[test]

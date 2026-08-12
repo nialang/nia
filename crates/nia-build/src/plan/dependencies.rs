@@ -147,7 +147,7 @@ pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
         };
         let build_program = match program {
             CommandProgram::Path(path) if matches!(path.root(), LogicalPathRoot::Build) => {
-                Some(path)
+                Some((path, BuildPathRequirement::File))
             }
             _ => None,
         };
@@ -156,18 +156,19 @@ pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
         // so it is a scheduling dependency just like a program or input path.
         let build_working_directory = (matches!(working_directory.root(), LogicalPathRoot::Build)
             && !working_directory.is_empty())
-        .then_some(working_directory);
+        .then_some((working_directory, BuildPathRequirement::Directory));
         let build_inputs = inputs
             .iter()
-            .filter(|input| matches!(input.root(), LogicalPathRoot::Build));
-        for input in build_program
+            .filter(|input| matches!(input.root(), LogicalPathRoot::Build))
+            .map(|input| (input, BuildPathRequirement::Any));
+        for (input, requirement) in build_program
             .into_iter()
             .chain(build_working_directory)
             .chain(build_inputs)
         {
             let input_producers = producers
                 .iter()
-                .filter(|(output, _)| output.produces(input))
+                .filter(|(output, _)| output.produces(input, requirement))
                 .map(|(_, action)| *action)
                 .collect::<Vec<_>>();
             if input_producers.is_empty() {
@@ -335,12 +336,27 @@ struct ActionOutput<'a> {
     is_directory: bool,
 }
 
+#[derive(Clone, Copy)]
+enum BuildPathRequirement {
+    Any,
+    File,
+    Directory,
+}
+
 impl ActionOutput<'_> {
-    fn produces(self, input: &LogicalPath) -> bool {
-        self.path == input
-            || (self.is_directory
-                && self.path.root() == input.root()
-                && input.components().starts_with(self.path.components()))
+    fn produces(self, input: &LogicalPath, requirement: BuildPathRequirement) -> bool {
+        match requirement {
+            BuildPathRequirement::Any => {
+                self.path == input
+                    || (self.is_directory
+                        && self.path.root() == input.root()
+                        && input.components().starts_with(self.path.components()))
+            }
+            BuildPathRequirement::File => self.path == input && !self.is_directory,
+            // A descendant of a directory output is not necessarily itself a
+            // directory. Only the declared directory root has a known type.
+            BuildPathRequirement::Directory => self.path == input && self.is_directory,
+        }
     }
 }
 
