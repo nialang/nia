@@ -19,7 +19,7 @@ use nia_backend_ir::{
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::PromotedAllocationId;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
-use nia_layout::TypeLayout;
+use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagged_union_layout};
 use nia_llvm::{
     Context, LlvmError,
     module::Linkage,
@@ -350,30 +350,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let target = &self.source.layouts.target;
         match self.ty_kind(ty) {
             Some(TyKind::Tuple(elems)) => {
-                let mut size = 0u64;
-                let mut align = 1u64;
+                let mut layouts = Vec::with_capacity(elems.len());
                 for elem in elems {
-                    let elem = self.layout_of(*elem)?;
-                    size = align_to(size, elem.align).saturating_add(elem.size);
-                    align = align.max(elem.align);
+                    layouts.push(self.layout_of(*elem)?);
                 }
-                Some(TypeLayout {
-                    size: align_to(size, align),
-                    align,
-                })
+                sequential_layout(&layouts)
             }
             Some(TyKind::ClosureState { captures, .. }) => {
-                let mut size = 0u64;
-                let mut align = 1u64;
+                let mut layouts = Vec::with_capacity(captures.len());
                 for capture in captures {
-                    let capture = self.layout_of(*capture)?;
-                    size = align_to(size, capture.align).saturating_add(capture.size);
-                    align = align.max(capture.align);
+                    layouts.push(self.layout_of(*capture)?);
                 }
-                Some(TypeLayout {
-                    size: align_to(size, align),
-                    align,
-                })
+                sequential_layout(&layouts)
             }
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
@@ -397,32 +385,26 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::TraitObjectPointee { .. }
                 | TyKind::CallablePointee { .. },
             ) => None,
-            Some(TyKind::Range { bound: None, .. }) => Some(TypeLayout { size: 0, align: 1 }),
-            Some(TyKind::Range {
-                bound: Some(bound), ..
-            }) => {
-                let bound = self.layout_of(*bound)?;
-                Some(TypeLayout {
-                    size: bound.size * 2,
-                    align: bound.align,
-                })
+            Some(TyKind::Range { kind, bound }) => {
+                let bound_layout = match bound {
+                    Some(bound) => Some(self.layout_of(*bound)?),
+                    None => None,
+                };
+                range_layout(*kind, bound_layout.as_ref())
             }
             Some(TyKind::Array { len, elem }) => {
                 let len = self.array_len_in(len, Span::default()).ok()?;
                 let elem = self.layout_of(*elem)?;
-                Some(TypeLayout {
-                    size: elem.size.saturating_mul(len),
-                    align: elem.align,
-                })
+                array_layout(&elem, len)
             }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.layout_of(*elem)?;
-                Some(tagged_union_layout(&[elem]))
+                tagged_union_layout(&[elem])
             }
             Some(TyKind::ErrorUnion { error, value }) => {
                 let error = self.layout_of(*error)?;
                 let value = self.layout_of(*value)?;
-                Some(tagged_union_layout(&[error, value]))
+                tagged_union_layout(&[error, value])
             }
             Some(TyKind::Nominal {
                 def_id,
@@ -748,29 +730,5 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {
         error.diagnostic()
-    }
-}
-
-fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
-    let tag = TypeLayout { size: 1, align: 1 };
-    let payload_size = payloads.iter().map(|layout| layout.size).max().unwrap_or(0);
-    let payload_align = payloads
-        .iter()
-        .map(|layout| layout.align)
-        .max()
-        .unwrap_or(1);
-    let align = tag.align.max(payload_align);
-    let payload_offset = align_to(tag.size, payload_align);
-    TypeLayout {
-        size: align_to(payload_offset.saturating_add(payload_size), align),
-        align,
-    }
-}
-
-fn align_to(value: u64, align: u64) -> u64 {
-    if align <= 1 {
-        value
-    } else {
-        value.div_ceil(align) * align
     }
 }

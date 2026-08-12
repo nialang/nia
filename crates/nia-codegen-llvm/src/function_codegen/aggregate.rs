@@ -807,11 +807,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let Some(field_layout) = variant_layout.fields.get(index) else {
                 return Err(self.error(field.span, "missing enum payload field layout"));
             };
-            let field_ptr = self.enum_byte_offset_ptr(
-                ptr,
-                payload_offset.saturating_add(field_layout.offset),
-                field.span,
-            )?;
+            let field_offset = payload_offset
+                .checked_add(field_layout.offset)
+                .ok_or_else(|| self.error(field.span, "enum payload field offset overflowed"))?;
+            let field_ptr = self.enum_byte_offset_ptr(ptr, field_offset, field.span)?;
             let value = self.emit_expr(field)?;
             self.builder
                 .build_store(field_ptr, value)
@@ -900,6 +899,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .fields
             .get(field)
             .ok_or_else(|| self.error(expr.span, "missing enum payload field layout"))?;
+        let field_offset = payload_offset
+            .checked_add(field_layout.offset)
+            .ok_or_else(|| self.error(expr.span, "enum payload field offset overflowed"))?;
         let enum_ty = self.module.llvm_basic_type(value.ty, value.span)?;
         let ptr = self
             .builder
@@ -909,11 +911,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_store(ptr, value)
             .map_err(|_| self.error(expr.span, "failed to store enum payload copy"))?;
-        let field_ptr = self.enum_byte_offset_ptr(
-            ptr,
-            payload_offset.saturating_add(field_layout.offset),
-            expr.span,
-        )?;
+        let field_ptr = self.enum_byte_offset_ptr(ptr, field_offset, expr.span)?;
         let field_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         self.builder
             .build_load(field_ty, field_ptr, "enum.payload.field")

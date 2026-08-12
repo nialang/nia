@@ -657,7 +657,13 @@ impl ResolvedConstEnv for Analyzer<'_> {
             abi_fields.insert(name, abi);
             field_layouts.push(layout);
         }
-        let layout = nia_layout::union_layout_from_fields(field_layouts.iter());
+        let layout =
+            nia_layout::union_layout_from_fields(field_layouts.iter()).ok_or_else(|| {
+                ConstError {
+                    span,
+                    message: "const union layout size overflowed".to_string(),
+                }
+            })?;
         let endianness =
             ConstEndianness::from_target_name(&self.input.target.endian).ok_or_else(|| {
                 ConstError {
@@ -1312,7 +1318,7 @@ impl Analyzer<'_> {
                     fields.insert(field.name, abi);
                     field_layouts.push(layout);
                 }
-                let layout = nia_layout::union_layout_from_fields(field_layouts.iter());
+                let layout = nia_layout::union_layout_from_fields(field_layouts.iter())?;
                 let size = usize::try_from(layout.size).ok()?;
                 Some((ConstAbiType::Union { fields, size }, layout))
             }
