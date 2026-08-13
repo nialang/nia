@@ -489,7 +489,7 @@ impl FlowChecker<'_> {
                 for capture in captures {
                     self.check_expr_flow(&capture.value);
                 }
-                self.check_block(body);
+                self.check_expr_flow(body);
                 Flow {
                     falls_through: true,
                 }

@@ -1198,7 +1198,7 @@ fn main() () {
 }
 
 #[test]
-fn incremental_error_recovery_callable_signature_matches_clean_recomputation() {
+fn incremental_error_recovery_closure_body_matches_clean_recomputation() {
     let initial = r#"
 using std::error;
 
@@ -1217,15 +1217,15 @@ fn source() SourceError!i32 {
 }
 
 fn main() TargetError!i32 {
-    source().orElse(&[](cause: SourceError) TargetError!i32 {
+    source().orElse(&\cause: SourceError -> {
         _ = cause;
         !42
     })
 }
 "#;
     let edited = initial.replace(
-        "TargetError!i32 {\n        _ = cause;\n        !42",
-        "bool!i32 {\n        _ = cause;\n        !42",
+        "_ = cause;\n        !42",
+        "if true {\n            !42i64\n        } else {\n            true!\n        }",
     );
 
     let driver = test_driver();
@@ -1252,7 +1252,11 @@ fn main() TargetError!i32 {
         .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert_eq!(incremental_summaries, clean_summaries);
-    assert!(!incremental_summaries.is_empty());
+    assert!(
+        incremental_summaries
+            .iter()
+            .any(|summary| summary.contains("type mismatch in error-union success value"))
+    );
 }
 
 #[test]

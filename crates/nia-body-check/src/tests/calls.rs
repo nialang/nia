@@ -6,7 +6,7 @@ fn checks_direct_calls_to_concrete_closure_values() {
     let checked = pipeline(
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     callback(2)
 }
 "#,
@@ -35,7 +35,7 @@ fn apply(callback: &Fn(i32) i32, value: i32) i32 {
 }
 
 fn main() i32 {
-    apply(&[](value) { value + 1 }, 2)
+    apply(&\value -> { value + 1 }, 2)
 }
 "#,
     );
@@ -47,7 +47,7 @@ fn infers_local_closure_signature_from_a_later_call() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let identity = [](value) { value };
+    let identity = \value -> { value };
     identity(3)
 }
 "#,
@@ -64,8 +64,8 @@ fn apply(callback: &Fn(i32) i32, value: i32) i32 {
 }
 
 fn main() i32 {
-    apply(&[](left) {
-        apply(&[](right) { right + 1 }, left)
+    apply(&\left -> {
+        apply(&\right -> { right + 1 }, left)
     }, 2)
 }
 "#,
@@ -78,7 +78,7 @@ fn reports_unresolved_closure_parameter_without_constraints() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let identity = [](value) { value };
+    let identity = \value -> { value };
     0
 }
 "#,
@@ -103,7 +103,7 @@ fn apply(callback: &Fn(i32) i32, value: i32) i32 {
 }
 
 fn main() i32 {
-    apply(&[](value: i64) { value }, 2)
+    apply(&\value: i64 -> { value }, 2)
 }
 "#,
     );
@@ -119,35 +119,11 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_explicit_closure_return_that_conflicts_with_callable_context() {
-    let checked = pipeline(
-        r#"
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
-    callback(value)
-}
-
-fn main() i32 {
-    apply(&[](value) i64 { value }, 2)
-}
-"#,
-    );
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .summary
-                .contains("type mismatch in closure return type")
-        }),
-        "{:?}",
-        checked.diagnostics
-    );
-}
-
-#[test]
 fn keeps_inferred_closures_monotype_when_called_with_conflicting_types() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let identity = [](value) { value };
+    let identity = \value -> { value };
     _ = identity(1);
     _ = identity(true);
     0
@@ -169,7 +145,7 @@ fn apply[T](callback: &Fn(T) T, value: T) T {
 }
 
 fn main() i32 {
-    apply(&[](value) { value }, 1)
+    apply(&\value -> { value }, 1)
 }
 "#,
     );
@@ -194,7 +170,43 @@ fn source() i32!i32 {
 }
 
 fn main() bool!i32 {
-    source().mapError(&[](error: i32) bool { error == 1 })
+    source().mapError(&\error: i32 -> { error == 1 })
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_callable_argument_infers_nominal_return_without_result_context() {
+    let checked = pipeline(
+        r#"
+enum TargetError: i32 {
+    Mapped = 1,
+    _,
+}
+
+extend[Value, Source, Target] Source!Value {
+    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+        switch self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fn source() i32!i32 {
+    1!
+}
+
+fn main() i32 {
+    let mapped = source().mapError(&\error: i32 -> {
+        _ = error;
+        TargetError::Mapped
+    });
+    _ = mapped;
+    0
 }
 "#,
     );
@@ -220,7 +232,7 @@ fn source() i32!i32 {
 }
 
 fn main() i32 {
-    let recovered = source().orElse(&[](error: i32) bool!i32 {
+    let recovered = source().orElse(&\error: i32 -> {
         if error == 1 {
             !42
         } else {
@@ -256,19 +268,21 @@ fn source() i32!i32 {
 }
 
 fn main() bool!i32 {
-    source().orElse(&[](error: i32) bool!i64 {
-        _ = error;
-        !42
+    source().orElse(&\error: i32 -> {
+        if error == 1 {
+            !42i64
+        } else {
+            true!
+        }
     })
 }
 "#,
     );
 
     assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("expected &Fn(i32) bool!i32")),
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("type mismatch in error-union success value")),
         "{:?}",
         checked.diagnostics
     );
@@ -279,9 +293,9 @@ fn constructs_and_calls_readonly_and_mutable_callable_views() {
     let checked = pipeline(
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
-    let mut mutable_callback = [base](value: i32) i32 { base + value };
+    let mut mutable_callback = \[base] value: i32 -> { base + value };
     let mutable_view: &mut Fn(i32) i32 = &mut mutable_callback;
     view(1) + mutable_view(2)
 }
@@ -324,7 +338,7 @@ fn constructs_readonly_callable_view_from_mutable_closure_state() {
     let checked = pipeline(
         r#"
 fn main(base: i32) i32 {
-    let mut callback = [base](value: i32) i32 { base + value };
+    let mut callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &mut callback;
     view(1)
 }
@@ -352,7 +366,7 @@ fn rejects_callable_views_with_mismatched_signatures() {
         let checked = pipeline(&format!(
             r#"
 fn main(base: i32) i32 {{
-    let callback = [base](value: i32) i32 {{ base + value }};
+    let callback = \[base] value: i32 -> {{ base + value }};
     let view: {target} = &callback;
     0
 }}
@@ -371,7 +385,7 @@ fn rejects_readonly_closure_state_for_mutable_callable_view() {
     let checked = pipeline(
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &mut Fn(i32) i32 = &callback;
     0
 }
@@ -389,7 +403,7 @@ fn callable_view_construction_requires_explicit_closure_address_syntax() {
     let checked = pipeline(
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let state = &callback;
     let view: &Fn(i32) i32 = state;
     0
@@ -408,7 +422,7 @@ fn decays_no_capture_closure_to_thin_function_pointer() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let callback = [](value: i32) i32 { value + 1 };
+    let callback = \value: i32 -> { value + 1 };
     let pointer: &fn(i32) i32 = &callback;
     pointer(2)
 }
@@ -442,7 +456,7 @@ fn rejects_capturing_closure_to_thin_function_pointer_with_dedicated_diagnostic(
     let checked = pipeline(
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let pointer: &fn(i32) i32 = &callback;
     0
 }
@@ -460,7 +474,7 @@ fn rejects_no_capture_closure_function_pointer_signature_mismatch() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let callback = [](value: i32) i32 { value + 1 };
+    let callback = \value: i32 -> { value + 1 };
     let pointer: &fn(i64) i32 = &callback;
     0
 }
@@ -478,14 +492,14 @@ fn thin_function_pointer_decay_requires_direct_readonly_closure_address() {
     for source in [
         r#"
 fn main() i32 {
-    let mut callback = [](value: i32) i32 { value + 1 };
+    let mut callback = \value: i32 -> { value + 1 };
     let pointer: &fn(i32) i32 = &mut callback;
     0
 }
 "#,
         r#"
 fn main() i32 {
-    let callback = [](value: i32) i32 { value + 1 };
+    let callback = \value: i32 -> { value + 1 };
     let state = &callback;
     let pointer: &fn(i32) i32 = state;
     0

@@ -10,11 +10,11 @@ struct Pair {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let base = helper::marker();
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
-    let increment = [](value: i32) i32 { value + 1 };
+    let increment = \value: i32 -> { value + 1 };
     let incrementPointer: &fn(i32) i32 = &increment;
-    let swap = [](value: Pair) Pair {
+    let swap = \value: Pair -> {
         Pair { left: value.right, right: value.left }
     };
     let swapPointer: &fn(Pair) Pair = &swap;
@@ -26,7 +26,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer owned.deinit(&mut allocator).exit().?;
     let ownedResult = owned.callback()(8);
 
-    let mut noCapture = allocator.allocValue([](value: i32) i32 { value + 2 }).exit().?;
+    let mut noCapture = allocator.allocValue(\value: i32 -> { value + 2 }).exit().?;
     let mut noCaptureState = noCapture.valueMut();
     let noCaptureView: &mut Fn(i32) i32 = &mut noCaptureState.*;
     let mut noCaptureOwner = noCapture.intoCallable(noCaptureView);
@@ -35,7 +35,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut emptyStorage: [0]u8 = [];
     let mut emptyAllocator = mem::FixedBufferAllocator::init(&mut emptyStorage[..]);
-    let failedAsExpected = switch emptyAllocator.allocValue([base](value: i32) i32 { base + value }) {
+    let failedAsExpected = switch emptyAllocator.allocValue(\[base] value: i32 -> { base + value }) {
         mem::Error::OutOfMemory! => true,
         !mut unexpected => {
             unexpected.deinit(&mut emptyAllocator).exit().?;

@@ -74,7 +74,7 @@ mod tests {
         let source = r#"
 const result: usize = {
     static cached: usize = (1, 2).0;
-    let callback = [cached](value: usize) usize { (cached, value).1 };
+    let callback = \[cached] value: usize -> { (cached, value).1 };
     (callback(3), cached).0
 };
 "#;

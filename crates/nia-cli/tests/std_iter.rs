@@ -21,16 +21,16 @@ static mut total: i32 = 0;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
-    (1..5).iter().forEach(&[offset](value: i32) () {
+    (1..5).iter().forEach(&\[offset] value: i32 -> {
         invocationCount += 1;
         total += value + offset;
     });
-    (1..3).iter().forEach(&[](value: i32) () {
+    (1..3).iter().forEach(&\value: i32 -> {
         invocationCount += 1;
         total += value;
     });
     let mut values: [3]i32 = [1, 2, 3];
-    (&mut values).iterMut().forEach(&[](value: &mut i32) () {
+    (&mut values).iterMut().forEach(&\value: &mut i32 -> {
         value.* += 1;
     });
     if invocationCount != 6 or total != 17
@@ -75,13 +75,13 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
-    let total = (1..5).iter().fold(0, &[offset](acc: i32, value: i32) i32 {
+    let total = (1..5).iter().fold(0, &\[offset] acc: i32, value: i32 -> {
         acc + value + offset
     });
-    let summary = (1..5).iter().fold((0, 0), &[](state: (i32, i32), value: i32) (i32, i32) {
+    let summary = (1..5).iter().fold((0, 0), &\state: (i32, i32), value: i32 -> {
         (state.0 + value, state.1 + 1)
     });
-    let prefix = (1..6).iter().take(3).fold(0, &[](acc: i32, value: i32) i32 {
+    let prefix = (1..6).iter().take(3).fold(0, &\acc: i32, value: i32 -> {
         acc + value
     });
     if total != 14 or summary.0 != 10 or summary.1 != 4 or prefix != 6 {
@@ -142,13 +142,14 @@ static mut invocationCount: i32 = 0;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
-    let summary = (1..5).iter().tryFold(
+    let folded: FoldError!(i32, i32) = (1..5).iter().tryFold(
         (0, 0),
-        &[offset](state: (i32, i32), value: i32) FoldError!(i32, i32) {
+        &\[offset] state: (i32, i32), value: i32 -> {
             invocationCount += 1;
             !(state.0 + value + offset, state.1 + 1)
         },
-    ).?;
+    );
+    let summary = folded.?;
     if summary.0 != 14 or summary.1 != 4 or invocationCount != 4 {
         return process::exit(1)!;
     }
@@ -156,7 +157,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     invocationCount = 0;
     let failed = (1..6).iter().tryFold(
         0,
-        &[](sum: i32, value: i32) FoldError!i32 {
+        &\sum: i32, value: i32 -> {
             invocationCount += 1;
             if value == 3 {
                 FoldError::Rejected!
@@ -218,7 +219,7 @@ static mut predicateCount: i32 = 0;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let target = 4;
-    let index = (1..6).iter().position(&[target](value: i32) bool {
+    let index = (1..6).iter().position(&\[target] value: i32 -> {
         predicateCount += 1;
         value == target
     });
@@ -228,7 +229,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
         null => return process::exit(2)!,
     }
-    let missing = (1..4).iter().position(&[](value: i32) bool {
+    let missing = (1..4).iter().position(&\value: i32 -> {
         predicateCount += 1;
         value == 9
     });

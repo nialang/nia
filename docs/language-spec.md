@@ -932,7 +932,7 @@ implementation is rejected in const code rather than executed as a fallback.
 Error unions also provide the explicit `mapError` extension:
 
 ```nia
-let mapped = operation().mapError(&[context](cause: SourceError) TargetError {
+let mapped = operation().mapError(&\[context] cause: SourceError -> {
     _ = context;
     _ = cause;
     TargetError::Unknown
@@ -952,7 +952,7 @@ evaluation.
 Fallible recovery uses `orElse`:
 
 ```nia
-let recovered = operation().orElse(&[fallback](cause: SourceError) TargetError!Value {
+let recovered = operation().orElse(&\[fallback] cause: SourceError -> {
     if canRecover(cause) {
         !fallback
     } else {
@@ -1171,15 +1171,36 @@ A callable view is constructed explicitly by taking the address of a concrete
 closure while a callable-view type supplies the expected signature:
 
 ```nia
-let offset = [base](value: i32) i32 { base + value };
+let offset = \[base] value: i32 -> { base + value };
 let view: &Fn(i32) i32 = &offset;
 
-let mut counter = [base](value: i32) i32 { base + value };
+let mut counter = \[base] value: i32 -> { base + value };
 let mutableView: &mut Fn(i32) i32 = &mut counter;
 
 view(1);
 mutableView(2);
 ```
+
+A closure starts with `\`, optionally followed by an explicit capture list,
+then a comma-separated parameter list and `->` followed by exactly one
+expression:
+
+```nia
+\value -> value + 1
+\[offset] value -> value + offset
+\[owned, &shared, &mut writable] left, right -> {
+    writable.* = left + right;
+    owned + shared.* + writable.*
+}
+```
+
+The capture forms are `[name]`, `[&name]`, and `[&mut name]`, for value,
+readonly-pointer, and mutable-pointer capture respectively. Pointer captures
+remain explicit pointers inside the body and therefore use `.*` when
+dereferenced. Capture initializers such as `[name = expression]` are not part
+of the language; bind the expression to a local and capture that name. An empty
+capture list is omitted. The expression after `->` may be a block expression,
+so closures need no separate statement-body grammar.
 
 The parameter and return types must match the closure signature structurally.
 Taking a mutable address may construct either a writable or readonly view;
@@ -1199,16 +1220,17 @@ fn apply(callback: &Fn(i32) i32, value: i32) i32 {
 }
 
 fn main() i32 {
-    let identity = [](value) { value };
+    let identity = \value -> { value };
     apply(&identity, 1)
 }
 ```
 
 The body checker collects constraints through locals, calls, nested closures,
 tuples, pointers, conditionals, assignments, and ordinary callable shapes
-before checking the body with the resolved signature. Explicit parameter and
-return annotations remain valid and act as constraints; conflicting
-annotations are diagnosed. A closure is monomorphic: using one closure value
+before checking the body with the resolved signature. Explicit parameter type
+annotations remain valid and act as constraints; the return type is inferred
+from the expression and callable context. Conflicting constraints are
+diagnosed. A closure is monomorphic: using one closure value
 with incompatible argument types is a type error, rather than implicit
 let-polymorphism. If no callable context or body constraint determines a
 parameter type, the compiler reports that parameter as unresolved and an
@@ -1216,13 +1238,19 @@ annotation or a callable context is required. Inference is function-local and
 temporary; unresolved inference identities never enter semantic facts, cached
 queries, ABI/layout data, or persisted types.
 
+Inference cannot invent a type that appears in neither the closure body nor
+its callable context. For example, a callback that constructs only the success
+side of `Error!Value` leaves `Error` unconstrained; annotate the receiving
+binding or otherwise provide an expected callable/result type. This context is
+the replacement for a separate closure return annotation.
+
 Callable views are distinct from `&fn(...)`. The latter is the existing thin,
 one-word function pointer and carries no state. A no-capture closure may be
 converted directly to that thin pointer when a matching `&fn(...)` expected
 type guides a readonly address expression:
 
 ```nia
-let increment = [](value: i32) i32 { value + 1 };
+let increment = \value: i32 -> { value + 1 };
 let pointer: &fn(i32) i32 = &increment;
 
 pointer(2);
@@ -1264,7 +1292,7 @@ obtain `valueMut()`, create the explicit callable view, and move that view into
 callable-view type such as `&mut Fn(i32) i32`:
 
 ```nia
-let mut allocated = allocator.allocValue([base](value: i32) i32 { base + value }).?;
+let mut allocated = allocator.allocValue(\[base] value: i32 -> { base + value }).?;
 let mut state = allocated.valueMut();
 let callback: &mut Fn(i32) i32 = &mut state.*;
 let mut owner = allocated.intoCallable(callback);

@@ -593,10 +593,7 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             out.push(')');
         }
         ExprKind::Closure {
-            captures,
-            params,
-            return_type,
-            ..
+            captures, params, ..
         } => {
             out.push_str("closure(");
             for (index, capture) in captures.iter().enumerate() {
@@ -617,12 +614,6 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
                 } else {
                     out.push_str("receiver");
                 }
-            }
-            out.push('|');
-            if let Some(return_type) = return_type {
-                write_type_ref_identity(out, return_type);
-            } else {
-                out.push_str("unit");
             }
             out.push(')');
         }

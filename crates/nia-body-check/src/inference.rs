@@ -19,8 +19,33 @@ type InferId = usize;
 
 #[derive(Clone, Debug)]
 pub(crate) struct InferredClosureSignature {
-    pub(crate) params: Vec<Option<InternedTyId>>,
-    pub(crate) return_type: Option<InternedTyId>,
+    pub(crate) params: Vec<InferredType>,
+    pub(crate) return_type: InferredType,
+}
+
+/// A function-local type that may still contain unresolved leaves.
+///
+/// Partial types are consumed only while checking the owning function. They
+/// let generic-call inference use a known component such as the error side of
+/// `Error!_` without publishing transient inference variables to semantic IR.
+#[derive(Clone, Debug)]
+pub(crate) enum InferredType {
+    Unknown,
+    Known(InternedTyId),
+    Tuple(Vec<InferredType>),
+    Pointer {
+        is_readonly: bool,
+        elem: Box<InferredType>,
+    },
+    Optional(Box<InferredType>),
+    ErrorUnion {
+        error: Box<InferredType>,
+        value: Box<InferredType>,
+    },
+    Callable {
+        params: Vec<InferredType>,
+        return_type: Box<InferredType>,
+    },
 }
 
 impl BodyChecker<'_> {
@@ -38,6 +63,15 @@ impl BodyChecker<'_> {
         };
         self.inferred_closures.get(&closure.node_key)
     }
+
+    fn inference_enum_variant_type(&mut self, expr: &Expr) -> Option<InternedTyId> {
+        let def_id = self.variant_enum(expr)?;
+        Some(self.interner.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        }))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +81,16 @@ enum InferShape {
     Pointer {
         is_readonly: bool,
         elem: InferId,
+    },
+    // These wrappers remain structural while constraints are collected. A
+    // closure arm may determine only one component (for example `!value`),
+    // with the missing component supplied later by another arm or context.
+    Optional {
+        elem: InferId,
+    },
+    ErrorUnion {
+        error: InferId,
+        value: InferId,
     },
     Callable {
         params: Vec<InferId>,
@@ -104,9 +148,9 @@ impl BodyChecker<'_> {
             let params = closure
                 .params
                 .into_iter()
-                .map(|param| inference.resolve(self, param))
+                .map(|param| inference.inferred_type(self, param))
                 .collect();
-            let return_type = inference.resolve(self, closure.return_type);
+            let return_type = inference.inferred_type(self, closure.return_type);
             self.inferred_closures.insert(
                 closure.key,
                 InferredClosureSignature {
@@ -167,6 +211,13 @@ impl FunctionInference {
             Some(TyKind::Pointer { is_readonly, elem }) => Some(InferShape::Pointer {
                 is_readonly,
                 elem: self.known(elem),
+            }),
+            Some(TyKind::Optional { elem }) => Some(InferShape::Optional {
+                elem: self.known(elem),
+            }),
+            Some(TyKind::ErrorUnion { error, value }) => Some(InferShape::ErrorUnion {
+                error: self.known(error),
+                value: self.known(value),
             }),
             Some(TyKind::FunctionPointer {
                 params,
@@ -233,6 +284,25 @@ impl FunctionInference {
                 self.unify(checker, left, right);
             }
             (
+                Some(InferShape::Optional { elem: left }),
+                Some(InferShape::Optional { elem: right }),
+            ) => {
+                self.unify(checker, left, right);
+            }
+            (
+                Some(InferShape::ErrorUnion {
+                    error: left_error,
+                    value: left_value,
+                }),
+                Some(InferShape::ErrorUnion {
+                    error: right_error,
+                    value: right_value,
+                }),
+            ) => {
+                self.unify(checker, left_error, right_error);
+                self.unify(checker, left_value, right_value);
+            }
+            (
                 Some(InferShape::Callable {
                     params: left_params,
                     return_type: left_return,
@@ -274,6 +344,8 @@ impl FunctionInference {
                     is_readonly: right, ..
                 }),
             ) => left == right,
+            (Some(InferShape::Optional { .. }), Some(InferShape::Optional { .. })) => true,
+            (Some(InferShape::ErrorUnion { .. }), Some(InferShape::ErrorUnion { .. })) => true,
             (
                 Some(InferShape::Callable { params: left, .. }),
                 Some(InferShape::Callable { params: right, .. }),
@@ -301,10 +373,55 @@ impl FunctionInference {
                         .intern(TyKind::Pointer { is_readonly, elem }),
                 )
             }
+            InferShape::Optional { elem } => {
+                let elem = self.resolve(checker, elem)?;
+                Some(checker.interner.intern(TyKind::Optional { elem }))
+            }
+            InferShape::ErrorUnion { error, value } => {
+                let error = self.resolve(checker, error)?;
+                let value = self.resolve(checker, value)?;
+                Some(checker.interner.intern(TyKind::ErrorUnion { error, value }))
+            }
             InferShape::Callable {
                 params: _,
                 return_type: _,
             } => None,
+        }
+    }
+
+    fn inferred_type(&mut self, checker: &BodyChecker<'_>, id: InferId) -> InferredType {
+        let Some(shape) = self.expanded_shape(checker, id) else {
+            return InferredType::Unknown;
+        };
+        match shape {
+            InferShape::Known(ty) => InferredType::Known(ty),
+            InferShape::Tuple(elems) => InferredType::Tuple(
+                elems
+                    .into_iter()
+                    .map(|elem| self.inferred_type(checker, elem))
+                    .collect(),
+            ),
+            InferShape::Pointer { is_readonly, elem } => InferredType::Pointer {
+                is_readonly,
+                elem: Box::new(self.inferred_type(checker, elem)),
+            },
+            InferShape::Optional { elem } => {
+                InferredType::Optional(Box::new(self.inferred_type(checker, elem)))
+            }
+            InferShape::ErrorUnion { error, value } => InferredType::ErrorUnion {
+                error: Box::new(self.inferred_type(checker, error)),
+                value: Box::new(self.inferred_type(checker, value)),
+            },
+            InferShape::Callable {
+                params,
+                return_type,
+            } => InferredType::Callable {
+                params: params
+                    .into_iter()
+                    .map(|param| self.inferred_type(checker, param))
+                    .collect(),
+                return_type: Box::new(self.inferred_type(checker, return_type)),
+            },
         }
     }
 
@@ -420,7 +537,7 @@ impl FunctionInference {
                     self.local_term(local);
                 }
             }
-            self.collect_block_locals(checker, body);
+            self.collect_expr_locals(checker, body);
             return;
         }
         nia_ast_walk::walk_expr(
@@ -533,17 +650,22 @@ impl FunctionInference {
                     .collect();
                 self.with_shape(InferShape::Tuple(elems))
             }
-            ExprKind::Ident(_) | ExprKind::SelfValue => match checker.local_use(expr) {
-                Some(nia_local_resolve::LocalUse::Local(local)) => self.local_term(local),
-                _ => match checker.type_lowering.ty_for_key(&expr.node_key) {
-                    Some(ty) => self.known(ty),
-                    None => self.fresh(),
-                },
-            },
+            ExprKind::Ident(_) | ExprKind::SelfValue => {
+                if let Some(ty) = checker.inference_enum_variant_type(expr) {
+                    self.known(ty)
+                } else {
+                    match checker.local_use(expr) {
+                        Some(nia_local_resolve::LocalUse::Local(local)) => self.local_term(local),
+                        _ => match checker.type_lowering.ty_for_key(&expr.node_key) {
+                            Some(ty) => self.known(ty),
+                            None => self.fresh(),
+                        },
+                    }
+                }
+            }
             ExprKind::Closure {
                 captures,
                 params,
-                return_type,
                 body,
             } => {
                 for capture in captures {
@@ -570,13 +692,7 @@ impl FunctionInference {
                         term
                     })
                     .collect::<Vec<_>>();
-                let return_term = match return_type.as_ref() {
-                    Some(ty) => {
-                        let ty = checker.ty_for_type(ty);
-                        self.known(ty)
-                    }
-                    None => self.fresh(),
-                };
+                let return_term = self.fresh();
                 let callable = self.with_shape(InferShape::Callable {
                     params: param_terms.clone(),
                     return_type: return_term,
@@ -585,7 +701,7 @@ impl FunctionInference {
                     self.unify(checker, callable, expected);
                 }
                 self.return_stack.push(return_term);
-                let body_term = self.constrain_block(checker, body, Some(return_term));
+                let body_term = self.constrain_expr(checker, body, Some(return_term));
                 self.return_stack.pop();
                 self.unify(checker, return_term, body_term);
                 self.closures.push(ClosureTerms {
@@ -625,20 +741,62 @@ impl FunctionInference {
                 }
                 UnaryOp::Neg | UnaryOp::BitNot => self.constrain_expr(checker, inner, expected),
             },
-            ExprKind::Call { callee, args } => {
-                let params = (0..args.len()).map(|_| self.fresh()).collect::<Vec<_>>();
-                let result = expected.unwrap_or_else(|| self.fresh());
-                let callable = self.with_shape(InferShape::Callable {
-                    params: params.clone(),
-                    return_type: result,
-                });
-                let callee = self.constrain_expr(checker, callee, Some(callable));
-                self.unify(checker, callable, callee);
-                for (arg, param) in args.iter().zip(params) {
-                    let actual = self.constrain_expr(checker, arg, Some(param));
-                    self.unify(checker, param, actual);
+            ExprKind::OptionalSome { expr: inner } => {
+                let elem = self.fresh();
+                let optional = self.with_shape(InferShape::Optional { elem });
+                if let Some(expected) = expected {
+                    self.unify(checker, optional, expected);
                 }
-                result
+                let inner = self.constrain_expr(checker, inner, Some(elem));
+                self.unify(checker, elem, inner);
+                optional
+            }
+            ExprKind::ErrorOk { expr: inner } => {
+                let error = self.fresh();
+                let value = self.fresh();
+                let union = self.with_shape(InferShape::ErrorUnion { error, value });
+                if let Some(expected) = expected {
+                    self.unify(checker, union, expected);
+                }
+                let inner = self.constrain_expr(checker, inner, Some(value));
+                self.unify(checker, value, inner);
+                union
+            }
+            ExprKind::ErrorErr { expr: inner } => {
+                let error = self.fresh();
+                let value = self.fresh();
+                let union = self.with_shape(InferShape::ErrorUnion { error, value });
+                if let Some(expected) = expected {
+                    self.unify(checker, union, expected);
+                }
+                let inner = self.constrain_expr(checker, inner, Some(error));
+                self.unify(checker, error, inner);
+                union
+            }
+            ExprKind::Call { callee, args } => {
+                // Value resolution already distinguishes enum constructors
+                // from callable values. Their result type is known before
+                // body checking, while payloads may still contain constraints.
+                if let Some(ty) = checker.inference_enum_variant_type(callee) {
+                    for arg in args {
+                        self.constrain_expr(checker, arg, None);
+                    }
+                    self.known(ty)
+                } else {
+                    let params = (0..args.len()).map(|_| self.fresh()).collect::<Vec<_>>();
+                    let result = expected.unwrap_or_else(|| self.fresh());
+                    let callable = self.with_shape(InferShape::Callable {
+                        params: params.clone(),
+                        return_type: result,
+                    });
+                    let callee = self.constrain_expr(checker, callee, Some(callable));
+                    self.unify(checker, callable, callee);
+                    for (arg, param) in args.iter().zip(params) {
+                        let actual = self.constrain_expr(checker, arg, Some(param));
+                        self.unify(checker, param, actual);
+                    }
+                    result
+                }
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
@@ -701,10 +859,16 @@ impl FunctionInference {
                 self.constrain_expr(checker, inner, None);
                 self.known(checker.ty_for_type(ty))
             }
-            _ => match checker.type_lowering.ty_for_key(&expr.node_key) {
-                Some(ty) => self.known(ty),
-                None => expected.unwrap_or_else(|| self.fresh()),
-            },
+            _ => {
+                if let Some(ty) = checker.inference_enum_variant_type(expr) {
+                    self.known(ty)
+                } else {
+                    match checker.type_lowering.ty_for_key(&expr.node_key) {
+                        Some(ty) => self.known(ty),
+                        None => expected.unwrap_or_else(|| self.fresh()),
+                    }
+                }
+            }
         };
         self.unify(checker, term, actual);
         if let Some(expected) = expected {

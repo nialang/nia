@@ -38,7 +38,7 @@ fn source(ok: bool) SourceError!(i32, i32) {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
-    let success = source(true).mapError(&[](cause: SourceError) TargetError {
+    let success = source(true).mapError(&\cause: SourceError -> {
         _ = cause;
         std::builtin::trap();
         TargetError::Wrapped
@@ -55,7 +55,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let failure = source(false).mapError(&[offset](cause: SourceError) TargetError {
+    let failure = source(false).mapError(&\[offset] cause: SourceError -> {
         if cause == SourceError::Missing and offset == 1 {
             TargetError::Wrapped
         } else {
@@ -129,7 +129,7 @@ fn source(ok: bool) SourceError!(i32, i32) {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let success = source(true).orElse(&[](cause: SourceError) TargetError!(i32, i32) {
+    let success = source(true).orElse(&\cause: SourceError -> {
         _ = cause;
         std::builtin::trap();
         TargetError::Unexpected!
@@ -145,7 +145,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let offset = 2;
-    let recovered = source(false).orElse(&[offset](cause: SourceError) TargetError!(i32, i32) {
+    let recovered = source(false).orElse(&\[offset] cause: SourceError -> {
         if cause == SourceError::Missing {
             !(40, offset)
         } else {
@@ -162,7 +162,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let replaced = source(false).orElse(&[](cause: SourceError) TargetError!(i32, i32) {
+    let replaced = source(false).orElse(&\cause: SourceError -> {
         if cause == SourceError::Missing {
             TargetError::Wrapped!
         } else {

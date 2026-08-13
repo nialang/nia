@@ -7,7 +7,7 @@ fn lowered_closure_entries_remain_owned_by_the_source_body_query() {
         "main.nia",
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
     callback(1) + view(2)
 }
@@ -147,13 +147,13 @@ fn main(base: i32) i32 {
 fn incremental_closure_entry_identity_matches_clean_recomputation() {
     let source_v1 = r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     callback(1)
 }
 "#;
     let source_v2 = r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value + 1 };
+    let callback = \[base] value: i32 -> { base + value + 1 };
     callback(1)
 }
 "#;
@@ -237,7 +237,7 @@ fn no_capture_function_pointer_retains_its_owned_closure_entry_identity() {
         "main.nia",
         r#"
 fn main() i32 {
-    let callback = [](value: i32) i32 { value + 1 };
+    let callback = \value: i32 -> { value + 1 };
     let pointer: &fn(i32) i32 = &callback;
     pointer(2)
 }
@@ -291,7 +291,7 @@ fn generic_function_instances_materialize_distinct_concrete_closure_entries() {
         "main.nia",
         r#"
 fn apply[T](value: T) T {
-    let callback = [value]() T { value };
+    let callback = \[value] -> { value };
     callback()
 }
 
@@ -367,7 +367,7 @@ fn closure_entry_bodies_participate_in_backend_reachability() {
 fn helper(value: i32) i32 { value + 1 }
 
 fn main() i32 {
-    let callback = [](value: i32) i32 { helper(value) };
+    let callback = \value: i32 -> { helper(value) };
     callback(1)
 }
 "#,

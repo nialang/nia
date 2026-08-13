@@ -732,6 +732,7 @@ impl Parser {
                 self.bump();
                 Some(self.make_expr(token.span, ExprKind::Underscore))
             }
+            TokenKind::Backslash => self.parse_closure_primary(),
             TokenKind::LBracket => self.parse_bracket_primary(),
             TokenKind::LParen => {
                 self.bump();
@@ -928,9 +929,6 @@ impl Parser {
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {
-        if let Some(closure) = self.parse_closure_primary() {
-            return Some(closure);
-        }
         let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
@@ -960,113 +958,96 @@ impl Parser {
     }
 
     fn parse_closure_primary(&mut self) -> Option<Expr> {
-        let checkpoint = self.tokens.checkpoint();
-        let errors_len = self.errors.len();
-        let result = self.parse_closure_primary_inner();
-        if result.is_none() {
-            self.tokens.rewind(checkpoint);
-            self.errors.truncate(errors_len);
-        }
-        result
-    }
-
-    fn parse_closure_primary_inner(&mut self) -> Option<Expr> {
-        let start = self.peek().span.start;
-        self.expect(TokenKind::LBracket, "expected `[` before closure captures")?;
-
-        let mut captures = Vec::new();
-        while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
-            let capture_start = self.peek().span.start;
-            let name_token = self.expect_name(TokenKind::Ident, "expected capture name")?;
-            let value = if self.eat(TokenKind::Eq).is_some() {
-                self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])?
-            } else {
-                let name_span = Span::new(capture_start, self.previous_end());
-                self.make_expr(name_span, ExprKind::Ident(name_token))
-            };
-            let capture_span = Span::new(capture_start, value.span.end);
-            let node_key = self.node_key(nia_node_id::SyntaxKind::Expr, capture_span);
-            captures.push(ClosureCapture {
-                name: name_token,
-                span: capture_span,
-                node_key,
-                value,
-            });
-            if self.eat(TokenKind::Comma).is_none() {
-                break;
+        let start = self
+            .expect(TokenKind::Backslash, "expected `\\` before closure")?
+            .start;
+        let captures = if let Some(open) = self.eat(TokenKind::LBracket) {
+            let captures = self.parse_closure_captures()?;
+            let close = self.expect(TokenKind::RBracket, "expected `]` after closure captures")?;
+            if captures.is_empty() {
+                self.error_at(
+                    Span::new(open.span.start, close.end),
+                    "empty closure capture list must be omitted",
+                );
             }
-        }
-        self.expect(TokenKind::RBracket, "expected `]` after closure captures")?;
-        if !self.at(TokenKind::LParen) {
-            return None;
-        }
-
-        self.expect(TokenKind::LParen, "expected `(` after closure captures")?;
-        let (params, is_variadic) = self.parse_closure_params();
-        self.expect(TokenKind::RParen, "expected `)` after closure parameters")?;
-        if is_variadic {
-            self.error_at(
-                Span::new(start, self.previous_end()),
-                "closures cannot use variadic parameters",
-            );
-        }
-        let return_type = if self.at(TokenKind::LBrace) {
-            None
+            captures
         } else {
-            Some(self.parse_type_until(&[TokenKind::LBrace])?)
+            Vec::new()
         };
-        let body = self.parse_block()?;
+        let params = self.parse_closure_params()?;
+        self.expect(
+            TokenKind::ThinArrow,
+            "expected `->` after closure parameters",
+        )?;
+        let body = self.parse_assignment_until(&[])?;
         Some(self.make_expr(
             Span::new(start, body.span.end),
             ExprKind::Closure {
                 captures,
                 params,
-                return_type,
-                body,
+                body: Box::new(body),
             },
         ))
     }
 
-    fn parse_closure_params(&mut self) -> (Vec<Param>, bool) {
-        let mut params = Vec::new();
-        let mut is_variadic = false;
-        while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-            if self.eat(TokenKind::Ellipsis).is_some() {
-                is_variadic = true;
-                break;
-            }
-            let start = self.peek().span.start;
-            let checkpoint = self.tokens.checkpoint();
-            let param = if self.at(TokenKind::Ident) {
-                let token = self.bump();
-                let name = self.token_name(&token);
-                if self.eat(TokenKind::Colon).is_some() {
-                    let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen]);
-                    name.zip(ty).map(|(name, ty)| {
-                        self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty))
-                    })
-                } else {
-                    name.map(|name| {
-                        self.make_param(
-                            Span::new(start, self.previous_end()),
-                            None,
-                            Some(name),
-                            None,
-                        )
-                    })
-                }
+    fn parse_closure_captures(&mut self) -> Option<Vec<ClosureCapture>> {
+        let mut captures = Vec::new();
+        while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+            let capture_start = self.peek().span.start;
+            let is_reference = self.eat(TokenKind::Amp).is_some();
+            let is_mutable = is_reference && self.eat(TokenKind::Mut).is_some();
+            let name = self.expect_name(TokenKind::Ident, "expected capture name")?;
+            let name_span = Span::new(capture_start, self.previous_end());
+            let value = self.make_expr(name_span, ExprKind::Ident(name));
+            // Capture modes reuse ordinary address expressions so ownership,
+            // mutability, and lowering continue through one semantic path.
+            let value = if is_reference {
+                self.make_expr(
+                    name_span,
+                    ExprKind::Unary {
+                        op: if is_mutable {
+                            UnaryOp::Ref
+                        } else {
+                            UnaryOp::RefReadOnly
+                        },
+                        expr: Box::new(value),
+                    },
+                )
             } else {
-                self.tokens.rewind(checkpoint);
-                self.parse_param()
+                value
             };
-            if let Some(param) = param {
-                params.push(param);
-            }
+            captures.push(ClosureCapture {
+                name,
+                value,
+                span: name_span,
+                node_key: self.node_key(nia_node_id::SyntaxKind::Expr, name_span),
+            });
             if self.eat(TokenKind::Comma).is_none() {
                 break;
             }
         }
-        (params, is_variadic)
+        Some(captures)
+    }
+
+    fn parse_closure_params(&mut self) -> Option<Vec<Param>> {
+        let mut params = Vec::new();
+        while !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
+            let start = self.peek().span.start;
+            let name = self.expect_name(TokenKind::Ident, "expected closure parameter name")?;
+            let ty = if self.eat(TokenKind::Colon).is_some() {
+                self.parse_type_until(&[TokenKind::Comma, TokenKind::ThinArrow])
+            } else {
+                None
+            };
+            let end = ty
+                .as_ref()
+                .map_or_else(|| self.previous_end(), |ty| ty.span.end);
+            params.push(self.make_param(Span::new(start, end), None, Some(name), ty));
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        Some(params)
     }
 
     fn parse_trait_target_after_open(&mut self) -> Option<(TypeRef, TypeRef)> {

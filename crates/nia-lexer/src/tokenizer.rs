@@ -108,6 +108,7 @@ impl<'a> Tokenizer<'a> {
             b'0'..=b'9' => self.number(start),
             b'"' => self.string(start, TokenKind::String),
             b'\\' if self.peek() == Some(b'\\') => self.multiline_string(start, TokenKind::String),
+            b'\\' => self.token(TokenKind::Backslash, start, self.pos),
             b'\'' => self.char_lit(start, false),
             b'(' => self.token(TokenKind::LParen, start, self.pos),
             b')' => self.token(TokenKind::RParen, start, self.pos),
@@ -142,7 +143,13 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             b'+' => self.maybe_eq(start, TokenKind::Plus, TokenKind::PlusEq),
-            b'-' => self.maybe_eq(start, TokenKind::Minus, TokenKind::MinusEq),
+            b'-' => {
+                if self.eat(b'>') {
+                    self.token(TokenKind::ThinArrow, start, self.pos)
+                } else {
+                    self.maybe_eq(start, TokenKind::Minus, TokenKind::MinusEq)
+                }
+            }
             b'*' => self.maybe_eq(start, TokenKind::Star, TokenKind::StarEq),
             b'/' => self.maybe_eq(start, TokenKind::Slash, TokenKind::SlashEq),
             b'%' => self.maybe_eq(start, TokenKind::Percent, TokenKind::PercentEq),
@@ -767,6 +774,24 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn tokenizes_lambda_delimiters_without_changing_multiline_strings() {
+        assert_eq!(
+            kinds(r"\[value] item -> item"),
+            vec![
+                TokenKind::Backslash,
+                TokenKind::LBracket,
+                TokenKind::Ident,
+                TokenKind::RBracket,
+                TokenKind::Ident,
+                TokenKind::ThinArrow,
+                TokenKind::Ident,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(kinds("\\\\line\n"), vec![TokenKind::String, TokenKind::Eof]);
     }
 
     #[test]

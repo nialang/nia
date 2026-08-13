@@ -89,6 +89,7 @@ pub enum TokenKind {
     ColonColon,
     Semicolon,
     At,
+    Backslash,
     Question,
     Underscore,
 
@@ -123,6 +124,7 @@ pub enum TokenKind {
     LtLtEq,
     GtGtEq,
     FatArrow,
+    ThinArrow,
 
     Eof,
     Error(LexError),

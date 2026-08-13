@@ -116,6 +116,20 @@ impl<'a> BodyChecker<'a> {
         self.lower_body_with_expected_tail(block, None)
     }
 
+    fn lower_closure_body(&mut self, body: &Expr) -> TypedBody {
+        if let ExprKind::Block(block) = &body.kind {
+            return self.lower_body(block);
+        }
+        let tail = self.lower_expr(body);
+        TypedBody {
+            span: body.span,
+            locals: self.lower_locals(body.span),
+            stmts: Vec::new(),
+            ty: tail.ty,
+            tail: Some(Box::new(tail)),
+        }
+    }
+
     fn lower_body_with_expected_tail(
         &mut self,
         block: &Block,
@@ -733,7 +747,7 @@ impl<'a> BodyChecker<'a> {
                     .collect::<Vec<_>>();
                 let previous_params =
                     std::mem::replace(&mut self.current_param_locals, params.clone());
-                let body = self.lower_body(body);
+                let body = self.lower_closure_body(body);
                 self.current_param_locals = previous_params;
                 TypedExprKind::Closure {
                     closure_id,

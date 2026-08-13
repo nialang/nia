@@ -678,15 +678,139 @@ impl<'a> BodyChecker<'a> {
         }) else {
             return false;
         };
-        for (pattern, actual) in params.into_iter().zip(signature.params) {
-            if let Some(actual) = actual {
-                self.infer_generics_from_type(pattern, actual, substitutions, span);
-            }
+        for (pattern, actual) in params.into_iter().zip(&signature.params) {
+            self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
         }
-        if let Some(actual) = signature.return_type {
-            self.infer_generics_from_type(return_type, actual, substitutions, span);
-        }
+        self.infer_generics_from_inferred_type(
+            return_type,
+            &signature.return_type,
+            substitutions,
+            span,
+        );
         true
+    }
+
+    pub(crate) fn materialize_inferred_type(
+        &mut self,
+        inferred: &crate::inference::InferredType,
+    ) -> Option<InternedTyId> {
+        use crate::inference::InferredType;
+
+        match inferred {
+            InferredType::Unknown => None,
+            InferredType::Known(ty) => Some(*ty),
+            InferredType::Tuple(elems) => {
+                let elems = elems
+                    .iter()
+                    .map(|elem| self.materialize_inferred_type(elem))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(self.interner.intern(TyKind::Tuple(elems)))
+            }
+            InferredType::Pointer { is_readonly, elem } => {
+                let elem = self.materialize_inferred_type(elem)?;
+                Some(self.interner.intern(TyKind::Pointer {
+                    is_readonly: *is_readonly,
+                    elem,
+                }))
+            }
+            InferredType::Optional(elem) => {
+                let elem = self.materialize_inferred_type(elem)?;
+                Some(self.interner.intern(TyKind::Optional { elem }))
+            }
+            InferredType::ErrorUnion { error, value } => {
+                let error = self.materialize_inferred_type(error)?;
+                let value = self.materialize_inferred_type(value)?;
+                Some(self.interner.intern(TyKind::ErrorUnion { error, value }))
+            }
+            InferredType::Callable {
+                params: _,
+                return_type: _,
+            } => None,
+        }
+    }
+
+    fn infer_generics_from_inferred_type(
+        &mut self,
+        pattern: InternedTyId,
+        actual: &crate::inference::InferredType,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        span: Span,
+    ) {
+        use crate::inference::InferredType;
+
+        if let Some(actual) = self.materialize_inferred_type(actual) {
+            self.infer_generics_from_type(pattern, actual, substitutions, span);
+            return;
+        }
+        let pattern = self.normalization.normalize(pattern);
+        match (self.interner.get(pattern).cloned(), actual) {
+            (Some(TyKind::Tuple(patterns)), InferredType::Tuple(actuals)) => {
+                for (pattern, actual) in patterns.into_iter().zip(actuals) {
+                    self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
+                }
+            }
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                }),
+                InferredType::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            ) if pattern_readonly == *actual_readonly || pattern_readonly && !actual_readonly => {
+                self.infer_generics_from_inferred_type(
+                    pattern_elem,
+                    actual_elem,
+                    substitutions,
+                    span,
+                );
+            }
+            (Some(TyKind::Optional { elem }), InferredType::Optional(actual)) => {
+                self.infer_generics_from_inferred_type(elem, actual, substitutions, span);
+            }
+            (
+                Some(TyKind::ErrorUnion { error, value }),
+                InferredType::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                },
+            ) => {
+                self.infer_generics_from_inferred_type(error, actual_error, substitutions, span);
+                self.infer_generics_from_inferred_type(value, actual_value, substitutions, span);
+            }
+            (
+                Some(TyKind::Callable {
+                    params,
+                    return_type,
+                    ..
+                })
+                | Some(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+                | Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic: false,
+                }),
+                InferredType::Callable {
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) => {
+                for (pattern, actual) in params.into_iter().zip(actual_params) {
+                    self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
+                }
+                self.infer_generics_from_inferred_type(
+                    return_type,
+                    actual_return,
+                    substitutions,
+                    span,
+                );
+            }
+            _ => {}
+        }
     }
 
     fn infer_generic_function_call_substitutions_from_where_predicates(

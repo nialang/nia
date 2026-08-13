@@ -330,7 +330,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         ExprKind::Closure {
             captures,
             params,
-            return_type,
             body,
         } => {
             for capture in captures {
@@ -341,10 +340,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                     visitor.visit_type(ty);
                 }
             }
-            if let Some(return_type) = return_type {
-                visitor.visit_type(return_type);
-            }
-            visitor.visit_block(body);
+            visitor.visit_expr(body);
         }
         ExprKind::ArrayLiteral { elems } => match elems {
             ArrayElements::List(elems) => {

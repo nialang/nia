@@ -126,7 +126,8 @@ static mut offset: i32 = 1;
 fn helper(value: i32) i32 { value }
 
 fn main() i32 {
-    let callback = [base = offset](value: i32) i32 {
+    let base = offset;
+    let callback = \[base] value: i32 -> {
         helper(base + offset + value)
     };
     callback(1)
