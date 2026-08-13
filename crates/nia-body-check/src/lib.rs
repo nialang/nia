@@ -15,6 +15,7 @@ mod expr;
 mod extension_lookup;
 mod filter;
 mod helpers;
+mod inference;
 mod inputs;
 mod literals;
 mod orchestration;
@@ -179,6 +180,7 @@ struct BodyChecker<'a> {
     node_pattern_values: HashMap<VersionedNodeKey, i128>,
     node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
+    inferred_closures: HashMap<VersionedNodeKey, inference::InferredClosureSignature>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,

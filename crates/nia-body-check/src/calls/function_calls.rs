@@ -615,11 +615,18 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
                 continue;
             };
+            let inferred_from_closure =
+                self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span);
             let substituted_param =
                 self.substitute_generics_and_consts(param, substitutions, const_substitutions);
             let expected = self.generic_call_expected(substituted_param);
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
+            } else if inferred_from_closure {
+                // A later argument or the closure's known result may still
+                // determine the generic callable signature. The instantiated
+                // argument pass performs the one authoritative body check.
+                continue;
             } else if matches!(
                 arg.kind,
                 ExprKind::ArrayLiteral { .. } | ExprKind::TypedArrayLiteral { .. }
@@ -636,6 +643,50 @@ impl<'a> BodyChecker<'a> {
                 substitutions,
             );
         }
+    }
+
+    pub(crate) fn infer_generics_from_closure_signature(
+        &mut self,
+        pattern: InternedTyId,
+        expr: &Expr,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        span: Span,
+    ) -> bool {
+        let Some(signature) = self.inferred_closure_signature(expr).cloned() else {
+            return false;
+        };
+        let pattern = self.normalization.normalize(pattern);
+        let Some((params, return_type)) = (match self.interner.get(pattern).cloned() {
+            Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            })
+            | Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: false,
+            }) => Some((params, return_type)),
+            Some(TyKind::Pointer { elem, .. }) => {
+                return self.infer_generics_from_closure_signature(elem, expr, substitutions, span);
+            }
+            _ => None,
+        }) else {
+            return false;
+        };
+        for (pattern, actual) in params.into_iter().zip(signature.params) {
+            if let Some(actual) = actual {
+                self.infer_generics_from_type(pattern, actual, substitutions, span);
+            }
+        }
+        if let Some(actual) = signature.return_type {
+            self.infer_generics_from_type(return_type, actual, substitutions, span);
+        }
+        true
     }
 
     fn infer_generic_function_call_substitutions_from_where_predicates(

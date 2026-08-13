@@ -152,6 +152,32 @@ fn make(base: i32) () {
 }
 
 #[test]
+fn parses_closure_parameters_without_type_annotations() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() () {
+    let callback = [](left, right) { left + right };
+    ()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure { params, .. } = &binding.value.as_ref().expect("closure").kind else {
+        panic!("expected closure");
+    };
+    assert_eq!(params.len(), 2);
+    assert!(params.iter().all(|param| param.ty.is_none()));
+}
+
+#[test]
 fn rejects_variadic_closures() {
     let (_module, errors) = parse_module(
         r#"

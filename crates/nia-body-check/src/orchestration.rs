@@ -296,6 +296,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         node_pattern_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
+        inferred_closures: HashMap::new(),
         generic_instantiations: Vec::new(),
         function_facts: HashMap::new(),
         function_bodies: HashMap::new(),

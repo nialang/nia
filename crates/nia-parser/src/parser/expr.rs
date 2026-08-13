@@ -1002,7 +1002,7 @@ impl Parser {
         }
 
         self.expect(TokenKind::LParen, "expected `(` after closure captures")?;
-        let (params, is_variadic) = self.parse_params();
+        let (params, is_variadic) = self.parse_closure_params();
         self.expect(TokenKind::RParen, "expected `)` after closure parameters")?;
         if is_variadic {
             self.error_at(
@@ -1025,6 +1025,48 @@ impl Parser {
                 body,
             },
         ))
+    }
+
+    fn parse_closure_params(&mut self) -> (Vec<Param>, bool) {
+        let mut params = Vec::new();
+        let mut is_variadic = false;
+        while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+            if self.eat(TokenKind::Ellipsis).is_some() {
+                is_variadic = true;
+                break;
+            }
+            let start = self.peek().span.start;
+            let checkpoint = self.tokens.checkpoint();
+            let param = if self.at(TokenKind::Ident) {
+                let token = self.bump();
+                let name = self.token_name(&token);
+                if self.eat(TokenKind::Colon).is_some() {
+                    let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen]);
+                    name.zip(ty).map(|(name, ty)| {
+                        self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty))
+                    })
+                } else {
+                    name.map(|name| {
+                        self.make_param(
+                            Span::new(start, self.previous_end()),
+                            None,
+                            Some(name),
+                            None,
+                        )
+                    })
+                }
+            } else {
+                self.tokens.rewind(checkpoint);
+                self.parse_param()
+            };
+            if let Some(param) = param {
+                params.push(param);
+            }
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        (params, is_variadic)
     }
 
     fn parse_trait_target_after_open(&mut self) -> Option<(TypeRef, TypeRef)> {

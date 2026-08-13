@@ -27,6 +27,156 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn infers_closure_signature_from_callable_context() {
+    let checked = pipeline(
+        r#"
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    apply(&[](value) { value + 1 }, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_local_closure_signature_from_a_later_call() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    let identity = [](value) { value };
+    identity(3)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_nested_closure_signatures_across_later_calls() {
+    let checked = pipeline(
+        r#"
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    apply(&[](left) {
+        apply(&[](right) { right + 1 }, left)
+    }, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn reports_unresolved_closure_parameter_without_constraints() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    let identity = [](value) { value };
+    0
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer closure parameter")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn rejects_explicit_closure_parameter_that_conflicts_with_callable_context() {
+    let checked = pipeline(
+        r#"
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    apply(&[](value: i64) { value }, 2)
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("type mismatch in closure parameter")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn rejects_explicit_closure_return_that_conflicts_with_callable_context() {
+    let checked = pipeline(
+        r#"
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    apply(&[](value) i64 { value }, 2)
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("type mismatch in closure return type")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn keeps_inferred_closures_monotype_when_called_with_conflicting_types() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    let identity = [](value) { value };
+    _ = identity(1);
+    _ = identity(true);
+    0
+}
+"#,
+    );
+    assert!(
+        !checked.diagnostics.is_empty(),
+        "expected a monotype conflict"
+    );
+}
+
+#[test]
+fn closure_signature_contributes_to_generic_callable_inference() {
+    let checked = pipeline(
+        r#"
+fn apply[T](callback: &Fn(T) T, value: T) T {
+    callback(value)
+}
+
+fn main() i32 {
+    apply(&[](value) { value }, 1)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"

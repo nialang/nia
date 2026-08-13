@@ -90,7 +90,14 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 body,
-            } => self.check_closure_expr(expr, captures, params, return_type.as_ref(), body),
+            } => self.check_closure_expr(
+                expr,
+                captures,
+                params,
+                return_type.as_ref(),
+                body,
+                expected,
+            ),
             ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
                 Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
                 None if expected.is_some() => self.infer_array_literal_expr(expr),
@@ -111,7 +118,13 @@ impl<'a> BodyChecker<'a> {
                 self.check_qualified_struct_literal(expr, target, fields)
             }
             ExprKind::Unary { op, expr: inner } => {
-                let expected_ref_target = self.expected_ref_target_from_expected(*op, expected);
+                let expected_ref_target = self
+                    .expected_ref_target_from_expected(*op, expected)
+                    .or_else(|| {
+                        (matches!(inner.kind, ExprKind::Closure { .. })
+                            && expected.is_some_and(|ty| self.callable_signature(ty).is_some()))
+                        .then_some(expected?)
+                    });
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_ptr_ty) =
                         self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly), expected)
@@ -395,6 +408,7 @@ impl<'a> BodyChecker<'a> {
         params: &[nia_ast::Param],
         return_type: Option<&nia_ast::TypeRef>,
         body: &nia_ast::Block,
+        expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let Some(owner) = self.current_def_id else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -429,9 +443,24 @@ impl<'a> BodyChecker<'a> {
                 self.record_local_type(local_id, ty);
             }
         }
+        let inferred = self.inferred_closures.get(&expr.node_key).cloned();
+        let expected_signature = expected.and_then(|expected| self.callable_signature(expected));
+        if let Some((expected_params, _)) = &expected_signature
+            && expected_params.len() != params.len()
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                format!(
+                    "closure parameter count mismatch: expected {}, got {}",
+                    expected_params.len(),
+                    params.len()
+                ),
+            ));
+        }
         let mut param_types = Vec::with_capacity(params.len());
         let mut param_locals = Vec::with_capacity(params.len());
-        for param in params {
+        for (index, param) in params.iter().enumerate() {
             if param.receiver.is_some() {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
@@ -439,39 +468,66 @@ impl<'a> BodyChecker<'a> {
                     "closure parameters cannot be receivers",
                 ));
             }
-            let ty = param
-                .ty
+            let explicit = param.ty.as_ref().map(|ty| self.ty_for_type(ty));
+            let expected = expected_signature
                 .as_ref()
-                .map(|ty| self.ty_for_type(ty))
-                .unwrap_or_else(|| {
+                .and_then(|(params, _)| params.get(index).copied());
+            let inferred = inferred
+                .as_ref()
+                .and_then(|signature| signature.params.get(index).copied().flatten());
+            let ty = explicit.or(expected).or(inferred).unwrap_or_else(|| {
+                    let name = param
+                        .name
+                        .map(|name| format!(" `{}`", self.symbol_name(name)))
+                        .unwrap_or_default();
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         param.span,
-                        "closure parameters require explicit types",
+                        format!(
+                            "cannot infer closure parameter{name}; add a type annotation or provide a callable context"
+                        ),
                     ));
                     self.error()
                 });
+            if let Some(explicit) = explicit
+                && let Some(expected) = expected
+            {
+                self.expect_type(param.span, expected, explicit, "closure parameter");
+            }
             param_types.push(ty);
             if let Some(local_id) = self.local_def(&param.node_key) {
                 self.record_local_type(local_id, ty);
                 param_locals.push(local_id);
             }
         }
-        let return_type = return_type
-            .map(|ty| self.ty_for_type(ty))
-            .unwrap_or_else(|| self.unit());
+        let explicit_return = return_type.map(|ty| self.ty_for_type(ty));
+        let expected_return = expected_signature.map(|(_, return_type)| return_type);
+        let inferred_return = inferred.and_then(|signature| signature.return_type);
+        let declared_return = explicit_return.or(expected_return).or(inferred_return);
+        if let Some(explicit) = explicit_return
+            && let Some(expected) = expected_return
+        {
+            self.expect_type(expr.span, expected, explicit, "closure return type");
+        }
         let previous_return = self.current_return;
         let previous_params = std::mem::replace(&mut self.current_param_locals, param_locals);
-        self.current_return = return_type;
-        let expected_tail = (!self.is_unit(return_type)).then_some(return_type);
+        self.current_return = declared_return.unwrap_or_else(|| self.error());
+        let expected_tail = declared_return.filter(|return_type| !self.is_unit(*return_type));
         let body_ty = self.check_block_with_expected(body, expected_tail);
-        if let Some(tail) = body.tail.as_deref() {
-            if !self.is_unit(return_type) {
-                self.expect_expr_type(tail, return_type, body_ty, "closure body");
+        if let Some(return_type) = declared_return {
+            if let Some(tail) = body.tail.as_deref() {
+                if !self.is_unit(return_type) {
+                    self.expect_expr_type(tail, return_type, body_ty, "closure body");
+                }
+            } else if self.is_unit(return_type) {
+                self.expect_type(body.span, return_type, body_ty, "closure body");
             }
-        } else if self.is_unit(return_type) {
-            self.expect_type(body.span, return_type, body_ty, "closure body");
         }
+        let return_type = match declared_return {
+            Some(return_type) => return_type,
+            None if body.tail.is_some() => body_ty,
+            None => self.unit(),
+        };
         self.current_return = previous_return;
         self.current_param_locals = previous_params;
         self.interner.intern(TyKind::ClosureState {
@@ -480,6 +536,31 @@ impl<'a> BodyChecker<'a> {
             params: param_types,
             return_type,
         })
+    }
+
+    fn callable_signature(
+        &mut self,
+        ty: InternedTyId,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let ty = self.normalize_aliases_in_type(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }) => Some((params, return_type)),
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => Some((params, return_type)),
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: false,
+            }) => Some((params, return_type)),
+            Some(TyKind::Pointer { elem, .. }) => self.callable_signature(elem),
+            _ => None,
+        }
     }
 
     fn check_associated_const_value_access(
