@@ -595,11 +595,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not rejectsInvalidPlanModule(missingProducer.validatePlan(), 0usize) {
         return process::exit(16)!;
     }
-    let test = api.addTestExecutableStep(
-        &"test",
+    if not rejectsInvalidStep(api.addRunExecutableStep(
+        &"artifact-run",
         build::RunOptions::init(executable),
-    ).exit().?;
-    _ = test;
+    ), 3usize) {
+        return process::exit(34)!;
+    }
+    if not rejectsInvalidStep(api.addTestExecutableStep(
+        &"artifact-test",
+        build::RunOptions::init(executable),
+    ), 3usize) {
+        return process::exit(35)!;
+    }
     let hostExecutable = api.addExecutable(
         build::ExecutableOptions::init(&"host-app", moduleHandle)
             .withOutputName(&"host-tool")
@@ -607,6 +614,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     ).exit().?;
     _ = api.addCheckExecutableStep(&"host-check", hostExecutable).exit().?;
     _ = api.addEmitExecutableStep(&"host-emit", hostExecutable).exit().?;
+    _ = api.addTestExecutableStep(
+        &"host-test",
+        build::RunOptions::init(hostExecutable),
+    ).exit().?;
     let object = api.addObject(
         build::ObjectOptions::init(&"objects", moduleHandle)
             .withOutputName(&"objects-dir"),
@@ -876,6 +887,21 @@ pub fn main(init: process::Init) process::ExitCode!() {
             other => panic!("expected host compiler action, found {other:?}"),
         }
     }
+    let host_test = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "host-test")
+        .expect("host executable test action");
+    assert!(matches!(
+        &host_test.kind,
+        nia_build::ActionKind::ExternalCommand {
+            program: nia_build::CommandProgram::Path(path),
+            ..
+        } if matches!(
+            path.root(),
+            nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "host-app"
+        )
+    ));
     let host_artifact = plan
         .artifacts()
         .iter()

@@ -435,6 +435,7 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!,
         };
+        self.validateRunnableExecutable(options.target, self.steps.len()).?;
         validateRunArguments(options.arguments, self.steps.len()).?;
         let handle = StepHandle::init(self.ownerId, self.steps.len());
         let mut payload = RunExecutableStep::init(self.allocator, options, handle.index()).?;
@@ -462,6 +463,7 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!,
         };
+        self.validateRunnableExecutable(options.target, self.steps.len()).?;
         validateRunArguments(options.arguments, self.steps.len()).?;
         let handle = StepHandle::init(self.ownerId, self.steps.len());
         let mut payload = RunExecutableStep::init(self.allocator, options, handle.index()).?;
@@ -1356,6 +1358,25 @@ extend Build {
             return Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Executable(handle.index()),
+            }!;
+        }
+        !()
+    }
+
+    fn validateRunnableExecutable(&self, handle: ExecutableHandle, stepIndex: usize) Error!() {
+        let role = self.executables.asSlice()[handle.index()].targetRole;
+        // Run and test actions execute while constructing this build, so their
+        // program must match the host. An artifact-role executable remains
+        // runnable for native builds because both roles resolve to one target.
+        let runsOnHost = switch role {
+            TargetRole::Host => true,
+            TargetRole::Artifact => self.hostTarget.view().equals(self.artifactTarget.view()),
+            _ => false,
+        };
+        if not runsOnHost {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(stepIndex),
             }!;
         }
         !()
