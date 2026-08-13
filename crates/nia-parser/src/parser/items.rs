@@ -778,7 +778,7 @@ impl Parser {
         (params, is_variadic)
     }
 
-    fn parse_param(&mut self) -> Option<Param> {
+    pub(super) fn parse_param(&mut self) -> Option<Param> {
         let start = self.peek().span.start;
         let checkpoint = self.tokens.checkpoint();
         if self.eat(TokenKind::Amp).is_some() {

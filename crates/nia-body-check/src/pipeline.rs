@@ -727,6 +727,7 @@ impl<'a> BodyChecker<'a> {
             },
         );
         if let Some(body) = &function.body {
+            self.infer_function_closures(body);
             let expected_tail =
                 (!self.is_unit(signature.return_type)).then_some(signature.return_type);
             time_body_stage_if_slow(

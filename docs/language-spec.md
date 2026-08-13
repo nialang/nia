@@ -1188,6 +1188,34 @@ attached to the address expression itself: storing `&closure` in an
 intermediate pointer and later assigning that pointer to `&Fn(...)` does not
 perform an implicit conversion. Calling a view uses ordinary call syntax.
 
+#### Closure parameter inference
+
+Closure parameters may omit their type when the surrounding expression gives a
+callable signature or when later calls provide enough constraints:
+
+```nia
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    let identity = [](value) { value };
+    apply(&identity, 1)
+}
+```
+
+The body checker collects constraints through locals, calls, nested closures,
+tuples, pointers, conditionals, assignments, and ordinary callable shapes
+before checking the body with the resolved signature. Explicit parameter and
+return annotations remain valid and act as constraints; conflicting
+annotations are diagnosed. A closure is monomorphic: using one closure value
+with incompatible argument types is a type error, rather than implicit
+let-polymorphism. If no callable context or body constraint determines a
+parameter type, the compiler reports that parameter as unresolved and an
+annotation or a callable context is required. Inference is function-local and
+temporary; unresolved inference identities never enter semantic facts, cached
+queries, ABI/layout data, or persisted types.
+
 Callable views are distinct from `&fn(...)`. The latter is the existing thin,
 one-word function pointer and carries no state. A no-capture closure may be
 converted directly to that thin pointer when a matching `&fn(...)` expected

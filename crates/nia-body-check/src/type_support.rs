@@ -1342,6 +1342,7 @@ impl<'a> BodyChecker<'a> {
             node_pattern_values: HashMap::new(),
             node_resolved_calls: HashMap::new(),
             node_function_references: HashMap::new(),
+            inferred_closures: self.inferred_closures.clone(),
             generic_instantiations: Vec::new(),
             function_facts: HashMap::new(),
             function_bodies: HashMap::new(),

@@ -1159,24 +1159,32 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, arg)| {
-                if let Some(expected) = params
-                    .get(index)
-                    .copied()
-                    .map(|param| self.substitute_generics(param, substitutions))
+                let param = params.get(index).copied();
+                let inferred_from_closure = param.is_some_and(|param| {
+                    self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
+                });
+                if let Some(expected) =
+                    param.map(|param| self.substitute_generics(param, substitutions))
                 {
                     let expected = if self.type_contains_generic_param(expected) {
                         None
                     } else {
                         Some(expected)
                     };
-                    self.check_expr_with_expected(arg, expected)
+                    match expected {
+                        Some(expected) => Some(self.check_expr_with_expected(arg, Some(expected))),
+                        None if inferred_from_closure => None,
+                        None => Some(self.check_expr(arg)),
+                    }
                 } else {
-                    self.check_expr(arg)
+                    Some(self.check_expr(arg))
                 }
             })
             .collect::<Vec<_>>();
         for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
-            self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
+            if let Some(actual) = actual {
+                self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
+            }
         }
     }
 
