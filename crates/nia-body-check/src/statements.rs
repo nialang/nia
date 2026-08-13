@@ -393,52 +393,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn pattern_input_ty(
-        &mut self,
-        pattern: &nia_ast::Pattern,
-        binding_ty: InternedTyId,
-    ) -> InternedTyId {
-        match &pattern.kind {
-            nia_ast::PatternKind::Pointer(inner) => {
-                let elem = self.pattern_input_ty(inner, binding_ty);
-                self.interner.intern(TyKind::Pointer {
-                    is_readonly: true,
-                    elem,
-                })
-            }
-            nia_ast::PatternKind::MutPointer(inner) => {
-                let elem = self.pattern_input_ty(inner, binding_ty);
-                self.interner.intern(TyKind::Pointer {
-                    is_readonly: false,
-                    elem,
-                })
-            }
-            _ => binding_ty,
-        }
-    }
-
-    pub(super) fn materialize_explicit_pattern_ty(
-        &mut self,
-        pattern: &nia_ast::Pattern,
-        explicit_binding: InternedTyId,
-        value_ty: InternedTyId,
-    ) -> InternedTyId {
-        match &pattern.kind {
-            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
-                let value_elem = match self.interner.get(self.normalization.normalize(value_ty)) {
-                    Some(TyKind::Pointer { elem, .. }) => Some(*elem),
-                    _ => None,
-                };
-                value_elem
-                    .map(|elem| self.materialize_explicit_pattern_ty(inner, explicit_binding, elem))
-                    .unwrap_or(explicit_binding)
-            }
-            _ => self
-                .materialize_inferred_array_type(explicit_binding, value_ty)
-                .unwrap_or(explicit_binding),
-        }
-    }
-
     pub(super) fn single_pattern_binding_key<'b>(
         &self,
         pattern: &'b nia_ast::Pattern,
@@ -477,8 +431,10 @@ impl<'a> BodyChecker<'a> {
         }
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
-                let explicit_binding = self.ty_for_type(ty);
-                let explicit_input = self.pattern_input_ty(&binding.pattern, explicit_binding);
+                // A binding annotation always describes the value matched by
+                // the whole pattern. Recursive pattern checking derives every
+                // nested local type from that single input contract.
+                let explicit_input = self.ty_for_type(ty);
                 let value_ty = if binding.is_const() {
                     self.with_const_context(|this| {
                         this.check_expr_with_expected(value, Some(explicit_input))
@@ -497,7 +453,10 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     self.expect_expr_type(value, explicit_input, value_ty, "binding initializer");
                 }
-                self.materialize_explicit_pattern_ty(&binding.pattern, explicit_binding, value_ty)
+                let input_ty = self
+                    .materialize_inferred_array_type(explicit_input, value_ty)
+                    .unwrap_or(explicit_input);
+                self.check_irrefutable_pattern(&binding.pattern, input_ty, "binding pattern")
             }
             (Some(ty), None) => {
                 let explicit = self.ty_for_type(ty);
