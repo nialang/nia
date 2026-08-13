@@ -359,7 +359,7 @@ impl ConstModuleLowerer<'_> {
                 for capture in captures {
                     self.collect_expr_locals(&capture.value, out);
                 }
-                self.collect_block_locals(body, out);
+                self.collect_expr_locals(body, out);
             }
             nia_ast::ExprKind::TupleField { lhs, .. } => self.collect_expr_locals(lhs, out),
             nia_ast::ExprKind::ArrayLiteral { elems }

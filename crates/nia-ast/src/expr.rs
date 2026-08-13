@@ -230,7 +230,7 @@ pub enum ExprKind {
         args: Vec<BracketArg>,
     },
     Tuple(Vec<Expr>),
-    /// Anonymous closure value with explicit captures.
+    /// Anonymous closure value with optional explicit captures.
     ///
     /// The capture expressions are evaluated at the closure site and their
     /// names are visible only in the closure body. The concrete state type is
@@ -239,8 +239,9 @@ pub enum ExprKind {
     Closure {
         captures: Vec<ClosureCapture>,
         params: Vec<crate::Param>,
-        return_type: Option<TypeRef>,
-        body: Block,
+        /// The expression after `->`; a multi-statement body is an ordinary
+        /// `ExprKind::Block`, not a closure-specific body form.
+        body: Box<Expr>,
     },
     ArrayLiteral {
         elems: ArrayElements,

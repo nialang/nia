@@ -88,16 +88,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Closure {
                 captures,
                 params,
-                return_type,
                 body,
-            } => self.check_closure_expr(
-                expr,
-                captures,
-                params,
-                return_type.as_ref(),
-                body,
-                expected,
-            ),
+            } => self.check_closure_expr(expr, captures, params, body, expected),
             ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
                 Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
                 None if expected.is_some() => self.infer_array_literal_expr(expr),
@@ -406,8 +398,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         captures: &[nia_ast::ClosureCapture],
         params: &[nia_ast::Param],
-        return_type: Option<&nia_ast::TypeRef>,
-        body: &nia_ast::Block,
+        body: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let Some(owner) = self.current_def_id else {
@@ -474,7 +465,8 @@ impl<'a> BodyChecker<'a> {
                 .and_then(|(params, _)| params.get(index).copied());
             let inferred = inferred
                 .as_ref()
-                .and_then(|signature| signature.params.get(index).copied().flatten());
+                .and_then(|signature| signature.params.get(index))
+                .and_then(|ty| self.materialize_inferred_type(ty));
             let ty = explicit.or(expected).or(inferred).unwrap_or_else(|| {
                     let name = param
                         .name
@@ -500,34 +492,19 @@ impl<'a> BodyChecker<'a> {
                 param_locals.push(local_id);
             }
         }
-        let explicit_return = return_type.map(|ty| self.ty_for_type(ty));
         let expected_return = expected_signature.map(|(_, return_type)| return_type);
-        let inferred_return = inferred.and_then(|signature| signature.return_type);
-        let declared_return = explicit_return.or(expected_return).or(inferred_return);
-        if let Some(explicit) = explicit_return
-            && let Some(expected) = expected_return
-        {
-            self.expect_type(expr.span, expected, explicit, "closure return type");
-        }
+        let inferred_return = inferred
+            .as_ref()
+            .and_then(|signature| self.materialize_inferred_type(&signature.return_type));
+        let declared_return = expected_return.or(inferred_return);
         let previous_return = self.current_return;
         let previous_params = std::mem::replace(&mut self.current_param_locals, param_locals);
         self.current_return = declared_return.unwrap_or_else(|| self.error());
-        let expected_tail = declared_return.filter(|return_type| !self.is_unit(*return_type));
-        let body_ty = self.check_block_with_expected(body, expected_tail);
+        let body_ty = self.check_expr_with_expected(body, declared_return);
         if let Some(return_type) = declared_return {
-            if let Some(tail) = body.tail.as_deref() {
-                if !self.is_unit(return_type) {
-                    self.expect_expr_type(tail, return_type, body_ty, "closure body");
-                }
-            } else if self.is_unit(return_type) {
-                self.expect_type(body.span, return_type, body_ty, "closure body");
-            }
+            self.expect_expr_type(body, return_type, body_ty, "closure body");
         }
-        let return_type = match declared_return {
-            Some(return_type) => return_type,
-            None if body.tail.is_some() => body_ty,
-            None => self.unit(),
-        };
+        let return_type = declared_return.unwrap_or(body_ty);
         self.current_return = previous_return;
         self.current_param_locals = previous_params;
         self.interner.intern(TyKind::ClosureState {

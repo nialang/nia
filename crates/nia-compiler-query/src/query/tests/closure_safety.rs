@@ -32,7 +32,8 @@ fn captured_local_address_is_safe_while_closure_state_stays_local() {
         r#"
 fn main() i32 {
     let value = 41;
-    let callback = [ptr = &value]() i32 { ptr.* + 1 };
+    let ptr = &value;
+    let callback = \[ptr] -> ptr.* + 1;
     callback()
 }
 "#,
@@ -56,7 +57,7 @@ fn store[T](slot: &mut T, value: T) () {
 }
 
 fn captureAndStore(ptr: &i32) () {
-    let callback = [ptr]() i32 { ptr.* };
+    let callback = \[ptr] -> { ptr.* };
     let mut slot = callback;
     store(&mut slot, callback);
 }
@@ -116,7 +117,7 @@ fn invoke(callback: &Fn(i32) i32, value: i32) i32 {
 }
 
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
     invoke(view, 1)
 }
@@ -137,12 +138,12 @@ fn direct_and_aggregate_returns_reject_stack_backed_views() {
         "main.nia",
         r#"
 fn direct(base: i32) &Fn(i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     &callback
 }
 
 fn aggregate(base: i32) (&Fn(i32) i32, i32) {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
     (view, 1)
 }
@@ -174,18 +175,18 @@ fn store(slot: &mut &Fn(i32) i32, callback: &Fn(i32) i32) () {
 }
 
 fn returned(base: i32) &Fn(i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     identity(&callback)
 }
 
 fn passed_to_unknown(base: i32) () {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     retain(&callback);
 }
 
 fn stored_indirectly(base: i32) () {
-    let fallback = [base](value: i32) i32 { base - value };
-    let callback = [base](value: i32) i32 { base + value };
+    let fallback = \[base] value: i32 -> { base - value };
+    let callback = \[base] value: i32 -> { base + value };
     let mut slot: &Fn(i32) i32 = &fallback;
     store(&mut slot, &callback);
 }
@@ -218,10 +219,10 @@ fn inner_block_view_cannot_flow_into_an_outer_local() {
         "main.nia",
         r#"
 fn main(base: i32) i32 {
-    let outer = [base](value: i32) i32 { base + value };
+    let outer = \[base] value: i32 -> { base + value };
     let mut view: &Fn(i32) i32 = &outer;
     {
-        let inner = [base](value: i32) i32 { base - value };
+        let inner = \[base] value: i32 -> { base - value };
         view = &inner;
     };
     view(1)
@@ -255,7 +256,7 @@ where T: Sized
 
 fn leak(base: i32) &Fn(i32) i32 {
     let mut storage: [16]u8 = [0; 16];
-    let mut state = place(&mut storage[0], [base](value: i32) i32 { base + value });
+    let mut state = place(&mut storage[0], \[base] value: i32 -> { base + value });
     &mut state.*
 }
 "#,
@@ -286,7 +287,7 @@ where T: Sized
 }
 
 fn escape(address: usize, base: i32) &Fn(i32) i32 {
-    let mut state = place(address as &mut u8, [base](value: i32) i32 { base + value });
+    let mut state = place(address as &mut u8, \[base] value: i32 -> { base + value });
     &mut state.*
 }
 "#,
@@ -324,7 +325,7 @@ fn separate(input: &mut u8, fail: bool) &mut u8!&mut u8 {
 fn escape(address: usize, base: i32) &mut u8!&Fn(i32) i32 {
     let mut local = 0u8;
     let destination = separate(&mut local, false).?;
-    let mut state = place(destination, [base](value: i32) i32 { base + value });
+    let mut state = place(destination, \[base] value: i32 -> { base + value });
     !&mut state.*
 }
 "#,
@@ -353,7 +354,7 @@ fn pack(callback: &Fn(i32) i32, storage: &mut u8) Owner {
 }
 
 fn leak(storage: &mut u8, base: i32) Owner {
-    let state = [base](value: i32) i32 { base + value };
+    let state = \[base] value: i32 -> { base + value };
     let callback: &Fn(i32) i32 = &state;
     pack(callback, storage)
 }
@@ -381,7 +382,7 @@ fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
         "child.nia",
         r#"
 pub fn leak(base: i32) &Fn(i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     &callback
 }
 "#,
@@ -403,7 +404,7 @@ pub fn leak(base: i32) &Fn(i32) i32 {
         "main.nia",
         r#"
 pub fn main(base: i32) &Fn(i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     &callback
 }
 "#,

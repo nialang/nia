@@ -86,7 +86,7 @@ fn type_checks_closure_state_and_body_without_panicking() {
     let checked = pipeline(
         r#"
 fn main(base: i32) () {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     ()
 }
 "#,
@@ -129,7 +129,7 @@ where T: Sized
 }
 
 fn main(base: i32) i32 {
-    let callback = identity([base](value: i32) i32 { base + value });
+    let callback = identity(\[base] value: i32 -> { base + value });
     callback(1)
 }
 "#,

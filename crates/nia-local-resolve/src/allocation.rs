@@ -192,7 +192,7 @@ impl LocalDefinitionAllocator {
                         );
                     }
                 }
-                self.allocate_block(body);
+                self.allocate_expr(body);
             }
             ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 self.allocate_array_elements(elems);

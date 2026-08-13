@@ -92,7 +92,7 @@ fn closure_codegen_materializes_direct_entry_calls() {
         &main,
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     callback(1)
 }
 "#,
@@ -131,7 +131,7 @@ fn callable_view_codegen_materializes_dynamic_dispatch() {
         &main,
         r#"
 fn main(base: i32) i32 {
-    let callback = [base](value: i32) i32 { base + value };
+    let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
     view(1)
 }
@@ -163,7 +163,7 @@ fn callable_view_codegen_passes_indirect_error_union_return_storage() {
         &main,
         r#"
 fn main(flag: bool) bool!i32 {
-    let callback = [](value: i32) bool!i32 {
+    let callback = \value: i32 -> {
         if value == 1 {
             !42
         } else {
@@ -197,7 +197,7 @@ fn closure_function_pointer_codegen_materializes_adapter() {
         &main,
         r#"
 fn apply[T](value: T) T {
-    let callback = [](inner: T) T { inner };
+    let callback = \inner: T -> { inner };
     let pointer: &fn(T) T = &callback;
     pointer(value)
 }
@@ -251,7 +251,7 @@ fn generic_closure_codegen_uses_the_concrete_instance_entry() {
         &main,
         r#"
 fn apply[T](value: T) T {
-    let callback = [value]() T { value };
+    let callback = \[value] -> { value };
     callback()
 }
 

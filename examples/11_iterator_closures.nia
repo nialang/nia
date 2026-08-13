@@ -11,12 +11,12 @@ pub fn main(init: Init) ExitCode!() {
     // compact accumulator when both positions are local to the calculation.
     let summary = (1..5).iter().fold(
         (0, 0),
-        &[offset](state: (i32, i32), value: i32) (i32, i32) {
+        &\[offset] state: (i32, i32), value: i32 -> {
             (state.0 + value + offset, state.1 + 1)
         },
     );
     let target = 3;
-    let position = (1..5).iter().position(&[target](value: i32) bool {
+    let position = (1..5).iter().position(&\[target] value: i32 -> {
         value == target
     });
 

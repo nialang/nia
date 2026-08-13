@@ -457,7 +457,6 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Closure {
                 captures,
                 params,
-                return_type,
                 body,
             } => {
                 for capture in captures {
@@ -491,10 +490,7 @@ impl<'a> LocalResolver<'a> {
                         );
                     }
                 }
-                if let Some(return_type) = return_type {
-                    self.resolve_type(return_type);
-                }
-                self.resolve_block(body);
+                self.resolve_expr(body);
                 self.self_locals.truncate(self_stack_len);
                 self.pop_scope();
             }

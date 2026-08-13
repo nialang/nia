@@ -106,10 +106,11 @@ fn parses_explicit_capture_closures() {
     let (module, errors) = parse_module(
         r#"
 fn make(base: i32) () {
-    let add = [base, offset = 2](value: i32) i32 {
+    let offset = 2;
+    let add = \[base, offset] value: i32 -> {
         base + offset + value
     };
-    let stateless = [](value: i32) i32 { value };
+    let stateless = \value: i32 -> { value };
     ()
 }
 "#,
@@ -120,13 +121,12 @@ fn make(base: i32) () {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+    let StmtKind::Binding(binding) = &body.stmts[1].kind else {
         panic!("expected closure binding");
     };
     let ExprKind::Closure {
         captures,
         params,
-        return_type,
         body: closure_body,
     } = &binding.value.as_ref().expect("expected closure value").kind
     else {
@@ -134,10 +134,9 @@ fn make(base: i32) () {
     };
     assert_eq!(captures.len(), 2);
     assert_eq!(params.len(), 1);
-    assert!(return_type.is_some());
-    assert!(closure_body.tail.is_some());
+    assert!(matches!(closure_body.kind, ExprKind::Block(_)));
 
-    let StmtKind::Binding(stateless_binding) = &body.stmts[1].kind else {
+    let StmtKind::Binding(stateless_binding) = &body.stmts[2].kind else {
         panic!("expected stateless closure binding");
     };
     let ExprKind::Closure { captures, .. } = &stateless_binding
@@ -156,7 +155,7 @@ fn parses_closure_parameters_without_type_annotations() {
     let (module, errors) = parse_module(
         r#"
 fn main() () {
-    let callback = [](left, right) { left + right };
+    let callback = \left, right -> { left + right };
     ()
 }
 "#,
@@ -178,11 +177,52 @@ fn main() () {
 }
 
 #[test]
-fn rejects_variadic_closures() {
+fn parses_closure_capture_modes_and_expression_body() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(x: i32, y: i32, z: i32) () {
+    let callback = \[x, &y, &mut z] a, b -> x + y.* + z.* + a + b;
+    ()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure { captures, body, .. } = &binding.value.as_ref().expect("closure").kind
+    else {
+        panic!("expected closure");
+    };
+    assert!(matches!(captures[0].value.kind, ExprKind::Ident(_)));
+    assert!(matches!(
+        captures[1].value.kind,
+        ExprKind::Unary {
+            op: UnaryOp::RefReadOnly,
+            ..
+        }
+    ));
+    assert!(matches!(
+        captures[2].value.kind,
+        ExprKind::Unary {
+            op: UnaryOp::Ref,
+            ..
+        }
+    ));
+    assert!(!matches!(body.kind, ExprKind::Block(_)));
+}
+
+#[test]
+fn rejects_removed_custom_capture_initializers() {
     let (_module, errors) = parse_module(
         r#"
-fn main() () {
-    let callback = [](value: i32, ...) i32 { value };
+fn main(x: i32) () {
+    let callback = \[captured = x] -> captured;
     ()
 }
 "#,
@@ -190,8 +230,55 @@ fn main() () {
     assert!(errors.iter().any(|error| {
         error
             .message
-            .contains("closures cannot use variadic parameters")
+            .contains("expected `]` after closure captures")
     }));
+}
+
+#[test]
+fn rejects_removed_parenthesized_closure_syntax() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() () {
+    let callback = [](value: i32) i32 { value };
+    ()
+}
+"#,
+    );
+    assert!(!errors.is_empty(), "old closure syntax must not parse");
+}
+
+#[test]
+fn rejects_empty_closure_capture_list() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() () {
+    let callback = \[] value -> value;
+    ()
+}
+"#,
+    );
+    assert!(errors.iter().any(|error| {
+        error
+            .message
+            .contains("empty closure capture list must be omitted")
+    }));
+}
+
+#[test]
+fn rejects_non_identifier_closure_parameters() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() () {
+    let callback = \value: i32, ... -> value;
+    ()
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected closure parameter name"))
+    );
 }
 
 #[test]
