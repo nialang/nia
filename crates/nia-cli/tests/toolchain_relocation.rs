@@ -32,7 +32,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg(&source)
             .arg("--cache-dir")
             .arg(&cache)
-            .output_timeout_without_resources("check from first installed toolchain"),
+            .output_timeout_in_session("check from first installed toolchain"),
     );
     assert_success(
         Command::new(first.join("bin/nia"))
@@ -45,7 +45,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg(&cache)
             .arg("--out-dir")
             .arg(output.join("objects"))
-            .output_timeout_without_resources("emit objects from first installed toolchain"),
+            .output_timeout_in_session("emit objects from first installed toolchain"),
     );
     let first_link = Command::new(first.join("bin/nia"))
         .arg("--timings")
@@ -56,7 +56,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
         .arg(&cache)
         .arg("-o")
         .arg(output.join("first-exe"))
-        .output_timeout_without_resources("link from first installed toolchain");
+        .output_timeout_in_session("link from first installed toolchain");
     assert_success(first_link);
 
     copy_tree(&first, &second);
@@ -66,7 +66,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg(&source)
             .arg("--cache-dir")
             .arg(&cache)
-            .output_timeout_without_resources("check from relocated installed toolchain"),
+            .output_timeout_in_session("check from relocated installed toolchain"),
     );
     assert_success(
         Command::new(second.join("bin/nia"))
@@ -79,7 +79,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg(&cache)
             .arg("--out-dir")
             .arg(output.join("relocated-objects"))
-            .output_timeout_without_resources("emit objects from relocated installed toolchain"),
+            .output_timeout_in_session("emit objects from relocated installed toolchain"),
     );
     let second_exe = output.join("second-exe");
     let relocated = Command::new(second.join("bin/nia"))
@@ -91,7 +91,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
         .arg(&cache)
         .arg("-o")
         .arg(&second_exe)
-        .output_timeout_without_resources("link from relocated installed toolchain");
+        .output_timeout_in_session("link from relocated installed toolchain");
     assert_success_ref(&relocated);
     let timings = String::from_utf8_lossy(&relocated.stderr);
     assert!(
@@ -109,9 +109,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             "missing {counter:?} in {timings}"
         );
     }
-    assert_success(
-        Command::new(&second_exe).output_timeout_without_resources("run relocated executable"),
-    );
+    assert_success(Command::new(&second_exe).output_timeout_in_session("run relocated executable"));
 
     let build_fixture = manifest_dir.join("tests/cases/build/configured_success");
     let build_workspace = root.join("build-workspace");
@@ -121,7 +119,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg("build")
             .arg("--root")
             .arg(&build_workspace)
-            .output_timeout_without_resources("build from relocated installed toolchain"),
+            .output_timeout_in_session("build from relocated installed toolchain"),
     );
     assert!(build_workspace.join(".nia-build/custom-app").is_file());
 }

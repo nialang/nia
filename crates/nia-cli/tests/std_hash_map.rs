@@ -1386,7 +1386,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let output = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let output = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("hash_map={"), "{stderr}");

@@ -99,7 +99,7 @@ fn run_build_case(name: &str) {
     let output = command
         .arg("--root")
         .arg(&command_root)
-        .output_timeout_without_resources("run build metadata case");
+        .output_timeout_in_session("run build metadata case");
 
     match mode.as_str() {
         "dependency-success" => {
@@ -817,7 +817,7 @@ fn assert_configured_build_success(
         .arg("check")
         .arg("--root")
         .arg(workspace)
-        .output_timeout_without_resources("run configured build check step");
+        .output_timeout_in_session("run configured build check step");
     assert!(
         check.status.success(),
         "stderr:\n{}",
@@ -835,7 +835,7 @@ fn assert_configured_build_success(
         .arg("does-not-exist")
         .arg("--root")
         .arg(workspace)
-        .output_timeout_without_resources("run unknown step after published plan");
+        .output_timeout_in_session("run unknown step after published plan");
     assert!(!unknown.status.success());
     assert_no_transient_runner_files(workspace);
     assert_eq!(

@@ -295,7 +295,7 @@ fn invalid_toolchain_layout_fails_before_source_loading() {
 fn help_and_version_use_nia_command_name() {
     let help = support::nia_command()
         .arg("--help")
-        .output_timeout_without_resources("run nia --help");
+        .output_timeout_for_runtime("run nia --help");
     assert!(
         help.status.success(),
         "stderr:\n{}",
@@ -324,7 +324,7 @@ fn help_and_version_use_nia_command_name() {
     let check_help = support::nia_command()
         .arg("help")
         .arg("check")
-        .output_timeout_without_resources("run nia help check");
+        .output_timeout_for_runtime("run nia help check");
     assert!(
         check_help.status.success(),
         "stderr:\n{}",
@@ -360,7 +360,7 @@ fn help_and_version_use_nia_command_name() {
     let build_help = support::nia_command()
         .arg("help")
         .arg("build")
-        .output_timeout_without_resources("run nia help build");
+        .output_timeout_for_runtime("run nia help build");
     assert!(
         build_help.status.success(),
         "stderr:\n{}",
@@ -382,7 +382,7 @@ fn help_and_version_use_nia_command_name() {
     let emit_help = support::nia_command()
         .arg("help")
         .arg("emit")
-        .output_timeout_without_resources("run nia help emit");
+        .output_timeout_for_runtime("run nia help emit");
     assert!(
         emit_help.status.success(),
         "stderr:\n{}",
@@ -429,7 +429,7 @@ fn help_and_version_use_nia_command_name() {
 
     let version = support::nia_command()
         .arg("--version")
-        .output_timeout_without_resources("run nia --version");
+        .output_timeout_for_runtime("run nia --version");
     assert!(
         version.status.success(),
         "stderr:\n{}",
@@ -734,7 +734,7 @@ fn object_dir_defines_symbol(dir: &std::path::Path, symbol: &str) -> bool {
         let output = Command::new("nm")
             .arg("--defined-only")
             .arg(&path)
-            .output_timeout_without_resources("run nm on emitted object");
+            .output_timeout_for_runtime("run nm on emitted object");
         assert!(
             output.status.success(),
             "nm stderr:\n{}",

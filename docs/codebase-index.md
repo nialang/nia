@@ -103,10 +103,14 @@ loader/provider closure tests own that guarantee.
   `cargo maintain baseline ...` owns their maintained runners. They are not
   ordinary unit tests.
 
-Compiler-, LLVM-, and build-heavy tests must use `nia-test-support` resource
-accounting. The normal local gate starts with `cargo maintain check`, followed
-by `cargo fmt --check`, strict workspace Clippy, and `cargo test --workspace`;
-focused owners should run first.
+Compiler-, LLVM-, build-, and generated-process tests must use
+`nia-test-support` resource accounting. Libtest remains the test scheduler;
+the shared harness limits compiler and runtime process concurrency separately,
+then applies one cross-process memory budget to both classes. Whole-test
+sessions cover multi-command workloads, while command helpers classify isolated
+compiler, build, and runtime processes. The normal local gate starts with
+`cargo maintain check`, followed by `cargo fmt --check`, strict workspace
+Clippy, and `cargo test --workspace`; focused owners should run first.
 
 ## 6. Change Routing
 

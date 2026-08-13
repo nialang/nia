@@ -1,15 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Resource-accounted process helpers for ordinary libtest tests.
+//!
+//! Libtest remains responsible for choosing and scheduling test threads. This
+//! crate coordinates the expensive child processes those threads launch across
+//! every test binary in one workspace: compiler and runtime pools bound their
+//! distinct CPU/process pressure, while a shared memory-token pool bounds their
+//! combined resident-memory estimate. Directory-backed permits extend the same
+//! contract across concurrently running Cargo test processes.
 mod cases;
 
 pub use cases::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
 use std::{
+    cell::Cell,
     ffi::OsStr,
     fs,
     io::{self, Read},
+    marker::PhantomData,
     ops::Deref,
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Output, Stdio},
+    rc::Rc,
     sync::{
         Condvar, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicUsize, Ordering},
@@ -19,15 +30,27 @@ use std::{
 };
 
 const MAX_PARALLEL_COMPILERS: usize = 8;
+const MAX_PARALLEL_RUNTIMES: usize = 32;
 const UNKNOWN_MEMORY_PARALLEL_COMPILERS: usize = 1;
+const UNKNOWN_MEMORY_PARALLEL_RUNTIMES: usize = 1;
 const COMPILER_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
+const RUNTIME_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 const AVAILABLE_MEMORY_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
 
 static COMPILER_POOL: OnceLock<ResourcePool> = OnceLock::new();
+static RUNTIME_POOL: OnceLock<ResourcePool> = OnceLock::new();
+static MEMORY_POOL: OnceLock<ResourcePool> = OnceLock::new();
 static TEST_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    // Explicit test-wide sessions already reserve the process budget for all
+    // commands issued by that test. Command helpers must not acquire a second
+    // permit while such a session is active on the same libtest worker.
+    static ACTIVE_TEST_RESOURCE_SESSIONS: Cell<usize> = const { Cell::new(0) };
+}
 
 pub struct TestDir {
     path: PathBuf,
@@ -88,20 +111,21 @@ impl TestWorkload {
 
     const fn resource_request(self) -> ResourceRequest {
         match self {
-            Self::Compiler => ResourceRequest::new(1, 1),
-            Self::Build => ResourceRequest::new(2, 1),
+            Self::Compiler => ResourceRequest::new(1, COMPILER_MEMORY_BYTES),
+            Self::Build => ResourceRequest::new(2, COMPILER_MEMORY_BYTES),
         }
     }
 }
 
 pub fn acquire_test_resources(workload: TestWorkload) -> TestResourceSession<'static> {
-    compiler_pool().acquire_session(workload.resource_request())
+    acquire_resources(compiler_pool(), workload.resource_request()).register_for_current_thread()
 }
 
 pub trait CommandExt {
     fn output_timeout_for_compiler(&mut self, context: &str) -> Output;
     fn output_timeout_for_build(&mut self, context: &str) -> Output;
-    fn output_timeout_without_resources(&mut self, context: &str) -> Output;
+    fn output_timeout_for_runtime(&mut self, context: &str) -> Output;
+    fn output_timeout_in_session(&mut self, context: &str) -> Output;
 }
 
 pub trait CommandStatusExt {
@@ -110,58 +134,72 @@ pub trait CommandStatusExt {
 
 impl CommandExt for Command {
     fn output_timeout_for_compiler(&mut self, context: &str) -> Output {
-        let _resources = acquire_test_resources(TestWorkload::Compiler);
-        self.output_timeout_without_resources(context)
+        let _resources = acquire_command_resources(TestWorkload::Compiler);
+        output_timeout_inner(self, context)
     }
 
     fn output_timeout_for_build(&mut self, context: &str) -> Output {
-        let _resources = acquire_test_resources(TestWorkload::Build);
-        self.output_timeout_without_resources(context)
+        let _resources = acquire_command_resources(TestWorkload::Build);
+        output_timeout_inner(self, context)
     }
 
-    fn output_timeout_without_resources(&mut self, context: &str) -> Output {
-        self.stdout(Stdio::piped()).stderr(Stdio::piped());
-        prepare_command(self);
+    fn output_timeout_for_runtime(&mut self, context: &str) -> Output {
+        let _resources = acquire_runtime_resources();
+        output_timeout_inner(self, context)
+    }
 
-        let timeout = DEFAULT_COMMAND_TIMEOUT;
-        let mut child = self
-            .spawn()
-            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
-        let stdout = child
-            .stdout
-            .take()
-            .expect("stdout pipe was configured before spawn");
-        let stderr = child
-            .stderr
-            .take()
-            .expect("stderr pipe was configured before spawn");
-        let stdout_reader = thread::spawn(move || read_pipe(stdout));
-        let stderr_reader = thread::spawn(move || read_pipe(stderr));
+    fn output_timeout_in_session(&mut self, context: &str) -> Output {
+        assert!(
+            ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) != 0,
+            "{context}: command requires an active test resource session"
+        );
+        output_timeout_inner(self, context)
+    }
+}
 
-        let started = Instant::now();
-        let wait = wait_child_timeout(&mut child, timeout, context);
-        let run_time = started.elapsed();
-        let stdout = join_reader(stdout_reader, context, "stdout");
-        let stderr = join_reader(stderr_reader, context, "stderr");
-        let status = match wait {
-            Ok(status) => status,
-            Err(()) => panic!(
-                "{context}: command timed out after {timeout:?}; run_time={run_time:?}\nstdout tail:\n{}\nstderr tail:\n{}",
-                output_tail(&stdout),
-                output_tail(&stderr),
-            ),
-        };
+fn output_timeout_inner(command: &mut Command, context: &str) -> Output {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    prepare_command(command);
 
-        Output {
-            status,
-            stdout,
-            stderr,
-        }
+    let timeout = DEFAULT_COMMAND_TIMEOUT;
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+    let stdout = child
+        .stdout
+        .take()
+        .expect("stdout pipe was configured before spawn");
+    let stderr = child
+        .stderr
+        .take()
+        .expect("stderr pipe was configured before spawn");
+    let stdout_reader = thread::spawn(move || read_pipe(stdout));
+    let stderr_reader = thread::spawn(move || read_pipe(stderr));
+
+    let started = Instant::now();
+    let wait = wait_child_timeout(&mut child, timeout, context);
+    let run_time = started.elapsed();
+    let stdout = join_reader(stdout_reader, context, "stdout");
+    let stderr = join_reader(stderr_reader, context, "stderr");
+    let status = match wait {
+        Ok(status) => status,
+        Err(()) => panic!(
+            "{context}: command timed out after {timeout:?}; run_time={run_time:?}\nstdout tail:\n{}\nstderr tail:\n{}",
+            output_tail(&stdout),
+            output_tail(&stderr),
+        ),
+    };
+
+    Output {
+        status,
+        stdout,
+        stderr,
     }
 }
 
 impl CommandStatusExt for Command {
     fn status_timeout(&mut self, context: &str) -> ExitStatus {
+        let _resources = acquire_runtime_resources();
         self.stdout(Stdio::null()).stderr(Stdio::null());
         prepare_command(self);
 
@@ -172,6 +210,23 @@ impl CommandStatusExt for Command {
             panic!("{context}: command timed out after {DEFAULT_COMMAND_TIMEOUT:?}");
         })
     }
+}
+
+fn acquire_runtime_resources() -> Option<TestResourceSession<'static>> {
+    if ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) != 0 {
+        return None;
+    }
+    Some(acquire_resources(
+        runtime_pool(),
+        ResourceRequest::runtime(),
+    ))
+}
+
+fn acquire_command_resources(workload: TestWorkload) -> Option<TestResourceSession<'static>> {
+    if ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) != 0 {
+        return None;
+    }
+    Some(acquire_test_resources(workload))
 }
 
 fn read_pipe<R: Read>(mut pipe: R) -> io::Result<Vec<u8>> {
@@ -247,33 +302,76 @@ fn terminate_child(child: &mut std::process::Child) {
 #[derive(Clone, Copy)]
 struct ResourceRequest {
     slots: usize,
-    memory_units: usize,
+    minimum_memory_bytes: usize,
 }
 
 impl ResourceRequest {
-    const fn new(slots: usize, memory_units: usize) -> Self {
+    const fn new(slots: usize, minimum_memory_bytes: usize) -> Self {
         Self {
             slots,
-            memory_units,
+            minimum_memory_bytes,
+        }
+    }
+
+    const fn runtime() -> Self {
+        Self {
+            slots: 1,
+            minimum_memory_bytes: RUNTIME_MEMORY_BYTES,
         }
     }
 }
 
 fn compiler_pool() -> &'static ResourcePool {
     COMPILER_POOL.get_or_init(|| {
+        let available_cpus = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1);
+        let memory_limit = nia_query::effective_memory_limit_bytes();
         ResourcePool::with_memory_gate(
-            parallel_compiler_limit(),
-            compiler_slot_root(),
-            nia_query::effective_memory_limit_bytes(),
+            compiler_limit(available_cpus, memory_limit),
+            resource_slot_root().join("compiler"),
+            None,
         )
     })
 }
 
-fn parallel_compiler_limit() -> usize {
-    let available_cpus = std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1);
-    compiler_limit(available_cpus, nia_query::effective_memory_limit_bytes())
+fn runtime_pool() -> &'static ResourcePool {
+    RUNTIME_POOL.get_or_init(|| {
+        let available_cpus = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1);
+        let memory_limit = nia_query::effective_memory_limit_bytes();
+        ResourcePool::with_memory_gate(
+            runtime_limit(available_cpus, memory_limit),
+            resource_slot_root().join("runtime"),
+            None,
+        )
+    })
+}
+
+fn memory_pool() -> &'static ResourcePool {
+    MEMORY_POOL.get_or_init(|| {
+        let memory_limit = nia_query::effective_memory_limit_bytes();
+        ResourcePool::with_memory_gate(
+            memory_token_capacity(memory_limit),
+            resource_slot_root().join("memory"),
+            memory_limit,
+        )
+    })
+}
+
+fn acquire_resources(
+    scheduling_pool: &'static ResourcePool,
+    request: ResourceRequest,
+) -> TestResourceSession<'static> {
+    // Memory is reserved before a scheduling slot so queued work cannot pass
+    // the shared budget merely because compiler and runtime pools are distinct.
+    let memory = memory_pool().acquire(
+        memory_tokens(request.minimum_memory_bytes),
+        request.minimum_memory_bytes,
+    );
+    let scheduling = scheduling_pool.acquire(request.slots, 0);
+    TestResourceSession::new([memory, scheduling])
 }
 
 fn compiler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize {
@@ -287,6 +385,34 @@ fn compiler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize 
         })
         .unwrap_or(UNKNOWN_MEMORY_PARALLEL_COMPILERS);
     cpu_limit.min(memory_limit).max(1)
+}
+
+fn runtime_limit(available_cpus: usize, system_memory: Option<usize>) -> usize {
+    let cpu_limit = available_cpus.clamp(1, MAX_PARALLEL_RUNTIMES);
+    let memory_limit = system_memory
+        .map(|total| {
+            test_memory_budget(total)
+                .checked_div(RUNTIME_MEMORY_BYTES)
+                .unwrap_or(0)
+                .max(1)
+        })
+        .unwrap_or(UNKNOWN_MEMORY_PARALLEL_RUNTIMES);
+    cpu_limit.min(memory_limit).max(1)
+}
+
+fn memory_token_capacity(system_memory: Option<usize>) -> usize {
+    system_memory
+        .map(|total| test_memory_budget(total) / RUNTIME_MEMORY_BYTES)
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn memory_tokens(bytes: usize) -> usize {
+    bytes
+        .saturating_add(RUNTIME_MEMORY_BYTES - 1)
+        .checked_div(RUNTIME_MEMORY_BYTES)
+        .unwrap_or(usize::MAX)
+        .max(1)
 }
 
 fn test_memory_budget(total: usize) -> usize {
@@ -317,8 +443,12 @@ impl ResourcePool {
         }
     }
 
-    fn acquire_session(&self, request: ResourceRequest) -> TestResourceSession<'_> {
-        let reserved_slots = request.slots.clamp(1, self.capacity);
+    fn acquire(
+        &self,
+        requested_slots: usize,
+        minimum_memory_bytes: usize,
+    ) -> ResourceReservation<'_> {
+        let reserved_slots = requested_slots.clamp(1, self.capacity);
         let mut available = lock_unpoisoned(&self.available);
         while *available < reserved_slots {
             available = self
@@ -331,7 +461,7 @@ impl ResourcePool {
 
         let minimum_available_memory = self
             .memory_limit
-            .map(|limit| minimum_available_memory(limit, request.memory_units.max(1)));
+            .map(|limit| minimum_available_memory(limit, minimum_memory_bytes));
         let slots = match acquire_process_slots(
             &self.slot_root,
             self.capacity,
@@ -347,7 +477,7 @@ impl ResourcePool {
                 );
             }
         };
-        TestResourceSession {
+        ResourceReservation {
             pool: self,
             reserved_slots,
             slots,
@@ -360,13 +490,13 @@ impl ResourcePool {
     }
 }
 
-pub struct TestResourceSession<'a> {
+struct ResourceReservation<'a> {
     pool: &'a ResourcePool,
     reserved_slots: usize,
     slots: Vec<PathBuf>,
 }
 
-impl Drop for TestResourceSession<'_> {
+impl Drop for ResourceReservation<'_> {
     fn drop(&mut self) {
         for slot in self.slots.drain(..) {
             let _ = fs::remove_dir_all(slot);
@@ -375,11 +505,48 @@ impl Drop for TestResourceSession<'_> {
     }
 }
 
+pub struct TestResourceSession<'a> {
+    reservations: Vec<ResourceReservation<'a>>,
+    registered_with_thread: bool,
+    // The active-session marker is thread-local, so its guard must stay on the
+    // libtest worker that acquired it.
+    not_send: PhantomData<Rc<()>>,
+}
+
+impl TestResourceSession<'_> {
+    fn new<const N: usize>(reservations: [ResourceReservation<'_>; N]) -> TestResourceSession<'_> {
+        TestResourceSession {
+            reservations: Vec::from(reservations),
+            registered_with_thread: false,
+            not_send: PhantomData,
+        }
+    }
+
+    fn register_for_current_thread(mut self) -> Self {
+        ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| active.set(active.get() + 1));
+        self.registered_with_thread = true;
+        self
+    }
+}
+
+impl Drop for TestResourceSession<'_> {
+    fn drop(&mut self) {
+        if self.registered_with_thread {
+            ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| {
+                let count = active.get();
+                debug_assert!(count != 0, "registered test resource session underflow");
+                active.set(count.saturating_sub(1));
+            });
+        }
+        self.reservations.clear();
+    }
+}
+
 fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-fn compiler_slot_root() -> PathBuf {
+fn resource_slot_root() -> PathBuf {
     let workspace = env!("CARGO_MANIFEST_DIR")
         .replace(['/', '\\'], "_")
         .replace(':', "_");
@@ -437,10 +604,8 @@ fn acquire_process_slots(
     }
 }
 
-fn minimum_available_memory(memory_limit: usize, memory_units: usize) -> usize {
-    let workload_memory = memory_units
-        .saturating_mul(COMPILER_MEMORY_BYTES)
-        .saturating_add(AVAILABLE_MEMORY_HEADROOM_BYTES);
+fn minimum_available_memory(memory_limit: usize, workload_memory_bytes: usize) -> usize {
+    let workload_memory = workload_memory_bytes.saturating_add(AVAILABLE_MEMORY_HEADROOM_BYTES);
     workload_memory.min(test_memory_budget(memory_limit))
 }
 
@@ -546,6 +711,25 @@ mod tests {
     }
 
     #[test]
+    fn runtime_limit_uses_cpu_and_lightweight_memory_budget() {
+        assert_eq!(runtime_limit(32, Some(8 * 1024 * 1024 * 1024)), 16);
+        assert_eq!(runtime_limit(8, Some(8 * 1024 * 1024 * 1024)), 8);
+        assert_eq!(runtime_limit(32, Some(1024 * 1024 * 1024)), 2);
+        assert_eq!(runtime_limit(32, None), UNKNOWN_MEMORY_PARALLEL_RUNTIMES);
+    }
+
+    #[test]
+    fn shared_memory_tokens_bound_mixed_workloads() {
+        assert_eq!(memory_token_capacity(Some(8 * 1024 * 1024 * 1024)), 16);
+        assert_eq!(memory_tokens(COMPILER_MEMORY_BYTES), 6);
+        assert_eq!(memory_tokens(RUNTIME_MEMORY_BYTES), 1);
+        // Two compilers may overlap with four runtimes inside the 4 GiB test
+        // budget, but a third compiler cannot enter concurrently.
+        assert_eq!(2 * memory_tokens(COMPILER_MEMORY_BYTES) + 4, 16);
+        assert!(3 * memory_tokens(COMPILER_MEMORY_BYTES) > 16);
+    }
+
+    #[test]
     fn test_directories_are_removed_when_the_owner_drops() {
         let directory = test_dir("scoped-directory");
         let path = directory.to_path_buf();
@@ -563,20 +747,49 @@ mod tests {
     #[test]
     fn available_memory_gate_scales_down_on_small_hosts() {
         assert_eq!(
-            minimum_available_memory(8 * 1024 * 1024 * 1024, 2),
+            minimum_available_memory(8 * 1024 * 1024 * 1024, 2 * COMPILER_MEMORY_BYTES),
             7 * 512 * 1024 * 1024
         );
         assert_eq!(
-            minimum_available_memory(3 * 1024 * 1024 * 1024, 1),
+            minimum_available_memory(3 * 1024 * 1024 * 1024, COMPILER_MEMORY_BYTES),
             3 * 512 * 1024 * 1024
         );
+        assert_eq!(
+            minimum_available_memory(8 * 1024 * 1024 * 1024, RUNTIME_MEMORY_BYTES),
+            RUNTIME_MEMORY_BYTES + AVAILABLE_MEMORY_HEADROOM_BYTES
+        );
+    }
+
+    #[test]
+    fn explicit_sessions_cover_nested_command_helpers() {
+        let root = test_slot_root("explicit-session-nesting");
+        let pool = ResourcePool::new(2, root.to_path_buf());
+        let session = TestResourceSession::new([pool.acquire(1, 0)]).register_for_current_thread();
+
+        assert!(acquire_runtime_resources().is_none());
+        assert!(acquire_command_resources(TestWorkload::Build).is_none());
+        drop(session);
+        ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| assert_eq!(active.get(), 0));
+    }
+
+    #[test]
+    fn command_scoped_sessions_do_not_clear_explicit_session_markers() {
+        let root = test_slot_root("command-session-markers");
+        let pool = ResourcePool::new(2, root.to_path_buf());
+        let explicit = TestResourceSession::new([pool.acquire(1, 0)]).register_for_current_thread();
+        let command = TestResourceSession::new([pool.acquire(1, 0)]);
+
+        drop(command);
+        ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| assert_eq!(active.get(), 1));
+        drop(explicit);
+        ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| assert_eq!(active.get(), 0));
     }
 
     #[test]
     fn weighted_sessions_return_their_full_capacity() {
         let root = test_slot_root("weighted-sessions");
         let pool = ResourcePool::new(4, root.to_path_buf());
-        let session = pool.acquire_session(TestWorkload::Build.resource_request());
+        let session = pool.acquire(2, 0);
         assert_eq!(*lock_unpoisoned(&pool.available), 2);
         drop(session);
         assert_eq!(*lock_unpoisoned(&pool.available), 4);
@@ -584,9 +797,9 @@ mod tests {
 
     #[test]
     fn scheduling_weight_does_not_inflate_memory_requirement() {
-        let build = ResourceRequest::new(2, 1);
+        let build = ResourceRequest::new(2, COMPILER_MEMORY_BYTES);
         assert_eq!(
-            minimum_available_memory(8 * 1024 * 1024 * 1024, build.memory_units),
+            minimum_available_memory(8 * 1024 * 1024 * 1024, build.minimum_memory_bytes),
             2 * 1024 * 1024 * 1024
         );
     }
@@ -596,11 +809,11 @@ mod tests {
         let root = test_slot_root("cross-process-slots");
         let first = ResourcePool::new(2, root.to_path_buf());
         let second = ResourcePool::new(2, root.to_path_buf());
-        let session = first.acquire_session(ResourceRequest::new(2, 1));
+        let session = first.acquire(2, 0);
         assert!(second.slot_root.join("0").is_dir());
         assert!(second.slot_root.join("1").is_dir());
         drop(session);
-        let second_session = second.acquire_session(ResourceRequest::new(2, 1));
+        let second_session = second.acquire(2, 0);
         drop(second_session);
     }
 
@@ -609,11 +822,11 @@ mod tests {
         let root = test_slot_root("cross-process-blocking");
         let first = ResourcePool::new(1, root.to_path_buf());
         let waiter_root = root.to_path_buf();
-        let first_session = first.acquire_session(ResourceRequest::new(1, 1));
+        let first_session = first.acquire(1, 0);
         let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
         let waiter = std::thread::spawn(move || {
             let second = ResourcePool::new(1, waiter_root);
-            let second_session = second.acquire_session(ResourceRequest::new(1, 1));
+            let second_session = second.acquire(1, 0);
             acquired_tx.send(()).expect("report acquired process slot");
             drop(second_session);
         });
@@ -627,6 +840,35 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("independent pool should acquire the released process slot");
         waiter.join().expect("process slot waiter");
+    }
+
+    #[test]
+    fn shared_memory_slots_block_distinct_schedulers() {
+        let root = test_slot_root("shared-memory-slots");
+        let compiler = ResourcePool::new(2, root.join("compiler"));
+        let runtime = ResourcePool::new(2, root.join("runtime"));
+        let memory_owner = ResourcePool::new(2, root.join("memory"));
+        let memory_waiter = ResourcePool::new(2, root.join("memory"));
+        let compiler_session =
+            TestResourceSession::new([memory_owner.acquire(2, 0), compiler.acquire(1, 0)]);
+
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let runtime_session =
+                TestResourceSession::new([memory_waiter.acquire(1, 0), runtime.acquire(1, 0)]);
+            acquired_tx.send(()).expect("report runtime acquisition");
+            drop(runtime_session);
+        });
+
+        assert!(
+            acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "runtime scheduler bypassed shared memory capacity"
+        );
+        drop(compiler_session);
+        acquired_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("runtime should acquire released memory capacity");
+        waiter.join().expect("shared memory waiter");
     }
 
     #[cfg(target_os = "linux")]
