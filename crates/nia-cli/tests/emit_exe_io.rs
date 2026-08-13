@@ -60,7 +60,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "nia\nlambda: λ\n");
 }
@@ -108,7 +108,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "A¢€😀, λ\n");
 }
@@ -260,7 +260,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
@@ -349,7 +349,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
@@ -400,7 +400,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
@@ -509,7 +509,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output_timeout_without_resources("run emitted executable");
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
 }
 

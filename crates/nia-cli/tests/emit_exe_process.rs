@@ -653,8 +653,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process stdio executable");
+    let output =
+        Command::new(&exe).output_timeout_for_runtime("run emitted std process stdio executable");
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout, b"ok");
 }
@@ -710,8 +710,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process stderr executable");
+    let output =
+        Command::new(&exe).output_timeout_for_runtime("run emitted std process stderr executable");
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout, b"ok");
     assert_eq!(output.stderr, b"");
@@ -771,7 +771,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process all stdio executable");
+        .output_timeout_for_runtime("run emitted std process all stdio executable");
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout, b"ok");
     assert_eq!(output.stderr, b"");
@@ -824,7 +824,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process exec error executable");
+        .output_timeout_for_runtime("run emitted std process exec error executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -898,9 +898,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let output = Command::new(&exe).output_timeout_without_resources(
-        "run emitted std process failed spawn cleanup executable",
-    );
+    let output = Command::new(&exe)
+        .output_timeout_for_runtime("run emitted std process failed spawn cleanup executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -996,7 +995,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process pipe stdout executable");
+        .output_timeout_for_runtime("run emitted std process pipe stdout executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1059,7 +1058,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process pipe stderr executable");
+        .output_timeout_for_runtime("run emitted std process pipe stderr executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1150,7 +1149,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process pipe stdout eof executable");
+        .output_timeout_for_runtime("run emitted std process pipe stdout eof executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1247,7 +1246,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process pipe stdin stdout executable");
+        .output_timeout_for_runtime("run emitted std process pipe stdin stdout executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1305,7 +1304,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process wait closes stdin executable");
+        .output_timeout_for_runtime("run emitted std process wait closes stdin executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1369,7 +1368,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process repeat wait executable");
+        .output_timeout_for_runtime("run emitted std process repeat wait executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1453,7 +1452,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process try wait executable");
+        .output_timeout_for_runtime("run emitted std process try wait executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1526,9 +1525,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let output = Command::new(&exe).output_timeout_without_resources(
-        "run emitted std process try wait keeps stdin executable",
-    );
+    let output = Command::new(&exe)
+        .output_timeout_for_runtime("run emitted std process try wait keeps stdin executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1614,8 +1612,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process kill executable");
+    let output =
+        Command::new(&exe).output_timeout_for_runtime("run emitted std process kill executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1720,7 +1718,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process kill with signal executable");
+        .output_timeout_for_runtime("run emitted std process kill with signal executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1776,8 +1774,8 @@ pub fn main(init: process::Init) process::ExitCode!() {{
         String::from_utf8_lossy(&emit.stderr)
     );
 
-    let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process cwd executable");
+    let output =
+        Command::new(&exe).output_timeout_for_runtime("run emitted std process cwd executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1826,7 +1824,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output = Command::new(&exe)
-        .output_timeout_without_resources("run emitted std process cwd stage executable");
+        .output_timeout_for_runtime("run emitted std process cwd stage executable");
     assert_eq!(output.status.code(), Some(0));
 }
 

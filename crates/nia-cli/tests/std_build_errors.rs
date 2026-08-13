@@ -93,7 +93,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output =
-        Command::new(&exe).output_timeout_without_resources("run contextual build error fixture");
+        Command::new(&exe).output_timeout_for_runtime("run contextual build error fixture");
     assert_eq!(output.status.code(), Some(0));
     assert!(
         output.stderr.is_empty(),
@@ -165,8 +165,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let output =
-        Command::new(&exe).output_timeout_without_resources("run process build error fixture");
+    let output = Command::new(&exe).output_timeout_for_runtime("run process build error fixture");
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -268,7 +267,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let output =
-        Command::new(&exe).output_timeout_without_resources("run filesystem build error fixture");
+        Command::new(&exe).output_timeout_for_runtime("run filesystem build error fixture");
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
