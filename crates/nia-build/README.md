@@ -31,6 +31,10 @@ input.
   configuration passed to the generated runner.
 - [`src/plan.rs`](src/plan.rs) owns stable keys, typed logical paths, the
   immutable plan model, and semantic freeze validation.
+- [`src/plan/actions.rs`](src/plan/actions.rs) owns action-local semantic
+  validation, including typed artifact use and external command contracts.
+- [`src/plan/dependencies.rs`](src/plan/dependencies.rs) owns producer and
+  dependency closure validation for modules, artifacts, actions, and steps.
 - [`src/plan/codec.rs`](src/plan/codec.rs) owns the registered binary plan
   protocol. Decoding always returns through semantic freeze.
 - [`src/plan/handoff.rs`](src/plan/handoff.rs) owns durable canonical plan
