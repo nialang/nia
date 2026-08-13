@@ -218,7 +218,7 @@ fn main(x: i32, y: i32, z: i32) () {
 }
 
 #[test]
-fn rejects_removed_custom_capture_initializers() {
+fn closure_capture_entries_must_be_names() {
     let (_module, errors) = parse_module(
         r#"
 fn main(x: i32) () {
@@ -232,19 +232,6 @@ fn main(x: i32) () {
             .message
             .contains("expected `]` after closure captures")
     }));
-}
-
-#[test]
-fn rejects_removed_parenthesized_closure_syntax() {
-    let (_module, errors) = parse_module(
-        r#"
-fn main() () {
-    let callback = [](value: i32) i32 { value };
-    ()
-}
-"#,
-    );
-    assert!(!errors.is_empty(), "old closure syntax must not parse");
 }
 
 #[test]

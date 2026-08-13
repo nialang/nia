@@ -3369,17 +3369,17 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut left = 20;
-    let mut right = 22;
+    let pair = (20, 22);
+    let mut writable = (10, 11);
 
-    let &x = &left;
-    let mut &mut y: i32 = &mut right;
-    y += 1;
+    let &(x, y): &(i32, i32) = &pair;
+    let mut &mut (left, right): &mut (i32, i32) = &mut writable;
+    left += right;
 
-    if x + y != 43 {
+    if x + y != 42 or left != 21 or right != 11 {
         return process::exit(1)!;
     }
-    if right != 22 {
+    if pair.0 != 20 or pair.1 != 22 or writable.0 != 10 or writable.1 != 11 {
         return process::exit(2)!;
     }
     !()

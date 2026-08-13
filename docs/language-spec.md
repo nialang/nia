@@ -1194,13 +1194,12 @@ expression:
 }
 ```
 
-The capture forms are `[name]`, `[&name]`, and `[&mut name]`, for value,
-readonly-pointer, and mutable-pointer capture respectively. Pointer captures
-remain explicit pointers inside the body and therefore use `.*` when
-dereferenced. Capture initializers such as `[name = expression]` are not part
-of the language; bind the expression to a local and capture that name. An empty
-capture list is omitted. The expression after `->` may be a block expression,
-so closures need no separate statement-body grammar.
+Capture entries have the forms `[name]`, `[&name]`, and `[&mut name]`, for value,
+readonly-pointer, and mutable-pointer capture respectively. Each entry names an
+existing local; bind computed values to locals before capturing them. Pointer
+captures remain explicit pointers inside the body and therefore use `.*` when
+dereferenced. An empty capture list is omitted. The expression after `->` may be
+a block expression, so closures need no separate statement-body grammar.
 
 The parameter and return types must match the closure signature structurally.
 Taking a mutable address may construct either a writable or readonly view;
@@ -1990,15 +1989,22 @@ Local bindings may use pointer destructuring:
 
 ```nia
 let &x = ptr;
-let mut &mut y: i32 = mut_ptr;
+let mut &mut y: &mut i32 = mut_ptr;
+let &(left, right): &(i32, i32) = pair_ptr;
 ```
 
-`let &x = ptr` requires `ptr: &T` and binds `x: T`. `let mut &mut y: T = ptr`
-requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
-type after destructuring, not the pointer input type. Ptr-destructuring
-local bindings require an initializer. This syntax is separate from the
-refutable optional/error-union patterns accepted by `switch` and if-pattern
-expressions. Local and loop bindings accept only the irrefutable pattern subset.
+`let &x = ptr` requires `ptr: &T` and binds `x: T`. `let mut &mut y = ptr`
+requires `ptr: &mut T` and binds a mutable local `y: T`. Pointer patterns compose
+with other patterns, so `&(left, right)` matches `&(L, R)` and binds `left: L`
+and `right: R`.
+
+In `let pattern: Type = value`, `Type` always describes the input matched by the
+whole pattern. It therefore constrains both `value` and the recursive pattern;
+`let &x: &T = ptr` is the annotated form, while `let &x: T = ptr` is a type
+mismatch. This single rule also applies to tuple and nested pointer patterns.
+Pointer-destructuring local bindings require an initializer. Local and loop
+bindings accept only the irrefutable subset of the pattern language; ordinary
+struct value patterns are not currently part of the language.
 
 ## 7. Statements And Semicolons
 

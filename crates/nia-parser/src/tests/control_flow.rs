@@ -160,7 +160,7 @@ fn parses_local_binding_pointer_patterns() {
         r#"
 fn main(ptr: &i32, mut_ptr: &mut i32) {
     let &x = ptr;
-    let &mut y: i32 = mut_ptr;
+    let &mut y: &mut i32 = mut_ptr;
 }
 "#,
     );

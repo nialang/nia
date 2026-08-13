@@ -303,7 +303,7 @@ impl<'a> BodyChecker<'a> {
     ) -> TypedExpr {
         match &pattern.kind {
             nia_ast::PatternKind::Pointer(_) | nia_ast::PatternKind::MutPointer(_) => {
-                let input_ty = self.pattern_input_ty(pattern, binding_ty);
+                let input_ty = self.expr_ty(value).unwrap_or_else(|| self.error());
                 let value = self.lower_expr_with_ty(value, Some(input_ty));
                 self.lower_binding_pointer_pattern_initializer(pattern, value)
             }

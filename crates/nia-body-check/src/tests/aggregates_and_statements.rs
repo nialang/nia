@@ -399,12 +399,45 @@ fn accepts_local_pointer_binding_patterns() {
         r#"
 fn main(ptr: &i32, mut_ptr: &mut i32) i32 {
     let &x = ptr;
-    let mut &mut y: i32 = mut_ptr;
+    let mut &mut y: &mut i32 = mut_ptr;
     x + y
 }
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn pointer_binding_annotations_describe_the_pattern_input() {
+    let checked = pipeline(
+        r#"
+fn main(pair: &(i32, bool), writable: &mut (i32, i32)) i32 {
+    let &(value, enabled): &(i32, bool) = pair;
+    let mut &mut (left, right): &mut (i32, i32) = writable;
+    let (extra, active): (i32, bool) = (1, true);
+    left += right;
+    if enabled and active { value + left + extra } else { right }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_pointer_binding_annotation_for_the_destructured_value() {
+    let checked = pipeline(
+        r#"
+fn main(ptr: &i32) i32 {
+    let &value: i32 = ptr;
+    value
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("type mismatch in binding initializer")
+    }));
 }
 
 #[test]
