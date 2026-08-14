@@ -23,7 +23,7 @@ const fn distinctPlaces() bool {
 const width: usize = if samePlace() and not distinctPlaces() { 2 } else { 0 };
 
 fn main() usize {
-    let values: [width]usize = [1, 2];
+    let values: [usize; width] = [1, 2];
     values.len()
 }
 "#,
@@ -49,7 +49,7 @@ const fn read() usize {
 const width: usize = read();
 
 fn main() usize {
-    let values: [width]u8 = [0; width];
+    let values: [u8; width] = [0; width];
     values.len()
 }
 "#,
@@ -77,7 +77,7 @@ const fn read() usize {
 const width: usize = read();
 
 fn main() usize {
-    let values: [width]u8 = [0; width];
+    let values: [u8; width] = [0; width];
     values.len()
 }
 "#,
@@ -179,11 +179,11 @@ fn top_level_const_can_promote_a_frozen_readonly_array_allocation() {
     write(
         &root.join("main.nia"),
         r#"
-const values: &[2]usize = &[2]usize[5, 9];
+const values: &[usize; 2] = &[5, 9];
 const width: usize = values.*[1];
 
 fn main() usize {
-    let array: [width]u8 = [0; width];
+    let array: [u8; width] = [0; width];
     array.len()
 }
 "#,
@@ -200,7 +200,7 @@ fn local_const_can_promote_a_frozen_readonly_array_allocation() {
         &root.join("main.nia"),
         r#"
 fn main() usize {
-    const values: &[2]usize = &[2]usize[5, 9];
+    const values: &[usize; 2] = &[5, 9];
     values.*[1]
 }
 "#,
@@ -216,11 +216,11 @@ fn const_function_rejects_readonly_rvalue_temporary_escape() {
     write(
         &root.join("main.nia"),
         r#"
-const fn temporary() &[2]usize {
-    &[2]usize[5, 9]
+const fn temporary() &[usize; 2] {
+    &[5, 9]
 }
 
-const values: &[2]usize = temporary();
+const values: &[usize; 2] = temporary();
 "#,
     );
 
@@ -241,7 +241,7 @@ fn top_level_const_rejects_writable_frozen_promotion() {
     write(
         &root.join("main.nia"),
         r#"
-const values: &mut [2]usize = &mut [2]usize[5, 9];
+const values: &mut [usize; 2] = &mut [5, 9];
 "#,
     );
 
@@ -277,7 +277,7 @@ const fn read() usize {
 const width: usize = read();
 
 fn main() usize {
-    let values: [width]u8 = [0; width];
+    let values: [u8; width] = [0; width];
     values.len()
 }
 "#,
@@ -302,7 +302,7 @@ const slot: Slot = Slot { pointer: &34usize };
 const width: usize = slot.pointer.*;
 
 fn main() usize {
-    let values: [width]u8 = [0; width];
+    let values: [u8; width] = [0; width];
     values.len()
 }
 "#,

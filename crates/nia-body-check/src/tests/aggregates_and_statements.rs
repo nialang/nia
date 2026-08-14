@@ -100,7 +100,7 @@ fn main() i32 {
     let mut p_ptr = &(Point { x: 3, y: 4 });
     let mut literal_ptr = &10i32;
     let mut call_ptr = &make();
-    let mut slice = &([_]i32[1, 2, 3])[..];
+    let mut slice = &([1, 2, 3])[..];
     p.sum() + Point { x: 5, y: 6 }.sum() + p_ptr.x + literal_ptr.* + call_ptr.* + slice[0]
 }
 

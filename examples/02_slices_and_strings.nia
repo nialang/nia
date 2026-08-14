@@ -32,10 +32,10 @@ fn copy_name(output: &mut [u8]) usize {
 pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut values: [4]i32 = [1, 2, 3, 4];
+    let mut values: [i32; 4] = [1, 2, 3, 4];
     // Ranges create slice views; this one contains values[1] and values[2].
     let mut window = &values[1..=2];
-    let mut zeros: [4]i32 = [0; 4];
+    let mut zeros: [i32; 4] = [0; 4];
     // Mutability belongs to the pointer/slice, so pass &mut when writing.
     let mut writable: &mut [i32] = &mut zeros;
     write_first(writable, first(window));
@@ -59,7 +59,7 @@ pub fn main(init: Init) ExitCode!() {
     let stable_bytes: &[u8] = &stable_bytes_storage;
 
     // Or let the caller provide storage that the callee fills.
-    let mut copied: [8]u8 = [0; 8];
+    let mut copied: [u8; 8] = [0; 8];
     let copied_len = copy_name(&mut copied);
 
     let mut window_len = window.len();
@@ -75,11 +75,11 @@ pub fn main(init: Init) ExitCode!() {
         }
     }
     let phraseText: &[char] = &phrase;
-    let mut textStorage: [256]u8 = [0; 256];
+    let mut textStorage: [u8; 256] = [0; 256];
     let mut textAllocator = mem::FixedBufferAllocator::init(&mut textStorage);
     let mut replaced = phraseText.replaceAll(&mut textAllocator, &"coercion", &"iteration").?;
     defer replaced.deinit(&mut textAllocator).?;
-    let textParts: [2]&[char] = [phraseText, replaced.text()];
+    let textParts: [&[char]; 2] = [phraseText, replaced.text()];
     let mut joined = (&textParts).join(&mut textAllocator, &" -> ").?;
     defer joined.deinit(&mut textAllocator).?;
 

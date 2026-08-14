@@ -46,9 +46,7 @@ pub(super) struct ResolvedEnumSignature {
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
-        let (ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. }) =
-            &expr.kind
-        else {
+        let ExprKind::ArrayLiteral { elems } = &expr.kind else {
             return self.check_expr(expr);
         };
         let ty = self.infer_array_literal_type(expr.span, elems);
@@ -125,17 +123,26 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn array_literal_anchor_index(&self, elems: &[Expr]) -> Option<usize> {
+        // Unsuffixed numbers are deliberately the last resort: choosing one
+        // first would default `[1, 2i64]` to `i32` before the explicit `i64`
+        // constraint is seen. Expressions that intrinsically require an
+        // expected type are likewise checked only after a concrete peer has
+        // established the shared element type.
         elems
             .iter()
-            .position(|elem| !self.is_numeric_literal_expr(elem))
-            .or((!elems.is_empty()).then_some(0))
+            .position(|elem| {
+                !self.is_untyped_numeric_literal_expr(elem)
+                    && !array_literal_elem_requires_expected(elem)
+            })
+            .or_else(|| {
+                elems
+                    .iter()
+                    .position(|elem| self.is_untyped_numeric_literal_expr(elem))
+            })
     }
 
     fn infer_array_literal_elem_type(&mut self, elem: &Expr) -> InternedTyId {
-        if matches!(
-            elem.kind,
-            ExprKind::ArrayLiteral { .. } | ExprKind::TypedArrayLiteral { .. }
-        ) {
+        if matches!(elem.kind, ExprKind::ArrayLiteral { .. }) {
             self.infer_array_literal_expr(elem)
         } else {
             self.check_expr(elem)
@@ -1858,6 +1865,19 @@ fn array_literal_values(elems: &nia_ast::ArrayElements) -> Vec<&Expr> {
     match elems {
         nia_ast::ArrayElements::List(elems) => elems.iter().collect(),
         nia_ast::ArrayElements::Repeat { value, .. } => vec![value],
+    }
+}
+
+fn array_literal_elem_requires_expected(elem: &Expr) -> bool {
+    match &elem.kind {
+        ExprKind::Null
+        | ExprKind::ErrorOk { .. }
+        | ExprKind::ErrorErr { .. }
+        | ExprKind::Closure { .. } => true,
+        ExprKind::ArrayLiteral {
+            elems: nia_ast::ArrayElements::List(elems),
+        } => elems.is_empty(),
+        _ => false,
     }
 }
 

@@ -123,7 +123,7 @@ pub fn cwd() FileDescriptor {
 }
 
 pub fn pipe_close_on_exec() Errno!Pipe {
-    let mut fds: [2]i32 = [0, 0];
+    let mut fds: [i32; 2] = [0, 0];
     let ret = syscall::syscall2(
         syscall::pipe2,
         &mut fds[0] as usize,

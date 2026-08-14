@@ -102,7 +102,7 @@ fn main(value: types::Packet) i32 {
 const N: usize = 4;
 
 pub struct Packet {
-data: [N]u8,
+data: [u8; N],
 }
 
 pub fn unused_bad() i32 {

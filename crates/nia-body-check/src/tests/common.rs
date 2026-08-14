@@ -160,7 +160,7 @@ trait Len {
     const fn len(&self) usize;
 }
 
-extend[T, N: usize] [N]T : Len {
+extend[T, N: usize] [T; N] : Len {
     const fn len(&self) usize {
         N
     }

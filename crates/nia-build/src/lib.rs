@@ -592,7 +592,7 @@ extend[T] build::Error!T {
         switch self {
             !value => !value,
             error! => {
-                let mut buffer: [1024]u8 = [_]u8[0; 1024];
+                let mut buffer: [u8; 1024] = [0; 1024];
                 let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
                 switch stderr.print(&"build error: {}\n", &[&error]).asBuildError(
                     build::ErrorOperation::Report,
@@ -896,7 +896,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
     defer allocator.freeSlice(configBytes).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
-    let mut readBuffer: [4096]u8 = [_]u8[0; 4096];
+    let mut readBuffer: [u8; 4096] = [0; 4096];
     let mut configReader = configFile.reader(&mut readBuffer).asBuildError(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,

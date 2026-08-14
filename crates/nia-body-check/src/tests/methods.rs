@@ -41,19 +41,19 @@ fn main(value: &i32) i32 {
 fn selects_fixed_array_length_over_const_generic_extension() {
     let checked = pipeline(
         r#"
-extend[T, N: usize] [N]T {
+extend[T, N: usize] [T; N] {
     fn rank(&self) i32 {
         1
     }
 }
 
-extend[T] [2]T {
+extend[T] [T; 2] {
     fn rank(&self) i32 {
         2
     }
 }
 
-fn main(values: &[2]i32) i32 {
+fn main(values: &[i32; 2]) i32 {
     values.rank()
 }
 "#,
@@ -420,7 +420,7 @@ where T: Sized
     }
 }
 
-extend[T] [2]T
+extend[T] [T; 2]
 where T: Sized
 {
     fn storageKind(&self) i32 {
@@ -430,11 +430,11 @@ where T: Sized
 
 fn main() i32 {
     let literalCount = (&"nia").itemCount();
-    let choices: [2]i32 = [1, 2];
+    let choices: [i32; 2] = [1, 2];
     let selected = (&choices).choose[i32](7);
     let metric = (&choices).metric();
     let storageKind = (&choices).storageKind();
-    let mut values: [2]i32 = [3, 4];
+    let mut values: [i32; 2] = [3, 4];
     (&mut values).replaceFirst(9);
     literalCount as i32 + selected + metric + storageKind + values[0]
 }
@@ -1100,18 +1100,18 @@ extend[T] &T {
     }
 }
 
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T {
         self[0]
     }
 }
 
-fn main(ptr: &u8, triple: [3]i32) i32 {
+fn main(ptr: &u8, triple: [i32; 3]) i32 {
     let is_null: &fn(&u8) bool = & [&u8]::is_null;
     let zero: &fn() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
-    [[3]i32]::first(triple) + zero() as i32
+    [[i32; 3]]::first(triple) + zero() as i32
 }
 "#,
     );

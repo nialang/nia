@@ -7,7 +7,7 @@ fn computes_separate_generic_struct_instance_layouts() {
     let (module, symbols) = parse_test_module(
         r#"
 struct ArrayBox[T] {
-values: [3]T,
+values: [T; 3],
 }
 
 fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}

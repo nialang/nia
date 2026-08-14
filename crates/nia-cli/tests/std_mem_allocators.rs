@@ -19,7 +19,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut storage: [256]u8 = [_]u8[0; 256];
+    let mut storage: [u8; 256] = [0; 256];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
 
     let mut list = std::ArrayList[i32]::init();
@@ -44,7 +44,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(3)!;
     }
 
-    let mut tiny: [8]u8 = [_]u8[0; 8];
+    let mut tiny: [u8; 8] = [0; 8];
     let mut failing = mem::FixedBufferAllocator::init(&mut tiny[..]);
     switch failing.allocBytes(16, 1) {
         !block => { _ = block;
@@ -631,7 +631,7 @@ extend CountingAllocator : mem::Allocator {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut storage: [64]u8 = [_]u8[0; 64];
+    let mut storage: [u8; 64] = [0; 64];
     let mut allocator = CountingAllocator::init(&mut storage);
     let old_layout = mem::Layout::init(4, 1).exit().?;
     let new_layout = mem::Layout::init(8, 1).exit().?;

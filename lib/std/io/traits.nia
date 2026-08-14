@@ -19,7 +19,7 @@ pub trait Writer {
     }
 
     fn writeByte(&mut self, byte: u8) Error!() {
-        let bytes: [1]u8 = [byte];
+        let bytes: [u8; 1] = [byte];
         self.writeAll(&bytes[..])
     }
 

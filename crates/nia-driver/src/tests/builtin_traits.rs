@@ -481,7 +481,7 @@ fn len_and_inherent_pointer_methods_model_arrays_and_slices() {
         &root.join("main.nia"),
         r##"
 fn main(slice: & [usize], slice_mut: &mut [usize]) usize {
-    let mut array: [4]i32 = [1, 2, 3, 4];
+    let mut array: [i32; 4] = [1, 2, 3, 4];
     let mut literal_ptr = (&b"nia\0").ptr();
     let mut read_ptr = slice.ptr();
     let mut write_ptr = slice_mut.ptrMut();
@@ -506,7 +506,7 @@ fn inherent_pointer_methods_do_not_apply_to_array_values() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    let mut array: [4]i32 = [1, 2, 3, 4];
+    let mut array: [i32; 4] = [1, 2, 3, 4];
     array.ptr().*
 }
 
@@ -802,7 +802,7 @@ fn builtin_slice_traits_allow_user_container_impls() {
         r#"
 struct Cell {}
 
-static mut backing: [3]i32 = [1, 2, 3];
+static mut backing: [i32; 3] = [1, 2, 3];
 
 extend Cell : Slice[..] {
     type Output = & [i32];
@@ -834,7 +834,7 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
     write(
         &root.join("main.nia"),
         r#"
-extend[T] [4]T : Slice[..] {
+extend[T] [T; 4] : Slice[..] {
     type Output = & [T];
 
     fn slice(& self, range: ..) & [T] {
@@ -1043,7 +1043,7 @@ fn builtin_slice_ranges_infer_usize_bounds() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    let mut items: [4]i32 = [1, 2, 3, 4];
+    let mut items: [i32; 4] = [1, 2, 3, 4];
     let mut part = & items[0..2];
     part.len() as i32
 }
@@ -1061,7 +1061,7 @@ fn builtin_slice_ranges_require_usize_bounds() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    let mut items: [4]i32 = [1, 2, 3, 4];
+    let mut items: [i32; 4] = [1, 2, 3, 4];
     let mut end: i32 = 2;
     let mut part = & items[0..end];
     part.len() as i32

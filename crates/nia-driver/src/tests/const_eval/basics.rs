@@ -80,7 +80,7 @@ pub const width: usize = 2 + 2;
 
 fn main() i32 {
     const local_width: usize = width;
-    let mut values: [local_width]i32 = [1, 2, 3, 4];
+    let mut values: [i32; local_width] = [1, 2, 3, 4];
     values[3]
 }
 "#,
@@ -104,7 +104,7 @@ const fn width(base: usize) usize {
 const n: usize = width(2);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -149,7 +149,7 @@ const bits: usize = 64usize;
 const n: usize = width(bits == 64);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -177,7 +177,7 @@ const bits: usize = 64usize;
 const n: usize = word_bytes(bits);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -204,7 +204,7 @@ const fn width(use_wide: bool) usize {
 const n: usize = width(true);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -233,7 +233,7 @@ const bits: usize = 64usize;
 const n: usize = word_bytes(bits);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -260,7 +260,7 @@ const fn select(value: (usize, (bool, usize))) usize {
 const n: usize = select((3usize, (true, 5usize)));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -287,7 +287,7 @@ const fn bucket(value: usize) usize {
 const n: usize = bucket(6);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -318,7 +318,7 @@ const some: ?usize = ?8usize;
 const n: usize = unwrap(some);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -349,7 +349,7 @@ const ok: usize!usize = !8;
 const n: usize = unwrap(ok);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -396,7 +396,7 @@ using entry::config;
 const width: usize = config::width(2);
 
 fn main() i32 {
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -427,7 +427,7 @@ const fn width(value: usize) usize {
 const arrayLen: usize = width(5);
 
 fn main(input: usize) i32 {
-    let values: [arrayLen]u8 = [0; arrayLen];
+    let values: [u8; arrayLen] = [0; arrayLen];
     width(input) as i32 + values.len() as i32
 }
 "#,
@@ -456,7 +456,7 @@ extend Width {
 const compileTimeWidth: usize = Width{value: 5}.doubled();
 
 fn main(input: usize) i32 {
-    let values: [compileTimeWidth]u8 = [0; compileTimeWidth];
+    let values: [u8; compileTimeWidth] = [0; compileTimeWidth];
     Width{value: input}.doubled() as i32 + values.len() as i32
 }
 "#,
@@ -485,7 +485,7 @@ extend Width {
 const compileTimeWidth: usize = Width::fromValue(5).value;
 
 fn main(input: usize) i32 {
-    let values: [compileTimeWidth]u8 = [0; compileTimeWidth];
+    let values: [u8; compileTimeWidth] = [0; compileTimeWidth];
     Width::fromValue(input).value as i32 + values.len() as i32
 }
 "#,
@@ -520,7 +520,7 @@ const associatedValue: usize = Box[usize]::fromValue(6).value();
 const arrayLen: usize = receiverValue + associatedValue;
 
 fn main(input: usize) i32 {
-    let values: [arrayLen]u8 = [0; arrayLen];
+    let values: [u8; arrayLen] = [0; arrayLen];
     Box[usize]::fromValue(input).value() as i32 + values.len() as i32
 }
 "#,
@@ -542,7 +542,7 @@ using entry::widths;
 const arrayLen: usize = widths::double(2) + widths::Width::fromValue(3).doubled();
 
 fn main(input: usize) i32 {
-    let values: [arrayLen]u8 = [0; arrayLen];
+    let values: [u8; arrayLen] = [0; arrayLen];
     widths::double(input) as i32
         + widths::Width::fromValue(input).doubled() as i32
         + values.len() as i32
@@ -616,7 +616,7 @@ const p: Point = Point{x: 2, y: 3};
 const width: usize = p.x + p.y;
 
 fn main() i32 {
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -640,7 +640,7 @@ struct Point {
 fn main() i32 {
     const p: Point = Point{x: 4, y: 2};
     const width: usize = p.x + p.y;
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -656,11 +656,11 @@ fn const_array_values_drive_index_access() {
     write(
         &root.join("main.nia"),
         r#"
-const widths: [3]usize = [2, 4, 8];
+const widths: [usize; 3] = [2, 4, 8];
 const width: usize = widths[1];
 
 fn main() i32 {
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -681,7 +681,7 @@ struct Config { width: usize }
 fn main() i32 {
     const configs = [Config { width: 2usize }, Config { width: 4usize }];
     const width: usize = configs[1].width;
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -698,14 +698,14 @@ fn const_struct_array_fields_are_ordinary_values() {
         &root.join("main.nia"),
         r#"
 struct Config {
-    widths: [3]usize,
+    widths: [usize; 3],
 }
 
 const config: Config = Config{widths: [2, 4, 8]};
 const width: usize = config.widths[2];
 
 fn main() i32 {
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -721,15 +721,15 @@ fn const_functions_accept_array_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn pick(widths: [3]usize, index: usize) usize {
+const fn pick(widths: [usize; 3], index: usize) usize {
     widths[index]
 }
 
-const widths: [3]usize = [2, 4, 8];
+const widths: [usize; 3] = [2, 4, 8];
 const width: usize = pick(widths, 2);
 
 fn main() i32 {
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -745,19 +745,19 @@ fn const_array_slices_are_ordinary_const_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn pair_sum(values: [2]usize) usize {
+const fn pair_sum(values: [usize; 2]) usize {
     values[0] + values[1]
 }
 
-const values: [4]usize = [1, 2, 3, 4];
-const middle: [2]usize = values[1..3];
-const prefix: [2]usize = values[..2];
-const suffix: [2]usize = values[2..];
+const values: [usize; 4] = [1, 2, 3, 4];
+const middle: [usize; 2] = values[1..3];
+const prefix: [usize; 2] = values[..2];
+const suffix: [usize; 2] = values[2..];
 const direct: usize = pair_sum(values[1..=2]);
 const n: usize = pair_sum(middle) + pair_sum(prefix) + pair_sum(suffix) + direct;
 
 fn main() i32 {
-    let mut array: [n]i32 = [0; n];
+    let mut array: [i32; n] = [0; n];
     array.len() as i32
 }
 "#,
@@ -802,7 +802,7 @@ const fallback: usize = switch none {
 };
 
 fn main() i32 {
-    let mut values: [width + fallback]i32 = [0; width + fallback];
+    let mut values: [i32; width + fallback] = [0; width + fallback];
     values.len() as i32
 }
 "#,
@@ -842,7 +842,7 @@ const fallback: usize = switch err {
 };
 
 fn main() i32 {
-    let mut values: [width + fallback]i32 = [0; width + fallback];
+    let mut values: [i32; width + fallback] = [0; width + fallback];
     values.len() as i32
 }
 "#,
@@ -901,7 +901,7 @@ const failureWidth: usize = switch failure {
 };
 
 fn main() i32 {
-    let values: [successWidth + failureWidth]i32 = [0; successWidth + failureWidth];
+    let values: [i32; successWidth + failureWidth] = [0; successWidth + failureWidth];
     values.len() as i32
 }
 "#,
@@ -948,7 +948,7 @@ const width: usize = switch failure {
 };
 
 fn main() i32 {
-    let values: [width]i32 = [0; width];
+    let values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,

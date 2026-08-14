@@ -88,8 +88,8 @@ fn global_edit_preserves_unrelated_static_init_semantic_value() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-static first: [4]u8 = [1, 2, 3, 4];
-static second: [4]u8 = [5, 6, 7, 8];
+static first: [u8; 4] = [1, 2, 3, 4];
+static second: [u8; 4] = [5, 6, 7, 8];
 
 fn main() u8 {
 first[0] + second[0]
@@ -151,8 +151,8 @@ first[0] + second[0]
     fixture.update_module_source(
         module_id,
         r#"
-static first: [4]u8 = [9, 2, 3, 4];
-static second: [4]u8 = [5, 6, 7, 8];
+static first: [u8; 4] = [9, 2, 3, 4];
+static second: [u8; 4] = [5, 6, 7, 8];
 
 fn main() u8 {
 first[0] + second[0]

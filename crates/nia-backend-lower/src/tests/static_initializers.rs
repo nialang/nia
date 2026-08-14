@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn o2_simplifies_zero_static_initializers() {
     let source = r#"
-static zeroes: [4]i32 = [0; 4];
+static zeroes: [i32; 4] = [0; 4];
 
 fn main() i32 {
     zeroes[0]
@@ -41,7 +41,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_zero_float_static_initializers() {
     let source = r#"
-static zeroes: [2]f64 = [0.0f64, 0.0];
+static zeroes: [f64; 2] = [0.0f64, 0.0];
 
 fn main() i32 {
     0
@@ -78,7 +78,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_empty_repeat_static_initializers() {
     let source = r#"
-static values: [0]i32 = [1; 0];
+static values: [i32; 0] = [1; 0];
 
 fn main() i32 {
     0
@@ -115,7 +115,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_repeated_static_array_initializers() {
     let source = r#"
-static values: [3]i32 = [7, 7, 7];
+static values: [i32; 3] = [7, 7, 7];
 
 fn main() i32 {
     values[0]
@@ -158,7 +158,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_repeated_byte_static_initializers() {
     let source = r#"
-static bytes: [3]u8 = b"aaa";
+static bytes: [u8; 3] = b"aaa";
 
 fn main() u8 {
     bytes[0]
@@ -187,7 +187,7 @@ fn main() u8 {
 #[test]
 fn o2_simplifies_repeated_char_static_initializers() {
     let source = r#"
-static text: [3]char = "aaa";
+static text: [char; 3] = "aaa";
 
 fn main() char {
     text[0]
@@ -216,8 +216,8 @@ fn main() char {
 #[test]
 fn size_levels_simplify_static_initializers_for_size() {
     let source = r#"
-static zeroes: [4]i32 = [0, 0, 0, 0];
-static values: [3]i32 = [7, 7, 7];
+static zeroes: [i32; 4] = [0, 0, 0, 0];
+static values: [i32; 3] = [7, 7, 7];
 
 fn main() i32 {
     zeroes[0] + values[0]
@@ -275,7 +275,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
-static zeroes: [4]i32 = [0; 4];
+static zeroes: [i32; 4] = [0; 4];
 
 fn main() i32 {
     zeroes[0]
@@ -314,7 +314,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_zero_float_static_initializers() {
     let source = r#"
-static zeroes: [2]f32 = [0.0f32, 0.0f32];
+static zeroes: [f32; 2] = [0.0f32, 0.0f32];
 
 fn main() i32 {
     0
@@ -350,7 +350,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_repeated_static_array_initializers() {
     let source = r#"
-static values: [3]i32 = [7, 7, 7];
+static values: [i32; 3] = [7, 7, 7];
 
 fn main() i32 {
     values[0]
@@ -386,8 +386,8 @@ fn main() i32 {
 #[test]
 fn o1_preserves_repeated_string_static_initializers() {
     let source = r#"
-static bytes: [3]u8 = b"aaa";
-static text: [3]char = "aaa";
+static bytes: [u8; 3] = b"aaa";
+static text: [char; 3] = "aaa";
 
 fn main() u8 {
     bytes[0]

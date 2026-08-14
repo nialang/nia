@@ -18,7 +18,7 @@ fn main() u8 {
     let mut ok: u8 = 255;
     let mut too_large: u8 = 256;
     let mut negative: u8 = -1;
-    let mut xs: [2]u8 = [0, 256];
+    let mut xs: [u8; 2] = [0, 256];
     let mut b = Bytes { first: 300 };
     _ = take_byte(128);
     _ = take_byte(999);

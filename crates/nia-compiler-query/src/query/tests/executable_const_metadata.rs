@@ -16,7 +16,7 @@ missing_symbol
 }
 
 fn main() i32 {
-let mut values: [len()]i32 = [0; len()];
+let mut values: [i32; len()] = [0; len()];
 values[0]
 }
 "#,

@@ -61,7 +61,7 @@ fn sumMutView(values: &mut [i32]) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let values: [5]i32 = [2, 3, 5, 7, 11];
+    let values: [i32; 5] = [2, 3, 5, 7, 11];
     if sum(&values) != 28 {
         return process::exit(1)!;
     }
@@ -74,7 +74,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(2)!;
     }
 
-    let mut writable: [3]i32 = [10, 20, 30];
+    let mut writable: [i32; 3] = [10, 20, 30];
     if sumMutView(&mut writable) != 60 {
         return process::exit(3)!;
     }
@@ -241,7 +241,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         null => { return process::exit(20)!; },
     }
 
-    let mut checked: [4]i32 = [1, 2, 3, 4];
+    let mut checked: [i32; 4] = [1, 2, 3, 4];
     let mut checkedSlice = &mut checked[..];
     switch checkedSlice.getMut(1) {
         mut ?value => { value.* = 20; },
@@ -267,8 +267,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(25)!;
     }
 
-    let mut wideCopy: [5]i32 = [0, 0, 0, 44, 55];
-    let wideSource: [3]i32 = [11, 22, 33];
+    let mut wideCopy: [i32; 5] = [0, 0, 0, 44, 55];
+    let wideSource: [i32; 3] = [11, 22, 33];
     let mut wideCopyView = &mut wideCopy[..];
     if wideCopyView.copyFrom(&wideSource) != 3
         or wideCopy[0] != 11
@@ -280,7 +280,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(31)!;
     }
 
-    let mut shortCopy: [2]i32 = [0, 0];
+    let mut shortCopy: [i32; 2] = [0, 0];
     let mut shortCopyView = &mut shortCopy[..];
     if shortCopyView.copyFrom(&wideSource) != 2
         or shortCopy[0] != 11
@@ -289,26 +289,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(32)!;
     }
 
-    let mut overlapRight: [5]i32 = [1, 2, 3, 4, 5];
+    let mut overlapRight: [i32; 5] = [1, 2, 3, 4, 5];
     if (&mut overlapRight[1..]).copyFrom(&overlapRight[0..4]) != 4
         or not (&overlapRight[..]).equals(&[1, 1, 2, 3, 4])
     {
         return process::exit(33)!;
     }
-    let mut overlapLeft: [5]i32 = [1, 2, 3, 4, 5];
+    let mut overlapLeft: [i32; 5] = [1, 2, 3, 4, 5];
     if (&mut overlapLeft[0..4]).copyFrom(&overlapLeft[1..]) != 4
         or not (&overlapLeft[..]).equals(&[2, 3, 4, 5, 5])
     {
         return process::exit(34)!;
     }
 
-    let mut markers: [2]Marker = [Marker {}, Marker {}];
-    let markerSource: [3]Marker = [Marker {}, Marker {}, Marker {}];
+    let mut markers: [Marker; 2] = [Marker {}, Marker {}];
+    let markerSource: [Marker; 3] = [Marker {}, Marker {}, Marker {}];
     if (&mut markers[..]).copyFrom(&markerSource) != 2 {
         return process::exit(35)!;
     }
 
-    let mut emptyCopy: [0]i32 = [];
+    let mut emptyCopy: [i32; 0] = [];
     if (&mut emptyCopy[..]).copyFrom(&wideSource) != 0
         or wideCopyView.copyFrom(&emptyCopy) != 0
     {
@@ -327,7 +327,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(36)!;
     }
 
-    let sequence: [5]i32 = [1, 2, 1, 2, 3];
+    let sequence: [i32; 5] = [1, 2, 1, 2, 3];
     let sequenceView = &sequence[..];
     if not sequenceView.equals(&[1, 2, 1, 2, 3])
         or sequenceView.equals(&[1, 2, 1, 2])
@@ -338,7 +338,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     {
         return process::exit(26)!;
     }
-    let emptyStorage: [0]i32 = [];
+    let emptyStorage: [i32; 0] = [];
     let emptyValues = &emptyStorage[..];
     if not foundAt(sequenceView.find(&[1, 2, 3]), 2)
         or not foundAt(sequenceView.find(emptyValues), 0)
@@ -362,21 +362,21 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(29)!;
     }
 
-    let tokens: [4]Token = [
+    let tokens: [Token; 4] = [
         Token { value: 4 },
         Token { value: 5 },
         Token { value: 4 },
         Token { value: 6 },
     ];
-    let tokenNeedle: [2]Token = [Token { value: 5 }, Token { value: 4 }];
+    let tokenNeedle: [Token; 2] = [Token { value: 5 }, Token { value: 4 }];
     if not (&tokens[..]).contains(&tokenNeedle[..])
         or not foundAt((&tokens[..]).find(&tokenNeedle[..]), 1)
     {
         return process::exit(30)!;
     }
 
-    let separated: [8]i32 = [0, 1, 0, 0, 2, 0, 3, 0];
-    let separator: [1]i32 = [0];
+    let separated: [i32; 8] = [0, 1, 0, 0, 2, 0, 3, 0];
+    let separator: [i32; 1] = [0];
     let mut partIndex = 0;
     for part in (&separated[..]).split(&separator) {
         let matches = if partIndex == 0 or partIndex == 2 or partIndex == 5 {
@@ -415,8 +415,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(42)!;
     }
 
-    let overlappingItems: [5]i32 = [1, 1, 1, 1, 1];
-    let overlappingSeparator: [2]i32 = [1, 1];
+    let overlappingItems: [i32; 5] = [1, 1, 1, 1, 1];
+    let overlappingSeparator: [i32; 2] = [1, 1];
     let mut overlappingIndex = 0;
     for part in (&overlappingItems[..]).split(&overlappingSeparator) {
         if overlappingIndex == 0 or overlappingIndex == 1 {

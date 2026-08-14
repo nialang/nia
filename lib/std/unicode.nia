@@ -2,7 +2,7 @@ using pkg::iter;
 using pkg::iter::range;
 
 pub struct Utf8Scalar {
-    bytes: [4]u8,
+    bytes: [u8; 4],
     byteLen: usize,
 }
 
@@ -32,7 +32,7 @@ pub enum Utf8DecodeError: i32 {
 }
 
 extend Utf8Scalar {
-    fn init(bytes: [4]u8, byteLen: usize) Utf8Scalar {
+    fn init(bytes: [u8; 4], byteLen: usize) Utf8Scalar {
         Self { bytes, byteLen }
     }
 

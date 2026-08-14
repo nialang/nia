@@ -93,7 +93,7 @@ fn emits_only_referenced_declarations_for_codegen_program() {
         &main,
         r#"
 extern fn puts(s: &u8) i32;
-static hello: [6]u8 = b"hello\0";
+static hello: [u8; 6] = b"hello\0";
 
 extern struct Point {
     x: i32,
@@ -241,7 +241,7 @@ fn vector_union_storage_uses_shared_native_alignment() {
         r#"
 union WideSlot {
     vector: u8x32,
-    bytes: [32]u8,
+    bytes: [u8; 32],
 }
 
 fn wrap(vector: u8x32) WideSlot {

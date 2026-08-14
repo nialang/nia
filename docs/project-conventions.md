@@ -63,20 +63,20 @@ binding intentionally checks a wider contract:
 
 ```nia
 let point = Point { x: 10, y: 20 };
-let values: [3]i32 = [1, 2, 3];
+let values: [i32; 3] = [1, 2, 3];
 ```
 
-Keep the nominal prefix when the aggregate stands alone or is nested. For
-arrays, use an explicit expression type when the length should be inferred at
-the construction site:
+Keep the nominal prefix when a nominal aggregate stands alone or is nested.
+Arrays have no expression-level type prefix; use expected-type context or an
+element suffix when a standalone literal needs an explicit constraint:
 
 ```nia
 consume(Point { x: 10, y: 20 });
-let values = [_]i32[1, 2, 3];
+let values = [1i64, 2, 3];
 ```
 
-Do not spell the same inferred array element type on both sides unless the test
-is specifically about contextual and explicit array literal syntax.
+Do not spell the same inferred array element type on both sides unless a test is
+specifically about contextual array checking or inferred array lengths.
 
 When a call or binding already expects a slice, take the array's address and let
 the pointer-array-to-slice coercion apply:

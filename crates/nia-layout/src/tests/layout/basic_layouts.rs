@@ -11,7 +11,7 @@ a: u8,
 b: i32,
 }
 
-fn main(p: &Pair, xs: [3]u16) {}
+fn main(p: &Pair, xs: [u16; 3]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module);

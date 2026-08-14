@@ -505,7 +505,7 @@ fn effect(value: i32) () {
 }
 
 fn take(value: Wrap) () {}
-fn take_array(value: [2]()) () {}
+fn take_array(value: [(); 2]) () {}
 
 fn main() i32 {
     let mut local = Wrap { value: effect(1) };

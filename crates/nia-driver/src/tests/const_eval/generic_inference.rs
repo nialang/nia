@@ -14,7 +14,7 @@ const fn id[T](value: T) T {
 const n: usize = id[usize](4usize);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -37,7 +37,7 @@ const fn id[T](value: T) T {
 const n: usize = id(4usize);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -60,7 +60,7 @@ const fn id[T](value: T) T {
 const n: usize = id(4usize + 3usize);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -91,7 +91,7 @@ const fn choose(value: bool) usize {
 const n: usize = choose(id((4usize + 3usize) == 7usize));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -124,7 +124,7 @@ const b: bool = id(not false);
 const n: usize = choose(a and b);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -155,7 +155,7 @@ const fn magnitude(value: i32) usize {
 const n: usize = magnitude(id(-4i32));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -182,7 +182,7 @@ const n: usize = id(if true {
 });
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -220,7 +220,7 @@ const n: usize = unwrap(id(if true {
 }));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -249,7 +249,7 @@ const n: usize = id(if true {
 });
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -276,7 +276,7 @@ const n: usize = id(switch 2usize {
 });
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -363,7 +363,7 @@ const n: usize = switch value {
 };
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -394,7 +394,7 @@ const n: usize = switch value {
 };
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -410,14 +410,14 @@ fn generic_const_function_infers_type_arg_from_array_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn second[T](values: [2]T) T {
+const fn second[T](values: [T; 2]) T {
     values[1]
 }
 
 const n: usize = second([4usize, 8usize]);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -433,14 +433,14 @@ fn generic_const_function_infers_type_arg_from_array_repeat_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn first[T](values: [2]T) T {
+const fn first[T](values: [T; 2]) T {
     values[0]
 }
 
 const n: usize = first([8usize; 2]);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -481,7 +481,7 @@ fn generic_const_function_infers_type_arg_from_contextual_array_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn first_some[T](values: [2]?T) T {
+const fn first_some[T](values: [?T; 2]) T {
     switch values[0] {
         ?payload => {
             payload
@@ -498,7 +498,7 @@ const fn first_some[T](values: [2]?T) T {
 const n: usize = first_some([null, ?8usize]);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -526,7 +526,7 @@ const fn right[T](pair: Pair[T]) T {
 const n: usize = right(Pair[usize] { left: 4usize, right: 8usize });
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -564,7 +564,7 @@ const fn pick[T](slot: Slot[T]) T {
 const n: usize = pick(Slot[usize] { primary: null, fallback: ?8usize });
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -593,7 +593,7 @@ const point: Point = Point{x: 4, y: 8};
 const n: usize = id(point.y);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -630,7 +630,7 @@ const fn id[T](value: T) T {
 const n: usize = id(config::point.x);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -662,7 +662,7 @@ const fn right_id[T](pair: Pair[T]) T {
 const n: usize = right_id(Pair[usize] { left: 4usize, right: 8usize });
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -686,7 +686,7 @@ const width: usize = 4;
 const n: usize = id(width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -710,7 +710,7 @@ const width = 4usize;
 const n: usize = id(width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -733,7 +733,7 @@ const fn id[T](value: T) T {
 fn main() i32 {
     const width = 4usize;
     const n: usize = id(width);
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -756,7 +756,7 @@ const fn id[T](value: T) T {
 fn main() i32 {
     const width = 4usize;
     const n: usize = id(width);
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -782,7 +782,7 @@ struct Config { target: Target }
 fn main() i32 {
     const config = Config { target: Target { word_bits: 64usize } };
     const n: usize = id(config.target.word_bits) / 8usize;
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -812,7 +812,7 @@ using entry::helpers;
 fn main() i32 {
     const width = 4usize;
     const n: usize = helpers::id(width);
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -848,7 +848,7 @@ using entry::helpers;
 
 fn main() i32 {
     const n: usize = helpers::word_bytes();
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -880,7 +880,7 @@ const fn id[T](value: T) T {
 const n: usize = id(config::width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,

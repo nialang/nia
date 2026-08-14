@@ -218,7 +218,7 @@ struct S {
 }
 
 struct T {
-    xs: [256]S,
+    xs: [S; 256],
 }
 
 fn main() i32 {
@@ -279,7 +279,7 @@ pub struct Item {
 }
 
 pub struct Bag {
-    items: [4]Item,
+    items: [Item; 4],
 }
 
 pub fn make_item(value: i32) Item {
@@ -700,7 +700,7 @@ pub struct Header {
 }
 
 pub struct Box {
-    bytes: [std::builtin::size[Header]()]u8,
+    bytes: [u8; std::builtin::size[Header]()],
 }
 
 pub fn make_box() Box {

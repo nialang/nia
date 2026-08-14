@@ -10,7 +10,7 @@ const width: usize = 4;
 
 fn main() i32 {
 const local_width: usize = width;
-static xs: [local_width]i32 = [1, 2, 3, 4];
+static xs: [i32; local_width] = [1, 2, 3, 4];
 xs[0]
 }
 "#,
@@ -52,6 +52,35 @@ xs[0]
                 .get(&ConstKey::Local(local_id))
                 .is_some_and(|typed| typed.ty == ConstValueType::Runtime(usize_ty))
     }));
+}
+
+#[test]
+fn reference_expected_type_reaches_nested_const_array_elements() {
+    let fixture = check_source(
+        r#"
+union Item {
+    pointer: &usize,
+    integer: usize,
+}
+
+union Slot {
+    pointer: &[Item; 2],
+    integer: usize,
+}
+
+const ITEMS: Slot = Slot {
+    pointer: &[
+        Item { pointer: &11usize },
+        Item { pointer: &13usize },
+    ],
+};
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
 }
 
 #[test]
@@ -329,11 +358,11 @@ const WIDTH: usize = 4;
 
 union Bytes {
     word: u32,
-    bytes: [WIDTH]u8,
+    bytes: [u8; WIDTH],
 }
 
 const DATA: Bytes = Bytes { word: 287454020 };
-const VALUE: [WIDTH]u8 = DATA.bytes;
+const VALUE: [u8; WIDTH] = DATA.bytes;
 "#;
     let mut little_target = nia_target_config::TargetConfig::host();
     little_target.endian = "little".to_string();
@@ -377,12 +406,12 @@ fn nested_scalar_array_union_fields_preserve_element_layout() {
     let fixture = check_source_for_target(
         r#"
 union MatrixBytes {
-    matrix: [2][2]u16,
-    bytes: [8]u8,
+    matrix: [[u16; 2]; 2],
+    bytes: [u8; 8],
 }
 
 const DATA: MatrixBytes = MatrixBytes { matrix: [[4386, 13124], [21862, 30600]] };
-const BYTES: [8]u8 = DATA.bytes;
+const BYTES: [u8; 8] = DATA.bytes;
 "#,
         target,
     );
@@ -410,11 +439,11 @@ fn scalar_array_union_layout_builtin_lengths_use_artifact_pointer_width() {
         r#"
 union WordBytes {
     word: usize,
-    bytes: [std::builtin::size[usize]()]u8,
+    bytes: [u8; std::builtin::size[usize]()],
 }
 
 const DATA: WordBytes = WordBytes { word: 16909060 };
-const BYTES: [std::builtin::size[usize]()]u8 = DATA.bytes;
+const BYTES: [u8; std::builtin::size[usize]()] = DATA.bytes;
 "#,
         target,
     );
@@ -441,18 +470,18 @@ fn scalar_array_union_writes_round_trip_and_validate_elements() {
         r#"
 union Bytes {
     word: u32,
-    bytes: [4]u8,
+    bytes: [u8; 4],
 }
 
 union Flags {
-    raw: [2]u8,
-    values: [2]bool,
+    raw: [u8; 2],
+    values: [bool; 2],
 }
 
-const DATA: Bytes = Bytes { bytes: [4]u8[4, 3, 2, 1] };
+const DATA: Bytes = Bytes { bytes: [4, 3, 2, 1] };
 const WORD: u32 = DATA.word;
-const INVALID: Flags = Flags { raw: [2]u8[0, 2] };
-const VALUES: [2]bool = INVALID.values;
+const INVALID: Flags = Flags { raw: [0, 2] };
+const VALUES: [bool; 2] = INVALID.values;
 "#,
         target,
     );
@@ -480,16 +509,16 @@ fn generic_scalar_array_union_is_encoded_after_element_substitution() {
     let fixture = check_source_for_target(
         r#"
 union PairBytes[T] {
-    values: [2]T,
-    bytes: [8]u8,
+    values: [T; 2],
+    bytes: [u8; 8],
 }
 
-const fn encode[T](values: [2]T) [8]u8 {
+const fn encode[T](values: [T; 2]) [u8; 8] {
     let pair = PairBytes[T] { values: values };
     pair.bytes
 }
 
-const BYTES: [8]u8 = encode[u32]([2]u32[287454020, 1432778632]);
+const BYTES: [u8; 8] = encode[u32]([287454020, 1432778632]);
 "#,
         target,
     );
@@ -521,14 +550,14 @@ struct Padded {
 
 union PaddedBytes {
     value: Padded,
-    prefix: [5]u8,
-    bytes: [8]u8,
+    prefix: [u8; 5],
+    bytes: [u8; 8],
 }
 
 const DATA: PaddedBytes = PaddedBytes { value: Padded { marker: 170, word: 287454020 } };
 const ROUND_TRIP: Padded = DATA.value;
-const PREFIX: [5]u8 = DATA.prefix;
-const INVALID_PADDING_READ: [8]u8 = DATA.bytes;
+const PREFIX: [u8; 5] = DATA.prefix;
+const INVALID_PADDING_READ: [u8; 8] = DATA.bytes;
 "#,
         target,
     );
@@ -581,7 +610,7 @@ struct Pair[T] {
 
 union PairBytes[T] {
     value: Pair[T],
-    prefix: [5]u8,
+    prefix: [u8; 5],
 }
 
 struct Flags {
@@ -590,17 +619,17 @@ struct Flags {
 }
 
 union FlagBytes {
-    raw: [2]u8,
+    raw: [u8; 2],
     flags: Flags,
 }
 
-const fn encode[T](value: Pair[T]) [5]u8 {
+const fn encode[T](value: Pair[T]) [u8; 5] {
     let slot = PairBytes[T] { value: value };
     slot.prefix
 }
 
-const BYTES: [5]u8 = encode[u32](Pair[u32] { marker: 170, value: 287454020 });
-const INVALID: FlagBytes = FlagBytes { raw: [2]u8[0, 2] };
+const BYTES: [u8; 5] = encode[u32](Pair[u32] { marker: 170, value: 287454020 });
+const INVALID: FlagBytes = FlagBytes { raw: [0, 2] };
 const FLAGS: Flags = INVALID.flags;
 "#,
         target,
@@ -634,7 +663,7 @@ fn const_generic_nominal_struct_union_fields_use_concrete_array_layout() {
         r#"
 struct Packet[T, N: usize, U] {
     marker: T,
-    values: [N]U,
+    values: [U; N],
 }
 
 struct Flagged[Enabled: bool] {
@@ -643,20 +672,20 @@ struct Flagged[Enabled: bool] {
 
 union PacketBytes[T, N: usize, U] {
     value: Packet[T, N, U],
-    prefix: [5]u8,
-    all: [6]u8,
+    prefix: [u8; 5],
+    all: [u8; 6],
 }
 
 const WIDTH: usize = 2;
 const ENABLED: bool = true;
 const DATA: PacketBytes[u8, WIDTH, u16] = PacketBytes[u8, WIDTH, u16] {
-    value: Packet[u8, WIDTH, u16] { marker: 170, values: [2]u16[4386, 13124] },
+    value: Packet[u8, WIDTH, u16] { marker: 170, values: [4386, 13124] },
 };
-const PREFIX: [5]u8 = DATA.prefix;
+const PREFIX: [u8; 5] = DATA.prefix;
 const ROUND_TRIP: Packet[u8, 2, u16] = DATA.value;
 const FLAGGED: Flagged[ENABLED] = Flagged[ENABLED] { value: 7 };
 const FLAGGED_LITERAL: Flagged[true] = FLAGGED;
-const INVALID_PADDING_READ: [6]u8 = DATA.all;
+const INVALID_PADDING_READ: [u8; 6] = DATA.all;
 "#,
         target,
     );
@@ -885,12 +914,12 @@ const fn insert[V](vector: V, index: usize, value: u16) V;
 
 union VectorBytes {
     vector: u16x2,
-    bytes: [4]u8,
+    bytes: [u8; 4],
 }
 
 const VECTOR: u16x2 = insert[u16x2](splat[u16x2](4386), 1, 13124);
 const STORAGE: VectorBytes = VectorBytes { vector: VECTOR };
-const BYTES: [4]u8 = STORAGE.bytes;
+const BYTES: [u8; 4] = STORAGE.bytes;
 "#,
             target,
         );
@@ -926,12 +955,12 @@ const fn insert[V](vector: V, index: usize, value: usize) V;
 
 union VectorBytes {{
     vector: usizex2,
-    bytes: [{bytes_len}]u8,
+    bytes: [u8; {bytes_len}],
 }}
 
 const VECTOR: usizex2 = insert[usizex2](splat[usizex2](1), 1, 2);
 const STORAGE: VectorBytes = VectorBytes {{ vector: VECTOR }};
-const BYTES: [{bytes_len}]u8 = STORAGE.bytes;
+const BYTES: [u8; {bytes_len}] = STORAGE.bytes;
 "#,
         );
         let fixture = check_source_for_target(&source, target);
@@ -964,12 +993,12 @@ const fn insert[V](vector: V, index: usize, value: f32) V;
 
 union VectorWords {
     vector: f32x2,
-    words: [2]u32,
+    words: [u32; 2],
 }
 
 const VECTOR: f32x2 = insert[f32x2](splat[f32x2](1.0), 1, -2.5);
 const STORAGE: VectorWords = VectorWords { vector: VECTOR };
-const WORDS: [2]u32 = STORAGE.words;
+const WORDS: [u32; 2] = STORAGE.words;
 "#,
     );
     assert!(

@@ -157,7 +157,7 @@ extend Formatter {
     }
 
     pub fn write_byte(&mut self, byte: u8) Error!() {
-        let bytes: [1]u8 = [byte];
+        let bytes: [u8; 1] = [byte];
         self.write_bytes(&bytes[..])
     }
 
@@ -357,7 +357,7 @@ extend Formatter {
         if value == 0u128 {
             self.write_byte(b'0')
         } else {
-            let mut digits: [39]u8 = [
+            let mut digits: [u8; 39] = [
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

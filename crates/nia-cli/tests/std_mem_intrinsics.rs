@@ -111,40 +111,40 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let mut ints: [3]i32 = [0, 0, 0];
-    let source_ints: [3]i32 = [7, 8, 9];
+    let mut ints: [i32; 3] = [0, 0, 0];
+    let source_ints: [i32; 3] = [7, 8, 9];
     std::builtin::memcpy(&mut ints[..], &source_ints[..]);
     if ints[0] != 7 or ints[1] != 8 or ints[2] != 9 {
         return process::exit(1)!;
     }
 
-    let mut wide: [5]i32 = [0, 0, 0, 44, 55];
-    let short: [3]i32 = [11, 22, 33];
+    let mut wide: [i32; 5] = [0, 0, 0, 44, 55];
+    let short: [i32; 3] = [11, 22, 33];
     std::builtin::memcpy(&mut wide[..], &short[..]);
     if wide[0] != 11 or wide[1] != 22 or wide[2] != 33 or wide[3] != 44 or wide[4] != 55 {
         return process::exit(4)!;
     }
 
-    let mut narrow: [4]u8 = [0, 0, 77, 88];
-    let long: [4]u8 = [10, 20, 30, 40];
+    let mut narrow: [u8; 4] = [0, 0, 77, 88];
+    let long: [u8; 4] = [10, 20, 30, 40];
     std::builtin::memcpy(&mut narrow[0..2], &long[..]);
     if narrow[0] != 10 or narrow[1] != 20 or narrow[2] != 77 or narrow[3] != 88 {
         return process::exit(5)!;
     }
 
-    let mut overlap: [5]u8 = [1, 2, 3, 4, 5];
+    let mut overlap: [u8; 5] = [1, 2, 3, 4, 5];
     std::builtin::memmove(&mut overlap[1..], &overlap[0..4]);
     if overlap[0] != 1 or overlap[1] != 1 or overlap[2] != 2 or overlap[3] != 3 or overlap[4] != 4 {
         return process::exit(2)!;
     }
 
-    let mut short_move: [4]u8 = [9, 8, 7, 6];
+    let mut short_move: [u8; 4] = [9, 8, 7, 6];
     std::builtin::memmove(&mut short_move[0..2], &short_move[1..4]);
     if short_move[0] != 8 or short_move[1] != 7 or short_move[2] != 7 or short_move[3] != 6 {
         return process::exit(6)!;
     }
 
-    let mut bytes: [4]u8 = [1, 2, 3, 4];
+    let mut bytes: [u8; 4] = [1, 2, 3, 4];
     std::builtin::memset(&mut bytes[1..3], 9);
     if bytes[0] != 1 or bytes[1] != 9 or bytes[2] != 9 or bytes[3] != 4 {
         return process::exit(3)!;
@@ -199,8 +199,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut dest: [2]u8 = [0; 2];
-    let source: [2]u8 = [b'a', b'b'];
+    let mut dest: [u8; 2] = [0; 2];
+    let source: [u8; 2] = [b'a', b'b'];
     helper::copy_prefix[u8](&mut dest[..], &source[..]);
     if dest[0] != b'a' or dest[1] != b'b' {
         return process::exit(1)!;
@@ -291,7 +291,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut data: [3]i32 = [10, 20, 30];
+    let mut data: [i32; 3] = [10, 20, 30];
     let mut total = 0;
     for &value in (&data[..]).iter_custom() {
         total += value;

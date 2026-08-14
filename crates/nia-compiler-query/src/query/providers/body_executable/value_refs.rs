@@ -542,10 +542,6 @@ impl<'ast> nia_ast_walk::Visitor<'ast> for ExecutableValueRefCollector<'_> {
         match &expr.kind {
             nia_ast::ExprKind::ArrayLiteral {
                 elems: nia_ast::ArrayElements::Repeat { value, .. },
-            }
-            | nia_ast::ExprKind::TypedArrayLiteral {
-                elems: nia_ast::ArrayElements::Repeat { value, .. },
-                ..
             } => self.visit_expr(value),
             _ => nia_ast_walk::walk_expr(self, expr),
         }

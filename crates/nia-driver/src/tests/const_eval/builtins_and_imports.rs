@@ -49,7 +49,7 @@ const bits: usize = builtin.target.pointer_width;
 const word_bytes: usize = bits / 8;
 
 fn main() i32 {
-    let mut bytes: [word_bytes]u8 = [0; word_bytes];
+    let mut bytes: [u8; word_bytes] = [0; word_bytes];
     bytes.len() as i32
 }
 "#,
@@ -195,7 +195,7 @@ fn const_function_rejects_nominal_array_field_assignment_type_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-struct Target { os: [5]char, pointer_width: usize }
+struct Target { os: [char; 5], pointer_width: usize }
 struct Config { target: Target }
 
 const fn width() usize {
@@ -285,7 +285,7 @@ module config;
 using entry::config;
 
 fn main() i32 {
-    let mut values: [config::width]i32 = [1, 2, 3, 4];
+    let mut values: [i32; config::width] = [1, 2, 3, 4];
     values[config::width - 1]
 }
 "#,
@@ -316,7 +316,7 @@ const pair_size: usize = std::builtin::size[Pair]();
 const pair_align: usize = std::builtin::align[Pair]();
 
 fn main() i32 {
-    let mut bytes: [pair_size]u8 = [0; pair_size];
+    let mut bytes: [u8; pair_size] = [0; pair_size];
     bytes.len() as i32 + pair_align as i32
 }
 "#,
@@ -336,7 +336,7 @@ fn embed_reads_bytes_relative_to_source_file() {
         r#"
 const payload = std::builtin::embed("assets/payload.bin");
 
-const fn score(bytes: [3]u8) usize {
+const fn score(bytes: [u8; 3]) usize {
     if bytes[0] == b'n' and bytes[1] == b'i' and bytes[2] == b'a' {
         bytes.len()
     } else {
@@ -347,7 +347,7 @@ const fn score(bytes: [3]u8) usize {
 const n: usize = score(payload);
 
 fn main() i32 {
-    let mut values: [n]u8 = [0; n];
+    let mut values: [u8; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -427,7 +427,7 @@ const invalidWidth: usize = switch surrogate {
 };
 
 fn main() i32 {
-    let values: [width + invalidWidth]u8 = [0; width + invalidWidth];
+    let values: [u8; width + invalidWidth] = [0; width + invalidWidth];
     values.len() as i32
 }
 "#,

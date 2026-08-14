@@ -302,8 +302,8 @@ layout and lifetime contract.
 Arrays are contiguous repeated element storage:
 
 ```text
-[N]T size  = N * size(T)
-[N]T align = align(T)
+[T; N] size  = N * size(T)
+[T; N] align = align(T)
 ```
 
 Array length must be concrete by layout time.
@@ -790,7 +790,7 @@ and repeated nonzero array, byte-string, or char-string data may be canonicalize
 to an equivalent repeated initializer. The global's type, layout, addressability,
 and element values remain the same as the explicit initializer. LLVM codegen may
 also emit repeated byte-array initializers as equivalent constant strings; this
-is a backend-visible encoding choice for the same `[N]u8` object, not a new
+is a backend-visible encoding choice for the same `[u8; N]` object, not a new
 static data representation.
 
 Aggregate codegen cleanup is also representation-preserving. An aggregate

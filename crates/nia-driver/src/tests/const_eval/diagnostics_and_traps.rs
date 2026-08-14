@@ -344,7 +344,7 @@ fn unused_const_function_accepts_parameter_indexed_assignment() {
         &root.join("main.nia"),
         r#"
 const fn update(index: usize) usize {
-    let mut values: [2]usize = [1, 2];
+    let mut values: [usize; 2] = [1, 2];
     values[index] += 1;
     values[0]
 }
@@ -690,7 +690,7 @@ fn runtimeOnly() usize {
 }
 
 const fn wrongArray() usize {
-    let values: [2]usize = [true, runtimeOnly(), 3usize];
+    let values: [usize; 2] = [true, runtimeOnly(), 3usize];
     0
 }
 
@@ -732,7 +732,7 @@ fn unused_const_function_rejects_non_integer_array_repeat_count() {
         &root.join("main.nia"),
         r#"
 const fn wrongRepeat() usize {
-    let values: [2]usize = [1usize; true];
+    let values: [usize; 2] = [1usize; true];
     0
 }
 
@@ -783,7 +783,7 @@ fn unused_generic_const_function_accepts_contextual_array_elements() {
     write(
         &root.join("main.nia"),
         r#"
-const fn copy[T](values: [2]T) [2]T {
+const fn copy[T](values: [T; 2]) [T; 2] {
     [values[0usize], values[1usize]]
 }
 
@@ -806,7 +806,7 @@ fn runtimeOnly() usize {
 }
 
 const fn wrongIndexes() usize {
-    let values: [2]usize = [1usize, 2usize];
+    let values: [usize; 2] = [1usize, 2usize];
     values[true];
     values[3usize];
     values[-1];
@@ -820,7 +820,7 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
-        "trait bound not satisfied: [2]usize: Index[bool]",
+        "trait bound not satisfied: [usize; 2]: Index[bool]",
         "trait bound not satisfied: usize: Index[usize]",
         "const expression can only call `const fn`",
     ] {
@@ -846,7 +846,7 @@ fn runtimeOnly() usize {
 }
 
 const fn wrongSlices(start: usize) usize {
-    let values: [2]usize = [1usize, 2usize];
+    let values: [usize; 2] = [1usize, 2usize];
     values[true..runtimeOnly()];
     values[-1..1];
     values[0..-1];
@@ -855,7 +855,7 @@ const fn wrongSlices(start: usize) usize {
     values[1usize..3usize];
     values[0usize..=18446744073709551615usize];
     0usize[0usize..1usize];
-    let narrow: [1]usize = values[0usize..2usize];
+    let narrow: [usize; 1] = values[0usize..2usize];
     0
 }
 
@@ -888,7 +888,7 @@ fn unused_const_function_accepts_parameter_dependent_index() {
         &root.join("main.nia"),
         r#"
 const fn inspect(
-    values: [4]usize,
+    values: [usize; 4],
     index: usize,
 ) usize {
     values[index]
@@ -920,42 +920,6 @@ fn main() i32 { 0 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-}
-
-#[test]
-fn unused_const_function_audits_typed_array_literal() {
-    let root = temp_dir("unused_const_function_audits_typed_array_literal");
-    write(
-        &root.join("main.nia"),
-        r#"
-fn runtimeOnly() usize {
-    1
-}
-
-const fn wrongTypedArray() usize {
-    [2]usize[true, runtimeOnly(), 3usize];
-    0
-}
-
-fn main() i32 { 0 }
-"#,
-    );
-
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    for message in [
-        "type mismatch in array literal element",
-        "const expression can only call `const fn`",
-        "array literal length mismatch: expected 2, got 3",
-    ] {
-        assert!(
-            program
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
-            "missing {message:?}: {:?}",
-            program.diagnostics
-        );
-    }
 }
 
 #[test]
@@ -1448,7 +1412,7 @@ fn const_rejects_runtime_local_dependency() {
 fn main() i32 {
     let mut runtime = 4;
     const n: usize = runtime;
-    let mut values: [n]i32 = [1, 2, 3, 4];
+    let mut values: [i32; n] = [1, 2, 3, 4];
     values[0]
 }
 "#,
@@ -1755,7 +1719,7 @@ fn unused_const_function_accepts_scalar_array_union_fields() {
         &root.join("main.nia"),
         r#"
 union Payload {
-    bytes: [2]u8,
+    bytes: [u8; 2],
     integer: u16,
 }
 

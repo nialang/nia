@@ -114,11 +114,6 @@ fn lower_expr_internal(
             index: *index,
         },
         nia_ast::ExprKind::ArrayLiteral { elems } => EarlyConstExprKind::ArrayLiteral {
-            ty: None,
-            elems: lower_array_elements_with_context(elems, context)?,
-        },
-        nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => EarlyConstExprKind::ArrayLiteral {
-            ty: Some(lower_type_arg(ty, context)?),
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => EarlyConstExprKind::StructLiteral {

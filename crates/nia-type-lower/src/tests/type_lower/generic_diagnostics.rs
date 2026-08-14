@@ -76,7 +76,7 @@ A,
 
 struct BadFields {
 field: (),
-array: [1](),
+array: [(); 1],
 never_field: never,
 }
 

@@ -29,7 +29,7 @@ const n: usize = score(Event::Closed)
     + score(Event::Resize { height: 5usize, width: 6usize });
 
 fn main() i32 {
-    let values: [n]i32 = [0; n];
+    let values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -58,7 +58,7 @@ const config = switch 1usize {
 const n: usize = id(config.width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -83,7 +83,7 @@ const configs = [Config { width: 4usize }, Config { width: 8usize }];
 const n: usize = id(configs[1].width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -109,7 +109,7 @@ const selected = configs[1..=2];
 const n: usize = id(selected[1].width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -134,7 +134,7 @@ const configs = [Config { width: 4usize }; 2usize];
 const n: usize = id(configs[1].width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -161,7 +161,7 @@ const fn array_len[T](value: T) usize {
 const n: usize = array_len(id(4usize));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -200,7 +200,7 @@ const fn unwrap(value: ?usize) usize {
 const n: usize = unwrap(id(some(7usize)));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -230,7 +230,7 @@ const n: usize = switch use_try(?7usize) {
 };
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -266,7 +266,7 @@ const n: usize = switch got {
 };
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -293,7 +293,7 @@ const bits: usize = id(config.target.pointer_width);
 const n: usize = bits / 8usize;
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -320,7 +320,7 @@ const bits: usize = id(builtin.target.pointer_width);
 const n: usize = bits / 8usize;
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -354,7 +354,7 @@ const fn unwrap(value: ?usize) usize {
 const n: usize = unwrap(id(?7usize));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -389,7 +389,7 @@ const fn unwrap(value: usize!usize) usize {
 const n: usize = unwrap(id(!7usize));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -424,7 +424,7 @@ const fn unwrap(value: usize!usize) usize {
 const n: usize = unwrap(id(3usize!));
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -441,7 +441,7 @@ fn generic_const_function_infers_type_arg_from_typed_aggregate_literals() {
         &root.join("main.nia"),
         r#"
 struct Config {
-    widths: [3]usize,
+    widths: [usize; 3],
 }
 
 const fn id[T](value: T) T {
@@ -449,11 +449,11 @@ const fn id[T](value: T) T {
 }
 
 const config: Config = id(Config{widths: [2, 4, 8]});
-const widths: [3]usize = id([3]usize[2, 4, 8]);
+const widths: [usize; 3] = id([2, 4, 8]);
 const width: usize = config.widths[1] + widths[0];
 
 fn main() i32 {
-    let mut values: [width]i32 = [0; width];
+    let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
 "#,
@@ -476,7 +476,7 @@ const width: usize = 4;
 const n: usize = identity::id(width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -507,7 +507,7 @@ const fn zero[T]() usize {
 const n: usize = zero();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -543,7 +543,7 @@ where T: Sized {
 const n: usize = size_of[Pair]();
 
 fn main() i32 {
-    let mut bytes: [n]u8 = [0; n];
+    let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -571,7 +571,7 @@ struct Pair {
 const n: usize = layout::size_of[Pair]();
 
 fn main() i32 {
-    let mut bytes: [n]u8 = [0; n];
+    let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -645,7 +645,7 @@ fn imported_generic_struct_union_preserves_padding_across_const_and_runtime_call
 module bits;
 using entry::bits;
 
-const compileBytes: [5]u8 = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
+const compileBytes: [u8; 5] = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
 const compilePair: bits::Pair[u32] = bits::decode[u32](compileBytes);
 
 fn main() i32 {
@@ -672,15 +672,15 @@ pub struct Pair[T] {
 
 pub union PairSlot[T] {
     value: Pair[T],
-    prefix: [5]u8,
+    prefix: [u8; 5],
 }
 
-pub const fn encode[T](value: Pair[T]) [5]u8 {
+pub const fn encode[T](value: Pair[T]) [u8; 5] {
     let slot = PairSlot[T] { value: value };
     slot.prefix
 }
 
-pub const fn decode[T](bytes: [5]u8) Pair[T] {
+pub const fn decode[T](bytes: [u8; 5]) Pair[T] {
     let slot = PairSlot[T] { prefix: bytes };
     slot.value
 }
@@ -702,7 +702,7 @@ module bits;
 using entry::bits;
 
 const compileSlot: bits::Outer[u32] = bits::layered[u32](1144201745, 26197);
-const compileBytes: [4]u8 = bits::readBytes[u32](compileSlot);
+const compileBytes: [u8; 4] = bits::readBytes[u32](compileSlot);
 
 fn main() i32 {
     let runtimeSlot = bits::layered[u32](1144201745, 26197);
@@ -731,7 +731,7 @@ pub union Inner[T] {
 
 pub union Outer[T] {
     inner: Inner[T],
-    bytes: [4]u8,
+    bytes: [u8; 4],
 }
 
 pub const fn layered[T](wide: T, narrow: u16) Outer[T] {
@@ -740,7 +740,7 @@ pub const fn layered[T](wide: T, narrow: u16) Outer[T] {
     Outer[T] { inner }
 }
 
-pub const fn readBytes[T](slot: Outer[T]) [4]u8 {
+pub const fn readBytes[T](slot: Outer[T]) [u8; 4] {
     slot.bytes
 }
 "#,
@@ -765,7 +765,7 @@ const compileVector: u16x2 = std::builtin::insert(
     13124,
 );
 const compileSlot: bits::VectorSlot[u16x2] = bits::slot[u16x2](compileVector);
-const compileBytes: [4]u8 = bits::readBytes[u16x2](compileSlot);
+const compileBytes: [u8; 4] = bits::readBytes[u16x2](compileSlot);
 const decoded: u16x2 = bits::decode[u16x2](compileBytes);
 
 fn main() i32 {
@@ -795,24 +795,24 @@ fn main() i32 {
         r#"
 pub union VectorSlot[V] {
     value: V,
-    bytes: [4]u8,
+    bytes: [u8; 4],
 }
 
 pub const fn slot[V](value: V) VectorSlot[V] {
     VectorSlot[V] { value }
 }
 
-pub const fn encode[V](value: V) [4]u8 {
+pub const fn encode[V](value: V) [u8; 4] {
     let slot = VectorSlot[V] { value: value };
     slot.bytes
 }
 
-pub const fn decode[V](bytes: [4]u8) V {
+pub const fn decode[V](bytes: [u8; 4]) V {
     let slot = VectorSlot[V] { bytes: bytes };
     slot.value
 }
 
-pub const fn readBytes[V](slot: VectorSlot[V]) [4]u8 {
+pub const fn readBytes[V](slot: VectorSlot[V]) [u8; 4] {
     slot.bytes
 }
 "#,
@@ -845,7 +845,7 @@ using entry::config;
 const n: usize = config::pair_size;
 
 fn main() i32 {
-    let mut bytes: [n]u8 = [0; n];
+    let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -864,7 +864,7 @@ fn layout_builtin_uses_imported_const_array_lengths() {
 pub const N: usize = 4usize;
 
 pub struct Packet {
-    bytes: [N]u8,
+    bytes: [u8; N],
 }
 "#,
     );
@@ -877,7 +877,7 @@ using entry::config;
 const n: usize = std::builtin::size[config::Packet]();
 
 fn main() i32 {
-    let mut bytes: [n]u8 = [0; n];
+    let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -905,7 +905,7 @@ where T: Sized {
 
 fn main() i32 {
     const n: usize = size_of[Pair]();
-    let mut bytes: [n]u8 = [0; n];
+    let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -928,7 +928,7 @@ pub struct Item {
 }
 
 pub struct Boxed {
-    items: [N]Item,
+    items: [Item; N],
 }
 
 extend Item {
@@ -975,7 +975,7 @@ pub struct Item {
 }
 
 pub struct Boxed {
-    items: [N]Item,
+    items: [Item; N],
 }
 
 extend Item {

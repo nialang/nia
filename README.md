@@ -41,8 +41,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut point = Point { x: 3, y: 4 };
     let mut also_point = Point { x: 5, y: 12 };
-    let mut values = [_]i32[point.len2(), also_point.len2(), 7];
-    let mut slice_view = &([3]i32[1, 2, 3])[..];
+    let mut values = [point.len2(), also_point.len2(), 7];
+    let mut slice_view = &([1, 2, 3])[..];
 
     if point.len2() + sum(&values) + sum(slice_view) != 232 {
         return process::exit(1)!;
@@ -52,9 +52,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 ```
 
-Most aggregate literals use the expected type from a binding, argument, or
-return position. Explicit forms such as `Point { ... }` and `[_]i32[...]` are
-available when the literal needs to stand on its own.
+Nominal aggregate literals name their type, as in `Point { ... }`. Array
+literals instead infer their element type from an expected type or from their
+elements; a suffix such as `[1i64, 2, 3]` supplies an explicit constraint when
+the literal stands on its own.
 Array pointers coerce to slices at argument boundaries, so `sum(&values)` is
 the usual style when a function expects `&[T]`; `&values[..]` is the explicit
 range-slice form.

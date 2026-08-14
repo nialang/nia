@@ -920,7 +920,6 @@ pub enum ResolvedConstExprKind {
         index: usize,
     },
     ArrayLiteral {
-        ty: Option<InternedTyId>,
         elems: ResolvedConstArrayElements,
     },
     StructLiteral {
@@ -1449,7 +1448,6 @@ pub enum EarlyConstExprKind {
         index: usize,
     },
     ArrayLiteral {
-        ty: Option<EarlyConstTypeArg>,
         elems: EarlyConstArrayElements,
     },
     StructLiteral {

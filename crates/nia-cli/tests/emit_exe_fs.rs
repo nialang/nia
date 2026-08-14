@@ -36,7 +36,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer cwd.close().exit().?;
     cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()).exit().?;
     let mut file = cwd.createFile(path.view().relative().exit().?, fs::CreateOptions::readWrite()).exit().?;
-    let mut buffer: [16]u8 = [0; 16];
+    let mut buffer: [u8; 16] = [0; 16];
     let mut writer = file.writer(&mut buffer[..]).exit().?;
     writer.writeAll(&b"joined").exit().?;
     writer.flush().exit().?;
@@ -84,7 +84,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut buffer: [4096]u8 = [0; 4096];
+    let mut buffer: [u8; 4096] = [0; 4096];
     let cwd = switch fs::getCwd(&mut buffer[..]) {
         !value => {
             value
@@ -142,20 +142,20 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let missingTerminator: [1]u8 = [b'x'];
+    let missingTerminator: [u8; 1] = [b'x'];
     switch fs::NativePathView::fromBytes(&missingTerminator[..]) {
         !value => { _ = value; return process::exit(1)!; },
         fs::PathError::MissingTerminator! => {},
         error! => { _ = error; return process::exit(2)!; },
     }
-    let interiorNul: [3]u8 = [b'x', 0, 0];
+    let interiorNul: [u8; 3] = [b'x', 0, 0];
     switch fs::NativePathView::fromBytes(&interiorNul[..]) {
         !value => { _ = value; return process::exit(3)!; },
         fs::PathError::ContainsNul! => {},
         error! => { _ = error; return process::exit(4)!; },
     }
 
-    let nativeBytes: [13]u8 = [b'n', b'a', b't', b'i', b'v', b'e', b'-', 0xffu8, b'.', b'b', b'i', b'n', 0];
+    let nativeBytes: [u8; 13] = [b'n', b'a', b't', b'i', b'v', b'e', b'-', 0xffu8, b'.', b'b', b'i', b'n', 0];
     let native = switch fs::NativePathView::fromBytes(&nativeBytes[..]) {
         !value => value,
         error! => { _ = error; return process::exit(5)!; },
@@ -232,13 +232,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         error! => { _ = error; return process::exit(8)!; },
     }
 
-    let absoluteBytes: [3]u8 = [b'/', b'x', 0];
+    let absoluteBytes: [u8; 3] = [b'/', b'x', 0];
     switch fs::RelativeNativePathView::fromBytes(&absoluteBytes[..]) {
         !path => { _ = path; return process::exit(9)!; },
         fs::PathError::Absolute! => {},
         error! => { _ = error; return process::exit(10)!; },
     }
-    let parentBytes: [7]u8 = [b'a', b'/', b'.', b'.', b'/', b'x', 0];
+    let parentBytes: [u8; 7] = [b'a', b'/', b'.', b'.', b'/', b'x', 0];
     let native = switch fs::NativePathView::fromBytes(&parentBytes[..]) {
         !path => path,
         error! => { _ = error; return process::exit(11)!; },
@@ -260,7 +260,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     {
         return process::exit(14)!;
     }
-    let adjacentBytes: [4]u8 = [b'.', b'.', b'x', 0];
+    let adjacentBytes: [u8; 4] = [b'.', b'.', b'x', 0];
     let adjacentNative = fs::RelativeNativePathView::fromBytes(&adjacentBytes[..]).exit().?;
     if adjacentNative.bytes().len() != 3usize {
         return process::exit(15)!;
@@ -338,7 +338,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         error! => { _ = error; return process::exit(2)!; },
     }
 
-    let mut tinyStorage: [1]u8 = [0];
+    let mut tinyStorage: [u8; 1] = [0];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
     let rejected = fs::RelativePathView::fromText(&"must-not-exist.txt").exit().?;
     switch cwd.createFileWithAllocator(&mut tiny, rejected, fs::CreateOptions::init()) {
@@ -350,7 +350,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         error! => { _ = error; return process::exit(4)!; },
     }
 
-    let mut fixedStorage: [128]u8 = [0; 128];
+    let mut fixedStorage: [u8; 128] = [0; 128];
     let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage[..]);
     let accepted = fs::RelativePathView::fromText(&"allocated.txt").exit().?;
     let mut file = cwd.createFileWithAllocator(
@@ -705,7 +705,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(1)!;
         },
     }
-    let mut write_buffer: [64]u8 = [0; 64];
+    let mut write_buffer: [u8; 64] = [0; 64];
     let mut writer = file.writer(&mut write_buffer[..]).exit().?;
     switch writer.writeAll(&b"nia fs") {
         !ok => {
@@ -741,9 +741,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(5)!;
         },
     }
-    let mut read_buffer: [64]u8 = [0; 64];
+    let mut read_buffer: [u8; 64] = [0; 64];
     let mut reader = opened.reader(&mut read_buffer[..]).exit().?;
-    let mut bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
+    let mut bytes: [u8; 6] = [0, 0, 0, 0, 0, 0];
     switch reader.readExact(&mut bytes[..]) {
         !ok => {
             _ = ok;
@@ -822,7 +822,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(1)!;
         },
     }
-    let mut write_buffer: [16]u8 = [0; 16];
+    let mut write_buffer: [u8; 16] = [0; 16];
     let mut writer = file.writer(&mut write_buffer[..]).exit().?;
     switch writer.writeAll(&b"open close") {
         !ok => {
@@ -858,9 +858,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(5)!;
         },
     }
-    let mut read_buffer: [16]u8 = [0; 16];
+    let mut read_buffer: [u8; 16] = [0; 16];
     let mut reader = opened.reader(&mut read_buffer[..]).exit().?;
-    let mut bytes: [10]u8 = [0; 10];
+    let mut bytes: [u8; 10] = [0; 10];
     switch reader.readExact(&mut bytes[..]) {
         !ok => {
             _ = ok;
@@ -966,7 +966,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             }
         },
     }
-    let mut buffer: [8]u8 = [0; 8];
+    let mut buffer: [u8; 8] = [0; 8];
     switch file.writer(&mut buffer[..]) {
         !writer => {
             _ = writer;
@@ -1032,7 +1032,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(2)!;
         },
     }
-    let mut entryBuffer: [1]u8 = [0];
+    let mut entryBuffer: [u8; 1] = [0];
     switch cwd.entries(&mut entryBuffer[..]) {
         !entries => {
             _ = entries;
@@ -1116,7 +1116,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let mut write_buffer: [16]u8 = [0; 16];
+    let mut write_buffer: [u8; 16] = [0; 16];
     let mut writer = file.writer(&mut write_buffer[..]).exit().?;
     switch writer.writeAll(&b"abcdef") {
         !ok => {
@@ -1301,7 +1301,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let mut write_buffer: [16]u8 = [0; 16];
+    let mut write_buffer: [u8; 16] = [0; 16];
     let mut writer = file.writer(&mut write_buffer[..]).exit().?;
     switch writer.writeAll(&b"metadata") {
         !ok => {
@@ -1519,7 +1519,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(1)!;
         },
     }
-    let mut buffer: [64]u8 = [0; 64];
+    let mut buffer: [u8; 64] = [0; 64];
     let mut writer = file.writer(&mut buffer[..]).exit().?;
     switch writer.writeAll(&b"ok") {
         !ok => {
@@ -1590,7 +1590,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
 
-    let valid: [3]u8 = [b'A', 0xceu8, 0xbbu8];
+    let valid: [u8; 3] = [b'A', 0xceu8, 0xbbu8];
     let mut path = switch fs::Path::fromUtf8(&mut page, &valid) {
         !value => value,
         error! => { _ = error; return process::exit(1)!; },
@@ -1603,7 +1603,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(2)!;
     }
 
-    let mut encodedStorage: [4]u8 = [0; 4];
+    let mut encodedStorage: [u8; 4] = [0; 4];
     let encoded = switch path.encode(&mut encodedStorage) {
         !value => value,
         error! => { _ = error; return process::exit(3)!; },
@@ -1616,28 +1616,28 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(4)!;
     }
 
-    let invalid: [5]u8 = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
+    let invalid: [u8; 5] = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
     switch fs::Path::fromUtf8(&mut page, &invalid) {
         !value => { _ = value; return process::exit(5)!; },
         string::TextError::InvalidUtf8(unicode::Utf8DecodeError::InvalidContinuation)! => {},
         error! => { _ = error; return process::exit(6)!; },
     }
 
-    let mut invalidStorage: [16]u8 = [0; 16];
+    let mut invalidStorage: [u8; 16] = [0; 16];
     switch fs::PathView::init(&"bad\0path").encode(&mut invalidStorage) {
         !value => { _ = value; return process::exit(7)!; },
         fs::PathError::ContainsNul! => {},
         error! => { _ = error; return process::exit(8)!; },
     }
 
-    let mut shortStorage: [3]u8 = [0; 3];
+    let mut shortStorage: [u8; 3] = [0; 3];
     switch path.encode(&mut shortStorage) {
         !value => { _ = value; return process::exit(9)!; },
         fs::PathError::TooLong! => {},
         error! => { _ = error; return process::exit(10)!; },
     }
 
-    let mut fixedStorage: [96]u8 = [0; 96];
+    let mut fixedStorage: [u8; 96] = [0; 96];
     let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage);
     let mut bounded = fs::Path::init();
     bounded.append(&mut fixed, &"base").exit().?;
@@ -2252,7 +2252,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let mut buffer: [1024]u8 = [0; 1024];
+    let mut buffer: [u8; 1024] = [0; 1024];
     let mut iter: fs::DirIterator;
     switch dir.entries(&mut buffer[..]) {
         !value => {

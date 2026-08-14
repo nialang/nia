@@ -365,7 +365,7 @@ fn lowers_large_array_repeat_count_from_const_binding() {
 const N: usize = 1048576;
 
 fn main() i32 {
-    let mut buffer: [N]u8 = [0u8; N];
+    let mut buffer: [u8; N] = [0u8; N];
     0
 }
 "#;
@@ -509,7 +509,7 @@ fn main() i32 {
 #[test]
 fn instantiates_const_generic_function_array_lengths_in_function_ir() {
     let source = r#"
-fn take[T, N: usize](items: [N]T) usize {
+fn take[T, N: usize](items: [T; N]) usize {
     N
 }
 
@@ -562,7 +562,7 @@ fn main() usize {
 fn instantiates_nominal_const_generic_array_lengths() {
     let source = r#"
 struct Buffer[T, N: usize] {
-    data: [N]T,
+    data: [T; N],
 }
 
 fn make4() Buffer[u8, 4] {

@@ -644,7 +644,7 @@ fn disambiguates_bracket_suffix_between_index_and_generic_instantiation() {
 fn id[T](value: T) T { value }
 
 fn main() i32 {
-    let mut xs: [3]i32 = [10, 20, 30];
+    let mut xs: [i32; 3] = [10, 20, 30];
     let mut i32: usize = 1;
     let mut indexed = xs[i32];
     let mut called: i32 = id[i32](indexed);
@@ -690,7 +690,7 @@ extend[T] Box[T] {
 fn id[T](value: T) T { value }
 
 fn main() i32 {
-    let mut xs: [3]i32 = [10, 20, 30];
+    let mut xs: [i32; 3] = [10, 20, 30];
     let mut i32: usize = 1;
     let mut indexed = xs[i32];
     let mut called: i32 = id[i32](indexed);
@@ -797,8 +797,8 @@ fn main() i32 {
 fn records_runtime_generic_const_call_before_indexing_its_result() {
     let checked = pipeline(
         r#"
-const fn pair[T](first: T, second: T) [2]T {
-    [2]T[first, second]
+const fn pair[T](first: T, second: T) [T; 2] {
+    [first, second]
 }
 
 fn main() u32 {

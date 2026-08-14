@@ -420,13 +420,13 @@ fn parses_structured_types_and_aggregate_literals() {
     let (module, errors) = parse_module(
         r#"
 struct Header {
-    bytes: [_]u8,
+    bytes: [u8; _],
     callback: &fn(i32, ...) (),
 }
 
 fn make() Header {
-    let mut data: [_]u8 = [0; 8];
-    let mut more: [_]u8 = [1, 2, 3];
+    let mut data: [u8; _] = [0; 8];
+    let mut more: [u8; _] = [1, 2, 3];
     let mut header = Header { bytes: data, callback: cb };
     header
 }
@@ -545,7 +545,7 @@ struct Pair[T] {
     value: T,
 }
 
-fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
+fn make(ptr: &u8, xs: &[i32; _]) Pair[i32] {
     let mut size = std::builtin::size[Pair[i32]]();
     let mut offset = std::builtin::offset[Pair[i32]]("value");
     let mut addr = ptr as usize;
@@ -672,7 +672,7 @@ fn size() usize {
 }
 
 #[test]
-fn parses_typed_aggregate_literals() {
+fn parses_nominal_and_array_literals() {
     let (module, errors) = parse_module(
         r#"
 struct Box[T] {
@@ -686,9 +686,9 @@ struct Point {
 
 fn make() i32 {
     let mut p = Point{x: 1, y: 2};
-    let mut xs = [_]i32[1, 2, 3];
-    let mut boxes = [_]Box[i32][Box { value: 1 }];
-    let mut matrix = [2][2]Box[i32][
+    let mut xs = [1, 2, 3];
+    let mut boxes = [Box { value: 1 }];
+    let mut matrix = [
         [Box[i32] { value: 1 }, Box[i32] { value: 2 }],
         [Box[i32] { value: 3 }, Box[i32] { value: 4 }],
     ];
@@ -713,41 +713,22 @@ fn make() i32 {
     };
     assert!(matches!(
         array.value.as_ref().map(|value| &value.kind),
-        Some(ExprKind::TypedArrayLiteral { .. })
+        Some(ExprKind::ArrayLiteral { .. })
     ));
     let StmtKind::Binding(generic_array) = &body.stmts[2].kind else {
         panic!("expected generic array binding");
     };
-    let Some(ExprKind::TypedArrayLiteral { ty, .. }) =
-        generic_array.value.as_ref().map(|value| &value.kind)
-    else {
-        panic!("expected typed generic array literal");
-    };
-    let TypeKind::Array { elem, .. } = &ty.kind else {
-        panic!("expected array type prefix");
-    };
-    let TypeKind::Path { segments } = &elem.kind else {
-        panic!("expected generic element path");
-    };
-    assert_eq!(segments[0].args.len(), 1);
+    assert!(matches!(
+        generic_array.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::ArrayLiteral { .. })
+    ));
     let StmtKind::Binding(matrix) = &body.stmts[3].kind else {
         panic!("expected matrix binding");
     };
-    let Some(ExprKind::TypedArrayLiteral { ty, .. }) =
-        matrix.value.as_ref().map(|value| &value.kind)
-    else {
-        panic!("expected typed matrix array literal");
-    };
-    let TypeKind::Array { elem, .. } = &ty.kind else {
-        panic!("expected outer array type prefix");
-    };
-    let TypeKind::Array { elem, .. } = &elem.kind else {
-        panic!("expected inner array type prefix");
-    };
-    let TypeKind::Path { segments } = &elem.kind else {
-        panic!("expected generic matrix element path");
-    };
-    assert_eq!(segments[0].args.len(), 1);
+    assert!(matches!(
+        matrix.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::ArrayLiteral { .. })
+    ));
 }
 
 #[test]
@@ -926,7 +907,7 @@ fn take(xs: &&[u8]) {}
 fn distinguishes_slice_and_array_pointer_types() {
     let (module, errors) = parse_module(
         r#"
-fn take(slice: &[u8], array: &[3]u8, inferred: &mut [_]u8) {}
+fn take(slice: &[u8], array: &[u8; 3], inferred: &mut [u8; _]) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -968,6 +949,25 @@ fn take(slice: &[u8], array: &[3]u8, inferred: &mut [_]u8) {}
             ..
         }
     ));
+}
+
+#[test]
+fn does_not_parse_removed_length_first_syntax_as_an_array_type() {
+    let (module, _) = parse_module(
+        r#"
+fn take(values: [3]i32) () {}
+"#,
+    );
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(
+        matches!(
+            function.params[0].ty.as_ref().map(|ty| &ty.kind),
+            Some(TypeKind::Error)
+        ),
+        "length-first syntax must not enter the array type AST"
+    );
 }
 
 #[test]

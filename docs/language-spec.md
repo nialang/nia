@@ -311,7 +311,7 @@ String literals:
 ```
 
 String literals are fixed-length Unicode scalar arrays. `"..."` has type
-`[N]char`.
+`[char; N]`.
 
 Byte string literals:
 
@@ -320,7 +320,7 @@ b"nia"
 b"nia\0"
 ```
 
-Byte string literals are fixed-length byte arrays. `b"..."` has type `[N]u8`.
+Byte string literals are fixed-length byte arrays. `b"..."` has type `[u8; N]`.
 NUL-terminated byte sequences are written explicitly, for example `b"nia\0"`.
 
 Adjacent quoted string literals with the same prefix are concatenated into one
@@ -370,8 +370,8 @@ For multiline strings, indentation before the delimiter is ignored, the delimite
 itself is not part of the string, and the text after the delimiter is copied as
 is. Adjacent lines are joined with `\n`; no extra newline is appended after the
 last line. Escape sequences are not interpreted inside multiline string lines.
-The prefix selects the same type family as the quoted form: `[N]char` or
-`[N]u8`.
+The prefix selects the same type family as the quoted form: `[char; N]` or
+`[u8; N]`.
 
 Multiline string literals do not participate in adjacent literal concatenation.
 Use adjacent quoted literals when a long single-line literal should be split
@@ -556,19 +556,19 @@ _ = &hello[0];
 Fixed-length array type:
 
 ```nia
-[N]T
+[T; N]
 ```
 
 Array length may be written explicitly in type syntax, or inferred with `_` when
 an array literal provides the element count:
 
 ```nia
-let mut xs: [_]i32 = [1, 2, 3];
-let mut name: [_]u8 = b"nia";
+let mut xs: [i32; _] = [1, 2, 3];
+let mut name: [u8; _] = b"nia";
 ```
 
-`[_]T` is only valid in contexts initialized by an array literal or string
-literal. After inference the real type is `[N]T`.
+`[T; _]` is only valid in contexts initialized by an array literal or string
+literal. After inference the real type is `[T; N]`.
 
 Array literals:
 
@@ -581,30 +581,40 @@ When an array literal initializes a binding without a type annotation, the
 binding type is inferred from the literal:
 
 ```nia
-let mut xs = [1, 2, 3]; // [3]i32
+let mut xs = [1, 2, 3]; // [i32; 3]
 ```
 
-In other expression contexts, the expected type must still supply the array
-element type and length.
-
-An array literal may also carry an explicit array type prefix:
+Array inference is expression-general. Every element constrains one shared
+element type, while the literal shape supplies the length. An expected array
+type is applied to every element when one is available:
 
 ```nia
-[3]i32[1, 2, 3]
-[_]i32[1, 2, 3]
-[2][2]i32[
-    [1, 2],
-    [3, 4],
-]
+let mut a = [1i64, 2, 3]; // [i64; 3]
+let mut b = [1, 2i64, 3]; // [i64; 3]
+consume_i64_array([1, 2, 3]);
 ```
 
-The prefix supplies the expected array type for the literal. `[_]T[...]` infers
-the length from the literal elements. This form is useful when the literal stands
-alone, when nested array shape should be explicit, or when the literal is
-immediately materialized, for example:
+A numeric suffix is a type constraint, not a conversion, and may appear on any
+element. Unsuffixed numeric literals are defaulted only after explicit suffixes
+and independently typed expressions have been considered. Incompatible
+constraints remain an error; for example, `[1u8, 2u64]` does not choose a wider
+integer type.
+
+Context-dependent expressions such as `null` are checked after another element
+or the expected type establishes the shared element type. An empty array has no
+such constraint and therefore requires an expected type:
 
 ```nia
-let mut s = & ([3]i32[1, 2, 3])[..];
+let mut empty: [i32; 0] = [];
+let mut unknown = []; // error: element type cannot be inferred
+```
+
+Array literals have no expression-level type prefix. Use an expected type or an
+element constraint instead. Borrowed temporary arrays use the same inference
+path as all other array expressions:
+
+```nia
+let mut s = &([1i32, 2, 3])[..];
 ```
 
 Repeated array literals use semicolon syntax:
@@ -621,12 +631,12 @@ length, the repeat count must match it.
 Arrays may be nested:
 
 ```nia
-let mut matrix: [2][3]i32 = [
+let mut matrix: [[i32; 3]; 2] = [
     [1, 2, 3],
     [4, 5, 6],
 ];
 
-let mut zeros: [2][3]i32 = [[0; 3]; 2];
+let mut zeros: [[i32; 3]; 2] = [[0; 3]; 2];
 ```
 
 Array indexing:
@@ -670,7 +680,7 @@ let mut x = &hello[..=3];     // &[char]
 Writable slices use `&mut` and require a writable base place:
 
 ```nia
-let mut xs: [4]i32 = [1, 2, 3, 4];
+let mut xs: [i32; 4] = [1, 2, 3, 4];
 let mut s = &mut xs[1..3]; // &mut [i32]
 s[0] = 10;
 ```
@@ -682,8 +692,8 @@ xs[..]; // error; use &xs[..] or &mut xs[..]
 ```
 
 An array pointer may be implicitly converted to a full-range slice when the
-expected type is exactly `&[T]` or `&mut [T]`. `&[N]T` converts to `&[T]`;
-`&mut [N]T` converts to `&mut [T]`, and may also be used where read-only
+expected type is exactly `&[T]` or `&mut [T]`. `&[T; N]` converts to `&[T]`;
+`&mut [T; N]` converts to `&mut [T]`, and may also be used where read-only
 `&[T]` is expected.
 
 ```nia
@@ -695,7 +705,7 @@ fn write(xs: &mut [i32]) {
     xs[0] = 10;
 }
 
-let mut arr: [3]i32 = [1, 2, 3];
+let mut arr: [i32; 3] = [1, 2, 3];
 let mut ro: &[i32] = &arr;
 let mut rw: &mut [i32] = &mut arr;
 read(&arr);
@@ -709,15 +719,15 @@ materialization rule used by address-of creates a block-scoped temporary array.
 Ordinary array values do not convert directly:
 
 ```nia
-let mut arr: [3]i32 = [1, 2, 3];
+let mut arr: [i32; 3] = [1, 2, 3];
 read(arr);      // error
 read([1, 2, 3]); // error
 ```
 
-String and byte string literal expressions have type `&[N]char` and `&[N]u8`.
+String and byte string literal expressions have type `&[char; N]` and `&[u8; N]`.
 When a slice is expected, the ordinary pointer-array-to-slice coercion can
 produce `&[char]` or `&[u8]`. Method resolution applies the same coercion when
-`&[N]T` or `&mut [N]T` has no matching method but the corresponding slice does.
+`&[T; N]` or `&mut [T; N]` has no matching method but the corresponding slice does.
 Methods defined for the fixed-length array remain more direct and take
 priority. The selected method's receiver kind controls the final coercion, so a
 read-only array pointer cannot call a mutable slice method.
@@ -818,7 +828,7 @@ allocation. Length overflow and allocation failure both report
 one contextual annotation:
 
 ```nia
-let parts: [3]&[char] = [&"build", &"λ", owned.text()];
+let parts: [&[char]; 3] = [&"build", &"λ", owned.text()];
 let mut joined = (&parts).join(allocator, &"/").?;
 ```
 
@@ -835,7 +845,7 @@ The base of a slice construction may be an array, another slice, or a
 single-element pointer:
 
 ```nia
-let mut arr: [4]i32 = [1, 2, 3, 4];
+let mut arr: [i32; 4] = [1, 2, 3, 4];
 let mut a = &arr[..];      // len = 4
 
 let mut b = &a[1..3];      // slice from slice
@@ -1692,7 +1702,7 @@ Top-level `static` creates immutable global static storage. Implementations
 should place it in read-only data where possible:
 
 ```nia
-static hello: [7]u8 = b"hello\n\0";
+static hello: [u8; 7] = b"hello\n\0";
 ```
 
 Top-level `static` initializers must be expressible as static initialization data.
@@ -1700,7 +1710,7 @@ They do not execute arbitrary compile-time programs:
 
 ```nia
 static a = 1 + 2;           // allowed: integer static expression
-static hello: [3]u8 = b"hi\0"; // allowed: byte-array static data
+static hello: [u8; 3] = b"hi\0"; // allowed: byte-array static data
 static p = &hello[0];       // allowed: global static address
 static bad = { 1 + 2 };     // error: block execution is not static data
 ```
@@ -1716,7 +1726,7 @@ const width: usize = 4;
 
 fn first_value() i32 {
     const local_width: usize = width;
-    let mut xs: [local_width]i32 = [1, 2, 3, 4];
+    let mut xs: [i32; local_width] = [1, 2, 3, 4];
     xs[0]
 }
 ```
@@ -1740,7 +1750,7 @@ pub const width: usize = 4;
 
 // main.nia
 using root::config;
-let mut xs: [config::width]i32 = [1, 2, 3, 4];
+let mut xs: [i32; config::width] = [1, 2, 3, 4];
 ```
 
 Taking the address of a `const` binding is invalid because it has no runtime
@@ -1963,7 +1973,7 @@ Explicit type declaration:
 
 ```nia
 let mut x: i32 = 1;
-let mut name: [4]u8 = b"nia\0";
+let mut name: [u8; 4] = b"nia\0";
 ```
 
 Assignment to an existing place:
@@ -2463,7 +2473,7 @@ with the same result for compile-time and runtime calls.
 `value.len()` calls the ordinary source-defined `Len` trait method. The loader
 makes `Len` available as a demand-loaded prelude trait when source uses the
 method or names the trait, so the common call requires no explicit import.
-`std::builtin` defines ordinary implementations for `[N]T` and `[T]`. The array
+`std::builtin` defines ordinary implementations for `[T; N]` and `[T]`. The array
 body returns the const generic `N`; the slice body uses the narrow `sliceLen`
 representation intrinsic to read runtime slice metadata. The compiler does not
 assign `Len` a builtin trait identity. User types implement the same trait with
@@ -2481,7 +2491,7 @@ slice data pointers. `ptr()` accepts read-only or writable slices and returns
 no trait obligation or associated `Target` projection. Ordinary visible
 extensions named `ptr` or `ptrMut` remain higher-priority method candidates.
 
-Array values do not expose these methods. An existing `&[N]T` or `&mut [N]T`
+Array values do not expose these methods. An existing `&[T; N]` or `&mut [T; N]`
 receiver may use the ordinary array-pointer-to-slice coercion, so
 `b"name\0".ptr()` is valid and explicitly produces a pointer to the first
 byte. Runtime projection also preserves the slice data pointer for an empty
@@ -2697,10 +2707,10 @@ fn select[T, U](value: T, context: U) T {
     _ = context;
     value
 }
-fn count[T, N: usize](values: [N]T) usize { N }
+fn count[T, N: usize](values: [T; N]) usize { N }
 
 select[i32, _](1, true)
-count[_, _]([4]u8[1, 2, 3, 4])
+count[_, _]([1, 2, 3, 4])
 ```
 
 This makes inference intent explicit and prevents generic declaration order
@@ -2963,7 +2973,7 @@ The compiler proves builtin implementations for primitive operations,
 layout-known types, pointers, arrays, and slices where the operation is native
 to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
-container may implement `Slice[..]`, but `[N]T` may not provide a manual
+container may implement `Slice[..]`, but `[T; N]` may not provide a manual
 `Slice[..]` implementation because array slicing is already
 compiler-proven. Range bound and slice data-pointer access are instead inherent
 operations limited to their structural representation shapes. User types
@@ -3415,7 +3425,7 @@ foreign_log((&b"hello\n\0").ptr());
 ```
 
 String and byte string literals are array values, not pointers. There is no
-implicit `[N]u8` to `&u8` decay; take an explicit address and then use `ptr()`
+implicit `[u8; N]` to `&u8` decay; take an explicit address and then use `ptr()`
 when an ABI requires an element pointer.
 
 A literal evaluated in a function does not acquire static storage merely
@@ -3467,7 +3477,7 @@ Type encoding rules:
 - `^mut T` encodes as `vptr__<T>`;
 - trait object pointers encode as `trait_obj__<trait>...` or
   `trait_obj_read__<trait>...`;
-- `[N]T` encodes as `arr__<len>__<elem>`;
+- `[T; N]` encodes as `arr__<len>__<elem>`;
 - function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
   `__variadic` appended for variadic function pointers;
 - readonly callable views encode as
@@ -3586,7 +3596,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut v = Vec2 { x: 3, y: 4 };
-    let mut values = [_]i32[add(40, 2), v.len2(), 7];
+    let mut values = [add(40, 2), v.len2(), 7];
     let mut pair = Pair[i32, i32] { first: values[0], second: sum(&values) };
 
     if score(pair) != 116 {

@@ -11,7 +11,7 @@ a: u8,
 b: i32,
 }
 
-fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8) {}
+fn main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair]()]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module);
@@ -66,7 +66,7 @@ fn substitutes_const_generic_array_lengths_in_struct_layouts() {
     let (module, symbols) = parse_test_module(
         r#"
 struct Buffer[T, N: usize] {
-data: [N]T,
+data: [T; N],
 }
 
 fn main(buf: Buffer[u8, 4]) {}
@@ -118,12 +118,12 @@ fn binds_mixed_type_and_const_aggregate_parameters_in_declaration_order() {
     let (module, symbols) = parse_test_module(
         r#"
 struct Mixed[T, N: usize, U] {
-values: [N]T,
+values: [T; N],
 tail: U,
 }
 
 union MixedBits[T, N: usize, U] {
-values: [N]T,
+values: [T; N],
 tail: U,
 }
 

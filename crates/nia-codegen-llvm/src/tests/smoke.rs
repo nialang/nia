@@ -199,14 +199,14 @@ fn ordinary_array_len_calls_emit_required_cross_partition_global_declarations() 
     std::fs::write(
         &main,
         r#"
-static blob0: [4]u8 = [0u8; 4];
-static blob1: [4]u8 = [1u8; 4];
-static blob2: [4]u8 = [2u8; 4];
-static blob3: [4]u8 = [3u8; 4];
-static blob4: [4]u8 = [4u8; 4];
-static blob5: [4]u8 = [5u8; 4];
-static blob6: [4]u8 = [6u8; 4];
-static blob7: [4]u8 = [7u8; 4];
+static blob0: [u8; 4] = [0u8; 4];
+static blob1: [u8; 4] = [1u8; 4];
+static blob2: [u8; 4] = [2u8; 4];
+static blob3: [u8; 4] = [3u8; 4];
+static blob4: [u8; 4] = [4u8; 4];
+static blob5: [u8; 4] = [5u8; 4];
+static blob6: [u8; 4] = [6u8; 4];
+static blob7: [u8; 4] = [7u8; 4];
 
 fn main() usize {
     blob0.len() + blob1.len() + blob2.len() + blob3.len()
@@ -305,7 +305,7 @@ fn codegen_program_emits_llvm_ir_with_each_nia_optimization_level() {
     std::fs::write(
         &main,
         r#"
-static zeroes: [4]i32 = [0; 4];
+static zeroes: [i32; 4] = [0; 4];
 
 fn answer() i32 {
     42

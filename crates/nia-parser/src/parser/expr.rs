@@ -848,20 +848,6 @@ impl Parser {
                 ExprKind::TypedStructLiteral { ty, fields },
             ));
         }
-        if matches!(ty.kind, TypeKind::Array { .. })
-            && self.at(TokenKind::LBracket)
-            && !stops.iter().any(|kind| self.at(kind.clone()))
-        {
-            self.expect(TokenKind::LBracket, "expected `[` before array literal")?;
-            let elems = self.parse_array_elements_until_rbracket()?;
-            let end = self
-                .expect(TokenKind::RBracket, "expected `]` after array literal")?
-                .end;
-            return Some(self.make_expr(
-                Span::new(start, end),
-                ExprKind::TypedArrayLiteral { ty, elems },
-            ));
-        }
         self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         None

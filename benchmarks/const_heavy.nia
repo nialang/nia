@@ -26,22 +26,22 @@ const n14: usize = width(14usize);
 const n15: usize = width(15usize);
 
 fn main() usize {
-    let a00: [n00]u8 = [0u8; n00];
-    let a01: [n01]u8 = [0u8; n01];
-    let a02: [n02]u8 = [0u8; n02];
-    let a03: [n03]u8 = [0u8; n03];
-    let a04: [n04]u8 = [0u8; n04];
-    let a05: [n05]u8 = [0u8; n05];
-    let a06: [n06]u8 = [0u8; n06];
-    let a07: [n07]u8 = [0u8; n07];
-    let a08: [n08]u8 = [0u8; n08];
-    let a09: [n09]u8 = [0u8; n09];
-    let a10: [n10]u8 = [0u8; n10];
-    let a11: [n11]u8 = [0u8; n11];
-    let a12: [n12]u8 = [0u8; n12];
-    let a13: [n13]u8 = [0u8; n13];
-    let a14: [n14]u8 = [0u8; n14];
-    let a15: [n15]u8 = [0u8; n15];
+    let a00: [u8; n00] = [0u8; n00];
+    let a01: [u8; n01] = [0u8; n01];
+    let a02: [u8; n02] = [0u8; n02];
+    let a03: [u8; n03] = [0u8; n03];
+    let a04: [u8; n04] = [0u8; n04];
+    let a05: [u8; n05] = [0u8; n05];
+    let a06: [u8; n06] = [0u8; n06];
+    let a07: [u8; n07] = [0u8; n07];
+    let a08: [u8; n08] = [0u8; n08];
+    let a09: [u8; n09] = [0u8; n09];
+    let a10: [u8; n10] = [0u8; n10];
+    let a11: [u8; n11] = [0u8; n11];
+    let a12: [u8; n12] = [0u8; n12];
+    let a13: [u8; n13] = [0u8; n13];
+    let a14: [u8; n14] = [0u8; n14];
+    let a15: [u8; n15] = [0u8; n15];
     a00.len() + a01.len() + a02.len() + a03.len()
         + a04.len() + a05.len() + a06.len() + a07.len()
         + a08.len() + a09.len() + a10.len() + a11.len()

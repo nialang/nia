@@ -157,13 +157,13 @@ struct Pair {
     b: i32,
 }
 
-fn take_size(xs: [std::builtin::size[Pair]()]u8) u8 {
+fn take_size(xs: [u8; std::builtin::size[Pair]()]) u8 {
     xs[0]
 }
 
 fn main() u8 {
-    let mut exact: [std::builtin::size[Pair]()]u8 = [b'\0'; 8];
-    let mut aligned: [std::builtin::align[Pair]()]u8 = [b'\0'; 4];
+    let mut exact: [u8; std::builtin::size[Pair]()] = [b'\0'; 8];
+    let mut aligned: [u8; std::builtin::align[Pair]()] = [b'\0'; 4];
     _ = take_size(exact);
     aligned[0]
 }
@@ -203,7 +203,7 @@ fn main() usize {
 fn materializes_frozen_const_array_pointers_as_runtime_slices() {
     let checked = pipeline_with_len_provider(
         r#"
-const values: &[usize] = &[3]usize[5, 9, 13];
+const values: &[usize] = &[5, 9, 13];
 
 fn main() usize {
     values.len() + values[1]
@@ -345,7 +345,7 @@ fn write(xs: &mut [i32]) i32 {
 }
 
 fn main() i32 {
-    let mut xs: [4]i32 = [1, 2, 3, 4];
+    let mut xs: [i32; 4] = [1, 2, 3, 4];
     let mut s = & xs[..];
     let mut t = & xs[1..=2];
     let mut p = & xs[0];
@@ -399,13 +399,13 @@ fn checks_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
 fn main() () {
-    let mut dst: [4]u8 = [0, 0, 0, 0];
-    let src: [4]u8 = [1, 2, 3, 4];
+    let mut dst: [u8; 4] = [0, 0, 0, 0];
+    let src: [u8; 4] = [1, 2, 3, 4];
     std::builtin::memcpy(&mut dst[..], &src[..]);
     std::builtin::memmove(&mut dst[1..], &dst[0..3]);
     std::builtin::memset(&mut dst[..], 0);
-    let mut ints: [2]i32 = [0, 0];
-    let src_ints: [2]i32 = [1, 2];
+    let mut ints: [i32; 2] = [0, 0];
+    let src_ints: [i32; 2] = [1, 2];
     std::builtin::memcpy[i32](&mut ints[..], &src_ints[..]);
 }
 "#,
@@ -442,7 +442,7 @@ fn readonly(xs: & [u8]) () {
 }
 
 fn memset_non_byte() () {
-    let mut xs: [2]i32 = [1, 2];
+    let mut xs: [i32; 2] = [1, 2];
     std::builtin::memset(&mut xs[..], 0);
 }
 "#,
@@ -500,8 +500,8 @@ fn checks_array_literal_element_types() {
     let checked = pipeline(
         r#"
 fn main(flag: bool) i32 {
-    let mut xs: [2]i32 = [1, flag];
-    let mut ys: [3]i32 = [flag; 3];
+    let mut xs: [i32; 2] = [1, flag];
+    let mut ys: [i32; 3] = [flag; 3];
     0
 }
 "#,
@@ -520,15 +520,15 @@ fn main(flag: bool) i32 {
 fn checks_array_literal_lengths_and_inferred_lengths() {
     let checked = pipeline(
         r#"
-fn take_pair(xs: [2]i32) i32 {
+fn take_pair(xs: [i32; 2]) i32 {
     xs[0]
 }
 
 fn main() i32 {
-    let mut inferred: [2]i32 = [1, 2];
-    let mut repeated: [3]i32 = [1; 3];
-    let mut too_many: [2]i32 = [1, 2, 3];
-    let mut bad_repeat: [2]i32 = [1; 3];
+    let mut inferred: [i32; 2] = [1, 2];
+    let mut repeated: [i32; 3] = [1; 3];
+    let mut too_many: [i32; 2] = [1, 2, 3];
+    let mut bad_repeat: [i32; 2] = [1; 3];
     take_pair([1, 2])
 }
 "#,
@@ -561,11 +561,15 @@ fn infers_unannotated_array_literal_bindings() {
         r#"
 static mut global_xs = [1, 2, 3];
 
-fn take_triplet(xs: [3]i32) i32 {
+fn take_triplet(xs: [i32; 3]) i32 {
     xs[2]
 }
 
-fn take_matrix(xs: [2][2]i32) i32 {
+fn take_i64_triplet(xs: [i64; 3]) i64 {
+    xs[2]
+}
+
+fn take_matrix(xs: [[i32; 2]; 2]) i32 {
     xs[1][0]
 }
 
@@ -573,7 +577,7 @@ struct Box[T] {
     value: T,
 }
 
-fn take_box_matrix(xs: [2][2]Box[i32]) i32 {
+fn take_box_matrix(xs: [[Box[i32]; 2]; 2]) i32 {
     xs[1][0].value
 }
 
@@ -581,8 +585,9 @@ fn main() i32 {
     let mut xs = [1, 2, 3];
     let mut repeated = [1; 3];
     let mut anchored = [1, xs[0], 3];
+    let mut suffix_anchored = [1, 2i64, 3];
     let mut matrix = [[1, 2], [3, 4]];
-    let mut typed_matrix = [2][2]Box[i32][
+    let mut typed_matrix = [
         [Box[i32] { value: 1 }, Box[i32] { value: 2 }],
         [Box[i32] { value: 3 }, Box[i32] { value: 4 }],
     ];
@@ -591,6 +596,7 @@ fn main() i32 {
     _ = take_triplet(xs);
     _ = take_triplet(repeated);
     _ = take_triplet(anchored);
+    _ = take_i64_triplet(suffix_anchored);
     _ = take_matrix(matrix);
     _ = take_box_matrix(typed_matrix);
     0
@@ -628,12 +634,12 @@ fn main() i32 {
 fn checks_pointer_to_nested_fixed_array_parameters() {
     let checked = pipeline(
         r#"
-fn touch(xs: &mut ([2][2]i32)) () {
+fn touch(xs: &mut ([[i32; 2]; 2])) () {
     _ = xs;
 }
 
 fn main() () {
-    let mut matrix: [2][2]i32 = [[1, 2], [3, 4]];
+    let mut matrix: [[i32; 2]; 2] = [[1, 2], [3, 4]];
     touch(&mut matrix);
 }
 "#,
@@ -686,7 +692,7 @@ where T: Sized
 }
 
 fn main() () {
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     let mut slice = &mut values[..];
     for value in slice.iter_mut() {
         value.* = value.* + 1;
@@ -702,7 +708,7 @@ fn reports_invalid_array_repeat_count() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let mut bad: [2]i32 = [1; 1 / 0];
+    let mut bad: [i32; 2] = [1; 1 / 0];
     0
 }
 "#,
@@ -722,7 +728,7 @@ fn checks_large_array_repeat_count_from_const_binding() {
 const N: usize = 1048576;
 
 fn main() i32 {
-    let mut buffer: [N]u8 = [0u8; N];
+    let mut buffer: [u8; N] = [0u8; N];
     0
 }
 "#,
@@ -746,23 +752,23 @@ fn checks_text_and_byte_string_literal_types() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let mut text: [3]char = "中a\n";
-    let mut adjacent_text: [9]char = "中" "" "a\n" "" "b" "c" "" "done";
-    let mut inferred_text: [_]char = "hi";
-    let mut multiline: [11]char = (
+    let mut text: [char; 3] = "中a\n";
+    let mut adjacent_text: [char; 9] = "中" "" "a\n" "" "b" "c" "" "done";
+    let mut inferred_text: [char; _] = "hi";
+    let mut multiline: [char; 11] = (
         \\hello
         \\world
     );
-    let mut byte_multiline: [11]u8 = (
+    let mut byte_multiline: [u8; 11] = (
         b\\hello
         \\world
     );
-    let mut bytes: [4]u8 = b"nia\0";
-    let mut adjacent_bytes: [4]u8 = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
-    let mut nul_terminated: [4]u8 = b"nia\0";
-    let mut adjacent_nul_terminated: [4]u8 = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
-    let mut wrong_text_len: [2]char = "中a\n";
-    let mut bad_bytes: [3]u8 = "nia";
+    let mut bytes: [u8; 4] = b"nia\0";
+    let mut adjacent_bytes: [u8; 4] = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    let mut nul_terminated: [u8; 4] = b"nia\0";
+    let mut adjacent_nul_terminated: [u8; 4] = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    let mut wrong_text_len: [char; 2] = "中a\n";
+    let mut bad_bytes: [u8; 3] = "nia";
     let mut byte: u8 = b'a';
     let mut ch: char = 'a';
     let mut code: u32 = ch as u32;
@@ -805,7 +811,7 @@ extern fn puts(ptr: &u8) i32;
 static hello = b"hello\0";
 
 fn main(flag: bool) i32 {
-    let mut xs: [2]u8 = [1, 2];
+    let mut xs: [u8; 2] = [1, 2];
     let mut p: &u8 = &xs[0];
     let mut c: &u8 = &hello[0];
     _ = puts(&hello[0]);
@@ -830,7 +836,7 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("[2]u8: Index[bool]")),
+            .any(|diagnostic| diagnostic.summary.contains("[u8; 2]: Index[bool]")),
         "{:?}",
         checked.diagnostics
     );
@@ -860,7 +866,7 @@ fn main() i32 {
     let mut cast_text: & [char] = &"abc" as &[char];
     let mut cast_bytes: & [u8] = &b"abc" as &[u8];
     let mut cast_cbytes: & [u8] = &b"hi\0" as &[u8];
-    let mut arr: [2]i32 = [6, 7];
+    let mut arr: [i32; 2] = [6, 7];
     let mut from_place: & [i32] = &arr;
     let mut cast_from_place: & [i32] = &arr as &[i32];
     let mut from_string: & [u8] = &b"hi\0";
@@ -937,11 +943,11 @@ fn take(xs: &[i32]) i32 {
 }
 
 fn main() i32 {
-    let mut arr: [2]i32 = [1, 2];
+    let mut arr: [i32; 2] = [1, 2];
     let mut from_place: &[i32] = arr;
     let mut from_literal: &[i32] = [3, 4];
     let mut cast_place = arr as &[i32];
-    let mut cast_literal = [2]i32[7, 8] as &[i32];
+    let mut cast_literal = [7, 8] as &[i32];
     take(arr) + take([5, 6])
 }
 "#,
@@ -954,7 +960,7 @@ fn main() i32 {
     assert!(
         messages
             .iter()
-            .filter(|message| message.contains("expected &[i32], got [2]i32"))
+            .filter(|message| message.contains("expected &[i32], got [i32; 2]"))
             .count()
             >= 3,
         "{messages:?}"
@@ -962,7 +968,7 @@ fn main() i32 {
     assert!(
         messages
             .iter()
-            .filter(|message| message.contains("invalid cast: cannot cast [2]i32 to &[i32]"))
+            .filter(|message| message.contains("invalid cast: cannot cast [i32; 2] to &[i32]"))
             .count()
             >= 2,
         "{messages:?}"
@@ -996,7 +1002,7 @@ fn main() usize {
     assert_eq!(
         messages
             .iter()
-            .filter(|message| message.contains("expected &[char], got [3]char"))
+            .filter(|message| message.contains("expected &[char], got [char; 3]"))
             .count(),
         2,
         "{messages:?}"
@@ -1004,7 +1010,7 @@ fn main() usize {
     assert_eq!(
         messages
             .iter()
-            .filter(|message| message.contains("expected &[u8], got [3]u8"))
+            .filter(|message| message.contains("expected &[u8], got [u8; 3]"))
             .count(),
         2,
         "{messages:?}"
@@ -1104,7 +1110,7 @@ fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"
 fn main() () {
-    let mut bytes: [4]u8 = [1, 2, 3, 0];
+    let mut bytes: [u8; 4] = [1, 2, 3, 0];
     let mut byte_ptr: &u8 = b"hello";
     let mut array_ptr: &u8 = bytes;
     _ = byte_ptr;

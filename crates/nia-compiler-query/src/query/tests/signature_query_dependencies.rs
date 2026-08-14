@@ -430,7 +430,7 @@ fn signature_layout_reads_canonical_types_from_store() {
         entry_id,
         "module1",
         "module1.nia",
-        "pub struct Box[T] { value: [3]T }",
+        "pub struct Box[T] { value: [T; 3] }",
     );
     let db = query_db(fixture.program());
     let signature_types = nia_item_tree::SignatureItemSet::Types;

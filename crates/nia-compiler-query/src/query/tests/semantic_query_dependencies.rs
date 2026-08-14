@@ -258,7 +258,7 @@ items[index].state = state;
 }
 
 fn main() i32 {
-let mut items: [2]Item = [
+let mut items: [Item; 2] = [
     Item { state: 1 },
     Item { state: 2 },
 ];

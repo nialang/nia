@@ -6,7 +6,7 @@ use super::*;
 fn body_check_uses_const_semantic_modules_not_ast_module_map() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "const N: usize = 4; fn main() i32 { let mut values: [N]i32 = [0; N]; values.len() as i32 }",
+        "const N: usize = 4; fn main() i32 { let mut values: [i32; N] = [0; N]; values.len() as i32 }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

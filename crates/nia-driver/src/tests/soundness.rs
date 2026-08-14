@@ -223,7 +223,7 @@ extend Four : Shape {
     const N: usize = 4usize;
 }
 
-fn rewrite[T](value: [[T as Shape]::N]i32) [4]i32
+fn rewrite[T](value: [i32; [T as Shape]::N]) [i32; 4]
 where T: Shape
 {
     value
@@ -264,7 +264,7 @@ extend Four : Base {
 
 extend Four : Sub {}
 
-fn rewrite[T](value: [[T as Base]::N]i32) [4]i32
+fn rewrite[T](value: [i32; [T as Base]::N]) [i32; 4]
 where T: Sub
 {
     value
@@ -305,7 +305,7 @@ extend Store : Slot[4] {
     const Width: usize = 4usize;
 }
 
-fn bad(value: [[Store as Slot[2]]::Width]i32) [[Store as Slot[4]]::Width]i32 {
+fn bad(value: [i32; [Store as Slot[2]]::Width]) [i32; [Store as Slot[4]]::Width] {
     value
 }
 
@@ -350,7 +350,7 @@ where T: Shape
 const WIDTH: usize = [Four as Shape]::N;
 
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 fn make[T](value: T) Buffer[T, WIDTH] {
@@ -416,7 +416,7 @@ extend I32x4 : Packet {
     const Len: usize = 4usize;
 }
 
-fn rewrite[P](value: [[P as Packet]::Len][P as Packet]::Elem) [4]i32
+fn rewrite[P](value: [[P as Packet]::Elem; [P as Packet]::Len]) [i32; 4]
 where P: Packet
 {
     value
@@ -457,7 +457,7 @@ extend Store : Base[8] {
 
 extend Store : Sub[8] {}
 
-fn bad[T](value: [[T as Base[4]]::Width]i32) [4]i32
+fn bad[T](value: [i32; [T as Base[4]]::Width]) [i32; 4]
 where T: Sub[8]
 {
     value
@@ -498,7 +498,7 @@ extend Store : Mode[false] {
     const Width: usize = 2usize;
 }
 
-fn bad(value: [[Store as Mode[true]]::Width]i32) [[Store as Mode[false]]::Width]i32 {
+fn bad(value: [i32; [Store as Mode[true]]::Width]) [i32; [Store as Mode[false]]::Width] {
     value
 }
 
@@ -532,7 +532,7 @@ pub trait HasLen {
         &root.join("types.nia"),
         r#"
 pub struct Buf[N: usize] {
-    values: [N]u8,
+    values: [u8; N],
 }
 "#,
     );
@@ -568,8 +568,8 @@ const FOUR: usize = len[types::Buf[4]]();
 const SEVEN: usize = len[types::Buf[7]]();
 
 fn main() usize {
-    let four: [FOUR]u8 = [1u8, 2u8, 3u8, 4u8];
-    let seven: [SEVEN]u8 = [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8];
+    let four: [u8; FOUR] = [1u8, 2u8, 3u8, 4u8];
+    let seven: [u8; SEVEN] = [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8];
     four[3] as usize + seven[6] as usize
 }
 "#,

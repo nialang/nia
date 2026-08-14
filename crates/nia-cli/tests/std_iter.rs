@@ -29,7 +29,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         invocationCount += 1;
         total += value;
     });
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     (&mut values).iterMut().forEach(&\value: &mut i32 -> {
         value.* += 1;
     });

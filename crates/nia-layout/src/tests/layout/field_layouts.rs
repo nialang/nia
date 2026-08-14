@@ -47,7 +47,7 @@ fn ignores_inferred_array_placeholders_during_global_layout_scan() {
     let (module, symbols) = parse_test_module(
         r#"
 fn main() {
-let mut xs: [_]u8 = [1, 2];
+let mut xs: [u8; _] = [1, 2];
 }
 "#,
     );

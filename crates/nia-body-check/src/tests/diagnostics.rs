@@ -16,7 +16,7 @@ struct Pair[A, B] {
 
 fn take_pair(value: Pair[i32, usize]) () {}
 fn take_read_point_ptr(value: &Point) () {}
-fn take_array(value: [3]i32) () {}
+fn take_array(value: [i32; 3]) () {}
 fn take_slice(value: &[i32]) () {}
 fn take_fn_ptr(value: &fn(i32, usize) bool) () {}
 fn pred(value: i32, width: usize) () {}
@@ -61,7 +61,7 @@ fn main(value: (), ptr: &u8) () {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("expected [3]i32, got [2]i32")),
+            .any(|message| message.contains("expected [i32; 3], got [i32; 2]")),
         "{:?}",
         checked.diagnostics
     );

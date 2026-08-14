@@ -11,7 +11,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ?argument => argument,
         null => return process::exit(2)!,
     };
-    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut buffer: [u8; 128] = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.print(&"run={}\n", &[&argument]).exit().?;
     stdout.flush().exit().?;

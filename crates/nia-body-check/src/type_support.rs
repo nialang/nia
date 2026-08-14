@@ -1580,7 +1580,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::SlicePointee { elem }) => format!("[{}]", self.ty_name(*elem)),
             Some(TyKind::Array { len, elem }) => {
-                format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
+                format!("[{}; {}]", self.ty_name(*elem), self.array_len_name(len))
             }
             Some(TyKind::Range { kind, bound }) => self.range_ty_name(*kind, *bound),
             Some(TyKind::Optional { elem }) => format!("?{}", self.ty_name(*elem)),

@@ -259,7 +259,7 @@ struct Point {
 
 fn main() i32 {
     let mut p = Point { x: 10, y: 20 };
-    let mut xs: [3]i32 = [1, 2, 3];
+    let mut xs: [i32; 3] = [1, 2, 3];
     p.x += xs[1];
     p.x
 }
@@ -292,7 +292,7 @@ struct S {
 }
 
 struct T {
-    xs: [4]S,
+    xs: [S; 4],
 }
 
 extend S {
@@ -343,7 +343,7 @@ struct S {
 }
 
 struct T {
-    xs: [4]S,
+    xs: [S; 4],
 }
 
 extend S {
@@ -387,7 +387,7 @@ fn emits_dynamic_index_call_from_struct_function_pointer_array_field() {
         &main,
         r#"
 struct Table {
-    fns: [2]&fn(i32) i32,
+    fns: [&fn(i32) i32; 2],
 }
 
 fn add1(x: i32) i32 {

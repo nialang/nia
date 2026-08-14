@@ -494,7 +494,7 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
+            ExprKind::ArrayLiteral { elems } => {
                 match elems {
                     nia_ast::ArrayElements::List(elems) => {
                         for elem in elems {

@@ -65,7 +65,7 @@ using std::process;
 
 union VectorSlot {
     vector: u16x2,
-    bytes: [4]u8,
+    bytes: [u8; 4],
 }
 
 union MaskSlot {
@@ -81,18 +81,18 @@ const fn makeSlot(vector: u16x2) VectorSlot {
     VectorSlot { vector }
 }
 
-const fn readBytes(slot: VectorSlot) [4]u8 {
+const fn readBytes(slot: VectorSlot) [u8; 4] {
     slot.bytes
 }
 
-const fn decode(bytes: [4]u8) u16x2 {
+const fn decode(bytes: [u8; 4]) u16x2 {
     let slot = VectorSlot { bytes: bytes };
     slot.vector
 }
 
 const compileVector: u16x2 = makeVector();
 const compileSlot: VectorSlot = makeSlot(compileVector);
-const compileBytes: [4]u8 = readBytes(compileSlot);
+const compileBytes: [u8; 4] = readBytes(compileSlot);
 const decoded: u16x2 = decode(compileBytes);
 const compileMask: boolx4 = std::builtin::insert(
     std::builtin::splat[boolx4](false),
@@ -309,7 +309,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         null => {},
     }
 
-    let euroBytes: [3]u8 = [0xe2, 0x82, 0xac];
+    let euroBytes: [u8; 3] = [0xe2, 0x82, 0xac];
     let euro = switch unicode::decodeUtf8First(&euroBytes) {
         !decoded => {
             decoded
@@ -323,7 +323,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(8)!;
     }
 
-    let overlong: [2]u8 = [0xc0, 0x80];
+    let overlong: [u8; 2] = [0xc0, 0x80];
     switch unicode::decodeUtf8First(&overlong) {
         !decoded => { _ = decoded; return process::exit(9)!; },
         error! => if error != unicode::Utf8DecodeError::Overlong {
@@ -338,7 +338,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let truncated: [2]u8 = [0xe2, 0x82];
+    let truncated: [u8; 2] = [0xe2, 0x82];
     switch unicode::decodeUtf8First(&truncated) {
         !decoded => { _ = decoded; return process::exit(15)!; },
         error! => if error != unicode::Utf8DecodeError::Truncated {
@@ -346,7 +346,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let invalidLeading: [1]u8 = [0x80];
+    let invalidLeading: [u8; 1] = [0x80];
     switch unicode::decodeUtf8First(&invalidLeading) {
         !decoded => { _ = decoded; return process::exit(17)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidLeadingByte {
@@ -354,7 +354,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let invalidContinuation: [3]u8 = [0xe2, 0x28, 0xa1];
+    let invalidContinuation: [u8; 3] = [0xe2, 0x28, 0xa1];
     switch unicode::decodeUtf8First(&invalidContinuation) {
         !decoded => { _ = decoded; return process::exit(19)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidContinuation {
@@ -362,7 +362,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let invalidScalar: [3]u8 = [0xed, 0xa0, 0x80];
+    let invalidScalar: [u8; 3] = [0xed, 0xa0, 0x80];
     switch unicode::decodeUtf8First(&invalidScalar) {
         !decoded => { _ = decoded; return process::exit(21)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidScalar {
@@ -407,7 +407,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let bytes: [10]u8 = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
+    let bytes: [u8; 10] = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
     let vec = std::builtin::load_unaligned[u8x8](&bytes[1]);
     if std::builtin::extract(vec, 0usize) != 1u8 {
         return process::exit(1)!;
@@ -471,7 +471,7 @@ union Bits {
 }
 
 union ByteBits {
-    bytes: [4]u8,
+    bytes: [u8; 4],
     float: f32,
 }
 
@@ -540,12 +540,12 @@ const fn readBits(bits: Bits) u32 {
     bits.integer
 }
 
-const fn oneBytes() [4]u8 {
+const fn oneBytes() [u8; 4] {
     let bits = ByteBits { float: 1.0 };
     bits.bytes
 }
 
-const fn floatFromBytes(bytes: [4]u8) f32 {
+const fn floatFromBytes(bytes: [u8; 4]) f32 {
     let bits = ByteBits { bytes: bytes };
     bits.float
 }
@@ -570,37 +570,37 @@ const arrayLen: usize = double(2)
     + pairTotal(pairs::pair(1, 2));
 const compileOneBits: u32 = readBits(Bits { float: 1.0 });
 const compileUnion: Bits = Bits { float: 1.0 };
-const compileOneBytes: [4]u8 = oneBytes();
+const compileOneBytes: [u8; 4] = oneBytes();
 const compileOneFromBytes: f32 = floatFromBytes(compileOneBytes);
 const compileByteUnion: ByteBits = ByteBits { bytes: compileOneBytes };
 const compileImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
 const compileImportedBits: u32 = pairs::readSlotBits[f32](compileImportedSlot);
-const compilePairBytes: [8]u8 = pairs::encodePair[u32]([2]u32[7, 8]);
-const compilePairValues: [2]u32 = pairs::decodePair[u32](compilePairBytes);
-const compileStructBytes: [5]u8 = pairs::encodeStruct[u32](
+const compilePairBytes: [u8; 8] = pairs::encodePair[u32]([7, 8]);
+const compilePairValues: [u32; 2] = pairs::decodePair[u32](compilePairBytes);
+const compileStructBytes: [u8; 5] = pairs::encodeStruct[u32](
     pairs::Padded[u32] { marker: 170, value: 287454020 },
 );
 const compileStruct: pairs::Padded[u32] = pairs::decodeStruct[u32](compileStructBytes);
 const packetWidth: usize = 2;
 const compilePacketValue: pairs::Packet[u8, packetWidth, u16] = pairs::Packet[u8, packetWidth, u16] {
     marker: 170,
-    values: [2]u16[4386, 13124],
+    values: [4386, 13124],
 };
-const compilePacketBytes: [5]u8 = pairs::encodePacket(compilePacketValue);
+const compilePacketBytes: [u8; 5] = pairs::encodePacket(compilePacketValue);
 const compilePacket: pairs::Packet[u8, 2, u16] = pairs::decodePacket(compilePacketBytes);
 const compileNestedSlot: pairs::OuterSlot[u32] = pairs::layeredSlot[u32](1144201745, 26197);
-const compileNestedBytes: [4]u8 = pairs::readLayeredBytes[u32](compileNestedSlot);
+const compileNestedBytes: [u8; 4] = pairs::readLayeredBytes[u32](compileNestedSlot);
 
 fn materializedNestedSlot() pairs::OuterSlot[u32] {
     compileNestedSlot
 }
 
 fn runtimeChecks(value: usize) bool {
-    let values: [arrayLen]u8 = [0; arrayLen];
+    let values: [u8; arrayLen] = [0; arrayLen];
     let mut width = Width::fromValue(value);
     let runtimeImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
-    let runtimePairValues: [2]u32 = pairs::decodePair[u32](
-        pairs::encodePair[u32]([2]u32[value as u32, value as u32 + 1])
+    let runtimePairValues: [u32; 2] = pairs::decodePair[u32](
+        pairs::encodePair[u32]([value as u32, value as u32 + 1])
     );
     let runtimeStructBytes = pairs::encodeStruct[u32](
         pairs::Padded[u32] { marker: 170, value: 287454020 },
@@ -608,7 +608,7 @@ fn runtimeChecks(value: usize) bool {
     let runtimeStruct = pairs::decodeStruct[u32](runtimeStructBytes);
     let runtimePacketBytes = pairs::encodePacket(pairs::Packet[u8, 2, u16] {
         marker: 170,
-        values: [2]u16[4386, 13124],
+        values: [4386, 13124],
     });
     let runtimePacket = pairs::decodePacket(runtimePacketBytes);
     let runtimeNestedSlot = pairs::layeredSlot[u32](1144201745, 26197);
@@ -691,7 +691,7 @@ pub struct Padded[T] {
 
 pub struct Packet[T, N: usize, U] {
     marker: T,
-    values: [N]U,
+    values: [U; N],
 }
 
 pub union ScalarSlot[T] {
@@ -700,18 +700,18 @@ pub union ScalarSlot[T] {
 }
 
 pub union PairBytes[T] {
-    values: [2]T,
-    bytes: [8]u8,
+    values: [T; 2],
+    bytes: [u8; 8],
 }
 
 pub union PaddedBytes[T] {
     value: Padded[T],
-    prefix: [5]u8,
+    prefix: [u8; 5],
 }
 
 pub union PacketBytes[T, N: usize, U] {
     value: Packet[T, N, U],
-    prefix: [5]u8,
+    prefix: [u8; 5],
 }
 
 pub union InnerSlot[T] {
@@ -721,7 +721,7 @@ pub union InnerSlot[T] {
 
 pub union OuterSlot[T] {
     inner: InnerSlot[T],
-    bytes: [4]u8,
+    bytes: [u8; 4],
 }
 
 extend[T] PairIter[T] : Iterator {
@@ -763,32 +763,32 @@ pub const fn readSlotBits[T](slot: ScalarSlot[T]) u32 {
     slot.bits
 }
 
-pub const fn encodePair[T](values: [2]T) [8]u8 {
+pub const fn encodePair[T](values: [T; 2]) [u8; 8] {
     let slot = PairBytes[T] { values: values };
     slot.bytes
 }
 
-pub const fn decodePair[T](bytes: [8]u8) [2]T {
+pub const fn decodePair[T](bytes: [u8; 8]) [T; 2] {
     let slot = PairBytes[T] { bytes: bytes };
     slot.values
 }
 
-pub const fn encodeStruct[T](value: Padded[T]) [5]u8 {
+pub const fn encodeStruct[T](value: Padded[T]) [u8; 5] {
     let slot = PaddedBytes[T] { value: value };
     slot.prefix
 }
 
-pub const fn decodeStruct[T](bytes: [5]u8) Padded[T] {
+pub const fn decodeStruct[T](bytes: [u8; 5]) Padded[T] {
     let slot = PaddedBytes[T] { prefix: bytes };
     slot.value
 }
 
-pub const fn encodePacket(value: Packet[u8, 2, u16]) [5]u8 {
+pub const fn encodePacket(value: Packet[u8, 2, u16]) [u8; 5] {
     let slot = PacketBytes[u8, 2, u16] { value: value };
     slot.prefix
 }
 
-pub const fn decodePacket(bytes: [5]u8) Packet[u8, 2, u16] {
+pub const fn decodePacket(bytes: [u8; 5]) Packet[u8, 2, u16] {
     let slot = PacketBytes[u8, 2, u16] { prefix: bytes };
     slot.value
 }
@@ -799,7 +799,7 @@ pub const fn layeredSlot[T](wide: T, narrow: u16) OuterSlot[T] {
     OuterSlot[T] { inner }
 }
 
-pub const fn readLayeredBytes[T](slot: OuterSlot[T]) [4]u8 {
+pub const fn readLayeredBytes[T](slot: OuterSlot[T]) [u8; 4] {
     slot.bytes
 }
 "#,

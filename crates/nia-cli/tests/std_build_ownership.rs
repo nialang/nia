@@ -220,7 +220,7 @@ fn isPlanEncodingOom(error: build::Error) bool {
 }
 
 fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!() {
-    let mut buffer: [512]u8 = [_]u8[0; 512];
+    let mut buffer: [u8; 512] = [0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
     stderr.print(&"unexpected build error: {}\n", &[&error]).exit().?;
     stderr.flush().exit().?;
@@ -230,7 +230,7 @@ fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!
 fn checkInitRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
-    let pathText: [64]char = [_]char['p'; 64];
+    let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
     switch build::Build::init(
@@ -266,7 +266,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
 fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(successfulAllocations);
-    let pathText: [64]char = [_]char['p'; 64];
+    let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
     switch build::Build::init(
@@ -304,7 +304,7 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
     allocator.failNextFree();
-    let pathText: [64]char = [_]char['p'; 64];
+    let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
     switch build::Build::init(
@@ -415,7 +415,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         build::ExecutableOptions::init(&targetName, moduleHandle).withOutputName(&outputName),
     ).exit().?;
     _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
-    let runArguments: [2]&[char] = [&"first", &"second"];
+    let runArguments: [&[char]; 2] = [&"first", &"second"];
     let beforeRun = allocator.activeAllocations;
     allocator.failAfter(1usize);
     switch api.addRunExecutableStep(

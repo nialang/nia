@@ -102,30 +102,10 @@ fn resolved_expr_rejects_unresolved_type_args() {
 }
 
 #[test]
-fn resolved_expr_rejects_unresolved_explicit_array_literal_type() {
-    let expr = EarlyConstExpr {
-        span: span(),
-        kind: EarlyConstExprKind::ArrayLiteral {
-            ty: Some(EarlyConstTypeArg {
-                span: span(),
-                ty_span: other_span(),
-                ty: None,
-            }),
-            elems: crate::EarlyConstArrayElements::List(Vec::new()),
-        },
-    };
-
-    let err = resolve_expr(expr).expect_err("explicit array type must resolve");
-    assert_eq!(err.span, other_span());
-    assert_eq!(err.message, "failed to resolve const type argument");
-}
-
-#[test]
 fn resolved_expr_preserves_context_inferred_array_literal() {
     let expr = EarlyConstExpr {
         span: span(),
         kind: EarlyConstExprKind::ArrayLiteral {
-            ty: None,
             elems: crate::EarlyConstArrayElements::List(Vec::new()),
         },
     };
@@ -133,7 +113,7 @@ fn resolved_expr_preserves_context_inferred_array_literal() {
     let resolved = resolve_expr(expr).expect("untyped array literal should remain inferable");
     assert!(matches!(
         resolved.kind(),
-        ResolvedConstExprKind::ArrayLiteral { ty: None, .. }
+        ResolvedConstExprKind::ArrayLiteral { .. }
     ));
 }
 

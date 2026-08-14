@@ -124,11 +124,11 @@ fn main() i32 {
 #[test]
 fn o2_inlines_tiny_pure_leaf_function_calls() {
     let source = r#"
-fn pair() [2]i32 {
+fn pair() [i32; 2] {
     [1, 2]
 }
 
-fn main() [2]i32 {
+fn main() [i32; 2] {
     pair()
 }
 "#;
@@ -164,11 +164,11 @@ fn main() [2]i32 {
 #[test]
 fn o1_preserves_tiny_pure_leaf_function_calls() {
     let source = r#"
-fn pair() [2]i32 {
+fn pair() [i32; 2] {
     [1, 2]
 }
 
-fn main() [2]i32 {
+fn main() [i32; 2] {
     pair()
 }
 "#;
@@ -203,11 +203,11 @@ fn main() [2]i32 {
 #[test]
 fn size_levels_preserve_non_constant_pure_leaf_function_calls() {
     let source = r#"
-fn pair() [2]i32 {
+fn pair() [i32; 2] {
     [1, 2]
 }
 
-fn main() [2]i32 {
+fn main() [i32; 2] {
     pair()
 }
 "#;
@@ -457,11 +457,11 @@ fn main() i32 {
 #[test]
 fn o3_inlines_larger_pure_leaf_function_calls_than_o2() {
     let source = r#"
-fn values() [5]i32 {
+fn values() [i32; 5] {
     [1, 2, 3, 4, 5]
 }
 
-fn main() [5]i32 {
+fn main() [i32; 5] {
     values()
 }
 "#;
@@ -525,11 +525,11 @@ fn main() [5]i32 {
 #[test]
 fn o3_inlines_larger_pure_leaf_function_instance_calls_than_o2() {
     let source = r#"
-fn values[T]() [5]i32 {
+fn values[T]() [i32; 5] {
     [1, 2, 3, 4, 5]
 }
 
-fn main() [5]i32 {
+fn main() [i32; 5] {
     values[i32]()
 }
 "#;
@@ -776,12 +776,12 @@ fn main() i32 {
 #[test]
 fn o3_inlines_pure_leaf_function_calls_through_bindings() {
     let source = r#"
-fn values() [5]i32 {
+fn values() [i32; 5] {
     let mut items = [1, 2, 3, 4, 5];
     items
 }
 
-fn main() [5]i32 {
+fn main() [i32; 5] {
     values()
 }
 "#;
@@ -1265,11 +1265,11 @@ fn main() i32 {
 #[test]
 fn size_aware_specialization_preserves_non_constant_leaf_function_instance_calls() {
     let source = r#"
-fn pair[T]() [2]i32 {
+fn pair[T]() [i32; 2] {
     [1, 2]
 }
 
-fn main() [2]i32 {
+fn main() [i32; 2] {
     pair[i32]()
 }
 "#;

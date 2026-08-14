@@ -36,7 +36,7 @@ fn checked_pair(values: &[i32]) i32!i32 {
 pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut values: [3]i32 = [10, 20, 32];
+    let mut values: [i32; 3] = [10, 20, 32];
     let mut pair_sum = 0;
     // if-pattern is the concise form for one refutable success path.
     if checked_pair(&values) is !sum {

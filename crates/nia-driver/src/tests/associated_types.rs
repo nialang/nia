@@ -1219,7 +1219,7 @@ extend Four : Shape {
     const N: usize = 4usize;
 }
 
-fn fourth(values: [[Four as Shape]::N]u8) u8 {
+fn fourth(values: [u8; [Four as Shape]::N]) u8 {
     values[3]
 }
 
@@ -1244,7 +1244,7 @@ trait HasLen {
 }
 
 struct Buf[N: usize] {
-    values: [N]u8,
+    values: [u8; N],
 }
 
 extend[N: usize] Buf[N] : HasLen {
@@ -1299,7 +1299,7 @@ where T: Sub
 const WIDTH: usize = n[Value]();
 
 fn main() usize {
-    let values: [WIDTH]usize = [1, 2, 3, 4, 5, 6];
+    let values: [usize; WIDTH] = [1, 2, 3, 4, 5, 6];
     values[5]
 }
 "#,
@@ -1339,7 +1339,7 @@ where T: Slot[N]
 const WIDTH: usize = width_store();
 
 fn main() usize {
-    let values: [WIDTH]usize = [1, 2, 3];
+    let values: [usize; WIDTH] = [1, 2, 3];
     values[2] + generic_width[Store, 3]()
 }
 "#,
@@ -1363,7 +1363,7 @@ fn lanes() usize {
     [u8x16 as Simd]::Lanes
 }
 
-fn lane_array(values: [[u8x16 as Simd]::Lanes]u8) u8 {
+fn lane_array(values: [u8; [u8x16 as Simd]::Lanes]) u8 {
     values[15]
 }
 

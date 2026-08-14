@@ -97,7 +97,7 @@ fn configure(b: &mut build::Build) build::Error!() {
         build::BuildPathView::init(&helperPath),
         &b"pub fn value() i32 {\n    7\n}\n"[..],
     ).?;
-    let runArguments: [1]&[char] = [&"roadmap"];
+    let runArguments: [&[char]; 1] = [&"roadmap"];
     let runStep = b.addRunExecutableStep(
         &runStepName,
         build::RunOptions::init(app).withArguments(&runArguments[..]),
@@ -153,7 +153,7 @@ fn configure(b: &mut build::Build) build::Error!() {
 pub fn build(b: &mut build::Build) build::Error!() {
     configure(b).?;
 
-    let mut buffer: [1024]u8 = [_]u8[0; 1024];
+    let mut buffer: [u8; 1024] = [0; 1024];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.print(&"root={}\n", &[b.packageRoot().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     stdout.print(&"build={}\n", &[b.buildDir().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;

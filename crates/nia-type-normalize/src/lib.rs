@@ -942,7 +942,7 @@ fn id(value: Nested[u16]) (u16, ((), u16)) { value }
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
-fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
+fn id(x: [u8; std::builtin::size[Byte]()]) [u8; std::builtin::size[u8]()] { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -997,8 +997,8 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
         let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
-type SizedBytes[T] = [std::builtin::size[T]()]u8;
-fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
+type SizedBytes[T] = [u8; std::builtin::size[T]()];
+fn id(x: SizedBytes[u16]) [u8; std::builtin::size[u16]()] { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1080,7 +1080,7 @@ type B = A;
         let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
-fn take(xs: [2 + 3]u8) () {}
+fn take(xs: [u8; 2 + 3]) () {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

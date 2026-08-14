@@ -135,7 +135,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     expectStream(9u64, &boundary[0..64], 32, 56).?;
     expectStream(9u64, &boundary[0..65], 33, 60).?;
 
-    let pair: [2]u8 = [1u8, 2u8];
+    let pair: [u8; 2] = [1u8, 2u8];
     let sliceHash = hashBytes(12u64, &pair[..]);
     let mut rawHasher = hash::Wyhash::init(12u64);
     rawHasher.write(&pair);
@@ -152,7 +152,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut intHasher = hash::Wyhash::init(13u64);
     (0x01020304u32).hash(&mut intHasher);
-    let little_endian: [4]u8 = [4u8, 3u8, 2u8, 1u8];
+    let little_endian: [u8; 4] = [4u8, 3u8, 2u8, 1u8];
     if intHasher.finish() != hash::wyhash(13u64, &little_endian) {
         return process::exit(72)!;
     }
@@ -940,7 +940,7 @@ fn run(init: process::Init) mem::Error!() {
         key += 1;
     }
 
-    let mut failStorage: [8192]u8 = [0; 8192];
+    let mut failStorage: [u8; 8192] = [0; 8192];
     let mut failAllocator = FailAllocator::init(&mut failStorage);
     let mut rollback = std::HashMap[i32, i32]::initSeed(558u64);
     defer rollback.deinit(&mut failAllocator).?;
@@ -1043,7 +1043,7 @@ fn run(init: process::Init) mem::Error!() {
         null => { return mem::Error::Invalid!; },
     }
 
-    let mut freeFailStorage: [8192]u8 = [0; 8192];
+    let mut freeFailStorage: [u8; 8192] = [0; 8192];
     let mut freeFailAllocator = FailAllocator::init(&mut freeFailStorage);
     let mut freeFail = std::HashMap[i32, i32]::initSeed(560u64);
     defer freeFail.deinit(&mut freeFailAllocator).?;
@@ -1296,7 +1296,7 @@ fn run(init: process::Init) mem::Error!() {
         null => { return mem::Error::Invalid!; },
     }
 
-    let mut tinyStorage: [16]u8 = [0; 16];
+    let mut tinyStorage: [u8; 16] = [0; 16];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage);
     let mut tinyMap = std::HashMap[i32, i32]::initSeed(11u64);
     defer tinyMap.deinit(&mut tiny).?;
@@ -1414,8 +1414,8 @@ fn run(init: process::Init) mem::Error!() {
 
     let mut modelMap = std::HashMap[i32, i32]::initSeed(557u64);
     defer modelMap.deinit(&mut gpa).?;
-    let mut expected: [40]i32 = [0; 40];
-    let mut present: [40]bool = [false; 40];
+    let mut expected: [i32; 40] = [0; 40];
+    let mut present: [bool; 40] = [false; 40];
     let mut expectedLen = 0usize;
     let mut step = 0;
     while step < 240 {
@@ -1660,7 +1660,7 @@ extend FailAllocator : mem::Allocator {
 
 fn run(init: process::Init) mem::Error!() {
     _ = init;
-    let mut storage: [32768]u8 = [0; 32768];
+    let mut storage: [u8; 32768] = [0; 32768];
     let mut allocator = FailAllocator::init(&mut storage);
     let mut map = std::HashMap[i32, i32]::initSeed(123u64);
     defer map.deinit(&mut allocator).?;
