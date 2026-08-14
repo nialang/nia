@@ -372,8 +372,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     ) {
         return process::exit(23)!;
     }
-    let invalidArgument: [3]char = ['a', '\0', 'b'];
-    let invalidArguments: [1]&[char] = [&invalidArgument];
+    let invalidArgument: [char; 3] = ['a', '\0', 'b'];
+    let invalidArguments: [&[char]; 1] = [&invalidArgument];
     if not rejectsInvalidStep(
         api.addRunExecutableStep(
             &"invalid-run",

@@ -194,7 +194,7 @@ impl LocalDefinitionAllocator {
                 }
                 self.allocate_expr(body);
             }
-            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
+            ExprKind::ArrayLiteral { elems } => {
                 self.allocate_array_elements(elems);
             }
             ExprKind::TypedStructLiteral { fields, .. } => {

@@ -105,7 +105,11 @@ impl Analyzer<'_> {
                     .map(ConstValueType::Runtime)
             }
             ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref => {
-                let inner_ty = self.resolved_const_expr_type(inner, None)?;
+                // A reference's expected pointee is the operand's context. This
+                // must happen before structural inference so literals such as
+                // `&[Item { ... }]` can inherit their nominal element type.
+                let inner_expected = self.expected_const_ref_target(op, expected);
+                let inner_ty = self.resolved_const_expr_type(inner, inner_expected)?;
                 let is_readonly = matches!(op, ConstUnaryOp::RefReadOnly);
                 let kind = match inner_ty {
                     ConstValueType::Array { elem, .. } => TyKind::Slice {
@@ -126,6 +130,35 @@ impl Analyzer<'_> {
                 let ty = self.intern_current_ty(kind)?;
                 Some(ConstValueType::Runtime(ty))
             }
+        }
+    }
+
+    fn expected_const_ref_target(
+        &mut self,
+        op: ConstUnaryOp,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        match (op, self.ty_kind(expected?)?) {
+            (
+                ConstUnaryOp::RefReadOnly,
+                TyKind::Pointer {
+                    is_readonly: true,
+                    elem,
+                },
+            )
+            | (
+                ConstUnaryOp::Ref,
+                TyKind::Pointer {
+                    is_readonly: false,
+                    elem,
+                },
+            ) => Some(elem),
+            (ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref, TyKind::Slice { elem, .. }) => self
+                .intern_current_ty(TyKind::Array {
+                    len: ArrayLenTy::Infer,
+                    elem,
+                }),
+            _ => None,
         }
     }
 

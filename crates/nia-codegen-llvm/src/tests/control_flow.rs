@@ -260,9 +260,9 @@ pub struct ArrayIter {
 }
 
 extend ArrayIter : Iterator {
-    type Item = [2]i32;
+    type Item = [i32; 2];
 
-    pub fn next(&mut self) ?[2]i32 {
+    pub fn next(&mut self) ?[i32; 2] {
         if self.index >= 1 {
             null
         } else {
@@ -342,7 +342,7 @@ extend ErrorOptionalIter : Iterator {
 
 pub struct SliceIter {
     index: i32,
-    data: [2]i32,
+    data: [i32; 2],
 }
 
 extend SliceIter : Iterator {

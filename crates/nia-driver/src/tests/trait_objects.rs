@@ -621,7 +621,7 @@ extend[E] Formatter[E] {
     }
 
     fn write_byte(&mut self) E!() {
-        let mut bytes: [1]u8 = [0];
+        let mut bytes: [u8; 1] = [0];
         self.write_all(&bytes[..]).?;
         !()
     }

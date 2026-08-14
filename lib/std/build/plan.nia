@@ -74,7 +74,7 @@ extend PlanEncoder {
     }
 
     fn writeU32(&mut self, value: u32) Error!() {
-        let encoded: [4]u8 = [
+        let encoded: [u8; 4] = [
             value as u8,
             (value >> 8) as u8,
             (value >> 16) as u8,
@@ -572,7 +572,7 @@ extend Build {
         defer if fileOpen {
             file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
         };
-        let mut buffer: [4096]u8 = [_]u8[0; 4096];
+        let mut buffer: [u8; 4096] = [0; 4096];
         let mut writer = file.writer(&mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan).?;
         writer.writeAll(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
         writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan).?;

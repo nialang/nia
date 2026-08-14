@@ -150,12 +150,12 @@ struct Pair {
 }
 
 union ArraySlot {
-    pointer: &[3]u8,
+    pointer: &[u8; 3],
     integer: usize,
 }
 
 union TextSlot {
-    pointer: &[2]char,
+    pointer: &[char; 2],
     integer: usize,
 }
 
@@ -165,7 +165,7 @@ union PairSlot {
 }
 
 const pairSlot: PairSlot = PairSlot { pointer: &Pair{left: 5u16, right: 8u16} };
-const arraySlot: ArraySlot = ArraySlot { pointer: &[3]u8[1, 2, 3] };
+const arraySlot: ArraySlot = ArraySlot { pointer: &[1, 2, 3] };
 const bytesSlot: ArraySlot = ArraySlot { pointer: &b"abc" };
 const textSlot: TextSlot = TextSlot { pointer: &"hi" };
 
@@ -200,11 +200,11 @@ fn static_array_pointers_use_promoted_source_identity() {
     std::fs::write(
         &main,
         r#"
-const left: &[3]u8 = &[3]u8[1, 2, 3];
-const right: &[3]u8 = &[3]u8[1, 2, 3];
+const left: &[u8; 3] = &[1, 2, 3];
+const right: &[u8; 3] = &[1, 2, 3];
 
 fn main() usize {
-    const local: &[3]u8 = &[3]u8[7, 8, 9];
+    const local: &[u8; 3] = &[7, 8, 9];
     left.*[0] as usize
         + left.*[1] as usize
         + right.*[2] as usize
@@ -241,7 +241,7 @@ fn imported_static_array_pointer_uses_defining_module_identity() {
     std::fs::write(
         root.join("defs.nia"),
         r#"
-pub const values: &[3]u8 = &[3]u8[4, 5, 6];
+pub const values: &[u8; 3] = &[4, 5, 6];
 "#,
     )
     .expect("write defs source");
@@ -403,7 +403,7 @@ union HolderOuter {
 }
 
 union ArrayOuter {
-    pointer: &[2]Inner,
+    pointer: &[Inner; 2],
     integer: usize,
 }
 
@@ -422,7 +422,7 @@ const holderSlot: HolderOuter = HolderOuter {
     pointer: &Holder{marker: 3, inner: Inner{pointer: &37usize}},
 };
 const arraySlot: ArrayOuter = ArrayOuter {
-    pointer: &[2]Inner[
+    pointer: &[
         Inner{pointer: &11usize},
         Inner{pointer: &13usize},
     ],
@@ -463,10 +463,10 @@ fn emits_const_generic_function_and_nominal_array_instances() {
         &main,
         r#"
 struct Buffer[T, N: usize] {
-    data: [N]T,
+    data: [T; N],
 }
 
-fn take[T, N: usize](items: [N]T) usize {
+fn take[T, N: usize](items: [T; N]) usize {
     items.len()
 }
 
@@ -757,7 +757,7 @@ module config;
 using entry::config;
 
 fn main() i32 {
-    let mut values: [config::width]i32 = [1, 2, 3, 4];
+    let mut values: [i32; config::width] = [1, 2, 3, 4];
     values[3]
 }
 "#,
@@ -792,7 +792,7 @@ pub struct Item {
 }
 
 pub struct Boxed {
-    items: [N]Item,
+    items: [Item; N],
 }
 
 extend Item {
@@ -867,7 +867,7 @@ fn main() u8 {
 pub const N: usize = 3;
 
 pub struct Boxed[T] {
-    values: [N]T,
+    values: [T; N],
 }
 "#,
     )
@@ -890,7 +890,7 @@ fn emits_large_array_repeat_count_from_const_binding() {
 const N: usize = 16;
 
 fn main() i32 {
-    let mut buffer: [N]u8 = [0u8; N];
+    let mut buffer: [u8; N] = [0u8; N];
     0
 }
 "#,

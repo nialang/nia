@@ -87,7 +87,7 @@ module facade;
 using entry::facade;
 
 fn main() i32 {
-let mut values: [facade::LEN]u8 = [0; facade::LEN];
+let mut values: [u8; facade::LEN] = [0; facade::LEN];
 values[0] as i32
 }
 "#,
@@ -151,7 +151,7 @@ struct Box {}
 
 extend Box {
 fn value(&self) usize {
-    let mut values: [LEN]u8 = [_]u8[0; LEN];
+    let mut values: [u8; LEN] = [0; LEN];
     values[0] as usize
 }
 }

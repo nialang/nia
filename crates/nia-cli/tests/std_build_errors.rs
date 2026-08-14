@@ -142,7 +142,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(3)!;
     }
 
-    let mut buffer: [256]u8 = [_]u8[0; 256];
+    let mut buffer: [u8; 256] = [0; 256];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     stdout.print(&"{}\n{}\n{}\n", &[&spawn, &close, &environment]).exit().?;
     stdout.flush().exit().?;
@@ -243,7 +243,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(4)!;
     }
 
-    let mut buffer: [384]u8 = [_]u8[0; 384];
+    let mut buffer: [u8; 384] = [0; 384];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     stdout.print(&"{}\n{}\n{}\n", &[&allocation, &path, &system]).exit().?;
     stdout.flush().exit().?;

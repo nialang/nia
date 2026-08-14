@@ -147,14 +147,14 @@ fn main(ptr: &&&&&& &&i32) bool {
 fn parses_array_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T {
         self[0]
     }
 }
 
-fn main(triple: [3]i32) i32 {
-    [[3]i32]::first(triple)
+fn main(triple: [i32; 3]) i32 {
+    [[i32; 3]]::first(triple)
 }
 "#,
     );
@@ -177,7 +177,7 @@ fn main(triple: [3]i32) i32 {
 fn parses_array_structural_type_target_in_binary_expr() {
     let (module, errors) = parse_module(
         r#"
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T {
         self[0]
     }
@@ -187,8 +187,8 @@ fn zero() i32 {
     0
 }
 
-fn main(triple: [3]i32) i32 {
-    [[3]i32]::first(triple) + zero() as i32
+fn main(triple: [i32; 3]) i32 {
+    [[i32; 3]]::first(triple) + zero() as i32
 }
 "#,
     );
@@ -433,7 +433,7 @@ extend[T] &T {
     }
 }
 
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T {
         self[0]
     }
@@ -443,9 +443,9 @@ fn zero() usize {
     0usize
 }
 
-fn main(ptr: &u8, triple: [3]i32) i32 {
+fn main(ptr: &u8, triple: [i32; 3]) i32 {
     if [&u8]::is_null(ptr) {}
-    [[3]i32]::first(triple) + zero() as i32
+    [[i32; 3]]::first(triple) + zero() as i32
 }
 "#,
     );

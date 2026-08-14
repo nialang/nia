@@ -48,7 +48,7 @@ pub fn main(init: Init) ExitCode!() {
     let mut other_len2 = other.len2();
     let mut score = grade(87);
     // [_] lets the compiler infer the array length from the elements.
-    let mut values = [_]i32[point_len2, other_len2, score];
+    let mut values = [point_len2, other_len2, score];
     // Array pointers coerce to slices when a slice is expected.
     let mut total = sum(&values);
 

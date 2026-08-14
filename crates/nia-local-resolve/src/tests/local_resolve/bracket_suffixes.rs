@@ -11,7 +11,7 @@ x: i32,
 }
 
 struct T {
-xs: [4]S,
+xs: [S; 4],
 }
 
 fn main() i32 {
@@ -54,7 +54,7 @@ x: i32,
 }
 
 struct T {
-xs: [4]S,
+xs: [S; 4],
 }
 
 fn main() i32 {

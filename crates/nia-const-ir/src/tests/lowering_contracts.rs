@@ -201,39 +201,6 @@ fn resolved_lowering_requires_type_ids() {
 }
 
 #[test]
-fn early_lowering_preserves_unresolved_explicit_literal_type() {
-    let expr = nia_ast::Expr {
-        span: span(),
-        node_key: expr_key(30),
-        kind: nia_ast::ExprKind::TypedArrayLiteral {
-            ty: nia_ast::TypeRef {
-                span: other_span(),
-                node_key: type_key(30),
-                text: "i32".to_string(),
-                kind: nia_ast::TypeKind::Path {
-                    segments: vec![nia_ast::TypePathSegment {
-                        kind: nia_ast::PathSegmentKind::Name(sym("i32")),
-                        args: Vec::new(),
-                    }],
-                },
-            },
-            elems: nia_ast::ArrayElements::List(Vec::new()),
-        },
-    };
-
-    let early = lower_expr_early(&expr).expect("early typed literal should lower");
-    let EarlyConstExprKind::ArrayLiteral { ty: Some(ty), .. } = early.kind() else {
-        panic!("explicit literal type must survive early lowering");
-    };
-    assert_eq!(ty.ty_span, other_span());
-    assert_eq!(ty.ty, None);
-
-    let err = resolve_expr(early).expect_err("explicit literal type must resolve");
-    assert_eq!(err.span, other_span());
-    assert_eq!(err.message, "failed to resolve const type argument");
-}
-
-#[test]
 fn generic_call_lowering_uses_semantic_facts_to_distinguish_type_and_const_args() {
     let generic_name = sym("N");
     let function_key = expr_key(10);

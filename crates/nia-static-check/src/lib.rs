@@ -217,16 +217,14 @@ impl StaticChecker<'_> {
                 .iter()
                 .find_map(|elem| self.static_init_reject_reason(elem)),
             ExprKind::Closure { .. } => Some("closure values require runtime state"),
-            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
-                match elems {
-                    ArrayElements::List(elems) => elems
-                        .iter()
-                        .find_map(|elem| self.static_init_reject_reason(elem)),
-                    ArrayElements::Repeat { value, count } => self
-                        .static_init_reject_reason(value)
-                        .or_else(|| self.static_array_repeat_count_reject_reason(count)),
-                }
-            }
+            ExprKind::ArrayLiteral { elems } => match elems {
+                ArrayElements::List(elems) => elems
+                    .iter()
+                    .find_map(|elem| self.static_init_reject_reason(elem)),
+                ArrayElements::Repeat { value, count } => self
+                    .static_init_reject_reason(value)
+                    .or_else(|| self.static_array_repeat_count_reject_reason(count)),
+            },
             ExprKind::TypedStructLiteral { fields, .. }
             | ExprKind::QualifiedStructLiteral { fields, .. } => fields
                 .iter()
@@ -908,7 +906,7 @@ struct Pair {
 
 static mut base: i32 = 1 + 2;
 static mut pair: Pair = Pair { x: 1, y: 2 };
-static mut xs: [2]i32 = [1, 2];
+static mut xs: [i32; 2] = [1, 2];
 static mut p: &i32 = &base;
 static mut q: &i32 = &pair.x;
 static mut r: &i32 = &xs[1];
@@ -942,7 +940,7 @@ static mut value: i32 = base + 2;
         let checked = check(
             r#"
 const n = 3;
-static mut values: [3]i32 = [1; n];
+static mut values: [i32; 3] = [1; n];
 "#,
         );
 
@@ -954,7 +952,7 @@ static mut values: [3]i32 = [1; n];
         let checked = check(
             r#"
 static mut n: usize = 3;
-static mut values: [3]i32 = [1; n];
+static mut values: [i32; 3] = [1; n];
 "#,
         );
 
@@ -971,7 +969,7 @@ static mut values: [3]i32 = [1; n];
     fn rejects_non_static_global_address_indexes() {
         let checked = check(
             r#"
-static mut target: [2]i32 = [1, 2];
+static mut target: [i32; 2] = [1, 2];
 static mut idx: i32 = 1;
 static mut bad: &i32 = &target[idx];
 "#,
@@ -992,7 +990,7 @@ static mut bad: &i32 = &target[idx];
         let checked = check(
             r#"
 const idx = 1;
-static mut target: [2]i32 = [1, 2];
+static mut target: [i32; 2] = [1, 2];
 static mut selected: &i32 = &target[idx];
 "#,
         );

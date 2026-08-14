@@ -143,21 +143,24 @@ impl Parser {
         } else if self.eat(TokenKind::LBracket).is_some() {
             if let Some(kind) = self.parse_projection_type_after_open() {
                 kind
-            } else if let Some(kind) = self.try_parse_slice_pointee_after_open(mode) {
-                kind
             } else {
-                let len = if self.eat(TokenKind::Underscore).is_some() {
-                    self.expect(TokenKind::RBracket, "expected `]` in array type")?;
-                    ArrayLen::Infer
-                } else {
-                    let len = ArrayLen::Expr(Box::new(self.parse_expr()?));
-                    self.expect(TokenKind::RBracket, "expected `]` in array type")?;
-                    len
-                };
                 let elem = self.parse_type_with_mode(mode)?;
-                TypeKind::Array {
-                    len,
-                    elem: Box::new(elem),
+                if self.eat(TokenKind::Semicolon).is_some() {
+                    let len = if self.eat(TokenKind::Underscore).is_some() {
+                        ArrayLen::Infer
+                    } else {
+                        ArrayLen::Expr(Box::new(self.parse_expr()?))
+                    };
+                    self.expect(TokenKind::RBracket, "expected `]` after array type")?;
+                    TypeKind::Array {
+                        len,
+                        elem: Box::new(elem),
+                    }
+                } else {
+                    self.expect(TokenKind::RBracket, "expected `;` or `]` in bracket type")?;
+                    TypeKind::SlicePointee {
+                        elem: Box::new(elem),
+                    }
                 }
             }
         } else if self.eat(TokenKind::LParen).is_some() {
@@ -279,27 +282,6 @@ impl Parser {
             ty: Box::new(ty),
             trait_ref: Box::new(trait_ref),
             name,
-        })
-    }
-
-    fn try_parse_slice_pointee_after_open(&mut self, mode: TypeParseMode) -> Option<TypeKind> {
-        let checkpoint = self.tokens.checkpoint();
-        let errors_len = self.errors.len();
-        if self.at(TokenKind::RBracket) || self.at(TokenKind::Underscore) {
-            return None;
-        }
-        let Some(elem) = self.parse_type_with_mode(mode) else {
-            self.tokens.rewind(checkpoint);
-            self.errors.truncate(errors_len);
-            return None;
-        };
-        if self.eat(TokenKind::RBracket).is_none() || self.type_can_start() {
-            self.tokens.rewind(checkpoint);
-            self.errors.truncate(errors_len);
-            return None;
-        }
-        Some(TypeKind::SlicePointee {
-            elem: Box::new(elem),
         })
     }
 

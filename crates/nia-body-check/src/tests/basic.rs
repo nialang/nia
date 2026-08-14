@@ -55,7 +55,7 @@ const fn callsRuntime() usize {
 fn const_declaration_filter_accepts_slice_pointer_methods() {
     let checked = pipeline_const_declarations(
         r#"
-const fn pointer(values: [2]usize) usize {
+const fn pointer(values: [usize; 2]) usize {
     let mut slice = &values[..];
     let ptr = slice.ptr();
     0
@@ -150,14 +150,14 @@ struct Header {
 }
 
 union Payload {
-    bytes: [2]u8,
+    bytes: [u8; 2],
     integer: u16,
     header: Header,
     nested: Nested,
 }
 
 union Nested {
-    bytes: [2]u8,
+    bytes: [u8; 2],
     integer: u16,
 }
 

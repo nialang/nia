@@ -255,7 +255,7 @@ where T: Sized
 }
 
 fn leak(base: i32) &Fn(i32) i32 {
-    let mut storage: [16]u8 = [0; 16];
+    let mut storage: [u8; 16] = [0; 16];
     let mut state = place(&mut storage[0], \[base] value: i32 -> { base + value });
     &mut state.*
 }

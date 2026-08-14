@@ -17,7 +17,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let path = b"/bin/true\0";
-    let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
+    let mut argv: [&u8; 2] = [&path[0], 0usize as &u8];
     let mut child = switch process::spawnRaw(&path[0], &argv[0], init.rawEnvp()) {
         !value => {
             value
@@ -87,7 +87,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let path = b"/bin/false\0";
-    let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
+    let mut argv: [&u8; 2] = [&path[0], 0usize as &u8];
     let mut child = switch process::spawnRaw(&path[0], &argv[0], init.rawEnvp()) {
         !value => {
             value
@@ -167,7 +167,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let invalidArguments: [2]&[char] = [&"valid", &"bad\0argument"];
+    let invalidArguments: [&[char]; 2] = [&"valid", &"bad\0argument"];
     let invalid = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withArguments(&invalidArguments);
     switch invalid.spawn() {
@@ -182,7 +182,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let mut tinyStorage: [1]u8 = [0];
+    let mut tinyStorage: [u8; 1] = [0];
     let mut fixed = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
     let noMemory = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
@@ -198,7 +198,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let arguments: [4]&[char] = [&"-c", &"test \"$1\" = \"λ\"", &"nia", &"λ"];
+    let arguments: [&[char]; 4] = [&"-c", &"test \"$1\" = \"λ\"", &"nia", &"λ"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments);
     let term = switch command.run() {
@@ -368,8 +368,8 @@ fn expectEnvironmentError(
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let exactEnvironment: [1]process::EnvEntry = [process::EnvEntry::init(&"MODE", &"λ")];
-    let exactArguments: [2]&[char] = [
+    let exactEnvironment: [process::EnvEntry; 1] = [process::EnvEntry::init(&"MODE", &"λ")];
+    let exactArguments: [&[char]; 2] = [
         &"-c",
         &"test \"$MODE\" = \"λ\" && test -z \"${NIA_INHERITED_SENTINEL+x}\"",
     ];
@@ -381,7 +381,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(1)!;
     }
 
-    let emptyArguments: [2]&[char] = [
+    let emptyArguments: [&[char]; 2] = [
         &"-c",
         &"test -z \"${NIA_INHERITED_SENTINEL+x}\" && test -z \"${MODE+x}\"",
     ];
@@ -393,27 +393,27 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(2)!;
     }
 
-    let emptyName: [1]process::EnvEntry = [process::EnvEntry::init(&"", &"value")];
+    let emptyName: [process::EnvEntry; 1] = [process::EnvEntry::init(&"", &"value")];
     expectEnvironmentError(init, &emptyName, 0, process::EnvEntryError::EmptyName).?;
 
-    let equalsName: [1]process::EnvEntry = [process::EnvEntry::init(&"BAD=NAME", &"value")];
+    let equalsName: [process::EnvEntry; 1] = [process::EnvEntry::init(&"BAD=NAME", &"value")];
     expectEnvironmentError(init, &equalsName, 0, process::EnvEntryError::NameContainsEquals).?;
 
-    let nulName: [1]process::EnvEntry = [process::EnvEntry::init(&"BAD\0NAME", &"value")];
+    let nulName: [process::EnvEntry; 1] = [process::EnvEntry::init(&"BAD\0NAME", &"value")];
     expectEnvironmentError(init, &nulName, 0, process::EnvEntryError::NameContainsNul).?;
 
-    let nulValue: [1]process::EnvEntry = [process::EnvEntry::init(&"NAME", &"bad\0value")];
+    let nulValue: [process::EnvEntry; 1] = [process::EnvEntry::init(&"NAME", &"bad\0value")];
     expectEnvironmentError(init, &nulValue, 0, process::EnvEntryError::ValueContainsNul).?;
 
-    let duplicate: [2]process::EnvEntry = [
+    let duplicate: [process::EnvEntry; 2] = [
         process::EnvEntry::init(&"NAME", &"first"),
         process::EnvEntry::init(&"NAME", &"second"),
     ];
     expectEnvironmentError(init, &duplicate, 1, process::EnvEntryError::DuplicateName(0)).?;
 
-    let largeValue: [512]char = [_]char['x'; 512];
-    let largeEnvironment: [1]process::EnvEntry = [process::EnvEntry::init(&"LARGE", &largeValue)];
-    let mut storage: [128]u8 = [_]u8[0; 128];
+    let largeValue: [char; 512] = ['x'; 512];
+    let largeEnvironment: [process::EnvEntry; 1] = [process::EnvEntry::init(&"LARGE", &largeValue)];
+    let mut storage: [u8; 128] = [0; 128];
     let mut fixed = mem::FixedBufferAllocator::init(&mut storage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
     let noMemory = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
@@ -519,7 +519,7 @@ extend RejectPointerAllocator : mem::Allocator {
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [35]&[char] = [
+    let arguments: [&[char]; 35] = [
         &"-c",
         &"test \"$#\" = 32 || exit 1; for value in \"$@\"; do test \"$value\" = \"payload-λ\" || exit 2; done; test \"$E00$E01$E02$E03$E04$E05$E06$E07$E08$E09$E10$E11$E12$E13$E14$E15\" = \"0123456789abcdef\"",
         &"nia",
@@ -532,7 +532,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
         &"payload-λ", &"payload-λ", &"payload-λ", &"payload-λ",
     ];
-    let environment: [16]process::EnvEntry = [
+    let environment: [process::EnvEntry; 16] = [
         process::EnvEntry::init(&"E00", &"0"),
         process::EnvEntry::init(&"E01", &"1"),
         process::EnvEntry::init(&"E02", &"2"),
@@ -615,7 +615,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [1]&[char] = [&"ignored-output"];
+    let arguments: [&[char]; 1] = [&"ignored-output"];
     let command = process::Command::init(std::PathView::init(&"/bin/echo"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore);
@@ -630,7 +630,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not term.succeeded() {
         return process::exit(3)!;
     }
-    let mut buffer: [64]u8 = [0; 64];
+    let mut buffer: [u8; 64] = [0; 64];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.writeAll(&b"ok").exit().?;
     stdout.flush().exit().?;
@@ -672,7 +672,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"echo ignored-error >&2"];
+    let arguments: [&[char]; 2] = [&"-c", &"echo ignored-error >&2"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStderr(process::StdIo::Ignore);
@@ -687,7 +687,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not term.succeeded() {
         return process::exit(3)!;
     }
-    let mut buffer: [64]u8 = [0; 64];
+    let mut buffer: [u8; 64] = [0; 64];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.writeAll(&b"ok").exit().?;
     stdout.flush().exit().?;
@@ -730,7 +730,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"cat >/dev/null; echo ignored-output; echo ignored-error >&2"];
+    let arguments: [&[char]; 2] = [&"-c", &"cat >/dev/null; echo ignored-output; echo ignored-error >&2"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStdin(process::StdIo::Ignore)
@@ -747,7 +747,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not term.succeeded() {
         return process::exit(3)!;
     }
-    let mut buffer: [64]u8 = [0; 64];
+    let mut buffer: [u8; 64] = [0; 64];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     stdout.writeAll(&b"ok").exit().?;
     stdout.flush().exit().?;
@@ -916,7 +916,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"printf pipe-output"];
+    let arguments: [&[char]; 2] = [&"-c", &"printf pipe-output"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Pipe);
@@ -936,8 +936,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(3)!;
         },
     };
-    let mut readBuffer: [16]u8 = [0; 16];
-    let mut output: [11]u8 = [0; 11];
+    let mut readBuffer: [u8; 16] = [0; 16];
+    let mut output: [u8; 11] = [0; 11];
     {
         let mut reader = stdout.buffered(&mut readBuffer[..]);
         reader.readExact(&mut output[..]).exit().?;
@@ -954,7 +954,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not term.succeeded() {
         return process::exit(5)!;
     }
-    let expected: [11]u8 = [
+    let expected: [u8; 11] = [
         b'p',
         b'i',
         b'p',
@@ -1012,7 +1012,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"printf pipe-error >&2"];
+    let arguments: [&[char]; 2] = [&"-c", &"printf pipe-error >&2"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStderr(process::StdIo::Pipe);
@@ -1027,14 +1027,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ?value => value,
         null => return process::exit(2)!,
     };
-    let mut output: [10]u8 = [0; 10];
+    let mut output: [u8; 10] = [0; 10];
     stderr.readExact(&mut output[..]).exit().?;
     stderr.close().exit().?;
     let term = child.wait().exit().?;
     if not term.succeeded() {
         return process::exit(3)!;
     }
-    let expected: [10]u8 = [b'p', b'i', b'p', b'e', b'-', b'e', b'r', b'r', b'o', b'r'];
+    let expected: [u8; 10] = [b'p', b'i', b'p', b'e', b'-', b'e', b'r', b'r', b'o', b'r'];
     if not (&output[..]).equals(&expected[..]) {
         return process::exit(4)!;
     }
@@ -1104,7 +1104,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not term.succeeded() {
         return process::exit(5)!;
     }
-    let mut byte: [1]u8 = [0];
+    let mut byte: [u8; 1] = [0];
     let amount = switch stdout.read(&mut byte[..]) {
         !value => {
             value
@@ -1186,7 +1186,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(3)!;
         },
     };
-    let mut writeBuffer: [16]u8 = [0; 16];
+    let mut writeBuffer: [u8; 16] = [0; 16];
     {
         let mut writer = stdin.buffered(&mut writeBuffer[..]);
         writer.writeAll(&b"roundtrip").exit().?;
@@ -1202,7 +1202,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(4)!;
         },
     };
-    let mut output: [9]u8 = [0; 9];
+    let mut output: [u8; 9] = [0; 9];
     stdout.readExact(&mut output[..]).exit().?;
     stdout.close().exit().?;
 
@@ -1218,7 +1218,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(6)!;
     }
 
-    let expected: [9]u8 = [b'r', b'o', b'u', b'n', b'd', b't', b'r', b'i', b'p'];
+    let expected: [u8; 9] = [b'r', b'o', b'u', b'n', b'd', b't', b'r', b'i', b'p'];
     let mut index = 0usize;
     while index < output.len() {
         if output[index] != expected[index] {
@@ -1542,7 +1542,7 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"while true; do sleep 1; done"];
+    let arguments: [&[char]; 2] = [&"-c", &"while true; do sleep 1; done"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore)
@@ -1629,7 +1629,7 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"while true; do sleep 1; done"];
+    let arguments: [&[char]; 2] = [&"-c", &"while true; do sleep 1; done"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore)
@@ -1738,7 +1738,7 @@ using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {{
-    let arguments: [2]&[char] = [&"-c", &"test \"$(basename \"$PWD\")\" = child-cwd"];
+    let arguments: [&[char]; 2] = [&"-c", &"test \"$(basename \"$PWD\")\" = child-cwd"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withCwd(std::PathView::init(&"{cwd_literal}"));
@@ -2099,7 +2099,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(60)!;
         },
     }
-    let mut cstringTiny: [1]u8 = [0];
+    let mut cstringTiny: [u8; 1] = [0];
     let mut cstringFixed = mem::FixedBufferAllocator::init(&mut cstringTiny[..]);
     switch std::CString::fromText(&mut cstringFixed, &"out") {
         !value => {
@@ -2113,7 +2113,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let utf8: [6]u8 = [b'n', b'i', b'a', b' ', 0xceu8, 0xbbu8];
+    let utf8: [u8; 6] = [b'n', b'i', b'a', b' ', 0xceu8, 0xbbu8];
     if std::String::fromUtf8(page, &utf8) is !value {
         let mut decoded = value;
         defer decoded.deinit(page).exit().?;
@@ -2146,35 +2146,35 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(20)!;
     }
 
-    let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    let truncated: [u8; 2] = [0xe2u8, 0x82u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &truncated),
         std::unicode::Utf8DecodeError::Truncated,
     ) {
         return process::exit(21)!;
     }
-    let invalidLeading: [1]u8 = [0xffu8];
+    let invalidLeading: [u8; 1] = [0xffu8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &invalidLeading),
         std::unicode::Utf8DecodeError::InvalidLeadingByte,
     ) {
         return process::exit(22)!;
     }
-    let invalidContinuation: [3]u8 = [0xe2u8, 0x28u8, 0xa1u8];
+    let invalidContinuation: [u8; 3] = [0xe2u8, 0x28u8, 0xa1u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &invalidContinuation),
         std::unicode::Utf8DecodeError::InvalidContinuation,
     ) {
         return process::exit(23)!;
     }
-    let overlong: [2]u8 = [0xc0u8, 0x80u8];
+    let overlong: [u8; 2] = [0xc0u8, 0x80u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &overlong),
         std::unicode::Utf8DecodeError::Overlong,
     ) {
         return process::exit(24)!;
     }
-    let invalidScalar: [3]u8 = [0xedu8, 0xa0u8, 0x80u8];
+    let invalidScalar: [u8; 3] = [0xedu8, 0xa0u8, 0x80u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &invalidScalar),
         std::unicode::Utf8DecodeError::InvalidScalar,
@@ -2182,7 +2182,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(25)!;
     }
 
-    let mut tiny: [1]u8 = [0];
+    let mut tiny: [u8; 1] = [0];
     let mut fixed = mem::FixedBufferAllocator::init(&mut tiny[..]);
     switch std::String::fromUtf8(&mut fixed, &b"nia") {
         !value => {
@@ -2203,7 +2203,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(6)!;
     }
 
-    let suffix: [3]u8 = [b' ', 0xceu8, 0xbbu8];
+    let suffix: [u8; 3] = [b' ', 0xceu8, 0xbbu8];
     switch text.appendUtf8(page, &suffix) {
         !ok => { _ = ok; },
         error! => {
@@ -2215,7 +2215,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(29)!;
     }
 
-    let invalidSuffix: [4]u8 = [b'x', 0xe2u8, 0x28u8, 0xa1u8];
+    let invalidSuffix: [u8; 4] = [b'x', 0xe2u8, 0x28u8, 0xa1u8];
     switch text.appendUtf8(page, &invalidSuffix) {
         !ok => {
             _ = ok;
@@ -2231,7 +2231,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(32)!;
     }
 
-    let mut appendStorage: [12]u8 = [0; 12];
+    let mut appendStorage: [u8; 12] = [0; 12];
     let mut appendAllocator = mem::FixedBufferAllocator::init(&mut appendStorage[..]);
     let mut boundedText = switch std::String::fromUtf8(&mut appendAllocator, &b"ok") {
         !value => value,
@@ -2261,7 +2261,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let answer = 42;
     let formattedScalar = text.text()[8];
-    let formatArgs: [2]&fmt::Format = [&answer, &formattedScalar];
+    let formatArgs: [&fmt::Format; 2] = [&answer, &formattedScalar];
     switch text.appendFormat(page, &" value={} {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
@@ -2293,8 +2293,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(41)!;
     }
 
-    let invalidFormattedBytes: [1]u8 = [0xffu8];
-    let invalidFormatArgs: [1]&fmt::Format = [&invalidFormattedBytes[..]];
+    let invalidFormattedBytes: [u8; 1] = [0xffu8];
+    let invalidFormatArgs: [&fmt::Format; 1] = [&invalidFormattedBytes[..]];
     switch text.appendFormat(page, &"{}", &invalidFormatArgs) {
         !ok => {
             _ = ok;
@@ -2310,7 +2310,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(44)!;
     }
 
-    let boundedFormatArgs: [1]&fmt::Format = [&answer];
+    let boundedFormatArgs: [&fmt::Format; 1] = [&answer];
     switch boundedText.appendFormat(&mut appendAllocator, &"{}", &boundedFormatArgs) {
         !ok => {
             _ = ok;
@@ -2334,7 +2334,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer cleanupText.deinit(&mut cleanupAllocator).exit().?;
     cleanupText.append(&mut cleanupAllocator, &"base").exit().?;
     cleanupAllocator.failNext();
-    let cleanupFormatArgs: [1]&fmt::Format = [&answer];
+    let cleanupFormatArgs: [&fmt::Format; 1] = [&answer];
     switch cleanupText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
         !ok => {
             _ = ok;
@@ -2442,7 +2442,7 @@ fn read(source: & Source) i32 {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     process::exit(read(&values[..]))!
 }
 "#,
@@ -2498,7 +2498,7 @@ using std::io;
 using std::process;
 
 pub fn write(init: process::Init) process::ExitCode!() {
-    let mut buffer = [_]u8[0; 128];
+    let mut buffer = [0u8; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     defer stdout.flush().exit().?;
     let text = b"left";
@@ -2515,7 +2515,7 @@ using std::io;
 using std::process;
 
 pub fn write(init: process::Init) process::ExitCode!() {
-    let mut buffer = [_]u8[0; 128];
+    let mut buffer = [0u8; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     defer stdout.flush().exit().?;
     let text = b"right";
@@ -2572,7 +2572,7 @@ fn read(source: & Source) i32 {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     process::exit(read(&values[..]))!
 }
 "#,
@@ -3181,7 +3181,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             } },
         error! => { return process::exit(17)!; },
     }
-    let mut storage: [16]u8 = [0; 16];
+    let mut storage: [u8; 16] = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print(&"{:_>5.2}", &[&first_arg]).exit().?;
     let written = writer.written();

@@ -118,7 +118,7 @@ fn public_options_flow_through_compiler_query_context() {
         let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
-static zeroes: [4]i32 = [0; 4];
+static zeroes: [i32; 4] = [0; 4];
 
 fn main() i32 {
 zeroes[0]

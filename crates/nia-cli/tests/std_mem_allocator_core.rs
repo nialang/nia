@@ -154,7 +154,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut storage: [64]u8 = [_]u8[0; 64];
+    let mut storage: [u8; 64] = [0; 64];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
 
     let first_layout = mem::Layout::init(8, 8).exit().?;
@@ -235,7 +235,7 @@ fn probe(
     arena: &mut mem::ArenaAllocator,
     fixed: &mem::FixedBufferAllocator,
 ) () {
-    let mut bytes: [1]u8 = [0];
+    let mut bytes: [u8; 1] = [0];
     _ = allocator.alloc_bytes(1, 1);
     _ = allocator.alloc_slice[u8](1);
     _ = allocator.free_slice[u8](&mut bytes[..]);

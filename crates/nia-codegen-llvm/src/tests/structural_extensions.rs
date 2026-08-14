@@ -74,7 +74,7 @@ extend[T] & [T] {
     }
 }
 
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T {
         self[0]
     }
@@ -90,7 +90,7 @@ fn inc(value: i32) i32 {
     value + 1
 }
 
-fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
+fn main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
     xs.size() as i32 + triple.first() + (& inc).apply(1)
@@ -439,18 +439,18 @@ extend[T] &T {
     }
 }
 
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T {
         self[0]
     }
 }
 
-fn main(ptr: &u8, triple: [3]i32) i32 {
+fn main(ptr: &u8, triple: [i32; 3]) i32 {
     let is_null: &fn(&u8) bool = & [&u8]::is_null;
     let zero: &fn() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
-    [[3]i32]::first(triple) + zero() as i32
+    [[i32; 3]]::first(triple) + zero() as i32
 }
 "#,
     )

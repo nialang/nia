@@ -3,8 +3,8 @@ using std::process;
 using process::{ExitCode, Init};
 
 pub fn main(init: Init) ExitCode!() {
-    let arguments: [2]&[char] = [&"-c", &"printf '%s\n' \"$NIA_EXAMPLE_MODE\""];
-    let environment: [1]process::EnvEntry = [
+    let arguments: [&[char]; 2] = [&"-c", &"printf '%s\n' \"$NIA_EXAMPLE_MODE\""];
+    let environment: [process::EnvEntry; 1] = [
         process::EnvEntry::init(&"NIA_EXAMPLE_MODE", &"typed environment"),
     ];
     // The executable path becomes argv[0]; arguments contains only user arguments.
@@ -17,7 +17,7 @@ pub fn main(init: Init) ExitCode!() {
         ?value => value,
         null => return process::exit(1)!,
     };
-    let mut output: [18]u8 = [0; 18];
+    let mut output: [u8; 18] = [0; 18];
     stdout.readExact(&mut output[..]).?;
     stdout.close().?;
     let term = child.wait().?;

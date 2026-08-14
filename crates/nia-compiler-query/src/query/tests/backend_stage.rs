@@ -263,7 +263,7 @@ total
 const compileCount: usize = count(Pair[u8] { first: 1u8, second: 2u8 });
 
 fn main() usize {
-let values: [compileCount]u8 = [0; compileCount];
+let values: [u8; compileCount] = [0; compileCount];
 count(Pair[usize] { first: 1, second: 2 })
 + count(Pair[bool] { first: true, second: false })
 + values[0] as usize

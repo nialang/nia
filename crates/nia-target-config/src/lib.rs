@@ -381,14 +381,6 @@ impl Pruner<'_> {
                     elems: self.prune_array_elements(elems),
                 },
             },
-            ExprKind::TypedArrayLiteral { ty, elems } => Expr {
-                span,
-                node_key,
-                kind: ExprKind::TypedArrayLiteral {
-                    ty,
-                    elems: self.prune_array_elements(elems),
-                },
-            },
             ExprKind::TypedStructLiteral { ty, fields } => Expr {
                 span,
                 node_key,

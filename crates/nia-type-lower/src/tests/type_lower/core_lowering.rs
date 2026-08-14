@@ -10,8 +10,8 @@ struct Box[T] {
 value: T,
 }
 
-fn make(ptr: &u8, cb: &fn(i32) ()) [4]Box[i32] {
-let mut tmp: [_]i32 = [1, 2, 3];
+fn make(ptr: &u8, cb: &fn(i32) ()) [i32] {
+let mut tmp: [i32; _] = [1, 2, 3];
 [Box[i32] { value: 0 }; 4]
 }
 "#,
@@ -62,7 +62,7 @@ fn lowers_const_generic_array_lengths_and_nominal_args() {
     let (module, errors) = parse_module(
         r#"
 struct Buffer[T, N: usize] {
-data: [N]T,
+data: [T; N],
 }
 
 fn use_buffer(buf: Buffer[u8, 4]) () {}
@@ -124,7 +124,7 @@ fn lowers_external_const_generic_parameter_types_in_their_defining_module() {
         r#"
 pub struct Packet[T, N: usize, U] {
     marker: T,
-    values: [N]U,
+    values: [U; N],
 }
 "#,
     );

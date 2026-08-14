@@ -153,7 +153,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(22)!;
     }
 
-    let mut tinyStorage: [4]u8 = [0; 4];
+    let mut tinyStorage: [u8; 4] = [0; 4];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage);
     let growthSource: &[char] = &"aaa";
     switch growthSource.replaceAll(&mut tiny, &"a", &"zz") {
@@ -178,7 +178,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(26)!;
     }
 
-    let parts: [4]&[char] = [&"left", &"λ", &"", &"right"];
+    let parts: [&[char]; 4] = [&"left", &"λ", &"", &"right"];
     let mut joined = (&parts).join(page, &"|").exit().?;
     defer joined.deinit(page).exit().?;
     if not joined.equals(&"left|λ||right") or joined.capacity() != joined.len() {
@@ -191,14 +191,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(28)!;
     }
 
-    let emptyParts: [0]&[char] = [];
+    let emptyParts: [&[char]; 0] = [];
     let mut emptyJoined = (&emptyParts).join(page, &"ignored").exit().?;
     defer emptyJoined.deinit(page).exit().?;
     if not emptyJoined.isEmpty() or emptyJoined.capacity() != 0 {
         return process::exit(29)!;
     }
 
-    let singlePart: [1]&[char] = [text];
+    let singlePart: [&[char]; 1] = [text];
     let mut singleJoined = (&singlePart).join(page, &"ignored").exit().?;
     defer singleJoined.deinit(page).exit().?;
     singleJoined.textMut()[0] = 'A';
@@ -206,7 +206,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(30)!;
     }
 
-    let borrowedParts: [2]&[char] = [text, owned.text()];
+    let borrowedParts: [&[char]; 2] = [text, owned.text()];
     let mut joinedBorrowed = (&borrowedParts).join(page, &" / ").exit().?;
     defer joinedBorrowed.deinit(page).exit().?;
     joinedBorrowed.textMut()[0] = 'A';
@@ -217,9 +217,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(31)!;
     }
 
-    let mut joinTinyStorage: [4]u8 = [0; 4];
+    let mut joinTinyStorage: [u8; 4] = [0; 4];
     let mut joinTiny = mem::FixedBufferAllocator::init(&mut joinTinyStorage);
-    let largeParts: [2]&[char] = [&"aaa", &"bbb"];
+    let largeParts: [&[char]; 2] = [&"aaa", &"bbb"];
     switch (&largeParts).join(&mut joinTiny, &"--") {
         !result => {
             let mut unexpected = result;
@@ -515,7 +515,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut pageAllocator;
 
-    let input: [6]u8 = [0xe4u8, 0xbdu8, 0xa0u8, 0xe5u8, 0xa5u8, 0xbdu8];
+    let input: [u8; 6] = [0xe4u8, 0xbdu8, 0xa0u8, 0xe5u8, 0xa5u8, 0xbdu8];
     let utf8 = switch std::unicode::Utf8View::fromBytes(&input) {
         !value => value,
         error! => {
@@ -579,7 +579,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     };
     content.appendUtf8View(page, suffixUtf8).exit().?;
     let answer = 42;
-    let contentArgs: [1]&fmt::Format = [&answer];
+    let contentArgs: [&fmt::Format; 1] = [&answer];
     switch content.appendFormat(page, &" #{}", &contentArgs) {
         !ok => { _ = ok; },
         error! => {
@@ -588,7 +588,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let truncated: [2]u8 = [0xe2u8, 0x82u8];
+    let truncated: [u8; 2] = [0xe2u8, 0x82u8];
     switch std::unicode::Utf8View::fromBytes(&truncated) {
         !value => {
             _ = value;
@@ -613,7 +613,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let invalid: [1]u8 = [0xffu8];
+    let invalid: [u8; 1] = [0xffu8];
     switch std::String::fromUtf8(page, &invalid) {
         !value => {
             let mut unexpected = value;
@@ -627,7 +627,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let mut tinyStorage: [1]u8 = [0];
+    let mut tinyStorage: [u8; 1] = [0];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
     switch std::String::fromUtf8(&mut tiny, &b"allocation") {
         !value => {
@@ -647,7 +647,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer if not pathTextTransferred {
         pathText.deinit(page).exit().?;
     };
-    let pathArgs: [1]&fmt::Format = [&answer];
+    let pathArgs: [&fmt::Format; 1] = [&answer];
     switch pathText.appendFormat(page, &"{}.txt", &pathArgs) {
         !ok => { _ = ok; },
         error! => {
@@ -664,7 +664,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer if fileOpen {
         file.close().exit().?;
     };
-    let mut fileBuffer: [5]u8 = [0; 5];
+    let mut fileBuffer: [u8; 5] = [0; 5];
     let mut writer = file.writer(&mut fileBuffer[..]).exit().?;
     writer.writeUtf8(content.text()).exit().?;
     writer.flush().exit().?;
@@ -687,7 +687,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let arguments: [1]&[char] = [path.text()];
+    let arguments: [&[char]; 1] = [path.text()];
     let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Pipe);
@@ -705,8 +705,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer if stdoutOpen {
         stdout.close().exit().?;
     };
-    let mut readBuffer: [5]u8 = [0; 5];
-    let mut encoded: [16]u8 = [0; 16];
+    let mut readBuffer: [u8; 5] = [0; 5];
+    let mut encoded: [u8; 16] = [0; 16];
     {
         let mut reader = stdout.buffered(&mut readBuffer[..]);
         reader.readExact(&mut encoded[..]).exit().?;
@@ -769,7 +769,7 @@ fn check_std_path_does_not_adopt_raw_owned_text() {
 using std;
 
 fn main() () {
-    let mut text: [3]char = ['n', 'i', 'a'];
+    let mut text: [char; 3] = ['n', 'i', 'a'];
     _ = std::Path::fromOwnedSlice(&mut text[..]);
 }
 "#,

@@ -15,9 +15,9 @@ struct Pair {
 
 static ratio: f64 = 1.5;
 static letter: char = 'A';
-static xs: [3]i32 = [1, 2, 3];
-static ys: [4]u8 = [b'z'; 4];
-static zeroes: [8]i32 = [0; 8];
+static xs: [i32; 3] = [1, 2, 3];
+static ys: [u8; 4] = [b'z'; 4];
+static zeroes: [i32; 8] = [0; 8];
 static pair: Pair = Pair { x: 10, y: 20 };
 
 fn main() i32 {
@@ -54,7 +54,7 @@ fn emits_static_global_address_initializers() {
         &main,
         r#"
 static mut target: i32 = 1;
-static mut values: [4]i32 = [1, 2, 3, 4];
+static mut values: [i32; 4] = [1, 2, 3, 4];
 static p: &i32 = &target;
 static q: &i32 = &values[1 + 1];
 

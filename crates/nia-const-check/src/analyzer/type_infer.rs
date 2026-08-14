@@ -535,14 +535,10 @@ impl Analyzer<'_> {
                 };
                 Some(ConstValueType::Runtime(*elems.get(*index)?))
             }
-            ResolvedConstExprKind::ArrayLiteral {
-                ty: Some(ty),
-                elems,
-            } => self.resolved_const_array_literal_type(expr.span(), elems, Some(*ty)),
             ResolvedConstExprKind::StructLiteral { ty, fields } => {
                 self.resolved_const_aggregate_literal_type(expr.span(), fields, *ty)
             }
-            ResolvedConstExprKind::ArrayLiteral { ty: None, elems } => {
+            ResolvedConstExprKind::ArrayLiteral { elems } => {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
             }
             ResolvedConstExprKind::EnumStructLiteral { variant, fields } => self

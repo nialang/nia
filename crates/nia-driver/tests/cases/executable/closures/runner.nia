@@ -33,7 +33,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer noCaptureOwner.deinit(&mut allocator).exit().?;
     let noCaptureResult = noCaptureOwner.callback()(3);
 
-    let mut emptyStorage: [0]u8 = [];
+    let mut emptyStorage: [u8; 0] = [];
     let mut emptyAllocator = mem::FixedBufferAllocator::init(&mut emptyStorage[..]);
     let failedAsExpected = switch emptyAllocator.allocValue(\[base] value: i32 -> { base + value }) {
         mem::Error::OutOfMemory! => true,

@@ -627,10 +627,7 @@ impl<'a> BodyChecker<'a> {
                 // determine the generic callable signature. The instantiated
                 // argument pass performs the one authoritative body check.
                 continue;
-            } else if matches!(
-                arg.kind,
-                ExprKind::ArrayLiteral { .. } | ExprKind::TypedArrayLiteral { .. }
-            ) {
+            } else if matches!(arg.kind, ExprKind::ArrayLiteral { .. }) {
                 self.infer_array_literal_expr(arg)
             } else {
                 self.check_expr(arg)

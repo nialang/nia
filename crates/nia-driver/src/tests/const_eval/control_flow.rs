@@ -18,7 +18,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -47,7 +47,7 @@ const fn width(flag: bool) usize {
 const n: usize = width(true);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -142,7 +142,7 @@ const fn width(flag: bool) usize {
 const n: usize = width(false);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -172,7 +172,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -209,7 +209,7 @@ const fn width(limit: usize) usize {
 const n: usize = width(6);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -235,7 +235,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -260,7 +260,7 @@ const n: usize = {
 };
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,

@@ -261,7 +261,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut buffer: [0]u8 = [];
+    let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
         !ok => {
@@ -293,8 +293,8 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut buffer: [64]u8 = [0; 64];
-    let mut raw_buffer: [0]u8 = [];
+    let mut buffer: [u8; 64] = [0; 64];
+    let mut raw_buffer: [u8; 0] = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
@@ -413,9 +413,9 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut buffer: [64]u8 = [0; 64];
+    let mut buffer: [u8; 64] = [0; 64];
     let mut reader = io::FileReader::stdin(&mut buffer[..]);
-    let mut bytes: [1]u8 = [0];
+    let mut bytes: [u8; 1] = [0];
     switch reader.read(&mut bytes[..]) {
         !ok => {
             _ = ok;
@@ -995,11 +995,11 @@ using std::process;
 using std::unicode;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut allocationStorage: [512]u8 = [0; 512];
+    let mut allocationStorage: [u8; 512] = [0; 512];
     let mut fixed = mem::FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
 
-    let encodedText: [6]u8 = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
+    let encodedText: [u8; 6] = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
     let utf8 = switch unicode::Utf8View::fromBytes(&encodedText) {
         !value => value,
         error! => {
@@ -1010,7 +1010,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut text = string::String::fromUtf8View(allocator, utf8).exit().?;
     defer text.deinit(allocator).exit().?;
     let answer = 42;
-    let formatArgs: [1]&fmt::Format = [&answer];
+    let formatArgs: [&fmt::Format; 1] = [&answer];
     switch text.appendFormat(allocator, &" {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
@@ -1028,14 +1028,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer if fileOpen {
         file.close().exit().?;
     };
-    let mut fileBuffer: [16]u8 = [0; 16];
+    let mut fileBuffer: [u8; 16] = [0; 16];
     let mut writer: io::FileWriter = file.writer(&mut fileBuffer[..]).exit().?;
     writer.writeUtf8(text.text()).exit().?;
     writer.flush().exit().?;
     file.close().exit().?;
     fileOpen = false;
 
-    let arguments: [1]&[char] = [path.text()];
+    let arguments: [&[char]; 1] = [path.text()];
     let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore);
@@ -1059,11 +1059,11 @@ using std::process::{Command, ExitCode, Init, StdIo, exit};
 using std::unicode::Utf8View;
 
 pub fn main(init: Init) ExitCode!() {
-    let mut allocationStorage: [512]u8 = [0; 512];
+    let mut allocationStorage: [u8; 512] = [0; 512];
     let mut fixed = FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut Allocator = &mut fixed;
 
-    let encodedText: [6]u8 = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
+    let encodedText: [u8; 6] = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
     let utf8 = switch Utf8View::fromBytes(&encodedText) {
         !value => value,
         error! => {
@@ -1074,7 +1074,7 @@ pub fn main(init: Init) ExitCode!() {
     let mut text = String::fromUtf8View(allocator, utf8).exit().?;
     defer text.deinit(allocator).exit().?;
     let answer = 42;
-    let formatArgs: [1]&Format = [&answer];
+    let formatArgs: [&Format; 1] = [&answer];
     switch text.appendFormat(allocator, &" {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
@@ -1092,14 +1092,14 @@ pub fn main(init: Init) ExitCode!() {
     defer if fileOpen {
         file.close().exit().?;
     };
-    let mut fileBuffer: [16]u8 = [0; 16];
+    let mut fileBuffer: [u8; 16] = [0; 16];
     let mut writer: FileWriter = file.writer(&mut fileBuffer[..]).exit().?;
     writer.writeUtf8(text.text()).exit().?;
     writer.flush().exit().?;
     file.close().exit().?;
     fileOpen = false;
 
-    let arguments: [1]&[char] = [path.text()];
+    let arguments: [&[char]; 1] = [path.text()];
     let command = Command::init(PathView::init(&"/bin/cat"), init.env())
         .withArguments(&arguments)
         .withStdout(StdIo::Ignore);
@@ -1661,7 +1661,7 @@ using std::hash;
 using std::mem;
 
 fn main() mem::Error!usize {
-    let mut buffer: [4096]u8 = [0; 4096];
+    let mut buffer: [u8; 4096] = [0; 4096];
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
     let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::initSeed(1u64);
     defer map.deinit(&mut allocator).?;
@@ -1798,7 +1798,7 @@ using std::collections;
 using std::mem;
 
 fn main() mem::Error!usize {
-    let mut buffer: [4096]u8 = [0; 4096];
+    let mut buffer: [u8; 4096] = [0; 4096];
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
     let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::initSeed(1u64);
     defer map.deinit(&mut allocator).?;

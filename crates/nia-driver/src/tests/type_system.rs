@@ -333,7 +333,7 @@ extend[T] &[T] {
     fn ref_size(& self) usize { self.*.len() }
 }
 
-extend[T] [3]T {
+extend[T] [T; 3] {
     fn first(self) T { self[0] }
 }
 
@@ -343,7 +343,7 @@ extend &fn(i32) i32 {
 
 fn inc(value: i32) i32 { value + 1 }
 
-fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
+fn main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
     {}.unit() + xs.size() as i32 + xs.ref_size() as i32 + triple.first() + (& inc).apply(1)
@@ -1154,12 +1154,12 @@ const width: usize = switch converted {
     _ => 3,
 };
 
-fn requireOne(value: [1]i32) () {
+fn requireOne(value: [i32; 1]) () {
     _ = value;
 }
 
 fn main() () {
-    let values: [width]i32 = [0; width];
+    let values: [i32; width] = [0; width];
     requireOne(values)
 }
 "#;
@@ -1190,11 +1190,9 @@ fn main() () {
         .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert_eq!(incremental_summaries, clean_summaries);
-    assert!(
-        incremental_summaries.iter().any(|summary| {
-            summary.contains("expected [1]i32") && summary.contains("got [2]i32")
-        })
-    );
+    assert!(incremental_summaries.iter().any(|summary| {
+        summary.contains("expected [i32; 1]") && summary.contains("got [i32; 2]")
+    }));
 }
 
 #[test]

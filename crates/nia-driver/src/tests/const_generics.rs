@@ -10,7 +10,7 @@ fn const_generic_supertrait_projection_substitutes_array_lengths() {
 trait ArraySource[N: usize] {
     type Item;
 
-    fn values(& self) [N][Self as ArraySource[N]]::Item;
+    fn values(& self) [[Self as ArraySource[N]]::Item; N];
 }
 
 trait ArraySummary[N: usize] : ArraySource[N] {
@@ -28,13 +28,13 @@ trait ArraySummary[N: usize] : ArraySource[N] {
 }
 
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 extend[T, N: usize] Buffer[T, N] : ArraySource[N] {
     type Item = T;
 
-    fn values(& self) [N]T {
+    fn values(& self) [T; N] {
         self.values
     }
 }
@@ -100,29 +100,29 @@ fn const_generic_assoc_projection_rejects_mismatched_lengths() {
 trait ArraySource[N: usize] {
     type Item;
 
-    fn values(& self) [N][Self as ArraySource[N]]::Item;
+    fn values(& self) [[Self as ArraySource[N]]::Item; N];
 }
 
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 extend[T, N: usize] Buffer[T, N] : ArraySource[N] {
     type Item = i32;
 
-    fn values(& self) [N]i32 {
+    fn values(& self) [i32; N] {
         self.values
     }
 }
 
-fn wrong[S, N: usize](source: & S) [N][S as ArraySource[N]]::Item
+fn wrong[S, N: usize](source: & S) [[S as ArraySource[N]]::Item; N]
 where S: ArraySource[N] {
-    let values: [N][S as ArraySource[N]]::Item = source.values();
-    let bad: [4][S as ArraySource[N]]::Item = values;
+    let values: [[S as ArraySource[N]]::Item; N] = source.values();
+    let bad: [[S as ArraySource[N]]::Item; 4] = values;
     bad
 }
 
-fn main(buffer: Buffer[i32, 3]) [3]i32 {
+fn main(buffer: Buffer[i32, 3]) [i32; 3] {
     wrong[Buffer[i32, 3], 3](& buffer)
 }
 "#,
@@ -149,7 +149,7 @@ trait HasLen {
     fn width(& self) usize;
 }
 
-extend[T, N: usize] [N]T : HasLen {
+extend[T, N: usize] [T; N] : HasLen {
     fn width(& self) usize {
         N
     }
@@ -161,7 +161,7 @@ where A: HasLen {
 }
 
 fn main() i32 {
-    let values: [3]i32 = [1, 2, 3];
+    let values: [i32; 3] = [1, 2, 3];
     read_len(& values) as i32
 }
 "#,
@@ -182,7 +182,7 @@ const fn plus_one(value: usize) usize {
 }
 
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 extend[T, N: usize] Buffer[T, N] {
@@ -217,7 +217,7 @@ const fn double(value: usize) usize {
 }
 
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 extend[T, N: usize] Buffer[T, N] {
@@ -241,7 +241,7 @@ fn const_generic_instances_keep_assoc_const_values_separate() {
         &root.join("main.nia"),
         r#"
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 extend[T, N: usize] Buffer[T, N] {
@@ -270,7 +270,7 @@ const fn width[N: usize]() usize {
 }
 
 struct Buffer[T, N: usize] {
-    values: [N]T,
+    values: [T; N],
 }
 
 fn make[T, N: usize](value: T) Buffer[T, N] {
@@ -336,7 +336,7 @@ fn const_generic_impl_pattern_rejects_conflicting_array_lengths() {
         r#"
 trait HasLength[N: usize] {}
 
-extend[T, N: usize] [N]T : HasLength[N] {}
+extend[T, N: usize] [T; N] : HasLength[N] {}
 
 fn require_len[A, N: usize](value: & A)
 where A: HasLength[N] {
@@ -344,7 +344,7 @@ where A: HasLength[N] {
 }
 
 fn main() i32 {
-    let values: [3]i32 = [1, 2, 3];
+    let values: [i32; 3] = [1, 2, 3];
     require_len[_, 4](& values);
     0
 }
@@ -374,7 +374,7 @@ trait MatrixShape {
 }
 
 struct Matrix[T, R: usize, C: usize] {
-    values: [R][C]T,
+    values: [[T; C]; R],
 }
 
 extend[T, R: usize, C: usize] Matrix[T, R, C] : MatrixShape {
@@ -420,7 +420,7 @@ trait Width[N: usize] {
 }
 
 struct Buffer[N: usize] {
-    values: [N]i32,
+    values: [i32; N],
 }
 
 extend[N: usize] Buffer[N] : Width[N] {}
@@ -531,7 +531,7 @@ const fn plus_one(value: usize) usize {
 }
 
 struct Buffer[N: usize] {
-    values: [N]i32,
+    values: [i32; N],
 }
 
 fn main() i32 {
@@ -589,7 +589,7 @@ module config;
 using entry::config;
 
 struct Buffer[N: usize] {
-    values: [N]i32,
+    values: [i32; N],
 }
 
 fn main() i32 {
@@ -869,7 +869,7 @@ const fn plus_one(value: usize) usize {
 }
 
 struct Buffer[N: usize] {
-    values: [N]i32,
+    values: [i32; N],
 }
 
 extend[N: usize] Buffer[N] {
@@ -976,7 +976,7 @@ struct Pair[A, B] {
     right: B,
 }
 
-extend[T, U, N: usize] Pair[[N]T, [N]U] : SameLen[N] {}
+extend[T, U, N: usize] Pair[[T; N], [U; N]] : SameLen[N] {}
 
 fn require_same_len[P, N: usize](pair: & P)
 where P: SameLen[N] {
@@ -984,7 +984,7 @@ where P: SameLen[N] {
 }
 
 fn main() i32 {
-    let pair = Pair[[2]i32, [3]i32] { left: [1, 2], right: [3, 4, 5] };
+    let pair = Pair[[i32; 2], [i32; 3]] { left: [1, 2], right: [3, 4, 5] };
     require_same_len(& pair);
     0
 }
@@ -1010,7 +1010,7 @@ fn ambiguous_generic_arg_reports_value_error_only_when_const_param_requires_it()
         &root.join("main.nia"),
         r#"
 struct Buffer[N: usize] {
-    values: [N]i32,
+    values: [i32; N],
 }
 
 pub fn take(value: Buffer[MISSING]) () {

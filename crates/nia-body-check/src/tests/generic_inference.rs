@@ -121,12 +121,12 @@ fn keep_first[T, U](left: T, right: U) T {
     left
 }
 
-fn take_array[T, N: usize](xs: [N]T) usize {
+fn take_array[T, N: usize](xs: [T; N]) usize {
     _ = xs;
     N
 }
 
-fn main(xs: [4]u8) i32 {
+fn main(xs: [u8; 4]) i32 {
     keep_first[i32, _](7, true) + take_array[_, _](xs) as i32
 }
 "#,
@@ -138,12 +138,12 @@ fn main(xs: [4]u8) i32 {
 fn infers_const_generic_array_lengths_from_call_arguments() {
     let checked = pipeline(
         r#"
-fn take_array[T, N: usize](xs: [N]T) usize {
+fn take_array[T, N: usize](xs: [T; N]) usize {
     _ = xs;
     0usize
 }
 
-fn main(xs: [4]u8) usize {
+fn main(xs: [u8; 4]) usize {
     take_array(xs) + take_array[u8, 4](xs) + take_array[u8, _](xs)
 }
 "#,
@@ -169,7 +169,7 @@ fn main(xs: [4]u8) usize {
 fn infers_const_generic_array_lengths_from_array_literal_arguments() {
     let checked = pipeline(
         r#"
-fn take_array[T, N: usize](xs: [N]T) usize {
+fn take_array[T, N: usize](xs: [T; N]) usize {
     _ = xs;
     0usize
 }
@@ -221,7 +221,7 @@ trait DecodeFrom[Input] {
 struct Wrapped {}
 
 struct Bytes {
-    data: [3]u8,
+    data: [u8; 3],
 }
 
 fn decode[T, Input](input: Input) T
@@ -250,7 +250,7 @@ extend i32 : DecodeFrom[Wrapped] {
 }
 
 fn main() i32 {
-    let bytes: [3]u8 = [1, 2, 3];
+    let bytes: [u8; 3] = [1, 2, 3];
     let wrapped = Bytes { data: bytes };
     decode[i32, _](&"abc") + decode[i32, _](&bytes) + decode[i32, _](&wrapped.data)
 }

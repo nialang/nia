@@ -164,7 +164,7 @@ fn sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [2]i32) i32 {
+fn sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
@@ -211,14 +211,14 @@ fn sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [2]i32) i32 {
+fn sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
 fn main() i32 {
     let mut pair = Pair { a: 10, b: 20 };
     pair = Pair { a: 30, b: 40 };
-    let mut values: [2]i32 = [50, 60];
+    let mut values: [i32; 2] = [50, 60];
     values = [70, 80];
     sum_pair(pair) + sum_array(values)
 }
@@ -254,7 +254,7 @@ fn make_pair(a: i32, b: i32) Pair {
     Pair { a, b }
 }
 
-fn make_array(a: i32, b: i32) [2]i32 {
+fn make_array(a: i32, b: i32) [i32; 2] {
     [a, b]
 }
 
@@ -262,14 +262,14 @@ fn sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [2]i32) i32 {
+fn sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
 fn main() i32 {
     let mut pair: Pair = make_pair(10, 20);
     pair = make_pair(30, 40);
-    let mut values: [2]i32 = make_array(50, 60);
+    let mut values: [i32; 2] = make_array(50, 60);
     values = make_array(70, 80);
     sum_pair(pair) + sum_array(values)
 }
@@ -309,7 +309,7 @@ fn make_pair() Pair {
     Pair { a: 10, b: 20 }
 }
 
-fn make_array() [2]i32 {
+fn make_array() [i32; 2] {
     [30, 40]
 }
 
@@ -317,7 +317,7 @@ fn sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [2]i32) i32 {
+fn sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
@@ -596,7 +596,7 @@ fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
     std::fs::write(
         &main,
         r#"
-static bytes: [4]u8 = b"aaaa";
+static bytes: [u8; 4] = b"aaaa";
 
 fn main() i32 {
     bytes[0] as i32
@@ -674,7 +674,7 @@ fn emits_adjacent_string_literal_concatenation() {
         r#"
 extern fn printf(fmt: & u8, ...);
 
-static fmt: [104]u8 = (
+static fmt: [u8; 104] = (
     b""
     b"  #  Type      Offset             VirtAddr           FileSiz"
     b""

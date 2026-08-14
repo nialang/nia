@@ -232,20 +232,6 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
                 self.lower_type_in_context(ty, TypeContext::Value);
                 self.lower_type_in_context(trait_ref, TypeContext::TraitBound);
             }
-            ExprKind::TypedArrayLiteral { ty, elems } => {
-                self.visit_type(ty);
-                match elems {
-                    nia_ast::ArrayElements::List(elems) => {
-                        for elem in elems {
-                            self.visit_expr(elem);
-                        }
-                    }
-                    nia_ast::ArrayElements::Repeat { value, count } => {
-                        self.visit_expr(value);
-                        self.visit_expr(count);
-                    }
-                }
-            }
             ExprKind::TypedStructLiteral { ty, fields } => {
                 self.visit_type(ty);
                 for field in fields {

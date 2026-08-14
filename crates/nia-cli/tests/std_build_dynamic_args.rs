@@ -49,7 +49,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
         build::ExecutableOptions::init(&"many-imports", rootModule),
     ).?;
     _ = b.addEmitExecutableStep(&"emit", executable).?;
-    let runArguments: [32]&[char] = [
+    let runArguments: [&[char]; 32] = [
 "#,
     );
     for index in 0..32 {

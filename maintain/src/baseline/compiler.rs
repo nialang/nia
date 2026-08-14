@@ -40,7 +40,7 @@ pub fn large_codegen_source(blob_count: usize, blob_bytes: usize) -> String {
     ];
     for blob in 0..blob_count {
         lines.push(format!(
-            "static blob{blob:03}: [{blob_bytes}]u8 = [{}u8; {blob_bytes}];",
+            "static blob{blob:03}: [u8; {blob_bytes}] = [{}u8; {blob_bytes}];",
             blob % 256
         ));
     }
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn large_codegen_source_is_stable_and_reachable() {
         let source = large_codegen_source(4, 32);
-        assert!(source.contains("static blob003: [32]u8"));
+        assert!(source.contains("static blob003: [u8; 32]"));
         assert!(source.contains("blob000.len() + blob001.len()"));
     }
 }

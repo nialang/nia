@@ -16,7 +16,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -94,7 +94,7 @@ fn const_function_rejects_array_assignment_shape_mismatch() {
         &root.join("main.nia"),
         r#"
 const fn width() usize {
-    let mut values: [2]usize = [1usize, 2usize];
+    let mut values: [usize; 2] = [1usize, 2usize];
     values = true;
     values.len()
 }
@@ -121,7 +121,7 @@ fn const_function_rejects_array_assignment_length_mismatch() {
         &root.join("main.nia"),
         r#"
 const fn width() usize {
-    let mut values: [2]usize = [1usize, 2usize];
+    let mut values: [usize; 2] = [1usize, 2usize];
     values = [1usize; 3usize];
     values.len()
 }
@@ -347,7 +347,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -364,7 +364,7 @@ fn const_function_mutates_array_indexes() {
         &root.join("main.nia"),
         r#"
 const fn width() usize {
-    let mut values: [4]usize = [1, 2, 3, 4];
+    let mut values: [usize; 4] = [1, 2, 3, 4];
     let mut i: usize = 0;
     while i < 4 {
         let value = i;
@@ -377,7 +377,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -394,7 +394,7 @@ fn const_compound_assignment_evaluates_index_once() {
         &root.join("main.nia"),
         r#"
 const fn width() usize {
-    let mut values: [2]usize = [4, 9];
+    let mut values: [usize; 2] = [4, 9];
     let mut calls = 0usize;
     values[{
         calls += 1;
@@ -406,7 +406,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let values: [591]i32 = [0; n];
+    let values: [i32; 591] = [0; n];
     values.len() as i32
 }
 "#,
@@ -433,7 +433,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -457,11 +457,11 @@ fn const_function_mutates_nested_aggregate_paths() {
         &root.join("main.nia"),
         r#"
 struct Pair {
-    values: [2]usize,
+    values: [usize; 2],
 }
 
 struct Config {
-    pairs: [2]Pair,
+    pairs: [Pair; 2],
 }
 
 const fn width() usize {
@@ -479,7 +479,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -508,7 +508,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -574,7 +574,7 @@ const fn width(bits: usize) usize {
 const n: usize = width(32);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -590,7 +590,7 @@ fn const_function_for_in_arrays_require_iterator() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(values: [4]usize) usize {
+const fn width(values: [usize; 4]) usize {
     let mut total: usize = 0;
     for value in values {
         total += value;
@@ -601,7 +601,7 @@ const fn width(values: [4]usize) usize {
 const n: usize = width([1, 2, 3, 4]);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -641,7 +641,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -675,7 +675,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -741,7 +741,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let values: [2]i32 = [0; n];
+    let values: [i32; 2] = [0; n];
     values.len() as i32
 }
 "#,
@@ -809,7 +809,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let values: [11]i32 = [0; n];
+    let values: [i32; 11] = [0; n];
     values.len() as i32
 }
 "#,
@@ -839,7 +839,7 @@ const fn total(values: pair::Pair[usize]) usize {
 const n: usize = total(pair::pair(4, 6));
 
 fn main() i32 {
-    let values: [10]i32 = [0; n];
+    let values: [i32; 10] = [0; n];
     values.len() as i32
 }
 "#,
@@ -1142,7 +1142,7 @@ extend Counter {
 }
 
 struct State {
-    counters: [2]Counter,
+    counters: [Counter; 2],
 }
 
 const fn width() usize {
@@ -1160,7 +1160,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let values: [3513]i32 = [0; n];
+    let values: [i32; 3513] = [0; n];
     values.len() as i32
 }
 "#,
@@ -1183,7 +1183,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -1216,7 +1216,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,

@@ -171,11 +171,7 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             lhs: Box::new(resolve_expr(*lhs)?),
             index,
         },
-        EarlyConstExprKind::ArrayLiteral { ty, elems } => ResolvedConstExprKind::ArrayLiteral {
-            // Outer `None` means the source intentionally omitted a type. A
-            // present early argument must resolve; otherwise an explicitly
-            // typed literal could silently become a context-inferred literal.
-            ty: ty.map(resolve_type_arg).transpose()?.map(|ty| ty.ty()),
+        EarlyConstExprKind::ArrayLiteral { elems } => ResolvedConstExprKind::ArrayLiteral {
             elems: resolve_const_array_elements(elems)?,
         },
         EarlyConstExprKind::StructLiteral { ty, fields } => ResolvedConstExprKind::StructLiteral {

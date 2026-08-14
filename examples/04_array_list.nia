@@ -8,7 +8,7 @@ using process::{Init, ExitCode};
 fn run(init: Init) ExitCode!() {
     _ = init;
 
-    let mut storage: [256]u8 = [_]u8[0; 256];
+    let mut storage: [u8; 256] = [0; 256];
     // FixedBufferAllocator never touches the OS; allocation fails when this
     // local byte array runs out of space.
     let mut fixed = mem::FixedBufferAllocator::init(&mut storage);

@@ -92,13 +92,13 @@ impl<'a> BodyChecker<'a> {
             } => self.check_closure_expr(expr, captures, params, body, expected),
             ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
                 Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
-                None if expected.is_some() => self.infer_array_literal_expr(expr),
-                None => self.check_array_literal(expr.span, None, elems),
+                // An array literal carries its length structurally and its
+                // elements can constrain their shared type without a binding-
+                // specific entry point. Keeping this path expression-general
+                // makes `[1i64, 2]`, call arguments, and borrowed temporaries
+                // obey the same inference rule.
+                None => self.infer_array_literal_expr(expr),
             },
-            ExprKind::TypedArrayLiteral { ty, elems } => {
-                let explicit = self.ty_for_type(ty);
-                self.check_array_literal(expr.span, Some(explicit), elems)
-            }
             ExprKind::TypedStructLiteral { ty, fields } => {
                 let explicit = self.ty_for_type(ty);
                 self.check_struct_literal(expr.span, explicit, fields)
@@ -1788,7 +1788,7 @@ impl<'a> BodyChecker<'a> {
             )
     }
 
-    fn is_untyped_numeric_literal_expr(&self, expr: &Expr) -> bool {
+    pub(crate) fn is_untyped_numeric_literal_expr(&self, expr: &Expr) -> bool {
         self.is_numeric_literal_expr(expr) && !self.numeric_literal_has_suffix(expr)
     }
 

@@ -325,7 +325,7 @@ struct Header {
 }
 
 static header: Header = Header { tag: 1, count: 2, flag: 3 };
-static bytes: [3]u8 = b"ok\0";
+static bytes: [u8; 3] = b"ok\0";
 static byte_ptr: & u8 = &bytes[0];
 static mut global: i32 = 5;
 static global_ptr: &i32 = &global;
@@ -358,7 +358,7 @@ fn fill(xs: &mut [i32]) i32 {
 }
 
 fn main() i32 {
-    let mut xs: [4]i32 = [1, 2, 3, 4];
+    let mut xs: [i32; 4] = [1, 2, 3, 4];
     let mut part = & xs[1..=2];
     sum(part) + sum(&[5, 6]) + fill(&mut [0, 1])
 }
@@ -539,7 +539,7 @@ enum Flag: u32 {
 }
 
 fn main(flag: Flag) i32 {
-    let mut values: [width]i32 = [10, 20, 30, 40];
+    let mut values: [i32; width] = [10, 20, 30, 40];
     let mut bits = Bits { i: values[0] };
     switch flag {
         Flag::A => return bits.i,

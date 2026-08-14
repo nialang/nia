@@ -17,7 +17,7 @@ fn set(items: &mut [Item], index: usize, state: i32) () {
 }
 
 fn main() i32 {
-    let mut items: [2]Item = [
+    let mut items: [Item; 2] = [
         Item { state: 1 },
         Item { state: 2 },
     ];
@@ -180,7 +180,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut buffer: [0]u8 = [];
+    let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
         !ok => {
@@ -226,8 +226,8 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut buffer: [64]u8 = [0; 64];
-    let mut raw_buffer: [0]u8 = [];
+    let mut buffer: [u8; 64] = [0; 64];
+    let mut raw_buffer: [u8; 0] = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     switch stdout.writeAll(&b"nia\n") {
@@ -370,7 +370,7 @@ fn first(xs: & [i32]) i32 {
 }
 
 fn main() i32 {
-    let mut xs: [4]i32 = [1, 2, 3, 4];
+    let mut xs: [i32; 4] = [1, 2, 3, 4];
     let mut s = & xs[1..=2];
     let mut p = s.ptr();
     let mut single = & p[..];
@@ -442,8 +442,8 @@ fn write_ptr(xs: &mut [u8]) &mut u8 {
 }
 
 fn main() usize {
-    let mut ro: [2]u8 = [1, 2];
-    let mut rw: [2]u8 = [3, 4];
+    let mut ro: [u8; 2] = [1, 2];
+    let mut rw: [u8; 2] = [3, 4];
     let mut read = read_ptr(&ro[..]);
     let mut write = write_ptr(&mut rw[..]);
     read.* as usize + write.* as usize
@@ -484,11 +484,11 @@ fn overwrite(xs: &mut [i32]) i32 {
 }
 
 fn main() i32 {
-    let mut xs: [3]i32 = [1, 2, 3];
+    let mut xs: [i32; 3] = [1, 2, 3];
     let mut borrow = & xs[..];
     let mut literal: & [i32] = &[4, 5, 6];
     let bytes = b"hi";
-    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first(&([_]i32[10, 11, 12])) + first_byte(&bytes) + first_byte(&b"ok") + first_char(&"run") + overwrite(&mut xs) + overwrite(&mut [6, 7])
+    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first(&([10, 11, 12])) + first_byte(&bytes) + first_byte(&b"ok") + first_char(&"run") + overwrite(&mut xs) + overwrite(&mut [6, 7])
 }
 "#,
     )
@@ -514,7 +514,7 @@ fn emits_zero_length_array_slice_without_indexing_empty_storage() {
         &main,
         r#"
 fn main() usize {
-    let mut bytes: [0]u8 = [];
+    let mut bytes: [u8; 0] = [];
     let mut slice = &mut bytes[..];
     slice.len()
 }
@@ -540,7 +540,7 @@ fn emits_global_string_pointer_call() {
         &main,
         r#"
 extern fn puts(s: & u8) i32;
-static hello: [6]u8 = b"hello\0";
+static hello: [u8; 6] = b"hello\0";
 
 fn main() i32 {
     _ = puts(&hello[0]);
@@ -580,7 +580,7 @@ fn read(ptr: & i32) i32 {
 
 fn main(i: usize) i32 {
     let mut pair = Pair { a: 10, b: 20 };
-    let mut xs: [2]i32 = [30, 40];
+    let mut xs: [i32; 2] = [30, 40];
     read(& pair.b) + read(& xs[i])
 }
 "#,
@@ -613,7 +613,7 @@ fn first(ptr: &mut u8) i32 {
 }
 
 fn main() i32 {
-    let mut mutable: [8]u8 = b"mutable\0";
+    let mut mutable: [u8; 8] = b"mutable\0";
     let hello = b"hello\0";
     let world = b"world\0";
     let multiline = (

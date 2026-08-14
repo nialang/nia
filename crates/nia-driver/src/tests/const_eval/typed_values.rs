@@ -16,7 +16,7 @@ const config = Config { width: 4usize, enabled: true };
 const n: usize = id(config.width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -42,7 +42,7 @@ const config = Config { target: Target { word_bits: 64usize } };
 const n: usize = id(config.target.word_bits / 8usize);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -75,7 +75,7 @@ const fn id[T](value: T) T {
 const n: usize = id(config::config.width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -106,7 +106,7 @@ const fn width() usize {
 const n: usize = width();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -136,7 +136,7 @@ const config = if true {
 const n: usize = id(config.width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -166,7 +166,7 @@ const config = if true {
 const n: usize = id(config.width);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -222,7 +222,7 @@ const fn select() usize {
 const n: usize = select();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -250,7 +250,7 @@ const ch: char = choose_char('A');
 const n: usize = widen_byte(b'\n') + 1usize;
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -273,7 +273,7 @@ const fn mask(value: usize) usize {
 const n: usize = mask(10usize);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -296,7 +296,7 @@ const fn id[T](value: T) T {
 const n: usize = id(b'a' as usize);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -494,7 +494,7 @@ const value: f64 = id(-1.5f64);
 const n: usize = if value < 0.0f64 { 4usize } else { 0usize };
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -615,8 +615,8 @@ fn const_nested_values_validate_primitive_ranges() {
     write(
         &root.join("main.nia"),
         r#"
-const bytes: [2]u8 = [1u16, 300u16];
-struct Config { values: [2]u8 }
+const bytes: [u8; 2] = [1u16, 300u16];
+struct Config { values: [u8; 2] }
 const config = Config { values: [1u16, 300u16] };
 const selected: u8 = config.values[1];
 "#,
@@ -706,7 +706,7 @@ fn const_string_literals_are_typed_arrays() {
     write(
         &root.join("main.nia"),
         r#"
-const fn accept4(value: [4]char) usize {
+const fn accept4(value: [char; 4]) usize {
     if value[0] == 'n' {
         4usize
     } else {
@@ -718,11 +718,11 @@ const fn id[T](value: T) T {
     value
 }
 
-const text: [4]char = id("nia!");
+const text: [char; 4] = id("nia!");
 const n: usize = accept4(text);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -738,14 +738,14 @@ fn const_array_len_method_evaluates_array_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn total(values: [3]usize, text: [4]char) usize {
+const fn total(values: [usize; 3], text: [char; 4]) usize {
     values.len() + text.len() + (&values[1..]).len()
 }
 
 const n: usize = total([1usize, 2usize, 3usize], "nia!");
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -780,7 +780,7 @@ const n: usize = width(Window { start: 2usize, end: 7usize });
 
 fn main() i32 {
     let value = Window { start: 4usize, end: 9usize };
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     (value.len() + values.len()) as i32
 }
 "#,
@@ -801,16 +801,16 @@ struct Header {
     second: i32,
 }
 
-const fn arrayLen[T, N: usize](value: [N]T) usize {
+const fn arrayLen[T, N: usize](value: [T; N]) usize {
     value.len()
 }
 
 const n: usize = arrayLen(
-    [std::builtin::size[Header]()]u8[0u8; std::builtin::size[Header]()]
+    [0u8; std::builtin::size[Header]()]
 );
 
 fn main() i32 {
-    let values: [std::builtin::size[Header]()]u8 =
+    let values: [u8; std::builtin::size[Header]()] =
         [0u8; std::builtin::size[Header]()];
     (n + arrayLen(values)) as i32
 }
@@ -837,7 +837,7 @@ const fn total() usize {
 const n: usize = total();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -863,19 +863,19 @@ const fn first_mut(values: &mut [usize]) usize {
     ptr.*
 }
 
-const fn read_array(values: [3]usize) usize {
+const fn read_array(values: [usize; 3]) usize {
     first(&values[..])
 }
 
 const fn read_mut_array() usize {
-    let mut values: [2]usize = [4, 5];
+    let mut values: [usize; 2] = [4, 5];
     first_mut(&mut values[..])
 }
 
 const n: usize = read_array([7usize, 8usize, 9usize]) + read_mut_array();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -897,14 +897,14 @@ extend[T] [T] {
     }
 }
 
-const fn projected(values: [2]usize) usize {
+const fn projected(values: [usize; 2]) usize {
     (&values[..]).ptr()
 }
 
 const n: usize = projected([1usize, 2usize]);
 
 fn main() i32 {
-    let mut values: [n]i32 = [0; n];
+    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
@@ -922,7 +922,7 @@ fn const_pointer_projection_rejects_empty_slice_without_fabricating_provenance()
         &root.join("main.nia"),
         r#"
 const fn project() usize {
-    let values: [0]usize = [];
+    let values: [usize; 0] = [];
     let pointer = (&values[..]).ptr();
     0usize
 }
@@ -957,7 +957,7 @@ extend[T] T..T {
 const n: usize = (1usize..2usize).start();
 
 fn main() i32 {
-    let mut values: [n]i32 = [0, 0];
+    let mut values: [i32; n] = [0, 0];
     values.len() as i32
 }
 "#,

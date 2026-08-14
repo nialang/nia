@@ -1252,7 +1252,7 @@ extend Build {
     }
 
     pub fn reportError(&mut self, error: Error) Error!() {
-        let mut buffer: [1024]u8 = [_]u8[0; 1024];
+        let mut buffer: [u8; 1024] = [0; 1024];
         let mut stderr = io::FileWriter::stderr(&mut buffer);
         stderr.print(
             &"build error: {}\n",
@@ -1437,7 +1437,7 @@ extend Build {
     }
 
     fn reportUnknownStep(&mut self, step: &[char]) Error!() {
-        let mut buffer: [256]u8 = [_]u8[0; 256];
+        let mut buffer: [u8; 256] = [0; 256];
         let mut stderr = io::FileWriter::stderr(&mut buffer);
         stderr.print(&"unknown build step `{}`\n", &[step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
         stderr.flush().asBuildError(Operation::Report, Subject::RequestedStep)

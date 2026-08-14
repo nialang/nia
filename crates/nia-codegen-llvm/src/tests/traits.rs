@@ -217,7 +217,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     read(&values[..])
 }
 "#,
@@ -262,7 +262,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     read(&values[..])
 }
 "#,
@@ -350,7 +350,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    let mut values: [3]i32 = [1, 2, 3];
+    let mut values: [i32; 3] = [1, 2, 3];
     read(&values[..])
 }
 "#,

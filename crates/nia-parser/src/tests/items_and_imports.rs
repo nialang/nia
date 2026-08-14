@@ -420,7 +420,7 @@ fn parses_const_generic_params() {
     let (module, errors) = parse_module(
         r#"
 struct Buffer[T, N: usize] {
-    data: [N]T,
+    data: [T; N],
 }
 "#,
     );
