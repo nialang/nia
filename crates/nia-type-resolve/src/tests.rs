@@ -28,7 +28,7 @@ type Byte = u8;
 
 fn make(value: i32) Box[i32] {
 let mut tmp: Byte = 1;
-{ value: value }
+Box[i32] { value }
 }
 "#,
     );

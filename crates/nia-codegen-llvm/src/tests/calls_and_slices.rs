@@ -18,8 +18,8 @@ fn set(items: &mut [Item], index: usize, state: i32) () {
 
 fn main() i32 {
     let mut items: [2]Item = [
-        { state: 1 },
-        { state: 2 },
+        Item { state: 1 },
+        Item { state: 2 },
     ];
     set(&mut items[..], 1usize, 9);
     items[1].state
@@ -295,7 +295,7 @@ enum Error: i32 {
 
 extend Layout {
     fn init(len: usize, align: usize) Error!Layout {
-        !{ len: len, align: align }
+        !Layout { len, align }
     }
 
     fn len(&self) usize {
@@ -305,7 +305,7 @@ extend Layout {
 
 extend Z {
     fn init() Z {
-        {}
+        Self {}
     }
 
     fn alloc(&self, layout: Layout) Error!?Layout {
@@ -579,7 +579,7 @@ fn read(ptr: & i32) i32 {
 }
 
 fn main(i: usize) i32 {
-    let mut pair: Pair = { a: 10, b: 20 };
+    let mut pair = Pair { a: 10, b: 20 };
     let mut xs: [2]i32 = [30, 40];
     read(& pair.b) + read(& xs[i])
 }

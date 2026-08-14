@@ -2,8 +2,8 @@
 use super::*;
 
 #[test]
-fn structural_const_struct_fields_have_typed_values() {
-    let root = temp_dir("structural_const_struct_fields_have_typed_values");
+fn nominal_const_struct_fields_have_typed_values() {
+    let root = temp_dir("nominal_const_struct_fields_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -11,7 +11,8 @@ const fn id[T](value: T) T {
     value
 }
 
-const config = {width: 4usize, enabled: true};
+struct Config { width: usize, enabled: bool }
+const config = Config { width: 4usize, enabled: true };
 const n: usize = id(config.width);
 
 fn main() i32 {
@@ -26,8 +27,8 @@ fn main() i32 {
 }
 
 #[test]
-fn nested_structural_const_struct_fields_have_typed_values() {
-    let root = temp_dir("nested_structural_const_struct_fields_have_typed_values");
+fn nested_nominal_const_struct_fields_have_typed_values() {
+    let root = temp_dir("nested_nominal_const_struct_fields_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -35,7 +36,9 @@ const fn id[T](value: T) T {
     value
 }
 
-const config = {target: {word_bits: 64usize}};
+struct Target { word_bits: usize }
+struct Config { target: Target }
+const config = Config { target: Target { word_bits: 64usize } };
 const n: usize = id(config.target.word_bits / 8usize);
 
 fn main() i32 {
@@ -50,12 +53,13 @@ fn main() i32 {
 }
 
 #[test]
-fn imported_structural_const_struct_fields_have_typed_values() {
-    let root = temp_dir("imported_structural_const_struct_fields_have_typed_values");
+fn imported_nominal_const_struct_fields_have_typed_values() {
+    let root = temp_dir("imported_nominal_const_struct_fields_have_typed_values");
     write(
         &root.join("config.nia"),
         r#"
-pub const config = {width: 4usize};
+pub struct Config { width: usize }
+pub const config = Config { width: 4usize };
 "#,
     );
     write(
@@ -82,8 +86,8 @@ fn main() i32 {
 }
 
 #[test]
-fn const_function_local_structural_struct_fields_have_typed_values() {
-    let root = temp_dir("const_function_local_structural_struct_fields_have_typed_values");
+fn const_function_local_nominal_struct_fields_have_typed_values() {
+    let root = temp_dir("const_function_local_nominal_struct_fields_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -91,8 +95,11 @@ const fn id[T](value: T) T {
     value
 }
 
+struct Target { word_bits: usize }
+struct Config { target: Target }
+
 const fn width() usize {
-    const config = {target: {word_bits: 64usize}};
+    const config = Config { target: Target { word_bits: 64usize } };
     id(config.target.word_bits) / 8usize
 }
 
@@ -110,8 +117,8 @@ fn main() i32 {
 }
 
 #[test]
-fn const_if_structural_struct_fields_have_typed_values() {
-    let root = temp_dir("const_if_structural_struct_fields_have_typed_values");
+fn const_if_nominal_struct_fields_have_typed_values() {
+    let root = temp_dir("const_if_nominal_struct_fields_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -119,10 +126,12 @@ const fn id[T](value: T) T {
     value
 }
 
+struct Config { width: usize }
+
 const config = if true {
-    {width: 4usize}
+    Config { width: 4usize }
 } else {
-    {width: 8usize}
+    Config { width: 8usize }
 };
 const n: usize = id(config.width);
 
@@ -147,10 +156,12 @@ const fn id[T](value: T) T {
     value
 }
 
+struct Config { width: usize }
+
 const config = if true {
-    {width: 4usize}
+    Config { width: 4usize }
 } else {
-    {width: 8usize}
+    Config { width: 8usize }
 };
 const n: usize = id(config.width);
 
@@ -409,8 +420,8 @@ const n: usize = id(true as usize);
 }
 
 #[test]
-fn generic_const_function_rejects_structural_cast_operand() {
-    let root = temp_dir("generic_const_function_rejects_structural_cast_operand");
+fn generic_const_function_rejects_nominal_cast_operand() {
+    let root = temp_dir("generic_const_function_rejects_nominal_cast_operand");
     write(
         &root.join("main.nia"),
         r#"
@@ -418,7 +429,8 @@ const fn id[T](value: T) T {
     value
 }
 
-const n: usize = id(({width: 4usize}) as usize);
+struct Config { width: usize }
+const n: usize = id((Config { width: 4usize }) as usize);
 "#,
     );
 
@@ -604,7 +616,8 @@ fn const_nested_values_validate_primitive_ranges() {
         &root.join("main.nia"),
         r#"
 const bytes: [2]u8 = [1u16, 300u16];
-const config = {values: [1u16, 300u16]};
+struct Config { values: [2]u8 }
+const config = Config { values: [1u16, 300u16] };
 const selected: u8 = config.values[1];
 "#,
     );
@@ -763,10 +776,10 @@ const fn width(value: Window) usize {
     value.len()
 }
 
-const n: usize = width({ start: 2usize, end: 7usize });
+const n: usize = width(Window { start: 2usize, end: 7usize });
 
 fn main() i32 {
-    let value: Window = { start: 4usize, end: 9usize };
+    let value = Window { start: 4usize, end: 9usize };
     let mut values: [n]i32 = [0; n];
     (value.len() + values.len()) as i32
 }

@@ -7,15 +7,19 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         fields: &[ResolvedConstFieldInit],
-        expected: Option<InternedTyId>,
+        expected: InternedTyId,
     ) -> Option<ConstValueType> {
-        let Some(expected) = expected else {
-            return self.structural_resolved_const_struct_literal_type(fields);
-        };
+        // Literal type arguments are resolved in the generic function's type
+        // context. During const execution, instantiate that nominal type before
+        // deriving field types; otherwise `Union[T] { value }` compares the
+        // concrete argument against the stale generic `T`.
+        let expected = self.substitute_ty_generics(expected);
         let Some((def_id, expected_args, expected_const_args)) =
             self.expected_nominal_parts(expected)
         else {
-            let _ = self.structural_resolved_const_struct_literal_type(fields);
+            for field in fields {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+            }
             if self.const_runtime_type_is_known(expected)
                 && !matches!(self.ty_kind(expected), Some(TyKind::ConstOnly))
             {
@@ -37,7 +41,9 @@ impl Analyzer<'_> {
             );
         }
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
-            let _ = self.structural_resolved_const_struct_literal_type(fields);
+            for field in fields {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+            }
             return None;
         }
         let signature = self.struct_signature_for(def_id)?;
@@ -178,37 +184,6 @@ impl Analyzer<'_> {
             return None;
         }
         Some(ConstValueType::Runtime(expected))
-    }
-
-    pub(super) fn structural_resolved_const_struct_literal_type(
-        &mut self,
-        fields: &[ResolvedConstFieldInit],
-    ) -> Option<ConstValueType> {
-        let mut seen = HashSet::new();
-        let mut typed_fields = Vec::with_capacity(fields.len());
-        let mut fields_are_valid = true;
-        for field in fields {
-            let is_first = seen.insert(*field.name_symbol());
-            if !is_first {
-                let name = self.symbol_name(*field.name_symbol());
-                self.push_const_type_error(
-                    field.span(),
-                    &format!("duplicate const struct field `{name}`"),
-                );
-                fields_are_valid = false;
-            }
-            let Some(ty) = self.resolved_const_expr_type(field.value(), None) else {
-                fields_are_valid = false;
-                continue;
-            };
-            if is_first {
-                typed_fields.push(ConstValueFieldType {
-                    name: *field.name_symbol(),
-                    ty,
-                });
-            }
-        }
-        fields_are_valid.then_some(ConstValueType::Struct(typed_fields))
     }
 
     pub(super) fn const_nominal_aggregate_field_type(

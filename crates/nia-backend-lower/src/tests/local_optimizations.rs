@@ -443,8 +443,8 @@ fn o1_removes_pure_zst_local_runtime_ops() {
 struct Empty {}
 
 fn main() i32 {
-    let mut local: Empty = {};
-    local = {};
+    let mut local = Empty {};
+    local = Empty {};
     0
 }
 "#;
@@ -497,7 +497,7 @@ fn o0_preserves_pure_zst_local_runtime_ops() {
 struct Empty {}
 
 fn main() i32 {
-    let mut local: Empty = {};
+    let mut local = Empty {};
     local = {};
     0
 }
@@ -550,8 +550,8 @@ fn effect(value: i32) () {
 }
 
 fn main() i32 {
-    let mut local: Wrap = { value: effect(1) };
-    local = { value: effect(2) };
+    let mut local = Wrap { value: effect(1) };
+    local = Wrap { value: effect(2) };
     0
 }
 "#;
@@ -610,7 +610,7 @@ fn o0_preserves_zst_local_runtime_ops() {
 struct Empty {}
 
 fn main() i32 {
-    let mut local: Empty = {};
+    let mut local = Empty {};
     local = {};
     0
 }

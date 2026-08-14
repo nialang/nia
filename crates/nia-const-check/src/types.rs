@@ -12,7 +12,6 @@ use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
-use nia_symbol::SymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
@@ -70,13 +69,6 @@ pub enum ConstValueType {
         elem: Box<ConstValueType>,
         len: Option<u64>,
     },
-    Struct(Vec<ConstValueFieldType>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConstValueFieldType {
-    pub name: SymbolId,
-    pub ty: ConstValueType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,18 +81,8 @@ impl ConstValueType {
     pub fn runtime(&self) -> Option<InternedTyId> {
         match self {
             Self::Runtime(ty) => Some(*ty),
-            Self::Int | Self::Bool | Self::String | Self::Array { .. } | Self::Struct(_) => None,
+            Self::Int | Self::Bool | Self::String | Self::Array { .. } => None,
         }
-    }
-
-    pub fn structural_field(&self, name: &SymbolId) -> Option<&ConstValueType> {
-        let Self::Struct(fields) = self else {
-            return None;
-        };
-        fields
-            .iter()
-            .find(|field| &field.name == name)
-            .map(|field| &field.ty)
     }
 
     pub fn array_elem(&self) -> Option<(&ConstValueType, Option<u64>)> {

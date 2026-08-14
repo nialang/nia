@@ -22,10 +22,10 @@ pub union PointerSlot[T] {
     integer: usize,
 }
 
-pub const firstPointerSlot: PointerSlot[usize] = { pointer: &55usize };
-pub const secondPointerSlot: PointerSlot[usize] = { pointer: &55usize };
-pub const constOnlyPointerSlot: PointerSlot[u32] = { pointer: &89u32 };
-pub const runtimeOnlyPointerSlot: PointerSlot[u64] = { pointer: &144u64 };
+pub const firstPointerSlot: PointerSlot[usize] = PointerSlot[usize] { pointer: &55usize };
+pub const secondPointerSlot: PointerSlot[usize] = PointerSlot[usize] { pointer: &55usize };
+pub const constOnlyPointerSlot: PointerSlot[u32] = PointerSlot[u32] { pointer: &89u32 };
+pub const runtimeOnlyPointerSlot: PointerSlot[u64] = PointerSlot[u64] { pointer: &144u64 };
 pub static globalPointerValue: usize = 55;
 
 pub const fn passPointer[T](slot: PointerSlot[T]) PointerSlot[T] {

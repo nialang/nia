@@ -131,6 +131,8 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
             value: nominal,
         }),
         append.intern(TyKind::BuiltinType(BuiltinType::AsmConfig)),
+        append.intern(TyKind::BuiltinType(BuiltinType::AsmInputs)),
+        append.intern(TyKind::BuiltinType(BuiltinType::AsmOutputs)),
         append.intern(TyKind::BuiltinTrait {
             trait_id: BuiltinTrait::Sized,
             args: vec![nominal],

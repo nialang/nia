@@ -251,7 +251,7 @@ extend i32 : DecodeFrom[Wrapped] {
 
 fn main() i32 {
     let bytes: [3]u8 = [1, 2, 3];
-    let wrapped: Bytes = { data: bytes };
+    let wrapped = Bytes { data: bytes };
     decode[i32, _](&"abc") + decode[i32, _](&bytes) + decode[i32, _](&wrapped.data)
 }
 "#,

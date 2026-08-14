@@ -761,9 +761,6 @@ impl Parser {
                     .end;
                 Some(self.make_expr(Span::new(token.span.start, end), ExprKind::Tuple(elems)))
             }
-            TokenKind::LBrace if self.looks_like_inferred_struct_literal() => {
-                self.parse_inferred_struct_literal()
-            }
             TokenKind::LBrace => {
                 let block = self.parse_block()?;
                 Some(self.make_expr(block.span, ExprKind::Block(block)))
@@ -1108,23 +1105,19 @@ impl Parser {
         Some(elements)
     }
 
-    fn parse_inferred_struct_literal(&mut self) -> Option<Expr> {
-        let start = self.peek().span.start;
-        self.expect(TokenKind::LBrace, "expected `{` before struct literal")?;
-        let fields = self.parse_struct_literal_fields()?;
-        let end = self
-            .expect(TokenKind::RBrace, "expected `}` after struct literal")?
-            .end;
-        Some(self.make_expr(Span::new(start, end), ExprKind::StructLiteral { fields }))
-    }
-
     fn parse_struct_literal_fields(&mut self) -> Option<Vec<FieldInit>> {
         let mut fields = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let field_start = self.peek().span.start;
+            let name_span = self.peek().span;
             let name = self.expect_name(TokenKind::Ident, "expected field name")?;
-            self.expect(TokenKind::Colon, "expected `:` after field name")?;
-            let value = self.parse_expr()?;
+            // A bare field is the canonical same-name initialization shorthand.
+            // Expand it here so later phases have one field-initialization model.
+            let value = if self.eat(TokenKind::Colon).is_some() {
+                self.parse_expr()?
+            } else {
+                self.make_expr(name_span, ExprKind::Ident(name))
+            };
             fields.push(FieldInit {
                 span: Span::new(field_start, value.span.end),
                 name,
@@ -1135,16 +1128,6 @@ impl Parser {
             }
         }
         Some(fields)
-    }
-
-    fn looks_like_inferred_struct_literal(&self) -> bool {
-        self.tokens
-            .nth(1)
-            .is_some_and(|token| token.kind == TokenKind::Ident)
-            && self
-                .tokens
-                .nth(2)
-                .is_some_and(|token| token.kind == TokenKind::Colon)
     }
 
     fn literal_expr(&mut self, token: SyntaxToken, make: impl FnOnce(String) -> ExprKind) -> Expr {

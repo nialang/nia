@@ -166,7 +166,7 @@ extend SpawnError {
 
 extend FileDescriptor {
     pub fn init(fd: i32) FileDescriptor {
-        { fd: fd }
+        Self { fd: fd }
     }
 
     pub fn stdin() FileDescriptor {
@@ -188,7 +188,7 @@ extend FileDescriptor {
 
 extend Pipe {
     pub fn init(read: FileDescriptor, write: FileDescriptor) Pipe {
-        { read: read, write: write }
+        Self { read: read, write: write }
     }
 
     pub fn read(&self) FileDescriptor {
@@ -202,7 +202,7 @@ extend Pipe {
 
 extend ProcessId {
     pub fn init(pid: i32) ProcessId {
-        { pid: pid }
+        Self { pid: pid }
     }
 
     pub fn raw(&self) i32 {
@@ -212,7 +212,7 @@ extend ProcessId {
 
 extend WaitStatus {
     pub fn init(raw: i32) WaitStatus {
-        { raw: raw }
+        Self { raw: raw }
     }
 
     pub fn raw(&self) i32 {
@@ -264,7 +264,7 @@ extend SpawnResult {
         stdout: ?FileDescriptor,
         stderr: ?FileDescriptor,
     ) SpawnResult {
-        { pid: pid, stdin: stdin, stdout: stdout, stderr: stderr }
+        Self { pid: pid, stdin: stdin, stdout: stdout, stderr: stderr }
     }
 
     pub fn pid(&self) ProcessId {
@@ -286,7 +286,7 @@ extend SpawnResult {
 
 extend SpawnOptions {
     pub fn init() SpawnOptions {
-        {
+        Self {
             stdin: StdIo::Inherit,
             stdout: StdIo::Inherit,
             stderr: StdIo::Inherit,
@@ -329,7 +329,7 @@ extend SpawnOptions {
 
 extend DirectoryEntry {
     pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
-        { kind: kind, name: name }
+        Self { kind: kind, name: name }
     }
 
     pub fn kind(&self) FileKind {
@@ -343,7 +343,7 @@ extend DirectoryEntry {
 
 extend Timestamp {
     pub fn init(seconds: i64, nanos: u32) Timestamp {
-        { seconds: seconds, nanos: nanos }
+        Self { seconds: seconds, nanos: nanos }
     }
 
     pub fn seconds(&self) i64 {
@@ -367,7 +367,7 @@ extend FileMetadata {
         mtime: Timestamp,
         ctime: Timestamp,
     ) FileMetadata {
-        {
+        Self {
             kind: kind,
             inode: inode,
             nlink: nlink,

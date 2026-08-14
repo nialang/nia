@@ -649,7 +649,7 @@ fn rememberTargetCleanupError(
 
 extend TargetText {
     fn init() TargetText {
-        {
+        Self {
             arch: string::String::init(),
             vendor: string::String::init(),
             os: string::String::init(),
@@ -685,7 +685,7 @@ struct ConfigCursor {
 
 extend ConfigCursor {
     fn init(bytes: &[u8]) ConfigCursor {
-        { bytes: bytes, position: 0 }
+        Self { bytes, position: 0 }
     }
 
     fn remaining(&self) usize {

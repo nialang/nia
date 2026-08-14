@@ -20,7 +20,7 @@ extend[R] BufferedReader[R]
 where R: Reader
 {
     pub fn init(reader: &mut R, buffer: &mut [u8]) BufferedReader[R] {
-        { reader: reader, buffer: buffer, start: 0, end: 0 }
+        Self { reader, buffer, start: 0, end: 0 }
     }
 
     pub fn len(&self) usize {
@@ -87,7 +87,7 @@ extend[W] BufferedWriter[W]
 where W: Writer
 {
     pub fn init(writer: &mut W, buffer: &mut [u8]) BufferedWriter[W] {
-        { writer: writer, buffer: buffer, len: 0 }
+        Self { writer, buffer, len: 0 }
     }
 
     pub fn len(&self) usize {

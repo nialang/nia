@@ -47,7 +47,7 @@ fn use_allocator(allocator: &mut Allocator) i32 {
 }
 
 fn main() i32 {
-    let mut allocator: PageAllocator = { value: 21 };
+    let mut allocator = PageAllocator { value: 21 };
     use_allocator(&mut allocator)
 }
 "#,
@@ -90,7 +90,7 @@ fn use_allocator(allocator: &mut Allocator) i32 {
 }
 
 fn main() i32 {
-    let mut allocator: PageAllocator = { value: 21 };
+    let mut allocator = PageAllocator { value: 21 };
     use_allocator(&mut allocator)
 }
 "#,
@@ -131,7 +131,7 @@ fn read(source: &Source) i32 {
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 41 };
+    let mut counter = Counter { value: 41 };
     read(&counter)
 }
 "#,
@@ -262,7 +262,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 8 };
+    let mut counter = Counter { value: 8 };
     read(& counter)
 }
 "#,
@@ -306,7 +306,7 @@ fn bump(counter: &mut CounterLike) i32 {
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 8 };
+    let mut counter = Counter { value: 8 };
     bump(&mut counter)
 }
 "#,
@@ -678,7 +678,7 @@ fn read(source: & Source[Item = i32]) i32 {
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 42 };
+    let mut counter = Counter { value: 42 };
     read(& counter)
 }
 "#,
@@ -759,7 +759,7 @@ fn from_child(child: & Child[
 }
 
 fn main() i32 {
-    let mut both: Both = { value: 41 };
+    let mut both = Both { value: 41 };
     from_child(& both)
 }
 "#,

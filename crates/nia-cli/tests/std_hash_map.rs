@@ -331,7 +331,7 @@ extend UnitContext {
 
 extend FailAllocator {
     fn init(buffer: &mut [u8]) FailAllocator {
-        {
+        Self {
             backing: mem::FixedBufferAllocator::init(buffer),
             allocCount: 0,
             freeCount: 0,
@@ -356,19 +356,19 @@ extend FailAllocator {
 
 extend Key {
     fn init(value: i32) Key {
-        { value: value }
+        Self { value }
     }
 }
 
 extend ModuloContext {
     fn init(modulus: i32, salt: u64) ModuloContext {
-        { modulus: modulus, salt: salt }
+        Self { modulus, salt }
     }
 }
 
 extend TailHashContext {
     fn init(offset: usize) TailHashContext {
-        { offset: offset }
+        Self { offset }
     }
 }
 
@@ -1626,7 +1626,7 @@ struct FailAllocator {
 
 extend FailAllocator {
     fn init(buffer: &mut [u8]) FailAllocator {
-        {
+        Self {
             backing: mem::FixedBufferAllocator::init(buffer),
             allocCount: 0,
             failAllocAt: 0,

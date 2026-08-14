@@ -374,8 +374,7 @@ impl ConstModuleLowerer<'_> {
                     self.collect_expr_locals(count, out);
                 }
             },
-            nia_ast::ExprKind::StructLiteral { fields }
-            | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => {
+            nia_ast::ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_expr_locals(&field.value, out);
                 }

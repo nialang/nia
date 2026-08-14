@@ -67,27 +67,31 @@ extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn iter(&self) HashMapIterWithContext[K, V, C] {
-        { map: self, index: 0, remaining: self.len }
+        HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
     }
 
     pub fn iterMut(&mut self) HashMapIterMutWithContext[K, V, C] {
-        { map: self, index: 0, remaining: self.len }
+        HashMapIterMutWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
     }
 
     pub fn keys(&self) HashMapKeysWithContext[K, V, C] {
-        { iter: { map: self, index: 0, remaining: self.len } }
+        HashMapKeysWithContext[K, V, C] {
+            iter: HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len },
+        }
     }
 
     pub fn values(&self) HashMapValuesWithContext[K, V, C] {
-        { iter: { map: self, index: 0, remaining: self.len } }
+        HashMapValuesWithContext[K, V, C] {
+            iter: HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len },
+        }
     }
 
     pub fn valuesMut(&mut self) HashMapValuesMutWithContext[K, V, C] {
-        { iter: self.iterMut() }
+        HashMapValuesMutWithContext[K, V, C] { iter: self.iterMut() }
     }
 
     pub fn drain(&mut self) HashMapDrainWithContext[K, V, C] {
-        { map: self, index: 0, remaining: self.len }
+        HashMapDrainWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
     }
 }
 
@@ -98,7 +102,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Iter = HashMapIterWithContext[K, V, C];
 
     pub fn iter(&self) HashMapIterWithContext[K, V, C] {
-        { map: self, index: 0, remaining: self.len }
+        HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
     }
 }
 
@@ -125,7 +129,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             self.index += 1;
             if raw::isFull(self.map.ctrl[index]) {
                 self.remaining -= 1;
-                return ?{
+                return ?HashMapEntryRef[K, V] {
                     key: &self.map.keys[index],
                     value: &self.map.values[index],
                 };
@@ -158,7 +162,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             self.index += 1;
             if raw::isFull(self.map.ctrl[index]) {
                 self.remaining -= 1;
-                return ?{
+                return ?HashMapEntryMut[K, V] {
                     key: &self.map.keys[index],
                     value: &mut self.map.values[index],
                 };
@@ -285,7 +289,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 if self.remaining == 0 {
                     self.map.clear();
                 }
-                return ?{ key: key, value: value };
+                return ?HashMapEntry[K, V] { key, value };
             }
         }
         null

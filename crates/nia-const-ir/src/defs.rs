@@ -924,7 +924,9 @@ pub enum ResolvedConstExprKind {
         elems: ResolvedConstArrayElements,
     },
     StructLiteral {
-        ty: Option<InternedTyId>,
+        /// Nominal construction is encoded in the IR itself: a struct value
+        /// can never rely on an expected type to acquire its identity.
+        ty: InternedTyId,
         fields: Vec<ResolvedConstFieldInit>,
     },
     EnumStructLiteral {
@@ -1451,7 +1453,9 @@ pub enum EarlyConstExprKind {
         elems: EarlyConstArrayElements,
     },
     StructLiteral {
-        ty: Option<EarlyConstTypeArg>,
+        /// The source syntax names every constructed aggregate. Resolution
+        /// may still fail inside this type argument, but it is never absent.
+        ty: EarlyConstTypeArg,
         fields: Vec<EarlyConstFieldInit>,
     },
     EnumStructLiteral {

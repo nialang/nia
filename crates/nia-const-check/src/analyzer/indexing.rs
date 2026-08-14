@@ -24,10 +24,7 @@ impl Analyzer<'_> {
                 Some(elem.clone())
             }
             ConstValueType::Runtime(ty) => self.resolved_const_runtime_index_type(span, ty, index),
-            ConstValueType::Struct(_)
-            | ConstValueType::Int
-            | ConstValueType::Bool
-            | ConstValueType::String => {
+            ConstValueType::Int | ConstValueType::Bool | ConstValueType::String => {
                 self.visit_resolved_const_index_operand(index);
                 self.push_const_type_error(span, "const index target is not an array or slice");
                 None
@@ -123,10 +120,7 @@ impl Analyzer<'_> {
             ConstValueType::Runtime(ty) => {
                 self.resolved_const_runtime_slice_type(span, ty, range, expected)
             }
-            ConstValueType::Struct(_)
-            | ConstValueType::Int
-            | ConstValueType::Bool
-            | ConstValueType::String => {
+            ConstValueType::Int | ConstValueType::Bool | ConstValueType::String => {
                 self.visit_resolved_const_slice_bounds(range);
                 self.push_const_type_error(span, "const slice target is not an array or slice");
                 None

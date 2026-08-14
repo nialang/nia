@@ -507,7 +507,7 @@ impl<'a> LocalResolver<'a> {
                     }
                 }
             }
-            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
+            ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
                     self.resolve_expr(&field.value);
                 }

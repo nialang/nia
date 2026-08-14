@@ -13,11 +13,11 @@ pub struct LimitedReader[R] {
 
 extend Limit {
     pub fn unlimited() Limit {
-        { remaining: null }
+        Self { remaining: null }
     }
 
     pub fn limited(remaining: usize) Limit {
-        { remaining: ?remaining }
+        Self { remaining: ?remaining }
     }
 
     pub fn remaining(&self) ?usize {
@@ -29,7 +29,7 @@ extend[R] LimitedReader[R]
 where R: Reader
 {
     pub fn init(reader: &mut R, limit: Limit) LimitedReader[R] {
-        { reader: reader, limit: limit }
+        Self { reader, limit }
     }
 
     pub fn remaining(&self) ?usize {

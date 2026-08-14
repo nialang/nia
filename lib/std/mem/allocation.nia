@@ -30,7 +30,7 @@ extend Allocator {
         let address = block.ptr() as usize;
         let mut valuePtr = address as &mut T;
         valuePtr.* = value;
-        !{ valuePtr: valuePtr, size: layout.size(), align: layout.align() }
+        !Allocated[T] { valuePtr, size: layout.size(), align: layout.align() }
     }
 }
 
@@ -56,7 +56,7 @@ where T: Sized
         let align = self.align;
         self.valuePtr = align as &mut T;
         self.size = 0;
-        { callback: callback, allocationPtr: allocationPtr, size: size, align: align }
+        CallableAllocation[V] { callback, allocationPtr, size, align }
     }
 
     pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {

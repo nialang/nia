@@ -22,7 +22,7 @@ extend Count : Add[Count] {
     type Output = Count;
 
     fn add(self, rhs: Count) Count {
-        { value: self.value + rhs.value }
+        Self { value: self.value + rhs.value }
     }
 }
 
@@ -42,8 +42,8 @@ where T: Measured
 pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut left: Count = { value: 20 };
-    let mut right: Count = { value: 22 };
+    let mut left = Count { value: 20 };
+    let mut right = Count { value: 22 };
     // Function type arguments can be inferred from arguments when the call is
     // unambiguous. `combine[Count](left, right)` is the explicit form.
     let mut total = combine(left, right);

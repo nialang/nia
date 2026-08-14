@@ -427,7 +427,7 @@ struct Header {
 fn make() Header {
     let mut data: [_]u8 = [0; 8];
     let mut more: [_]u8 = [1, 2, 3];
-    let mut header: Header = { bytes: data, callback: cb };
+    let mut header = Header { bytes: data, callback: cb };
     header
 }
 "#,
@@ -470,7 +470,7 @@ fn make() Header {
     };
     assert!(matches!(
         header.value.as_ref().map(|value| &value.kind),
-        Some(ExprKind::StructLiteral { .. })
+        Some(ExprKind::TypedStructLiteral { .. })
     ));
     let tail = body.tail.as_ref().expect("expected tail");
     assert!(matches!(tail.kind, ExprKind::Ident(_)));
@@ -538,7 +538,7 @@ fn rejects_variadic_callable_interface_types() {
 }
 
 #[test]
-fn parses_casts_builtins_and_struct_literals() {
+fn parses_casts_builtins_and_nominal_struct_literals() {
     let (module, errors) = parse_module(
         r#"
 struct Pair[T] {
@@ -551,7 +551,7 @@ fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
     let mut addr = ptr as usize;
     let mut first = xs[0];
     let mut value = ptr.*;
-    { value: (addr + size + offset) as i32 }
+    Pair[i32] { value: (addr + size + offset) as i32 }
 }
 "#,
     );
@@ -602,7 +602,56 @@ fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
         })
     ));
     let tail = body.tail.as_ref().expect("expected tail");
-    assert!(matches!(tail.kind, ExprKind::StructLiteral { .. }));
+    assert!(matches!(tail.kind, ExprKind::TypedStructLiteral { .. }));
+}
+
+#[test]
+fn parses_nominal_field_shorthand_and_self_construction() {
+    let (module, errors) = parse_module(
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    fn shifted(self, x: i32) Self {
+        Self { x, y: self.y }
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Extend(extend) = &module.items[1].kind else {
+        panic!("expected extend");
+    };
+    let body = extend.methods[0]
+        .function
+        .body
+        .as_ref()
+        .expect("expected method body");
+    let Some(ExprKind::TypedStructLiteral { ty, fields }) =
+        body.tail.as_ref().map(|expr| &expr.kind)
+    else {
+        panic!("expected `Self` struct literal");
+    };
+    assert!(matches!(ty.kind, TypeKind::SelfType));
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, sym("x"));
+    assert!(matches!(fields[0].value.kind, ExprKind::Ident(name) if name == sym("x")));
+}
+
+#[test]
+fn rejects_anonymous_aggregate_expressions() {
+    let (_, errors) = parse_module(
+        r#"
+fn make() () {
+    let value = { x: 1 };
+    _ = value;
+}
+"#,
+    );
+    assert!(!errors.is_empty());
 }
 
 #[test]

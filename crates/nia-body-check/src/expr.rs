@@ -95,16 +95,13 @@ impl<'a> BodyChecker<'a> {
                 None if expected.is_some() => self.infer_array_literal_expr(expr),
                 None => self.check_array_literal(expr.span, None, elems),
             },
-            ExprKind::StructLiteral { fields } => {
-                self.check_struct_literal(expr.span, expected, fields)
-            }
             ExprKind::TypedArrayLiteral { ty, elems } => {
                 let explicit = self.ty_for_type(ty);
                 self.check_array_literal(expr.span, Some(explicit), elems)
             }
             ExprKind::TypedStructLiteral { ty, fields } => {
                 let explicit = self.ty_for_type(ty);
-                self.check_struct_literal(expr.span, Some(explicit), fields)
+                self.check_struct_literal(expr.span, explicit, fields)
             }
             ExprKind::QualifiedStructLiteral { target, fields } => {
                 self.check_qualified_struct_literal(expr, target, fields)

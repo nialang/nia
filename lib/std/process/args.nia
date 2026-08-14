@@ -8,7 +8,7 @@ using types::{Arg, Args, ArgsIter};
 
 extend Arg {
     fn init(ptr: &u8) Arg {
-        { text: cstring::CStringView::fromPtrUnchecked(ptr) }
+        Self { text: cstring::CStringView::fromPtrUnchecked(ptr) }
     }
 
     pub fn rawPtr(&self) &u8 {
@@ -76,7 +76,7 @@ where T: parse::FromRadix[cstring::CStringView]
 
 extend Args {
     pub fn init(len: usize, ptr: &&u8) Args {
-        { len: len, ptr: ptr }
+        Self { len: len, ptr: ptr }
     }
 
     pub fn len(&self) usize {
@@ -118,7 +118,7 @@ extend ArgsIter {
         if start > args.len() {
             start = args.len();
         }
-        { args: args, index: start }
+        Self { args: args, index: start }
     }
 
     pub fn remaining(&self) usize {

@@ -28,7 +28,7 @@ extend ProbeGroup {
         let emptyMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrlEmpty));
         let deletedMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrlDeleted));
 
-        {
+        Self {
             matchMask: matchMask,
             emptyMask: emptyMask,
             availableMask: emptyMask | deletedMask,
@@ -39,7 +39,7 @@ extend ProbeGroup {
 extend ProbeCursor {
     pub fn init(valueHash: u64, capacity: usize) ProbeCursor {
         let mask = capacity - 1;
-        {
+        Self {
             pos: (valueHash as usize) & mask,
             stride: 0,
             visited: 0,

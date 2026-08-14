@@ -844,7 +844,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::TypedArrayLiteral { elems, .. } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, ty),
             },
-            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
+            ExprKind::TypedStructLiteral { fields, .. } => {
                 let Some(def_id) = self.nominal_global_def(ty) else {
                     return TypedExpr {
                         span: expr.span,

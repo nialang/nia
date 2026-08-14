@@ -38,7 +38,7 @@ pub struct Step {
 
 extend Step {
     pub fn init(name: &[char], run: StepFn) Step {
-        { name: name, run: run }
+        Self { name, run }
     }
 }
 "#,
@@ -55,7 +55,7 @@ pub struct Build {
 
 extend Build {
     pub fn init() Build {
-        {
+        Self {
             registered: types::Step::init(&"noop", &noop),
         }
     }
@@ -160,7 +160,7 @@ struct HoldsItem {
 }
 
 fn make() HoldsItem {
-    {
+    HoldsItem {
         item: Item::zero(),
     }
 }
@@ -181,7 +181,7 @@ pub struct Item {
 
 extend Item {
     pub fn zero() Item {
-        { value: 0 }
+        Self { value: 0 }
     }
 }
 "#,
@@ -222,7 +222,7 @@ struct T {
 }
 
 fn main() i32 {
-    let mut t: T = { xs: [{ x: 0 }; 256] };
+    let mut t = T { xs: [S { x: 0 }; 256] };
     t.xs[255].x
 }
 "#,
@@ -283,11 +283,11 @@ pub struct Bag {
 }
 
 pub fn make_item(value: i32) Item {
-    { value: value }
+    Item { value }
 }
 
 pub fn make_bag() Bag {
-    { items: [make_item(1); 4] }
+    Bag { items: [make_item(1); 4] }
 }
 "#,
     )
@@ -334,7 +334,7 @@ pub struct Pair {
 }
 
 pub fn make_pair(a: i32, b: i32) Pair {
-    { a: a, b: b }
+    Pair { a, b }
 }
 
 pub fn id_pair(pair: Pair) Pair {
@@ -394,7 +394,7 @@ pub struct Box {
 }
 
 pub fn make_box() Box {
-    { mode: Mode::A }
+    Box { mode: Mode::A }
 }
 "#,
     )
@@ -447,7 +447,7 @@ pub struct Box {
 }
 
 pub fn make_box() Box {
-    { mode: Mode::A }
+    Box { mode: Mode::A }
 }
 "#,
     )
@@ -574,7 +574,7 @@ pub struct Box {
 
 extend Box {
     pub fn make(value: i32) Box {
-        { value: value }
+        Self { value }
     }
 }
 "#,
@@ -704,7 +704,7 @@ pub struct Box {
 }
 
 pub fn make_box() Box {
-    { bytes: [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8] }
+    Box { bytes: [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8] }
 }
 "#,
     )

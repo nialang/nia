@@ -258,7 +258,7 @@ struct Point {
 }
 
 fn main() i32 {
-    let mut p: Point = { x: 10, y: 20 };
+    let mut p = Point { x: 10, y: 20 };
     let mut xs: [3]i32 = [1, 2, 3];
     p.x += xs[1];
     p.x
@@ -297,12 +297,12 @@ struct T {
 
 extend S {
     fn make(x: i32) S {
-        { x: x }
+        Self { x }
     }
 }
 
 fn build() T {
-    let mut t: T = { xs: [S::make(0); 4] };
+    let mut t = T { xs: [S::make(0); 4] };
 
     let mut i = 0u16;
     while i < 4u16 {
@@ -348,12 +348,12 @@ struct T {
 
 extend S {
     fn make(x: i32) S {
-        { x: x }
+        Self { x }
     }
 }
 
 fn build() T {
-    let mut t: T = { xs: [S::make(0); 4] };
+    let mut t = T { xs: [S::make(0); 4] };
 
     let mut i = 0u16;
     while i < 4u16 {
@@ -399,7 +399,7 @@ fn add2(x: i32) i32 {
 }
 
 fn main() i32 {
-    let mut table: Table = { fns: [& add1, & add2] };
+    let mut table = Table { fns: [& add1, & add2] };
     let mut i: usize = 1;
     table.fns[i](40)
 }

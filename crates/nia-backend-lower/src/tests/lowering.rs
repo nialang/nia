@@ -23,7 +23,7 @@ union UnusedPayload {
 
 extend Point {
     fn make(x: i32, y: i32) Point {
-        { x: x, y: y }
+        Self { x, y }
     }
 }
 
@@ -566,11 +566,11 @@ struct Buffer[T, N: usize] {
 }
 
 fn make4() Buffer[u8, 4] {
-    { data: [1u8, 2u8, 3u8, 4u8] }
+    Buffer[u8, 4] { data: [1u8, 2u8, 3u8, 4u8] }
 }
 
 fn make8() Buffer[u8, 8] {
-    { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
+    Buffer[u8, 8] { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
 }
 
 fn main() usize {
@@ -728,7 +728,7 @@ struct Init {
 
 extend Init {
     fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
-        { argc: argc, argv: argv, envp: envp }
+        Self { argc, argv, envp }
     }
 
     pub fn argc(&self) usize {
@@ -736,11 +736,11 @@ extend Init {
     }
 
     pub fn args(&self) Args {
-        { len: self.argc, ptr: self.argv }
+        Args { len: self.argc, ptr: self.argv }
     }
 
     pub fn env(&self) Env {
-        { ptr: self.envp }
+        Env { ptr: self.envp }
     }
 
     pub fn argv(&self) &&u8 {
@@ -754,18 +754,18 @@ extend Init {
 
 extend Args {
     fn init(len: usize, ptr: &&u8) Args {
-        { len: len, ptr: ptr }
+        Self { len, ptr }
     }
 }
 
 extend Env {
     fn init(ptr: &&u8) Env {
-        { ptr: ptr }
+        Self { ptr }
     }
 }
 
 fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
-    let mut init: Init = { argc: argc, argv: argv, envp: envp };
+    let mut init = Init { argc: argc, argv: argv, envp: envp };
     _ = init;
     argc
 }

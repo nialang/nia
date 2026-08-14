@@ -657,7 +657,7 @@ extend[T] SliceIterMut[T]
 where T: Sized
 {
     fn from_raw_parts(ptr: &mut T, len: usize) SliceIterMut[T] {
-        { ptr: ptr, len: len, index: 0 }
+        Self { ptr, len, index: 0 }
     }
 }
 

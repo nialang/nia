@@ -16,16 +16,16 @@ extend Number : Add[Number] {
     type Output = Number;
 
     fn add(self, rhs: Number) Number {
-        { value: self.value + rhs.value }
+        Self { value: self.value + rhs.value }
     }
 }
 
 fn main() i32 {
-    let mut one: Number = { value: 1 };
-    let mut two: Number = { value: 2 };
+    let mut one = Number { value: 1 };
+    let mut two = Number { value: 2 };
     let mut three = one + two;
-    let mut seven = three.add({ value: 4 });
-    let mut nine = [Number]::add(seven, { value: 2 });
+    let mut seven = three.add(Number { value: 4 });
+    let mut nine = [Number]::add(seven, Number { value: 2 });
     nine.value
 }
 "#,
@@ -67,8 +67,8 @@ fn combine[T](lhs: Box[T], rhs: Box[T]) Box[T] where Box[T]: Add[Box[T], Output 
 }
 
 fn main() i32 {
-    let mut one: Box[i32] = { value: 1 };
-    let mut two: Box[i32] = { value: 2 };
+    let mut one = Box[i32] { value: 1 };
+    let mut two = Box[i32] { value: 2 };
     let mut three = combine[i32](one, two);
     three.value
 }
@@ -127,8 +127,8 @@ extend Number : Ord[Number] {
 }
 
 fn main() bool {
-    let mut one: Number = { value: 1 };
-    let mut two: Number = { value: 2 };
+    let mut one = Number { value: 1 };
+    let mut two = Number { value: 2 };
     one != two and one < two
 }
 "#,
@@ -162,7 +162,7 @@ extend Number : Neg {
     type Output = Number;
 
     fn neg(self) Number {
-        { value: -self.value }
+        Self { value: -self.value }
     }
 }
 
@@ -170,12 +170,12 @@ extend Number : BitNot {
     type Output = Number;
 
     fn bit_not(self) Number {
-        { value: ~self.value }
+        Self { value: ~self.value }
     }
 }
 
 fn main() i32 {
-    let mut one: Number = { value: 1 };
+    let mut one = Number { value: 1 };
     let mut neg = -one;
     let mut bits = ~neg;
     bits.value

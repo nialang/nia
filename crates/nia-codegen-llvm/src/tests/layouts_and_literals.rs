@@ -60,10 +60,10 @@ struct Mixed {
     c: u8,
 }
 
-static mixed: Mixed = { a: 1, b: 2, c: 3 };
+static mixed: Mixed = Mixed { a: 1, b: 2, c: 3 };
 
 fn main() i32 {
-    let mut local: Mixed = { a: 4, b: 5, c: 6 };
+    let mut local = Mixed { a: 4, b: 5, c: 6 };
     mixed.a as i32 + mixed.c as i32 + local.a as i32 + local.c as i32 + local.b as i32
 }
 "#,
@@ -117,7 +117,7 @@ fn sum(pair: Pair) i32 {
 }
 
 fn main() i32 {
-    let mut pair: Pair = { a: 10, b: 20 };
+    let mut pair = Pair { a: 10, b: 20 };
     let mut copied = id(pair);
     sum(copied)
 }
@@ -169,7 +169,7 @@ fn sum_array(values: [2]i32) i32 {
 }
 
 fn main() i32 {
-    sum_pair({ a: 10, b: 20 }) + sum_array([30, 40])
+    sum_pair(Pair { a: 10, b: 20 }) + sum_array([30, 40])
 }
 "#,
     )
@@ -216,8 +216,8 @@ fn sum_array(values: [2]i32) i32 {
 }
 
 fn main() i32 {
-    let mut pair: Pair = { a: 10, b: 20 };
-    pair = { a: 30, b: 40 };
+    let mut pair = Pair { a: 10, b: 20 };
+    pair = Pair { a: 30, b: 40 };
     let mut values: [2]i32 = [50, 60];
     values = [70, 80];
     sum_pair(pair) + sum_array(values)
@@ -251,7 +251,7 @@ struct Pair {
 }
 
 fn make_pair(a: i32, b: i32) Pair {
-    { a: a, b: b }
+    Pair { a, b }
 }
 
 fn make_array(a: i32, b: i32) [2]i32 {
@@ -306,7 +306,7 @@ struct Pair {
 }
 
 fn make_pair() Pair {
-    { a: 10, b: 20 }
+    Pair { a: 10, b: 20 }
 }
 
 fn make_array() [2]i32 {
@@ -373,7 +373,7 @@ fn cleanup(value: i32) () {
 
 fn make_pair() Pair {
     defer cleanup(2);
-    { a: log(1), b: 3 }
+    Pair { a: log(1), b: 3 }
 }
 
 fn sum_pair(pair: Pair) i32 {
@@ -418,7 +418,7 @@ struct Pair {
 }
 
 fn make_pair(a: i32, b: i32) Pair {
-    { a: a, b: b }
+    Pair { a, b }
 }
 
 fn forward_pair() Pair {
@@ -474,7 +474,7 @@ fn cleanup(value: i32) () {
 }
 
 fn make_pair(a: i32, b: i32) Pair {
-    { a: a, b: b }
+    Pair { a, b }
 }
 
 fn forward_pair() Pair {

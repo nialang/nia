@@ -33,7 +33,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -489,7 +489,7 @@ struct box[T] {
 
 extend[T] box[T] {
     fn make(value: T) box[T] {
-        { value: value }
+        Self { value }
     }
 }
 

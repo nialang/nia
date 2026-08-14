@@ -207,7 +207,7 @@ union Slot {
 
 const fn roundTrip() usize {
     let value: usize = 21;
-    let slot: Slot = { pointer: &value };
+    let slot = Slot { pointer: &value };
     slot.pointer.*
 }
 
@@ -247,19 +247,19 @@ union SignedBits {
 }
 
 const fn floatBits() u32 {
-    let bits: Bits = { float: 1.0 };
+    let bits = Bits { float: 1.0 };
     bits.integer
 }
 
 const fn switchedBits() f32 {
-    let mut bits: Bits = { float: 0.0 };
+    let mut bits = Bits { float: 0.0 };
     bits.integer = 1065353216;
     bits.float
 }
 
 const FLOAT_BITS: u32 = floatBits();
 const SWITCHED: f32 = switchedBits();
-const SIGNED_BITS: SignedBits = { unsigned: 4294967295 };
+const SIGNED_BITS: SignedBits = SignedBits { unsigned: 4294967295 };
 const SIGNED: i32 = SIGNED_BITS.signed;
 "#,
     );
@@ -292,7 +292,7 @@ union Narrow {
     narrow: u16,
 }
 
-const BITS: Narrow = { wide: 287454020 };
+const BITS: Narrow = Narrow { wide: 287454020 };
 const VALUE: u16 = BITS.narrow;
 "#;
     let mut little_target = nia_target_config::TargetConfig::host();
@@ -332,7 +332,7 @@ union Bytes {
     bytes: [WIDTH]u8,
 }
 
-const DATA: Bytes = { word: 287454020 };
+const DATA: Bytes = Bytes { word: 287454020 };
 const VALUE: [WIDTH]u8 = DATA.bytes;
 "#;
     let mut little_target = nia_target_config::TargetConfig::host();
@@ -381,7 +381,7 @@ union MatrixBytes {
     bytes: [8]u8,
 }
 
-const DATA: MatrixBytes = { matrix: [[4386, 13124], [21862, 30600]] };
+const DATA: MatrixBytes = MatrixBytes { matrix: [[4386, 13124], [21862, 30600]] };
 const BYTES: [8]u8 = DATA.bytes;
 "#,
         target,
@@ -413,7 +413,7 @@ union WordBytes {
     bytes: [std::builtin::size[usize]()]u8,
 }
 
-const DATA: WordBytes = { word: 16909060 };
+const DATA: WordBytes = WordBytes { word: 16909060 };
 const BYTES: [std::builtin::size[usize]()]u8 = DATA.bytes;
 "#,
         target,
@@ -449,9 +449,9 @@ union Flags {
     values: [2]bool,
 }
 
-const DATA: Bytes = { bytes: [4]u8[4, 3, 2, 1] };
+const DATA: Bytes = Bytes { bytes: [4]u8[4, 3, 2, 1] };
 const WORD: u32 = DATA.word;
-const INVALID: Flags = { raw: [2]u8[0, 2] };
+const INVALID: Flags = Flags { raw: [2]u8[0, 2] };
 const VALUES: [2]bool = INVALID.values;
 "#,
         target,
@@ -485,7 +485,7 @@ union PairBytes[T] {
 }
 
 const fn encode[T](values: [2]T) [8]u8 {
-    let pair: PairBytes[T] = { values: values };
+    let pair = PairBytes[T] { values: values };
     pair.bytes
 }
 
@@ -525,7 +525,7 @@ union PaddedBytes {
     bytes: [8]u8,
 }
 
-const DATA: PaddedBytes = { value: { marker: 170, word: 287454020 } };
+const DATA: PaddedBytes = PaddedBytes { value: Padded { marker: 170, word: 287454020 } };
 const ROUND_TRIP: Padded = DATA.value;
 const PREFIX: [5]u8 = DATA.prefix;
 const INVALID_PADDING_READ: [8]u8 = DATA.bytes;
@@ -595,12 +595,12 @@ union FlagBytes {
 }
 
 const fn encode[T](value: Pair[T]) [5]u8 {
-    let slot: PairBytes[T] = { value: value };
+    let slot = PairBytes[T] { value: value };
     slot.prefix
 }
 
-const BYTES: [5]u8 = encode[u32]({ marker: 170, value: 287454020 });
-const INVALID: FlagBytes = { raw: [2]u8[0, 2] };
+const BYTES: [5]u8 = encode[u32](Pair[u32] { marker: 170, value: 287454020 });
+const INVALID: FlagBytes = FlagBytes { raw: [2]u8[0, 2] };
 const FLAGS: Flags = INVALID.flags;
 "#,
         target,
@@ -649,12 +649,12 @@ union PacketBytes[T, N: usize, U] {
 
 const WIDTH: usize = 2;
 const ENABLED: bool = true;
-const DATA: PacketBytes[u8, WIDTH, u16] = {
-    value: { marker: 170, values: [2]u16[4386, 13124] },
+const DATA: PacketBytes[u8, WIDTH, u16] = PacketBytes[u8, WIDTH, u16] {
+    value: Packet[u8, WIDTH, u16] { marker: 170, values: [2]u16[4386, 13124] },
 };
 const PREFIX: [5]u8 = DATA.prefix;
 const ROUND_TRIP: Packet[u8, 2, u16] = DATA.value;
-const FLAGGED: Flagged[ENABLED] = { value: 7 };
+const FLAGGED: Flagged[ENABLED] = Flagged[ENABLED] { value: 7 };
 const FLAGGED_LITERAL: Flagged[true] = FLAGGED;
 const INVALID_PADDING_READ: [6]u8 = DATA.all;
 "#,
@@ -723,7 +723,7 @@ union Partial {
     wide: u32,
 }
 
-const BITS: Partial = { narrow: 1 };
+const BITS: Partial = Partial { narrow: 1 };
 const INVALID: u32 = BITS.wide;
 "#,
     );
@@ -750,7 +750,7 @@ union Slot[T] {
 }
 
 const fn reinterpret[T](value: T) u32 {
-    let slot: Slot[T] = { value: value };
+    let slot = Slot[T] { value: value };
     slot.bits
 }
 
@@ -769,7 +769,7 @@ const BITS: u32 = reinterpret[u32](1065353216);
 }
 
 #[test]
-fn evaluates_scalar_union_return_literal_with_result_context() {
+fn evaluates_nominal_scalar_union_return_literal() {
     let fixture = check_source(
         r#"
 union Bits {
@@ -778,7 +778,7 @@ union Bits {
 }
 
 const fn makeBits() Bits {
-    { float: 1.0 }
+    Bits { float: 1.0 }
 }
 
 const BITS: Bits = makeBits();
@@ -797,7 +797,7 @@ const VALUE: u32 = BITS.integer;
 }
 
 #[test]
-fn evaluates_scalar_union_literals_in_call_and_assignment_contexts() {
+fn evaluates_nominal_scalar_union_literals_in_calls_and_assignments() {
     let fixture = check_source(
         r#"
 union Bits {
@@ -810,12 +810,12 @@ const fn readBits(bits: Bits) u32 {
 }
 
 const fn replaceBits() u32 {
-    let mut bits: Bits = { integer: 0 };
-    bits = { float: 1.0 };
+    let mut bits = Bits { integer: 0 };
+    bits = Bits { float: 1.0 };
     bits.integer
 }
 
-const CALL_BITS: u32 = readBits({ float: 1.0 });
+const CALL_BITS: u32 = readBits(Bits { float: 1.0 });
 const ASSIGN_BITS: u32 = replaceBits();
 "#,
     );
@@ -846,8 +846,8 @@ union BoolBits {
     flag: bool,
 }
 
-const OUT_OF_RANGE: Tiny = { value: 256 };
-const BOOL_BITS: BoolBits = { raw: 2 };
+const OUT_OF_RANGE: Tiny = Tiny { value: 256 };
+const BOOL_BITS: BoolBits = BoolBits { raw: 2 };
 const INVALID_BOOL: bool = BOOL_BITS.flag;
 "#,
     );
@@ -889,7 +889,7 @@ union VectorBytes {
 }
 
 const VECTOR: u16x2 = insert[u16x2](splat[u16x2](4386), 1, 13124);
-const STORAGE: VectorBytes = { vector: VECTOR };
+const STORAGE: VectorBytes = VectorBytes { vector: VECTOR };
 const BYTES: [4]u8 = STORAGE.bytes;
 "#,
             target,
@@ -930,7 +930,7 @@ union VectorBytes {{
 }}
 
 const VECTOR: usizex2 = insert[usizex2](splat[usizex2](1), 1, 2);
-const STORAGE: VectorBytes = {{ vector: VECTOR }};
+const STORAGE: VectorBytes = VectorBytes {{ vector: VECTOR }};
 const BYTES: [{bytes_len}]u8 = STORAGE.bytes;
 "#,
         );
@@ -968,7 +968,7 @@ union VectorWords {
 }
 
 const VECTOR: f32x2 = insert[f32x2](splat[f32x2](1.0), 1, -2.5);
-const STORAGE: VectorWords = { vector: VECTOR };
+const STORAGE: VectorWords = VectorWords { vector: VECTOR };
 const WORDS: [2]u32 = STORAGE.words;
 "#,
     );

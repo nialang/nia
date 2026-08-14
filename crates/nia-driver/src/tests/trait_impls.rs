@@ -22,7 +22,7 @@ extend Point : Show {
 }
 
 fn main() i32 {
-    let mut point: Point = { x: 7 };
+    let mut point = Point { x: 7 };
     point.show()
 }
 "#,
@@ -57,7 +57,7 @@ extend Point : Show {
 }
 
 fn main() i32 {
-    let mut point: Point = { x: 7 };
+    let mut point = Point { x: 7 };
     point.double()
 }
 "#,
@@ -84,9 +84,9 @@ struct Number {
 extend Number : ReadText {
     fn read_text(text: &[char]) Number {
         if text.len() == 2usize and text[0] == '4' and text[1] == '2' {
-            { value: 42 }
+            Number { value: 42 }
         } else {
-            { value: 0 }
+            Number { value: 0 }
         }
     }
 }
@@ -188,8 +188,8 @@ extend Point : Same {
 }
 
 fn main() bool {
-    let mut a: Point = { x: 1 };
-    let mut b: Point = { x: 1 };
+    let mut a = Point { x: 1 };
+    let mut b = Point { x: 1 };
     a.eq(& b)
 }
 "#,
@@ -460,7 +460,7 @@ extend File : io::Writer {
 }
 
 fn main() () {
-    let mut stdout: File = { raw: 1 };
+    let mut stdout = File { raw: 1 };
     switch io::write_fully_with[File](& stdout, &b"nia\n") {
         !ok => {
             _ = ok;
@@ -495,7 +495,7 @@ pub enum Error: i32 {
 
 extend FileDescriptor {
     pub fn standard_output() FileDescriptor {
-        { raw: 1 }
+        Self { raw: 1 }
     }
 }
 "#,
@@ -513,7 +513,7 @@ pub struct File {
 
 extend File {
     pub fn standard_output() File {
-        { handle: os::FileDescriptor::standard_output() }
+        Self { handle: os::FileDescriptor::standard_output() }
     }
 }
 "#,

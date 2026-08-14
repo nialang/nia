@@ -279,7 +279,7 @@ pub fn exit(code: i32) () {
 
 extend SpawnErrorRecord {
     fn init(stage: SpawnStage, errno: Errno) SpawnErrorRecord {
-        { stage: stage as i32, code: errno as i32 }
+        Self { stage: stage as i32, code: errno as i32 }
     }
 
     fn stage(&self) SpawnStage {
@@ -293,11 +293,11 @@ extend SpawnErrorRecord {
 
 extend SpawnPipe {
     fn closed() SpawnPipe {
-        { read: null, write: null }
+        Self { read: null, write: null }
     }
 
     fn init(read: types::FileDescriptor, write: types::FileDescriptor) SpawnPipe {
-        { read: ?read, write: ?write }
+        Self { read: ?read, write: ?write }
     }
 
     fn from_pipe(pipe: Pipe) SpawnPipe {

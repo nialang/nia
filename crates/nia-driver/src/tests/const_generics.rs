@@ -47,7 +47,7 @@ where S: ArraySummary[N] {
 }
 
 fn main() i32 {
-    let buffer: Buffer[i32, 3] = { values: [7, 8, 9] };
+    let buffer = Buffer[i32, 3] { values: [7, 8, 9] };
     read[Buffer[i32, 3], 3](& buffer, 99)
 }
 "#,
@@ -196,7 +196,7 @@ extend[T, N: usize] Buffer[T, N] {
 const WIDTH: usize = plus_one(3usize);
 
 fn main() i32 {
-    let buffer: Buffer[i32, WIDTH] = { values: [1, 2, 3, 4] };
+    let buffer = Buffer[i32, WIDTH] { values: [1, 2, 3, 4] };
     buffer.len() as i32
 }
 "#,
@@ -393,7 +393,7 @@ where M: MatrixShape {
 }
 
 fn main() usize {
-    let matrix: Matrix[i32, 2, 3] = { values: [[1, 2, 3], [4, 5, 6]] };
+    let matrix = Matrix[i32, 2, 3] { values: [[1, 2, 3], [4, 5, 6]] };
     shape(& matrix)
 }
 "#,
@@ -433,7 +433,7 @@ where T: Width[THREE] {
 }
 
 fn main() usize {
-    let buffer: Buffer[3] = { values: [1, 2, 3] };
+    let buffer = Buffer[3] { values: [1, 2, 3] };
     read(& buffer)
 }
 "#,
@@ -535,7 +535,7 @@ struct Buffer[N: usize] {
 }
 
 fn main() i32 {
-    let buffer: Buffer[plus_one(2usize)] = { values: [1, 2, 3] };
+    let buffer = Buffer[plus_one(2usize)] { values: [1, 2, 3] };
     buffer.values[2]
 }
 "#,
@@ -593,8 +593,8 @@ struct Buffer[N: usize] {
 }
 
 fn main() i32 {
-    let left: Buffer[config::WIDTH] = { values: [1, 2, 3] };
-    let right: Buffer[config::plus_one(2usize)] = { values: [4, 5, 6] };
+    let left = Buffer[config::WIDTH] { values: [1, 2, 3] };
+    let right = Buffer[config::plus_one(2usize)] { values: [4, 5, 6] };
     left.values[2] + right.values[2]
 }
 "#,
@@ -885,7 +885,7 @@ extend Buffer[plus_one(2usize)] {
 }
 
 fn main() i32 {
-    let buffer: Buffer[3] = { values: [1, 2, 3] };
+    let buffer = Buffer[3] { values: [1, 2, 3] };
     buffer.rank()
 }
 "#,
@@ -984,7 +984,7 @@ where P: SameLen[N] {
 }
 
 fn main() i32 {
-    let pair: Pair[[2]i32, [3]i32] = { left: [1, 2], right: [3, 4, 5] };
+    let pair = Pair[[2]i32, [3]i32] { left: [1, 2], right: [3, 4, 5] };
     require_same_len(& pair);
     0
 }

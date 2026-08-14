@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::symbols::AsmConfigField;
-use nia_ast::{ArrayElements, Expr, ExprKind, StringLiteral};
+use nia_ast::{ArrayElements, Expr, ExprKind, FieldInit, StringLiteral};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::InternedTyId;
+use nia_ids::{BuiltinType, InternedTyId};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 
@@ -26,11 +26,11 @@ impl<'a> BodyChecker<'a> {
             return self.unit();
         }
         let config = &args[0];
-        let ExprKind::StructLiteral { fields } = &config.kind else {
+        let Some(fields) = self.asm_builtin_literal_fields(config, BuiltinType::AsmConfig) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 config.span,
-                "builtin `asm` expects an untyped struct literal configuration",
+                "builtin `asm` expects an `AsmConfig` literal",
             ));
             self.check_expr(config);
             return self.unit();
@@ -75,11 +75,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_asm_inputs(&mut self, expr: &Expr) {
-        let ExprKind::StructLiteral { fields } = &expr.kind else {
+        let Some(fields) = self.asm_builtin_literal_fields(expr, BuiltinType::AsmInputs) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                "`asm` field `inputs` must be a struct literal",
+                "`asm` field `inputs` expects an `AsmInputs` literal",
             ));
             self.check_expr(expr);
             return;
@@ -91,11 +91,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_asm_outputs(&mut self, expr: &Expr) {
-        let ExprKind::StructLiteral { fields } = &expr.kind else {
+        let Some(fields) = self.asm_builtin_literal_fields(expr, BuiltinType::AsmOutputs) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                "`asm` field `outputs` must be a struct literal",
+                "`asm` field `outputs` expects an `AsmOutputs` literal",
             ));
             self.check_expr(expr);
             return;
@@ -104,6 +104,40 @@ impl<'a> BodyChecker<'a> {
             let value_ty = self.check_expr(&field.value);
             self.check_assignable(&field.value, "inline assembly output");
             self.check_asm_operand_type(field.value.span, value_ty, "inline assembly output");
+        }
+    }
+
+    fn asm_builtin_literal_fields<'expr>(
+        &mut self,
+        expr: &'expr Expr,
+        expected: BuiltinType,
+    ) -> Option<&'expr [FieldInit]> {
+        let actual = match &expr.kind {
+            ExprKind::TypedStructLiteral { ty, .. } => {
+                let ty = self.normalization.normalize(self.ty_for_type(ty));
+                match self.interner.get(ty) {
+                    Some(TyKind::BuiltinType(builtin)) => Some(*builtin),
+                    _ => None,
+                }
+            }
+            ExprKind::QualifiedStructLiteral { target, .. } => {
+                let (def_id, args, const_args) = self.type_prefix_instance(target)?;
+                let ty = self.expand_type_alias_instance(def_id, &args, &const_args)?;
+                let ty = self.normalization.normalize(ty);
+                match self.interner.get(ty) {
+                    Some(TyKind::BuiltinType(builtin)) => Some(*builtin),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }?;
+        if actual != expected {
+            return None;
+        }
+        match &expr.kind {
+            ExprKind::TypedStructLiteral { fields, .. }
+            | ExprKind::QualifiedStructLiteral { fields, .. } => Some(fields),
+            _ => None,
         }
     }
 

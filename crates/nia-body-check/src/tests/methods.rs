@@ -460,7 +460,7 @@ struct CStr {
 
 extend CStr {
     fn from_ptr(ptr: &u8) CStr {
-        { ptr: ptr }
+        Self { ptr }
     }
 
     fn from_bytes(bytes: &[u8]) ?CStr {
@@ -597,7 +597,7 @@ extend[T] Box[T] {
 }
 
 fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
-    let mut box: Box[i32] = { value: 1 };
+    let mut box = Box[i32] { value: 1 };
     let mut x: i32 = box.get();
     let mut y: i32 = ro.get();
     rw.set(2);
@@ -687,7 +687,7 @@ type Alias[T] = Box[T];
 
 extend[T] Box[T] {
     fn init(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -846,7 +846,7 @@ extend[T] Box[T] {
 }
 
 fn main(flag: bool) i32 {
-    let mut box: Box[i32] = { value: 1 };
+    let mut box = Box[i32] { value: 1 };
     let mut x: i32 = box.replace[i32](2);
     let mut y: bool = box.replace[bool](flag);
     let mut z: i32 = box.get();
@@ -921,7 +921,7 @@ extend[T] EmptyBox[T] {
 }
 
 fn main() i32 {
-    let mut box: Box[i32] = { value: 1 };
+    let mut box = Box[i32] { value: 1 };
     let mut a: usize = box.replace(1);
     let mut b: usize = Box[i32]::make(1);
     let mut c: EmptyBox[i32] = EmptyBox::empty();
@@ -1032,7 +1032,7 @@ struct Point {
 
 extend Point {
     fn new(x: i32) Point {
-        { x: x }
+        Self { x }
     }
 
     fn get(& self) i32 {
@@ -1067,7 +1067,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 
     fn replace[U](& self, value: U) U {
@@ -1147,7 +1147,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 
     fn replace[U](& self, value: U) U {
@@ -1187,7 +1187,7 @@ struct Point {
 
 extend Point {
     fn new(x: i32) Point {
-        { x: x }
+        Self { x }
     }
 
     fn get(& self) i32 {
@@ -1273,7 +1273,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn wrap(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 
     fn copy(&self) Box[T] {
@@ -1359,11 +1359,11 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 
     fn empty() Box[T] {
-        { value: 0 }
+        Self { value: 0 }
     }
 }
 
@@ -1405,7 +1405,7 @@ struct box[T] {
 
 extend[T] box[T] {
     fn make(value: T) box[T] {
-        { value: value }
+        Self { value }
     }
 }
 

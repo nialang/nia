@@ -259,8 +259,8 @@ items[index].state = state;
 
 fn main() i32 {
 let mut items: [2]Item = [
-    { state: 1 },
-    { state: 2 },
+    Item { state: 1 },
+    Item { state: 2 },
 ];
 set(&mut items[..], 1usize, 9);
 items[1].state

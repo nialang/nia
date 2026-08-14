@@ -31,7 +31,7 @@ where T: Source {
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 3 };
+    let mut counter = Counter { value: 3 };
     read[Counter](& counter)
 }
 "#,
@@ -157,7 +157,7 @@ where B: Back
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 7 };
+    let mut counter = Counter { value: 7 };
     switch read_back[Counter](&mut counter) {
         ?value => {
             value
@@ -203,7 +203,7 @@ extend[T] Box[T] : Back {
 }
 
 fn main() i32 {
-    let mut value: Box[i32] = { value: 7 };
+    let mut value = Box[i32] { value: 7 };
     switch value.next_back() {
         ?item => {
             item
@@ -249,7 +249,7 @@ extend[T] Box[T] : Back {
 }
 
 fn main() i32 {
-    let mut value: Box[i32] = { value: 7 };
+    let mut value = Box[i32] { value: 7 };
     switch value.next_back() {
         ?item => {
             item
@@ -351,8 +351,8 @@ where R: Reader
 }
 
 fn main() i32 {
-    let mut source: Source = {};
-    let mut limit: Limit[Source] = { reader: &source };
+    let mut source = Source {};
+    let mut limit = Limit[Source] { reader: &source };
     switch limit.read() {
         !n => {
             n as i32
@@ -434,7 +434,7 @@ struct Box[T] {
 fn boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
 where W: io::Writer
 {
-    { value: value }
+    Box[[W as io::Writer]::Error] { value }
 }
 
 fn main() i32 {
@@ -470,7 +470,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn init(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -812,7 +812,7 @@ where T: Mapper[i32, i32] {
 }
 
 fn main() i32 {
-    let mut p: Pairer = { seed: 3 };
+    let mut p = Pairer { seed: 3 };
     mapped[Pairer](& p, 9)
 }
 "#,
@@ -842,7 +842,7 @@ extend Number : Combines[Number] {
     type Output = Number;
 
     fn add(& self, rhs: Number) Number {
-        { value: self.value + rhs.value }
+        Number { value: self.value + rhs.value }
     }
 }
 
@@ -852,8 +852,8 @@ where T: Combines[T, Output = T] {
 }
 
 fn main() i32 {
-    let mut one: Number = { value: 1 };
-    let mut two: Number = { value: 2 };
+    let mut one = Number { value: 1 };
+    let mut two = Number { value: 2 };
     add_same[Number](& one, two).value
 }
 "#,
@@ -1025,7 +1025,7 @@ where T: Mapper[i32, bool, C = i32, D = bool] {
 }
 
 fn main() i32 {
-    let mut p: Pairer = { seed: 3 };
+    let mut p = Pairer { seed: 3 };
     if map_d_bool[Pairer](& p) { map_c_i32[Pairer](& p) } else { 0 }
 }
 "#,
@@ -1082,7 +1082,7 @@ extend Device : Reader {
 }
 
 fn main() i32 {
-    let mut device: Device = {};
+    let mut device = Device {};
     switch device.read() {
         !value => {
             value

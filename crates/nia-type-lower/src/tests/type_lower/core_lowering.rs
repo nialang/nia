@@ -12,7 +12,7 @@ value: T,
 
 fn make(ptr: &u8, cb: &fn(i32) ()) [4]Box[i32] {
 let mut tmp: [_]i32 = [1, 2, 3];
-[{ value: 0 }; 4]
+[Box[i32] { value: 0 }; 4]
 }
 "#,
     );

@@ -4,7 +4,7 @@ using types::{Args, Env, Init};
 
 extend Init {
     pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
-        { argc: argc, argv: argv, envp: envp }
+        Self { argc: argc, argv: argv, envp: envp }
     }
 
     pub fn argc(&self) usize {

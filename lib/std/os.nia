@@ -419,7 +419,7 @@ extend platform::DirectoryEntry {
 
 extend Timestamp {
     pub(pkg) fn init(seconds: i64, nanos: u32) Timestamp {
-        { seconds: seconds, nanos: nanos }
+        Self { seconds: seconds, nanos: nanos }
     }
 
     pub(pkg) fn seconds(&self) i64 {
@@ -433,7 +433,7 @@ extend Timestamp {
 
 extend DirectoryEntry {
     pub(pkg) fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
-        { kind: kind, name: name }
+        Self { kind: kind, name: name }
     }
 
     pub(pkg) fn kind(&self) FileKind {
@@ -447,7 +447,7 @@ extend DirectoryEntry {
 
 extend DirectoryReader {
     pub(pkg) fn init(handle: FileHandle, buffer: &mut [u8]) DirectoryReader {
-        { handle: handle, buffer: buffer, start: 0, end: 0, done: false }
+        Self { handle: handle, buffer: buffer, start: 0, end: 0, done: false }
     }
 
     pub(pkg) fn next(&mut self) ?(Error!DirectoryEntry) {
@@ -502,7 +502,7 @@ extend FileMetadata {
         modified: Timestamp,
         status_changed: ?Timestamp,
     ) FileMetadata {
-        {
+        Self {
             kind: kind,
             file_id: file_id,
             link_count: link_count,
@@ -554,7 +554,7 @@ extend FileMetadata {
 
 extend FileHandle {
     fn fromPlatform(platform: platform::FileDescriptor) FileHandle {
-        { platform: platform }
+        Self { platform: platform }
     }
 
     fn platform(&self) platform::FileDescriptor {
@@ -621,7 +621,7 @@ extend FileHandle {
 
 extend ProcessId {
     fn fromPlatform(platform: platform::ProcessId) ProcessId {
-        { platform: platform }
+        Self { platform: platform }
     }
 
     fn platform(&self) platform::ProcessId {
@@ -639,7 +639,7 @@ extend ProcessId {
 
 extend WaitStatus {
     fn fromPlatform(platform: platform::WaitStatus) WaitStatus {
-        { platform: platform }
+        Self { platform: platform }
     }
 
     fn platform(&self) platform::WaitStatus {
@@ -677,7 +677,7 @@ extend WaitStatus {
 
 extend SpawnResult {
     fn fromPlatform(platform: platform::SpawnResult) SpawnResult {
-        { platform: platform }
+        Self { platform: platform }
     }
 
     fn platform(&self) platform::SpawnResult {
@@ -735,7 +735,7 @@ extend StdIo {
 
 extend SpawnOptions {
     pub(pkg) fn init() SpawnOptions {
-        { platform: platform::SpawnOptions::init() }
+        Self { platform: platform::SpawnOptions::init() }
     }
 
     fn platform(&self) platform::SpawnOptions {

@@ -6,7 +6,7 @@ using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr,
 
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
-        {
+        Self {
             state: ChildState::running(ProcessId::fromRaw(pid.raw())),
             stdin: null,
             stdout: null,
@@ -15,7 +15,7 @@ extend Child {
     }
 
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
-        {
+        Self {
             state: ChildState::running(ProcessId::fromRaw(result.pid().raw())),
             stdin: switch result.stdin() {
                 ?handle => ?ChildStdin::init(handle),
@@ -169,16 +169,16 @@ extend Child {
 
 extend ChildState {
     fn running(pid: ProcessId) ChildState {
-        {
+        Self {
             kind: ChildStateKind::Running,
-            payload: { running: RunningChild::init(pid) },
+            payload: ChildStatePayload { running: RunningChild::init(pid) },
         }
     }
 
     fn exited(pid: ProcessId, status: os::WaitStatus) ChildState {
-        {
+        Self {
             kind: ChildStateKind::Exited,
-            payload: { exited: ExitedChild::init(pid, status) },
+            payload: ChildStatePayload { exited: ExitedChild::init(pid, status) },
         }
     }
 
@@ -203,7 +203,7 @@ extend ChildState {
 
 extend RunningChild {
     fn init(pid: ProcessId) RunningChild {
-        { pid: pid }
+        Self { pid: pid }
     }
 
     fn pid(&self) ProcessId {
@@ -213,7 +213,7 @@ extend RunningChild {
 
 extend ExitedChild {
     fn init(pid: ProcessId, status: os::WaitStatus) ExitedChild {
-        { pid: pid, status: status }
+        Self { pid: pid, status: status }
     }
 
     fn pid(&self) ProcessId {
@@ -227,7 +227,7 @@ extend ExitedChild {
 
 extend ProcessId {
     fn fromRaw(raw: i32) ProcessId {
-        { raw: raw }
+        Self { raw: raw }
     }
 
     pub fn raw(&self) i32 {

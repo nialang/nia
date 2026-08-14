@@ -14,7 +14,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -233,13 +233,13 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
 extend Box[i32] {
     fn make(value: i32) Box[i32] {
-        { value: value + 1 }
+        Self { value: value + 1 }
     }
 }
 
@@ -292,7 +292,7 @@ fn apply(p: & Point, f: &fn(& Point) i32) i32 {
 }
 
 fn main() i32 {
-    let mut p: Point = { x: 42 };
+    let mut p = Point { x: 42 };
     apply(& p, & Point::get)
 }
 "#,
@@ -331,7 +331,7 @@ fn apply(box: & Box[i32], f: &fn(& Box[i32]) i32) i32 {
 }
 
 fn main() i32 {
-    let mut box: Box[i32] = { value: 42 };
+    let mut box = Box[i32] { value: 42 };
     apply(& box, & Box[i32]::get)
 }
 "#,

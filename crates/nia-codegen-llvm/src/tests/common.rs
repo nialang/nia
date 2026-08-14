@@ -302,7 +302,7 @@ extend[T] Box[T] {
 }
 
 pub fn make_box[T](value: T) Box[T] {
-    { value: value }
+    Box[T] { value }
 }
 
 pub fn read_box(box: & Box[i32]) i32 {
@@ -324,7 +324,7 @@ struct Header {
     flag: u8,
 }
 
-static header: Header = { tag: 1, count: 2, flag: 3 };
+static header: Header = Header { tag: 1, count: 2, flag: 3 };
 static bytes: [3]u8 = b"ok\0";
 static byte_ptr: & u8 = &bytes[0];
 static mut global: i32 = 5;
@@ -540,7 +540,7 @@ enum Flag: u32 {
 
 fn main(flag: Flag) i32 {
     let mut values: [width]i32 = [10, 20, 30, 40];
-    let mut bits: Bits = { i: values[0] };
+    let mut bits = Bits { i: values[0] };
     switch flag {
         Flag::A => return bits.i,
         _ => return Flag::B as u32 as i32,

@@ -11,8 +11,8 @@ struct Pair {
 }
 
 fn main() i32 {
-    let mut bad: Pair = { left: true, left: 1, extra: 1 };
-    let mut inferred: Pair = { left: 1, right: false };
+    let mut bad = Pair { left: true, left: 1, extra: 1 };
+    let mut inferred = Pair { left: 1, right: false };
     0
 }
 "#,
@@ -532,7 +532,7 @@ struct Vtable {
 
 fn print_i32(value: &i32) {}
 
-static vtable: Vtable = { print: & print_i32 };
+static vtable: Vtable = Vtable { print: & print_i32 };
 
 fn main() i32 {
     let mut x = 1;

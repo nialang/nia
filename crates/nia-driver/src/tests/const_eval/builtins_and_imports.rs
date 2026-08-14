@@ -42,7 +42,9 @@ fn user_struct_fields_are_ordinary_const_values() {
     write(
         &root.join("main.nia"),
         r#"
-const builtin = {target: {pointer_width: 64usize}};
+struct Target { pointer_width: usize }
+struct Config { target: Target }
+const builtin = Config { target: Target { pointer_width: 64usize } };
 const bits: usize = builtin.target.pointer_width;
 const word_bytes: usize = bits / 8;
 
@@ -188,13 +190,16 @@ fn read(value: Ptr[u8]) u8 {
 }
 
 #[test]
-fn const_function_rejects_structural_array_field_assignment_type_mismatch() {
-    let root = temp_dir("const_function_rejects_structural_array_field_assignment_type_mismatch");
+fn const_function_rejects_nominal_array_field_assignment_type_mismatch() {
+    let root = temp_dir("const_function_rejects_nominal_array_field_assignment_type_mismatch");
     write(
         &root.join("main.nia"),
         r#"
+struct Target { os: [5]char, pointer_width: usize }
+struct Config { target: Target }
+
 const fn width() usize {
-    let mut config = {target: {os: "linux", pointer_width: 64usize}};
+    let mut config = Config { target: Target { os: "linux", pointer_width: 64usize } };
     config.target.os = true;
     config.target.pointer_width
 }
@@ -215,13 +220,15 @@ const n: usize = width();
 }
 
 #[test]
-fn const_function_rejects_structural_bool_field_assignment_type_mismatch() {
-    let root = temp_dir("const_function_rejects_structural_bool_field_assignment_type_mismatch");
+fn const_function_rejects_nominal_bool_field_assignment_type_mismatch() {
+    let root = temp_dir("const_function_rejects_nominal_bool_field_assignment_type_mismatch");
     write(
         &root.join("main.nia"),
         r#"
+struct Config { enabled: bool }
+
 const fn width() usize {
-    let mut config = {enabled: true};
+    let mut config = Config { enabled: true };
     config.enabled = 1usize;
     1usize
 }

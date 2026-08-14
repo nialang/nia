@@ -1,16 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
+const ASM_TYPES: &str = r#"
+@[builtin("AsmConfig")]
+type AsmConfig;
+@[builtin("AsmInputs")]
+type AsmInputs;
+@[builtin("AsmOutputs")]
+type AsmOutputs;
+"#;
+
+fn asm_pipeline(source: &str) -> TestBodyCheck {
+    pipeline(&format!("{ASM_TYPES}\n{source}"))
+}
+
 #[test]
 fn checks_inline_asm_configuration() {
-    let checked = pipeline(
+    let checked = asm_pipeline(
         r#"
 fn main() () {
     let mut ret: i64 = 0;
-    std::builtin::asm({
+    std::builtin::asm(AsmConfig {
         code: b"syscall",
-        outputs: { rax: ret },
-        inputs: { rax: 39 },
+        outputs: AsmOutputs { rax: ret },
+        inputs: AsmInputs { rax: 39 },
         clobbers: [b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });
@@ -19,12 +32,12 @@ fn main() () {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let bad = pipeline(
+    let bad = asm_pipeline(
         r#"
 fn main() () {
-    std::builtin::asm({
+    std::builtin::asm(AsmConfig {
         code: 1,
-        outputs: { rax: 10 },
+        outputs: AsmOutputs { rax: 10 },
         clobbers: [1],
         options: [b"unknown"],
         extra: 0,
@@ -68,11 +81,11 @@ fn main() () {
         bad.diagnostics
     );
 
-    let bare_option = pipeline(
+    let bare_option = asm_pipeline(
         r#"
 fn main() () {
     let mut volatile = 0;
-    std::builtin::asm({
+    std::builtin::asm(AsmConfig {
         code: b"nop",
         options: [volatile],
     });
@@ -88,16 +101,16 @@ fn main() () {
         bare_option.diagnostics
     );
 
-    let aggregate_operand = pipeline(
+    let aggregate_operand = asm_pipeline(
         r#"
 struct Pair { x: i64 }
 
 fn main() () {
-    let mut pair: Pair = { x: 1 };
-    std::builtin::asm({
+    let mut pair = Pair { x: 1 };
+    std::builtin::asm(AsmConfig {
         code: b"nop",
-        inputs: { rax: pair },
-        outputs: { rax: pair },
+        inputs: AsmInputs { rax: pair },
+        outputs: AsmOutputs { rax: pair },
     });
 }
 "#,

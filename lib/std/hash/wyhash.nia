@@ -22,7 +22,7 @@ pub struct Wyhash {
 extend Wyhash {
     pub fn init(seed: u64) Wyhash {
         let state = seed ^ mix(seed ^ wyhash_secret0, wyhash_secret1);
-        {
+        Self {
             a: 0u64,
             b: 0u64,
             state0: state,
@@ -93,7 +93,7 @@ extend Wyhash {
     }
 
     fn shallow_copy(&self) Wyhash {
-        {
+        Self {
             a: self.a,
             b: self.b,
             state0: self.state0,

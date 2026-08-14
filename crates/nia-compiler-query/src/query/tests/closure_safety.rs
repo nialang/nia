@@ -350,7 +350,7 @@ struct Owner {
 }
 
 fn pack(callback: &Fn(i32) i32, storage: &mut u8) Owner {
-    { callback: callback, storage: storage }
+    Owner { callback, storage }
 }
 
 fn leak(storage: &mut u8, base: i32) Owner {

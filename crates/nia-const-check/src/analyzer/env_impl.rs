@@ -592,17 +592,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
     fn build_resolved_aggregate(
         &mut self,
         span: Span,
-        ty: Option<InternedTyId>,
+        ty: InternedTyId,
         mut fields: BTreeMap<SymbolId, ConstValue>,
     ) -> Result<ConstValue, ConstError> {
-        let ty = ty.or_else(|| {
-            self.resolved_expr_types
-                .last()
-                .and_then(|types| types.get(&span).copied())
-        });
-        let Some(ty) = ty else {
-            return Ok(ConstValue::Struct(fields));
-        };
         let module_id = self.current_execution_module_id();
         self.ensure_type_context(module_id)
             .ok_or_else(|| ConstError {

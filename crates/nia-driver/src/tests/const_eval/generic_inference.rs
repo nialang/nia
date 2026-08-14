@@ -523,7 +523,7 @@ const fn right[T](pair: Pair[T]) T {
     pair.right
 }
 
-const n: usize = right({left: 4usize, right: 8usize});
+const n: usize = right(Pair[usize] { left: 4usize, right: 8usize });
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -561,7 +561,7 @@ const fn pick[T](slot: Slot[T]) T {
     }
 }
 
-const n: usize = pick({primary: null, fallback: ?8usize});
+const n: usize = pick(Slot[usize] { primary: null, fallback: ?8usize });
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -659,7 +659,7 @@ const fn right_id[T](pair: Pair[T]) T {
     id(pair.right)
 }
 
-const n: usize = right_id({left: 4usize, right: 8usize});
+const n: usize = right_id(Pair[usize] { left: 4usize, right: 8usize });
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -767,8 +767,8 @@ fn main() i32 {
 }
 
 #[test]
-fn function_body_const_call_infers_generic_from_structural_field() {
-    let root = temp_dir("function_body_const_call_infers_generic_from_structural_field");
+fn function_body_const_call_infers_generic_from_nominal_field() {
+    let root = temp_dir("function_body_const_call_infers_generic_from_nominal_field");
     write(
         &root.join("main.nia"),
         r#"
@@ -776,8 +776,11 @@ const fn id[T](value: T) T {
     value
 }
 
+struct Target { word_bits: usize }
+struct Config { target: Target }
+
 fn main() i32 {
-    const config = {target: {word_bits: 64usize}};
+    const config = Config { target: Target { word_bits: 64usize } };
     const n: usize = id(config.target.word_bits) / 8usize;
     let mut values: [n]i32 = [0; n];
     values.len() as i32
@@ -820,8 +823,8 @@ fn main() i32 {
 }
 
 #[test]
-fn imported_const_function_body_infers_generic_from_structural_local() {
-    let root = temp_dir("imported_const_function_body_infers_generic_from_structural_local");
+fn imported_const_function_body_infers_generic_from_nominal_local() {
+    let root = temp_dir("imported_const_function_body_infers_generic_from_nominal_local");
     write(
         &root.join("helpers.nia"),
         r#"
@@ -829,8 +832,10 @@ const fn id[T](value: T) T {
     value
 }
 
+struct Config { bits: usize }
+
 pub const fn word_bytes() usize {
-    const configs = [{bits: 32usize}, {bits: 64usize}];
+    const configs = [Config { bits: 32usize }, Config { bits: 64usize }];
     id(configs[1].bits) / 8usize
 }
 "#,

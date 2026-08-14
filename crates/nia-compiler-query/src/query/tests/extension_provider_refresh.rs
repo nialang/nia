@@ -6,7 +6,7 @@ use super::*;
 fn extension_provider_module_facts_refresh_across_source_revisions() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+        "struct S { value: i32 } extend S { pub fn make(value: i32) S { Self { value } } }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -20,7 +20,7 @@ fn extension_provider_module_facts_refresh_across_source_revisions() {
 
     fixture.update_module_source(
         module_id,
-        "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; { value: next } } }",
+        "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; Self { value: next } } }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));

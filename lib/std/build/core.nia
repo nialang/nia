@@ -34,6 +34,7 @@ using types::{
     InstallExecutableStep,
     InstallStaticArchiveStep,
     CommandArgument,
+    CommandArgumentPayload,
     CommandArgumentKind,
     ActionResourceClass,
     CommandCachePolicy,
@@ -42,6 +43,7 @@ using types::{
     ExternalCommandOptions,
     ExternalCommandStep,
     OwnedCommandArgument,
+    OwnedCommandArgumentPayload,
     OwnedCommandEnvironmentInput,
     Module,
     ModuleSourceRoot,
@@ -97,7 +99,7 @@ extend BuildPaths {
         toolchainExecutable: fs::PathView,
         toolchainResourceRoot: fs::PathView,
     ) Error!BuildPaths {
-        let mut paths: BuildPaths = {
+        let mut paths: BuildPaths = BuildPaths {
             packageRoot: fs::Path::init(),
             buildDir: fs::Path::init(),
             cacheDir: fs::Path::init(),
@@ -187,7 +189,7 @@ extend Build {
         hostTargetTransferred = true;
         artifactTargetTransferred = true;
         requestedStepTransferred = true;
-        !{
+        !Self {
             ownerId: allocateBuildOwnerId(),
             allocator: allocator,
             paths: paths,
@@ -327,7 +329,7 @@ extend Build {
     // Steps declare graph work only. Execution, process ownership, output
     // publication, caching, and cancellation belong to the Rust coordinator.
     pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
-        self.addStepRecord(name, StepKind::Aggregate, { aggregate: AggregateStep::init() })
+        self.addStepRecord(name, StepKind::Aggregate, StepPayload { aggregate: AggregateStep::init() })
     }
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
@@ -337,7 +339,7 @@ extend Build {
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(name, StepKind::Uncacheable, { uncacheable: payload }).?;
+        let result = self.addStepRecord(name, StepKind::Uncacheable, StepPayload { uncacheable: payload }).?;
         transferred = true;
         !result
     }
@@ -355,14 +357,14 @@ extend Build {
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(name, StepKind::GeneratedFile, { generatedFile: payload }).?;
+        let result = self.addStepRecord(name, StepKind::GeneratedFile, StepPayload { generatedFile: payload }).?;
         transferred = true;
         !result
     }
 
     pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
-        self.addStepRecord(name, StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
+        self.addStepRecord(name, StepKind::CheckExecutable, StepPayload { executable: ExecutableStep::init(target) })
     }
 
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
@@ -388,7 +390,7 @@ extend Build {
         let result = self.addStepRecord(
             name,
             StepKind::EmitExecutable,
-            { executable: ExecutableStep::init(target) },
+            StepPayload { executable: ExecutableStep::init(target) },
         ).?;
         let dependencyStart = self.dependencies.len();
         let mut committed = false;
@@ -418,12 +420,12 @@ extend Build {
 
     pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
         self.validateObjectHandle(target).?;
-        self.addStepRecord(name, StepKind::EmitObject, { object: ObjectStep::init(target) })
+        self.addStepRecord(name, StepKind::EmitObject, StepPayload { object: ObjectStep::init(target) })
     }
 
     pub fn addEmitStaticArchiveStep(&mut self, name: &[char], target: StaticArchiveHandle) Error!StepHandle {
         self.validateStaticArchiveHandle(target).?;
-        self.addStepRecord(name, StepKind::EmitStaticArchive, { staticArchive: StaticArchiveStep::init(target) })
+        self.addStepRecord(name, StepKind::EmitStaticArchive, StepPayload { staticArchive: StaticArchiveStep::init(target) })
     }
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
@@ -443,7 +445,7 @@ extend Build {
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(name, StepKind::RunExecutable, { runExecutable: payload }).?;
+        let result = self.addStepRecord(name, StepKind::RunExecutable, StepPayload { runExecutable: payload }).?;
         transferred = true;
         let mut committed = false;
         defer if not committed {
@@ -471,7 +473,7 @@ extend Build {
         defer if not transferred {
             payload.deinit(self.allocator, handle.index()).?;
         };
-        let result = self.addStepRecord(name, StepKind::TestExecutable, { runExecutable: payload }).?;
+        let result = self.addStepRecord(name, StepKind::TestExecutable, StepPayload { runExecutable: payload }).?;
         transferred = true;
         let mut committed = false;
         defer if not committed {
@@ -516,7 +518,7 @@ extend Build {
         let result = self.addStepRecord(
             name,
             StepKind::InstallExecutable,
-            { installExecutable: payload },
+            StepPayload { installExecutable: payload },
         ).?;
         transferred = true;
         let mut committed = false;
@@ -562,7 +564,7 @@ extend Build {
         let result = self.addStepRecord(
             name,
             StepKind::InstallStaticArchive,
-            { installStaticArchive: payload },
+            StepPayload { installStaticArchive: payload },
         ).?;
         transferred = true;
         let mut committed = false;
@@ -633,7 +635,7 @@ extend Build {
         let result = self.addStepRecord(
             name,
             StepKind::ExternalCommand,
-            { externalCommand: payload },
+            StepPayload { externalCommand: payload },
         ).?;
         transferred = true;
         let dependencyStart = self.dependencies.len();
@@ -1473,7 +1475,7 @@ extend Build {
 
 extend StepHandle {
     fn init(ownerId: usize, index: usize) StepHandle {
-        { ownerId: ownerId, index: index }
+        Self { ownerId: ownerId, index: index }
     }
 
     fn ownerId(&self) usize {
@@ -1487,7 +1489,7 @@ extend StepHandle {
 
 extend ExecutableHandle {
     fn init(ownerId: usize, index: usize) ExecutableHandle {
-        { ownerId: ownerId, index: index }
+        Self { ownerId: ownerId, index: index }
     }
 
     fn ownerId(&self) usize {
@@ -1501,7 +1503,7 @@ extend ExecutableHandle {
 
 extend ObjectHandle {
     fn init(ownerId: usize, index: usize) ObjectHandle {
-        { ownerId: ownerId, index: index }
+        Self { ownerId: ownerId, index: index }
     }
 
     fn ownerId(&self) usize { self.ownerId }
@@ -1510,7 +1512,7 @@ extend ObjectHandle {
 
 extend StaticArchiveHandle {
     fn init(ownerId: usize, index: usize) StaticArchiveHandle {
-        { ownerId: ownerId, index: index }
+        Self { ownerId: ownerId, index: index }
     }
 
     fn ownerId(&self) usize { self.ownerId }
@@ -1519,7 +1521,7 @@ extend StaticArchiveHandle {
 
 extend ModuleHandle {
     fn init(ownerId: usize, index: usize) ModuleHandle {
-        { ownerId: ownerId, index: index }
+        Self { ownerId: ownerId, index: index }
     }
 
     fn ownerId(&self) usize {
@@ -1533,20 +1535,20 @@ extend ModuleHandle {
 
 extend StepDependency {
     pub fn init(step: StepHandle, dependency: StepHandle) StepDependency {
-        { step: step, dependency: dependency }
+        Self { step: step, dependency: dependency }
     }
 }
 
 extend AggregateStep {
     fn init() AggregateStep {
-        { marker: 0 }
+        Self { marker: 0 }
     }
 }
 
 extend UncacheableStep {
     fn init(allocator: &mut mem::Allocator, description: &[char], index: usize) Error!UncacheableStep {
         let owned = string::String::fromSlice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{ description: owned }
+        !Self { description: owned }
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -1561,7 +1563,7 @@ extend GeneratedFileStep {
         contents: &[u8],
         index: usize,
     ) Error!GeneratedFileStep {
-        let mut generated: GeneratedFileStep = {
+        let mut generated: GeneratedFileStep = GeneratedFileStep {
             output: string::String::init(),
             contents: collections::ArrayList[u8]::init(),
         };
@@ -1585,32 +1587,32 @@ extend GeneratedFileStep {
 
 extend ExecutableStep {
     fn init(target: ExecutableHandle) ExecutableStep {
-        { target: target }
+        Self { target: target }
     }
 }
 
 extend ObjectStep {
     fn init(target: ObjectHandle) ObjectStep {
-        { target: target }
+        Self { target: target }
     }
 }
 
 extend StaticArchiveStep {
     fn init(target: StaticArchiveHandle) StaticArchiveStep {
-        { target: target }
+        Self { target: target }
     }
 }
 
 extend RunOptions {
     pub fn init(target: ExecutableHandle) RunOptions {
-        {
+        Self {
             target: target,
             arguments: null,
         }
     }
 
     pub fn withArguments(self, arguments: &[&[char]]) RunOptions {
-        {
+        Self {
             target: self.target,
             arguments: ?arguments,
         }
@@ -1628,7 +1630,7 @@ extend InstallExecutableStep {
             allocator,
             destination.text(),
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{
+        !Self {
             target: target,
             destination: owned,
         }
@@ -1650,7 +1652,7 @@ extend InstallStaticArchiveStep {
             allocator,
             destination.text(),
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{
+        !Self {
             target: target,
             destination: owned,
         }
@@ -1667,7 +1669,7 @@ extend RunExecutableStep {
         options: RunOptions,
         index: usize,
     ) Error!RunExecutableStep {
-        let mut run: RunExecutableStep = {
+        let mut run: RunExecutableStep = RunExecutableStep {
             target: options.target,
             arguments: collections::ArrayList[string::String]::init(),
         };
@@ -1724,57 +1726,57 @@ extend CommandArgument {
     // Each constructor records the logical root used for dependency validation
     // and cache identity. Literal values intentionally declare no file input.
     pub fn literal(value: &[char]) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::Literal,
-            payload: { value: value },
+            payload: CommandArgumentPayload { value },
             package: PackageHandle::init(0, 0),
         }
     }
 
     pub fn packageInput(package: PackageHandle, path: fs::PathView) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::PackageInput,
-            payload: { value: path.text() },
+            payload: CommandArgumentPayload { value: path.text() },
             package: package,
         }
     }
 
     pub fn buildInput(path: BuildPathView) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::BuildInput,
-            payload: { value: path.text() },
+            payload: CommandArgumentPayload { value: path.text() },
             package: PackageHandle::init(0, 0),
         }
     }
 
     pub fn buildOutput(path: BuildPathView) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::BuildOutput,
-            payload: { value: path.text() },
+            payload: CommandArgumentPayload { value: path.text() },
             package: PackageHandle::init(0, 0),
         }
     }
 
     pub fn artifactInput(artifact: ExecutableHandle) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::ArtifactInput,
-            payload: { artifact: artifact },
+            payload: CommandArgumentPayload { artifact },
             package: PackageHandle::init(0, 0),
         }
     }
 
     pub fn objectInput(object: ObjectHandle) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::ObjectInput,
-            payload: { object: object },
+            payload: CommandArgumentPayload { object },
             package: PackageHandle::init(0, 0),
         }
     }
 
     pub fn staticArchiveInput(staticArchive: StaticArchiveHandle) CommandArgument {
-        {
+        Self {
             kind: CommandArgumentKind::StaticArchiveInput,
-            payload: { staticArchive: staticArchive },
+            payload: CommandArgumentPayload { staticArchive },
             package: PackageHandle::init(0, 0),
         }
     }
@@ -1785,7 +1787,7 @@ extend ExternalCommandOptions {
     // default. Persistent reuse requires `withClearedEnvironment`, explicit
     // typed inputs/outputs, and `withDeclaredInputCache`.
     pub fn search(program: &[char]) ExternalCommandOptions {
-        {
+        Self {
             program: program,
             arguments: null,
             workingDirectory: fs::PathView::init(&""),
@@ -1797,7 +1799,7 @@ extend ExternalCommandOptions {
     }
 
     pub fn withArguments(self, arguments: &[CommandArgument]) ExternalCommandOptions {
-        {
+        Self {
             program: self.program,
             arguments: ?arguments,
             workingDirectory: self.workingDirectory,
@@ -1809,7 +1811,7 @@ extend ExternalCommandOptions {
     }
 
     pub fn withPackageWorkingDirectory(self, workingDirectory: fs::PathView) ExternalCommandOptions {
-        {
+        Self {
             program: self.program,
             arguments: self.arguments,
             workingDirectory: workingDirectory,
@@ -1821,7 +1823,7 @@ extend ExternalCommandOptions {
     }
 
     pub fn withResourceClass(self, resourceClass: ActionResourceClass) ExternalCommandOptions {
-        {
+        Self {
             program: self.program,
             arguments: self.arguments,
             workingDirectory: self.workingDirectory,
@@ -1833,7 +1835,7 @@ extend ExternalCommandOptions {
     }
 
     pub fn withEnvironment(self, environment: &[CommandEnvironmentInput]) ExternalCommandOptions {
-        {
+        Self {
             program: self.program,
             arguments: self.arguments,
             workingDirectory: self.workingDirectory,
@@ -1845,7 +1847,7 @@ extend ExternalCommandOptions {
     }
 
     pub fn withClearedEnvironment(self) ExternalCommandOptions {
-        {
+        Self {
             program: self.program,
             arguments: self.arguments,
             workingDirectory: self.workingDirectory,
@@ -1857,7 +1859,7 @@ extend ExternalCommandOptions {
     }
 
     pub fn withDeclaredInputCache(self) ExternalCommandOptions {
-        {
+        Self {
             program: self.program,
             arguments: self.arguments,
             workingDirectory: self.workingDirectory,
@@ -1871,7 +1873,7 @@ extend ExternalCommandOptions {
 
 extend CommandEnvironmentInput {
     pub fn init(name: &[char], value: &[char]) CommandEnvironmentInput {
-        {
+        Self {
             name: name,
             value: value,
         }
@@ -1885,23 +1887,23 @@ extend OwnedCommandArgument {
         index: usize,
     ) Error!OwnedCommandArgument {
         if argument.kind == CommandArgumentKind::ArtifactInput {
-            return !{
+            return !Self {
                 kind: argument.kind,
-                payload: { artifact: argument.payload.artifact },
+                payload: OwnedCommandArgumentPayload { artifact: argument.payload.artifact },
                 package: argument.package,
             };
         }
         if argument.kind == CommandArgumentKind::ObjectInput {
-            return !{
+            return !Self {
                 kind: argument.kind,
-                payload: { object: argument.payload.object },
+                payload: OwnedCommandArgumentPayload { object: argument.payload.object },
                 package: argument.package,
             };
         }
         if argument.kind == CommandArgumentKind::StaticArchiveInput {
-            return !{
+            return !Self {
                 kind: argument.kind,
-                payload: { staticArchive: argument.payload.staticArchive },
+                payload: OwnedCommandArgumentPayload { staticArchive: argument.payload.staticArchive },
                 package: argument.package,
             };
         }
@@ -1909,7 +1911,11 @@ extend OwnedCommandArgument {
             allocator,
             argument.payload.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{ kind: argument.kind, payload: { value: value }, package: argument.package }
+        !Self {
+            kind: argument.kind,
+            payload: OwnedCommandArgumentPayload { value },
+            package: argument.package,
+        }
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -1942,7 +1948,7 @@ extend OwnedCommandEnvironmentInput {
             input.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         nameTransferred = true;
-        !{ name: name, value: value }
+        !Self { name: name, value: value }
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -1965,7 +1971,7 @@ extend ExternalCommandStep {
         options: ExternalCommandOptions,
         index: usize,
     ) Error!ExternalCommandStep {
-        let mut command: ExternalCommandStep = {
+        let mut command: ExternalCommandStep = ExternalCommandStep {
             program: string::String::init(),
             arguments: collections::ArrayList[OwnedCommandArgument]::init(),
             workingDirectory: fs::Path::init(),
@@ -2073,7 +2079,7 @@ extend Step {
         index: usize,
     ) Error!Step {
         let ownedName = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !{
+        !Self {
             index: index,
             name: ownedName,
             kind: kind,
@@ -2254,7 +2260,7 @@ fn environmentNameInvalid(text: &[char]) bool {
 
 extend ModuleOptions {
     pub fn init(name: &[char], rootSource: fs::PathView) ModuleOptions {
-        {
+        Self {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
             package: null,
@@ -2269,7 +2275,7 @@ extend ModuleOptions {
         package: PackageHandle,
         rootSource: fs::PathView,
     ) ModuleOptions {
-        {
+        Self {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
             package: ?package,
@@ -2280,7 +2286,7 @@ extend ModuleOptions {
     }
 
     pub fn fromBuild(name: &[char], rootSource: BuildPathView) ModuleOptions {
-        {
+        Self {
             name: name,
             sourceRoot: ModuleSourceRoot::Build,
             package: null,
@@ -2291,7 +2297,7 @@ extend ModuleOptions {
     }
 
     pub fn withOptimization(self, optimization: OptimizationMode) ModuleOptions {
-        {
+        Self {
             name: self.name,
             sourceRoot: self.sourceRoot,
             package: self.package,
@@ -2302,7 +2308,7 @@ extend ModuleOptions {
     }
 
     pub fn withImports(self, imports: &[ModuleImport]) ModuleOptions {
-        {
+        Self {
             name: self.name,
             sourceRoot: self.sourceRoot,
             package: self.package,
@@ -2315,7 +2321,7 @@ extend ModuleOptions {
 
 extend BuildPathView {
     pub fn init(path: &[char]) BuildPathView {
-        { path: path }
+        Self { path: path }
     }
 
     pub fn text(&self) &[char] {
@@ -2329,7 +2335,7 @@ extend BuildPathView {
 
 extend PackageHandle {
     pub(pkg) fn init(ownerId: usize, index: usize) PackageHandle {
-        { ownerId: ownerId, index: index }
+        Self { ownerId: ownerId, index: index }
     }
 
     pub(pkg) fn ownerId(&self) usize {
@@ -2343,13 +2349,13 @@ extend PackageHandle {
 
 extend PackageOptions {
     pub fn init(name: &[char], root: fs::PathView) PackageOptions {
-        { name: name, root: root }
+        Self { name: name, root: root }
     }
 }
 
 extend Package {
     fn init(allocator: &mut mem::Allocator, options: PackageOptions, index: usize) Error!Package {
-        let mut package: Package = {
+        let mut package: Package = Package {
             index: index,
             name: string::String::init(),
             root: fs::Path::init(),
@@ -2380,7 +2386,7 @@ extend Module {
         index: usize,
         ownerId: usize,
     ) Error!Module {
-        let mut moduleRecord: Module = {
+        let mut moduleRecord: Module = Module {
             index: index,
             name: string::String::init(),
             sourceRoot: options.sourceRoot,
@@ -2419,7 +2425,7 @@ extend Module {
 
 extend ModuleImport {
     pub fn init(name: &[char], path: fs::PathView) ModuleImport {
-        {
+        Self {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
             package: null,
@@ -2432,7 +2438,7 @@ extend ModuleImport {
         package: PackageHandle,
         path: fs::PathView,
     ) ModuleImport {
-        {
+        Self {
             name: name,
             sourceRoot: ModuleSourceRoot::Package,
             package: ?package,
@@ -2441,7 +2447,7 @@ extend ModuleImport {
     }
 
     pub fn fromBuild(name: &[char], path: BuildPathView) ModuleImport {
-        {
+        Self {
             name: name,
             sourceRoot: ModuleSourceRoot::Build,
             package: null,
@@ -2457,7 +2463,7 @@ extend OwnedModuleImport {
         index: usize,
         ownerId: usize,
     ) Error!OwnedModuleImport {
-        let mut owned: OwnedModuleImport = {
+        let mut owned: OwnedModuleImport = OwnedModuleImport {
             index: index,
             name: string::String::init(),
             sourceRoot: import.sourceRoot,
@@ -2492,7 +2498,7 @@ extend ExecutableTarget {
         outputName: &[char],
         index: usize,
     ) Error!ExecutableTarget {
-        let mut target: ExecutableTarget = {
+        let mut target: ExecutableTarget = ExecutableTarget {
             index: index,
             name: string::String::init(),
             rootModule: options.rootModule,
@@ -2541,7 +2547,7 @@ extend ObjectTarget {
         outputName: &[char],
         index: usize,
     ) Error!ObjectTarget {
-        let mut target: ObjectTarget = {
+        let mut target: ObjectTarget = ObjectTarget {
             index: index,
             name: string::String::init(),
             rootModule: options.rootModule,
@@ -2573,7 +2579,7 @@ extend StaticArchiveTarget {
         outputName: &[char],
         index: usize,
     ) Error!StaticArchiveTarget {
-        let mut target: StaticArchiveTarget = {
+        let mut target: StaticArchiveTarget = StaticArchiveTarget {
             index: index,
             name: string::String::init(),
             rootModule: options.rootModule,
@@ -2608,7 +2614,7 @@ extend TargetView {
         endian: &[char],
         pointerWidth: u32,
     ) TargetView {
-        {
+        Self {
             arch: arch,
             vendor: vendor,
             os: os,
@@ -2664,7 +2670,7 @@ extend TargetStorage {
         target: TargetView,
         subject: Subject,
     ) Error!TargetStorage {
-        let mut owned: TargetStorage = {
+        let mut owned: TargetStorage = TargetStorage {
             arch: string::String::init(),
             vendor: string::String::init(),
             os: string::String::init(),
@@ -2715,7 +2721,7 @@ extend ExecutableOptions {
     // Artifact target is the default. `forHost` is reserved for tools that must
     // execute during this build; arbitrary target construction is not exposed.
     pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
-        {
+        Self {
             name: name,
             rootModule: rootModule,
             outputName: null,
@@ -2725,7 +2731,7 @@ extend ExecutableOptions {
     }
 
     pub fn withOutputName(self, outputName: &[char]) ExecutableOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
@@ -2735,7 +2741,7 @@ extend ExecutableOptions {
     }
 
     pub fn forHost(self) ExecutableOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
@@ -2745,7 +2751,7 @@ extend ExecutableOptions {
     }
 
     pub fn withStaticArchives(self, staticArchives: &[StaticArchiveHandle]) ExecutableOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
@@ -2757,7 +2763,7 @@ extend ExecutableOptions {
 
 extend ObjectOptions {
     pub fn init(name: &[char], rootModule: ModuleHandle) ObjectOptions {
-        {
+        Self {
             name: name,
             rootModule: rootModule,
             outputName: null,
@@ -2766,7 +2772,7 @@ extend ObjectOptions {
     }
 
     pub fn withOutputName(self, outputName: &[char]) ObjectOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
@@ -2775,7 +2781,7 @@ extend ObjectOptions {
     }
 
     pub fn forHost(self) ObjectOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
@@ -2786,7 +2792,7 @@ extend ObjectOptions {
 
 extend StaticArchiveOptions {
     pub fn init(name: &[char], rootModule: ModuleHandle) StaticArchiveOptions {
-        {
+        Self {
             name: name,
             rootModule: rootModule,
             outputName: null,
@@ -2795,7 +2801,7 @@ extend StaticArchiveOptions {
     }
 
     pub fn withOutputName(self, outputName: &[char]) StaticArchiveOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
@@ -2804,7 +2810,7 @@ extend StaticArchiveOptions {
     }
 
     pub fn forHost(self) StaticArchiveOptions {
-        {
+        Self {
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,

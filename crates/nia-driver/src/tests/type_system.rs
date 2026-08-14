@@ -1611,7 +1611,7 @@ module geom;
 using entry::geom;
 
 fn main() i32 {
-    let mut p: geom::Point = { x: 40, y: 2 };
+    let mut p = geom::Point { x: 40, y: 2 };
     p.x + p.y
 }
 "#,
