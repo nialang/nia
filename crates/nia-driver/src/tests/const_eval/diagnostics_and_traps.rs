@@ -1015,7 +1015,7 @@ struct Value {
 }
 
 const fn wrongStruct() usize {
-    let value: Value = {value: 1usize, value: runtimeOnly()};
+    let value = Value {value: 1usize, value: runtimeOnly()};
     0
 }
 
@@ -1046,7 +1046,7 @@ fn unused_const_function_rejects_struct_literal_in_non_struct_context() {
         &root.join("main.nia"),
         r#"
 const fn wrongStructShape() usize {
-    let value: usize = {inner: 1usize};
+    let value = usize {inner: 1usize};
     0
 }
 
@@ -1066,8 +1066,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_generic_const_function_accepts_contextual_struct_fields() {
-    let root = temp_dir("unused_generic_const_function_accepts_contextual_struct_fields");
+fn unused_generic_const_function_accepts_nominal_struct_fields() {
+    let root = temp_dir("unused_generic_const_function_accepts_nominal_struct_fields");
     write(
         &root.join("main.nia"),
         r#"
@@ -1076,7 +1076,7 @@ struct Box[T] {
 }
 
 const fn wrap[T](value: T) Box[T] {
-    {value: value}
+    Box[T] { value }
 }
 
 fn main() i32 { 0 }
@@ -1736,7 +1736,7 @@ union Bits {
 }
 
 const fn inspect() usize {
-    let bits: Bits = { integer: 1 };
+    let bits = Bits { integer: 1 };
     bits.integer
 }
 
@@ -1760,7 +1760,7 @@ union Payload {
 }
 
 const fn inspect() u16 {
-    let payload: Payload = { integer: 1 };
+    let payload = Payload { integer: 1 };
     payload.integer
 }
 
@@ -1788,7 +1788,7 @@ union Payload {
 }
 
 const fn inspect() u16 {
-    let payload: Payload = { integer: 1 };
+    let payload = Payload { integer: 1 };
     payload.integer
 }
 

@@ -1035,32 +1035,27 @@ that anchor; this lets contextual forms such as `[null, ?value]` infer the
 optional element type without treating unresolved generic placeholders as real
 types. Repeat literals use the repeated value type and the const repeat
 count to build the array runtime type. When no runtime array context exists,
-array literals can still be typed as structural const-only arrays. Their
-element type is another `ConstValueType`, so arrays of structural const
-structs behave like ordinary compile-time data tables and indexed elements can
-feed field access and generic const call inference.
+array literals can still be typed as const-only arrays. Their element type is
+another `ConstValueType`, but any aggregate element carries its nominal source
+type; const evaluation does not create structural struct types.
 Const array slicing is part of the same value surface: slicing a const
 array produces another const array value, and the typed const layer
 records the sliced element type and known length so the result can feed field
 access, indexing, and generic const call inference without becoming a
 runtime slice.
 
-Const struct literals have two typed surfaces. When an expected nominal
-struct type exists, the checker uses that struct type, substitutes its generic
-arguments into the field signature types, infers still-open generic arguments
-from concrete field values, and then rechecks all fields with the completed
-field types. Without a nominal expected type, the literal is a structural
-compile-time-only value: the checker derives each field's const type and
-records a `ConstValueType::Struct`. It does not invent anonymous runtime
-struct types from field names; structural values stay in the const-only
-typed surface.
+Const struct literals have one typed surface: the source literal names a
+nominal type, and resolved const IR stores that type as a required field. The
+checker substitutes its generic arguments into field signatures, infers
+still-open generic arguments from concrete field values, and then rechecks all
+fields with the completed types. `ConstValue::Struct` remains the evaluator's
+field-keyed storage representation, but it does not represent an anonymous or
+structural type.
 
-Const field access consumes both sides of that typed value surface.
-Structural const-only structs resolve fields from their structural field
-type list, while runtime nominal struct values resolve fields from the nominal
-struct signature with generic arguments substituted into the current execution
-module. Structural const data stays on the same typed expression path
-without forcing anonymous data into the runtime type interner.
+Const field access resolves nominal struct fields from the signature with
+generic arguments substituted into the current execution module. This keeps
+const data on the ordinary typed expression path without introducing a second
+aggregate type system.
 
 Const unions use a separate storage value, not `ConstValue::Struct` with one
 field. `ConstValue::Union` contains target-ordered bytes, one initialized bit per
@@ -1247,8 +1242,8 @@ signature, definition, and const-module context available to top-level
 const checking. The const checker uses that frame and program context
 through `TypedConstQueryInput`, so expression type queries and const
 function generic instantiation share one public input surface. This lets
-function-local structural const values, imported `const fn` calls, and
-imported structural const fields infer generic arguments without growing a
+function-local const values, imported `const fn` calls, and imported nominal
+const fields infer generic arguments without growing a
 second type-inference implementation in body checking.
 
 `TypedConstQueryInput` borrows existing typed const query output instead

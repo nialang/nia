@@ -253,7 +253,7 @@ extend[T] SliceIter[T]
 where T: Sized
 {
     pub fn from_raw_parts(ptr: &T, len: usize) SliceIter[T] {
-        { ptr: ptr, len: len, index: 0 }
+        Self { ptr, len, index: 0 }
     }
 }
 

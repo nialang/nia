@@ -89,7 +89,7 @@ fn parentSplit(bytes: &[u8], trimTrailingSeparators: bool) ParentSplit {
 
 extend Dir {
     fn fromOwnedDescriptor(handle: os::FileHandle) Dir {
-        { handle: ?handle }
+        Self { handle: ?handle }
     }
 
     pub fn cwd() Error!Dir {
@@ -518,7 +518,7 @@ extend Dir {
 
 extend File {
     fn fromOwnedDescriptor(handle: os::FileHandle) File {
-        { handle: ?handle }
+        Self { handle: ?handle }
     }
 
     pub fn open(path: PathView, options: OpenOptions) OperationError!File {

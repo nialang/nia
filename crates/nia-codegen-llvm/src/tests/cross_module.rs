@@ -18,7 +18,7 @@ static letter: char = 'A';
 static xs: [3]i32 = [1, 2, 3];
 static ys: [4]u8 = [b'z'; 4];
 static zeroes: [8]i32 = [0; 8];
-static pair: Pair = { x: 10, y: 20 };
+static pair: Pair = Pair { x: 10, y: 20 };
 
 fn main() i32 {
     pair.x + xs[1] + zeroes[0]
@@ -154,7 +154,7 @@ module geom;
 using entry::geom;
 
 fn main() i32 {
-    let mut p: geom::Point = { x: 40, y: 2 };
+    let mut p = geom::Point { x: 40, y: 2 };
     p.x + p.y
 }
 "#,

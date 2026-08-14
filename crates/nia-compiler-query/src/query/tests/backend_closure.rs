@@ -492,7 +492,7 @@ extend[T] Box[T]
 where T: bounds::Marker
 {
 pub fn init(value: T) Box[T] {
-    { value: value }
+    Self { value }
 }
 
 pub fn get(self) i32 {
@@ -1035,7 +1035,7 @@ fn read(& self) i32 {
 using entry::common;
 
 pub fn read() i32 {
-let cell: common::Cell = {};
+let cell = common::Cell {};
 let value: &common::Value = &cell;
 value.read()
 }
@@ -1049,7 +1049,7 @@ value.read()
 using entry::common;
 
 pub fn read() i32 {
-let cell: common::Cell = {};
+let cell = common::Cell {};
 let value: &common::Value = &cell;
 value.read()
 }

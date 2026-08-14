@@ -91,16 +91,16 @@ extend Number : Add[Number] {
     type Output = Number;
 
     fn add(self, rhs: Number) Number {
-        { value: self.value + rhs.value }
+        Self { value: self.value + rhs.value }
     }
 }
 
 fn main() i32 {
-    let mut one: Number = { value: 1 };
-    let mut two: Number = { value: 2 };
+    let mut one = Number { value: 1 };
+    let mut two = Number { value: 2 };
     let mut three = one + two;
-    let mut seven = three.add({ value: 4 });
-    let mut nine = [Number]::add(seven, { value: 2 });
+    let mut seven = three.add(Number { value: 4 });
+    let mut nine = [Number]::add(seven, Number { value: 2 });
     nine.value
 }
 "#,
@@ -122,13 +122,13 @@ struct Number {
 
 extend Number {
     fn add(self, rhs: Number) Number {
-        { value: self.value + rhs.value + 10 }
+        Self { value: self.value + rhs.value + 10 }
     }
 }
 
 fn main() i32 {
-    let mut one: Number = { value: 1 };
-    let mut two: Number = { value: 2 };
+    let mut one = Number { value: 1 };
+    let mut two = Number { value: 2 };
     one.add(two).value
 }
 "#,
@@ -149,8 +149,8 @@ struct Number {
 }
 
 fn main() i32 {
-    let mut one: Number = { value: 1 };
-    let mut two: Number = { value: 2 };
+    let mut one = Number { value: 1 };
+    let mut two = Number { value: 2 };
     let mut three = one + two;
     three.value
 }
@@ -681,7 +681,7 @@ where C: IndexMut[usize] {
 }
 
 fn main() i32 {
-    let mut cell: Cell = { value: 1 };
+    let mut cell = Cell { value: 1 };
     let mut first = read_deref[Cell](cell);
     write_deref[Cell](cell, 3);
     let mut second = read_index[Cell](cell);
@@ -726,7 +726,7 @@ fn read_index(value: Cell) i32 {
 }
 
 fn main() i32 {
-    read_index({ value: 1 })
+    read_index(Cell { value: 1 })
 }
 "##,
     );
@@ -1205,7 +1205,7 @@ where T: Len {
 }
 
 fn main() usize {
-    let window: Window = { lo: 3usize, hi: 9usize };
+    let window = Window { lo: 3usize, hi: 9usize };
     len_of(window)
 }
 "#,

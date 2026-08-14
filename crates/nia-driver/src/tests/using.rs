@@ -722,7 +722,7 @@ pub struct Box {
 
 extend Box {
     pub fn make(mode: Mode) Box {
-        { mode: mode }
+        Self { mode }
     }
 }
 "#,
@@ -807,7 +807,7 @@ module bits;
 using entry::bits;
 
 fn main() i32 {
-    let mut value: bits::Bits = { i: 7 };
+    let mut value = bits::Bits { i: 7 };
     value.i
 }
 "#,

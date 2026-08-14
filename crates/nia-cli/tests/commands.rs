@@ -613,7 +613,7 @@ where T: Sized
 }
 
 fn main() i32 {
-    let mut point: Point = { x: 1 };
+    let mut point = Point { x: 1 };
     _ = load[Point](&point);
     0
 }

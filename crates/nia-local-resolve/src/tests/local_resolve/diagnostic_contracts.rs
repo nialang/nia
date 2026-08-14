@@ -70,7 +70,7 @@ x: i32,
 
 extend Point {
 fn origin() Point {
-    { x: 0 }
+    Self { x: 0 }
 }
 }
 

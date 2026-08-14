@@ -74,7 +74,7 @@ pub struct GeneralPurposeAllocator {
 
 extend GeneralPurposeAllocator {
     pub fn init(child: &mut Allocator) GeneralPurposeAllocator {
-        { child: child, smallPages: null, largeAllocations: null }
+        Self { child, smallPages: null, largeAllocations: null }
     }
 
     pub fn deinit(&mut self) Error!DeinitStatus {
@@ -356,7 +356,7 @@ extend GeneralPurposeAllocator {
         let blockLayout = Layout::init(pageSize, pageSize).?;
         let block = self.child.alloc(blockLayout).?;
         let mut page = block.ptr() as &mut SmallPage;
-        page.* = {
+        page.* = SmallPage {
             block: block,
             slotSize: slotSize,
             slotCount: 0,
@@ -407,7 +407,7 @@ extend GeneralPurposeAllocator {
         for index in 0..slotCount {
             let addr = payloadBase + index * slotSize;
             let mut slot = addr as &mut SmallSlot;
-            slot.* = {
+            slot.* = SmallSlot {
                 magic: smallMagic,
                 size: 0,
                 align: 0,
@@ -499,7 +499,7 @@ extend GeneralPurposeAllocator {
         let headerAddr = userAddr - headerSize;
         let userCapacity = backing.size() - (userAddr - base);
         let mut header = headerAddr as &mut LargeHeader;
-        header.* = {
+        header.* = LargeHeader {
             magic: largeMagic,
             backing: backing,
             userLayout: layout,

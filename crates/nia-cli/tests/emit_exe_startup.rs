@@ -61,6 +61,12 @@ pub module builtin;
 @[builtin("AsmConfig")]
 pub type AsmConfig;
 
+@[builtin("AsmInputs")]
+pub type AsmInputs;
+
+@[builtin("AsmOutputs")]
+pub type AsmOutputs;
+
 @[builtin("asm")]
 pub fn asm(config: AsmConfig) ();
 "#,
@@ -99,11 +105,11 @@ pub(pkg) module x86_64;
 using entry;
 
 fn syscall_exit(code: i32) () {
-    std::builtin::asm({
+    std::builtin::asm(std::builtin::AsmConfig {
         code:
             b\\syscall
         ,
-        inputs: {
+        inputs: std::builtin::AsmInputs {
             rax: 60,
             rdi: code,
         },
@@ -114,7 +120,7 @@ fn syscall_exit(code: i32) () {
 
 @[naked]
 pub extern fn _start() () {
-    std::builtin::asm({
+    std::builtin::asm(std::builtin::AsmConfig {
         code:
             b\\call custom_start
             \\ud2

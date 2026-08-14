@@ -15,9 +15,9 @@ xs: [4]S,
 }
 
 fn main() i32 {
-let mut t: T = { xs: [{ x: 0 }; 4] };
+let mut t = T { xs: [S { x: 0 }; 4] };
 for i in 0u16..4u16 {
-    t.xs[i as usize] = { x: i as i32 };
+    t.xs[i as usize] = S { x: i as i32 };
 }
 t.xs[2].x
 }
@@ -58,7 +58,7 @@ xs: [4]S,
 }
 
 fn main() i32 {
-let mut t: T = { xs: [{ x: 0 }; 4] };
+let mut t = T { xs: [S { x: 0 }; 4] };
 let mut i32: usize = 2;
 t.xs[i32].x
 }

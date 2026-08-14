@@ -30,7 +30,7 @@ extend fs::File {
 
 extend FileWriter {
     pub(pkg) fn init(file: os::FileHandle, buffer: &mut [u8]) FileWriter {
-        { file: file, buffer: buffer, len: 0 }
+        Self { file, buffer, len: 0 }
     }
 
     pub fn stdout(buffer: &mut [u8]) FileWriter {
@@ -115,7 +115,7 @@ extend FileWriter : Writer {
 
 extend FileReader {
     pub(pkg) fn init(file: os::FileHandle, buffer: &mut [u8]) FileReader {
-        { file: file, buffer: buffer, start: 0, end: 0 }
+        Self { file, buffer, start: 0, end: 0 }
     }
 
     pub fn stdin(buffer: &mut [u8]) FileReader {

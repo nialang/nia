@@ -418,7 +418,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
     fn build_resolved_aggregate(
         &mut self,
         _span: Span,
-        _ty: Option<InternedTyId>,
+        _ty: InternedTyId,
         fields: BTreeMap<SymbolId, ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         Ok(ConstValue::Struct(fields))

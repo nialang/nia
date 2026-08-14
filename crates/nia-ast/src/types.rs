@@ -618,7 +618,6 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             out.push(')');
         }
         ExprKind::ArrayLiteral { elems } => write_array_elements_identity(out, "array", elems),
-        ExprKind::StructLiteral { fields } => write_fields_identity(out, "struct", fields),
         ExprKind::TypedArrayLiteral { ty, elems } => {
             out.push_str("typed_array(");
             write_type_ref_identity(out, ty);

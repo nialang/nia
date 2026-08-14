@@ -41,7 +41,7 @@ union Slot {
     integer: usize,
 }
 
-const slot: Slot = { pointer: &34usize };
+const slot: Slot = Slot { pointer: &34usize };
 
 fn main() bool {
     let left: Slot = slot;
@@ -73,8 +73,8 @@ union Slot {
     integer: usize,
 }
 
-const leftSlot: Slot = { pointer: &34usize };
-const rightSlot: Slot = { pointer: &34usize };
+const leftSlot: Slot = Slot { pointer: &34usize };
+const rightSlot: Slot = Slot { pointer: &34usize };
 
 fn main() bool {
     let left: Slot = leftSlot;
@@ -110,7 +110,7 @@ pub union Slot {
     integer: usize,
 }
 
-pub const slot: Slot = { pointer: &55usize };
+pub const slot: Slot = Slot { pointer: &55usize };
 "#,
     )
     .expect("write defs source");
@@ -164,10 +164,10 @@ union PairSlot {
     integer: usize,
 }
 
-const pairSlot: PairSlot = { pointer: &Pair{left: 5u16, right: 8u16} };
-const arraySlot: ArraySlot = { pointer: &[3]u8[1, 2, 3] };
-const bytesSlot: ArraySlot = { pointer: &b"abc" };
-const textSlot: TextSlot = { pointer: &"hi" };
+const pairSlot: PairSlot = PairSlot { pointer: &Pair{left: 5u16, right: 8u16} };
+const arraySlot: ArraySlot = ArraySlot { pointer: &[3]u8[1, 2, 3] };
+const bytesSlot: ArraySlot = ArraySlot { pointer: &b"abc" };
+const textSlot: TextSlot = TextSlot { pointer: &"hi" };
 
 fn main() usize {
     let pair: PairSlot = pairSlot;
@@ -310,8 +310,8 @@ union Slot {
     integer: usize,
 }
 
-const firstSlot: Slot = { pointer: &Empty{} };
-const secondSlot: Slot = { pointer: &Empty{} };
+const firstSlot: Slot = Slot { pointer: &Empty{} };
+const secondSlot: Slot = Slot { pointer: &Empty{} };
 
 fn main() bool {
     let first: Slot = firstSlot;
@@ -348,7 +348,7 @@ union VectorSlot {
     integer: usize,
 }
 
-const slot: VectorSlot = {
+const slot: VectorSlot = VectorSlot {
     pointer: &std::builtin::insert(
         std::builtin::splat[u16x2](4386),
         1,
@@ -417,17 +417,17 @@ union ByteOuter {
     integer: usize,
 }
 
-const slot: Outer = { pointer: &Inner{pointer: &91usize} };
-const holderSlot: HolderOuter = {
+const slot: Outer = Outer { pointer: &Inner{pointer: &91usize} };
+const holderSlot: HolderOuter = HolderOuter {
     pointer: &Holder{marker: 3, inner: Inner{pointer: &37usize}},
 };
-const arraySlot: ArrayOuter = {
+const arraySlot: ArrayOuter = ArrayOuter {
     pointer: &[2]Inner[
         Inner{pointer: &11usize},
         Inner{pointer: &13usize},
     ],
 };
-const byteSlot: ByteOuter = { pointer: &ByteUnion{byte: 7} };
+const byteSlot: ByteOuter = ByteOuter { pointer: &ByteUnion{byte: 7} };
 
 fn main() usize {
     let value: Outer = slot;
@@ -471,11 +471,11 @@ fn take[T, N: usize](items: [N]T) usize {
 }
 
 fn make4() Buffer[u8, 4] {
-    { data: [1u8, 2u8, 3u8, 4u8] }
+    Buffer[u8, 4] { data: [1u8, 2u8, 3u8, 4u8] }
 }
 
 fn make8() Buffer[u8, 8] {
-    { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
+    Buffer[u8, 8] { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
 }
 
 fn main() usize {
@@ -506,13 +506,13 @@ fn emits_inline_asm_inputs_outputs_and_clobbers() {
         r#"
 fn main() i32 {
     let mut value: i64 = 0;
-    std::builtin::asm({
+    std::builtin::asm(std::builtin::AsmConfig {
         code:
             b\\mov rax, rax
             \\add rax, 0
         ,
-        outputs: { rax: value },
-        inputs: { rax: 7 },
+        outputs: std::builtin::AsmOutputs { rax: value },
+        inputs: std::builtin::AsmInputs { rax: 7 },
         clobbers: [b"memory"],
         options: [b"volatile"],
     });
@@ -663,7 +663,7 @@ union Bits {
 }
 
 fn main() i32 {
-    let mut bits: Bits = { i: 42 };
+    let mut bits = Bits { i: 42 };
     bits.i
 }
 "#,
@@ -797,7 +797,7 @@ pub struct Boxed {
 
 extend Item {
     pub fn zero() Item {
-        { value: 0 }
+        Self { value: 0 }
     }
 }
 "#,
@@ -811,13 +811,13 @@ using entry::defs;
 using defs::*;
 
 fn literal_count() Boxed {
-    {
+    Boxed {
         items: [Item::zero(); 4],
     }
 }
 
 fn imported_count() Boxed {
-    {
+    Boxed {
         items: [Item::zero(); defs::N],
     }
 }
@@ -855,7 +855,7 @@ fn take(box: Boxed[u8]) u8 {
 }
 
 fn main() u8 {
-    let mut box: Boxed[u8] = { values: [1, 2, 3] };
+    let mut box = Boxed[u8] { values: [1, 2, 3] };
     take(box)
 }
 "#,

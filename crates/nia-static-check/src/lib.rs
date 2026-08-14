@@ -227,8 +227,7 @@ impl StaticChecker<'_> {
                         .or_else(|| self.static_array_repeat_count_reject_reason(count)),
                 }
             }
-            ExprKind::StructLiteral { fields }
-            | ExprKind::TypedStructLiteral { fields, .. }
+            ExprKind::TypedStructLiteral { fields, .. }
             | ExprKind::QualifiedStructLiteral { fields, .. } => fields
                 .iter()
                 .find_map(|field| self.static_init_reject_reason(&field.value)),
@@ -908,7 +907,7 @@ struct Pair {
 }
 
 static mut base: i32 = 1 + 2;
-static mut pair: Pair = { x: 1, y: 2 };
+static mut pair: Pair = Pair { x: 1, y: 2 };
 static mut xs: [2]i32 = [1, 2];
 static mut p: &i32 = &base;
 static mut q: &i32 = &pair.x;
@@ -919,7 +918,7 @@ struct Vtable {
 }
 
 fn print_i32(value: &i32) {}
-static vtable: Vtable = { print: & print_i32 };
+static vtable: Vtable = Vtable { print: & print_i32 };
 "#,
         );
 

@@ -197,7 +197,7 @@ where T: traits::Source {
 }
 
 fn main() i32 {
-    let mut counter: Counter = { value: 8 };
+    let mut counter = Counter { value: 8 };
     read[Counter](& counter)
 }
 "#,

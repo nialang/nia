@@ -1910,7 +1910,7 @@ pub struct Range[T] {
 
 extend[T] Range[T] {
     pub fn init(current: T, end: T) Range[T] {
-        { current: current, end: end }
+        Self { current, end }
     }
 }
 
@@ -2198,7 +2198,7 @@ using entry::types;
 
 extend[T] types::RawBag[T] {
     pub fn init() types::RawBag[T] {
-        { len: 0usize }
+        types::RawBag[T] { len: 0usize }
     }
 
     pub fn len(&self) usize {
@@ -2766,7 +2766,7 @@ pub(super) struct ElfHeader {
 }
 
 pub(super) fn make_header() ElfHeader {
-    { value: 42 }
+    ElfHeader { value: 42 }
 }
 
 pub(super) fn header_score(header: ElfHeader) i32 {
@@ -2814,7 +2814,7 @@ pub(pkg) struct Token {
 }
 
 pub(pkg) fn make_token() Token {
-    { value: 31 }
+    Token { value: 31 }
 }
 
 pub(pkg) fn token_value(token: Token) i32 {
@@ -2948,7 +2948,7 @@ pub struct Value {
 
 extend Value {
     pub fn init(data: i32) Value {
-        { data: data }
+        Self { data }
     }
 
     pub(pkg) fn package_score(&self) i32 {

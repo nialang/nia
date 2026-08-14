@@ -754,14 +754,20 @@ pub(crate) fn read_layout_builtin(cursor: &mut Cursor<&[u8]>) -> Option<LayoutBu
 }
 
 pub(crate) fn builtin_type_tag(value: BuiltinType) -> u8 {
+    // These tags are part of the persistent signature-cache format. Existing
+    // values may never be renumbered; new builtin types must append new tags.
     match value {
         BuiltinType::AsmConfig => 0,
+        BuiltinType::AsmInputs => 1,
+        BuiltinType::AsmOutputs => 2,
     }
 }
 
 pub(crate) fn read_builtin_type(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinType> {
     match read_u8(cursor)? {
         0 => Some(BuiltinType::AsmConfig),
+        1 => Some(BuiltinType::AsmInputs),
+        2 => Some(BuiltinType::AsmOutputs),
         _ => None,
     }
 }

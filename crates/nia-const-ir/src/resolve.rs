@@ -179,7 +179,7 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             elems: resolve_const_array_elements(elems)?,
         },
         EarlyConstExprKind::StructLiteral { ty, fields } => ResolvedConstExprKind::StructLiteral {
-            ty: ty.map(resolve_type_arg).transpose()?.map(|ty| ty.ty()),
+            ty: resolve_type_arg(ty)?.ty(),
             fields: fields
                 .into_iter()
                 .map(resolve_const_field_init)

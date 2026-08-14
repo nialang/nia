@@ -353,11 +353,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(count);
             }
         },
-        ExprKind::StructLiteral { fields } => {
-            for field in fields {
-                visitor.visit_expr(&field.value);
-            }
-        }
         ExprKind::TypedArrayLiteral { ty, elems } => {
             visitor.visit_type(ty);
             match elems {

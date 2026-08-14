@@ -67,7 +67,7 @@ extend FormatSpec {
         sign_plus: bool,
         alternate: bool,
     ) FormatSpec {
-        {
+        Self {
             presentation: presentation,
             width: width,
             precision: precision,
@@ -149,7 +149,7 @@ pub struct Formatter {
 
 extend Formatter {
     pub fn init(writer: &mut FormatWriter) Formatter {
-        { writer: writer }
+        Self { writer }
     }
 
     pub fn write_bytes(&mut self, bytes: &[u8]) Error!() {

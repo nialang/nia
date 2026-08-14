@@ -97,7 +97,7 @@ module geom;
 using entry::geom;
 
 fn main() i32 {
-let mut point: geom::Point = { x: 40, y: 2 };
+let mut point = geom::Point { x: 40, y: 2 };
 point.x + point.y
 }
 "#,

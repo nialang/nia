@@ -196,14 +196,17 @@ const n: usize = width();
 }
 
 #[test]
-fn const_function_rejects_struct_assignment_missing_field() {
-    let root = temp_dir("const_function_rejects_struct_assignment_missing_field");
+fn const_function_rejects_nominal_assignment_missing_field_without_annotation() {
+    let root =
+        temp_dir("const_function_rejects_nominal_assignment_missing_field_without_annotation");
     write(
         &root.join("main.nia"),
         r#"
+struct Config { width: usize, enabled: bool }
+
 const fn width() usize {
-    let mut config = {width: 4usize, enabled: true};
-    config = {width: 8usize};
+    let mut config = Config { width: 4usize, enabled: true };
+    config = Config { width: 8usize };
     config.width
 }
 
@@ -259,14 +262,16 @@ const n: usize = width();
 }
 
 #[test]
-fn const_function_rejects_struct_assignment_extra_field() {
-    let root = temp_dir("const_function_rejects_struct_assignment_extra_field");
+fn const_function_rejects_nominal_assignment_extra_field_without_annotation() {
+    let root = temp_dir("const_function_rejects_nominal_assignment_extra_field_without_annotation");
     write(
         &root.join("main.nia"),
         r#"
+struct Config { width: usize }
+
 const fn width() usize {
-    let mut config = {width: 4usize};
-    config = {width: 8usize, enabled: true};
+    let mut config = Config { width: 4usize };
+    config = Config { width: 8usize, enabled: true };
     config.width
 }
 

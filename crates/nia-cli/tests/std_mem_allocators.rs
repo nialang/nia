@@ -590,7 +590,7 @@ struct CountingAllocator {
 
 extend CountingAllocator {
     fn init(buffer: &mut [u8]) CountingAllocator {
-        { buffer: buffer, end_index: 0, free_count: 0 }
+        Self { buffer, end_index: 0, free_count: 0 }
     }
 }
 

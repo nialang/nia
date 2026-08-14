@@ -70,7 +70,7 @@ pub(super) fn eval_enum_struct_literal_flow(
 
 pub(super) fn eval_resolved_struct_literal_flow(
     span: Span,
-    ty: Option<InternedTyId>,
+    ty: InternedTyId,
     fields: &[ResolvedConstFieldInit],
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {

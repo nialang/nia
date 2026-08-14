@@ -57,16 +57,18 @@ propagating it. A direct `as process::ExitCode` is for the implementation of
 that conversion or a test explicitly exercising an enum cast, not ordinary
 control flow.
 
-Write aggregate type information once in ordinary code. Prefer a left-hand
-annotation for a named value whose type is part of its local contract:
+Write aggregate type information once in ordinary code. Aggregate literals own
+their nominal type prefix; omit a duplicate left-hand annotation unless the
+binding intentionally checks a wider contract:
 
 ```nia
-let point: Point = { x: 10, y: 20 };
+let point = Point { x: 10, y: 20 };
 let values: [3]i32 = [1, 2, 3];
 ```
 
-Prefer an explicit expression type when the value stands alone, is nested, or
-the length should be inferred at the construction site:
+Keep the nominal prefix when the aggregate stands alone or is nested. For
+arrays, use an explicit expression type when the length should be inferred at
+the construction site:
 
 ```nia
 consume(Point { x: 10, y: 20 });
@@ -86,7 +88,7 @@ let writable: &mut [i32] = &mut values;
 
 Use `&values[..]` for an intentionally explicit whole-slice value and range
 syntax for an actual subrange. Maintained examples should exercise adjacent and
-multiline strings, contextual aggregate literals, pointer-array coercion, and
+multiline strings, nominal aggregate literals, pointer-array coercion, and
 `if ... is`; parser-only coverage does not establish a usable idiom.
 
 When a value implements `Iterable`, write `for pattern in value` directly.

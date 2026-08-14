@@ -11,7 +11,7 @@ value: T,
 }
 
 fn make() Box[4] {
-{ value: 0 }
+Box[4] { value: 0 }
 }
 "#,
     );

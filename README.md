@@ -39,7 +39,7 @@ fn sum(xs: &[i32]) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let mut point: Point = { x: 3, y: 4 };
+    let mut point = Point { x: 3, y: 4 };
     let mut also_point = Point { x: 5, y: 12 };
     let mut values = [_]i32[point.len2(), also_point.len2(), 7];
     let mut slice_view = &([3]i32[1, 2, 3])[..];

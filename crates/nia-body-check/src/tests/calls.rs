@@ -593,8 +593,8 @@ fn take(items: & [Item]) i32 {
 
 fn main() i32 {
     take(&[
-        { value: 1 },
-        { value: 2 },
+        Item { value: 1 },
+        Item { value: 2 },
     ])
 }
 "#,
@@ -683,7 +683,7 @@ struct Box[T] {
 
 extend[T] Box[T] {
     fn make(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -927,9 +927,9 @@ struct Point {
 }
 
 fn main() () {
-    let mut point: Point = { x: 1 };
+    let mut point = Point { x: 1 };
     _ = std::builtin::atomic_load[Point](&point, 1usize);
-    _ = std::builtin::atomic_rmw[Point](&mut point, 1usize, { x: 2 }, 1usize);
+    _ = std::builtin::atomic_rmw[Point](&mut point, 1usize, Point { x: 2 }, 1usize);
 }
 "#,
     );

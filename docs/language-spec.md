@@ -541,7 +541,7 @@ fn make_i32() i32 {
     42
 }
 
-let mut point: Point = { x: 10, y: 20 };
+let mut point = Point { x: 10, y: 20 };
 let mut p: &Point = &point;
 let mut temp = &Point { x: 1, y: 2 };
 let mut answer = &42i32;
@@ -1014,36 +1014,39 @@ struct String {
 Struct value construction:
 
 ```nia
-let mut s: String = { ptr: & bytes[0], len: 3 };
+let mut s = String { ptr: &bytes[0], len: 3 };
 ```
 
-The common struct literal form does not carry a nominal type by itself. The
-expected type must provide the struct type. Anonymous struct inference such as
-`let mut p = { x: 10, y: 20 };` is not supported.
+Every struct literal carries a nominal type prefix. Anonymous construction such
+as `let mut p = { x: 10, y: 20 };` is a block expression, not aggregate
+construction, and is rejected when a value is expected. A field whose value is
+the same-name local may use shorthand: `Point { x, y }` means
+`Point { x: x, y: y }`. Inside an `extend` block, `Self { ... }` names the
+extended type.
 
 ```nia
 fn sum(point: Point) i32 {
     point.x + point.y
 }
 
-let mut p: Point = { x: 10, y: 20 };
-let mut total = sum({ x: 1, y: 2 });
+let mut p = Point { x: 10, y: 20 };
+let mut total = sum(Point { x: 1, y: 2 });
 ```
 
-A struct literal may also carry an explicit nominal type prefix:
+Nominal construction composes with references and qualified paths:
 
 ```nia
 let mut p = Point { x: 10, y: 20 };
-let mut q = Point{x: 1, y: 2};
+let mut q = Point { x: 1, y: 2 };
 let mut ptr = &Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
 ```
 
-In a `const` value context, an untyped struct literal may also be used as a
-structural compile-time-only value. This does not create an anonymous runtime
-struct type:
+`const` uses the same nominal construction rule. Const evaluation does not
+create a separate anonymous structural type system:
 
 ```nia
-const config = { width: 4usize };
+struct Config { width: usize }
+const config = Config { width: 4usize };
 const width: usize = config.width;
 ```
 
@@ -1079,7 +1082,7 @@ Union value construction uses the same aggregate literal syntax as structs, but
 exactly one field must be initialized:
 
 ```nia
-let mut bits: Bits = { i: 42 };
+let mut bits = Bits { i: 42 };
 ```
 
 Union field access is explicit:
@@ -2418,7 +2421,7 @@ std::builtin::atomic_rmw[T](ptr, op, value, order)
 std::builtin::cmpxchg_strong[T](ptr, expected, desired, success, failure)
 std::builtin::cmpxchg_weak[T](ptr, expected, desired, success, failure)
 std::builtin::fence(order)
-std::builtin::asm({...})
+std::builtin::asm(std::builtin::AsmConfig {...})
 ```
 
 `std::builtin::size[T]()` returns the ABI size of `T` in bytes as `usize`.
@@ -2577,20 +2580,20 @@ cmpxchg failure orderings allow Monotonic, Acquire, and SeqCst and must not be
 stronger than the success ordering; fences allow Acquire, Release, AcqRel, and
 SeqCst.
 
-`std::builtin::asm({...})` is the inline assembly escape hatch for syscalls,
+`std::builtin::asm(std::builtin::AsmConfig {...})` is the inline assembly escape hatch for syscalls,
 special registers, port I/O, CPU instructions, and freestanding runtime glue.
-Its argument must be a struct-literal configuration. It returns `()`. The
-fields are compiler-consumed metadata, not a runtime struct:
+Its argument must be an `AsmConfig` literal. It returns `()`. The config,
+input, and output types are compiler contracts without runtime layout:
 
 ```nia
 fn syscall1(sys_num: usize, arg1: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm({
+    std::builtin::asm(std::builtin::AsmConfig {
         code:
             b\\syscall
         ,
-        outputs: { rax: ret },
-        inputs: {
+        outputs: std::builtin::AsmOutputs { rax: ret },
+        inputs: std::builtin::AsmInputs {
             rax: sys_num,
             rdi: arg1,
         },
@@ -2601,7 +2604,7 @@ fn syscall1(sys_num: usize, arg1: usize) isize {
 }
 ```
 
-`code` must be a byte string literal. `inputs` and `outputs` are struct literals
+`code` must be a byte string literal. `inputs` and `outputs` are typed literals
 that map register classes or fixed registers to expressions or places. `reg`
 means a general register class. `freg` means a floating-point register class.
 Other field names are fixed registers such as `rax` and `rdi`. Output values
@@ -2641,7 +2644,7 @@ struct Pair[T, U] {
 Generic type instantiation uses `[]`:
 
 ```nia
-let mut p: Pair[i32, bool] = { first: 1, second: true };
+let mut p = Pair[i32, bool] { first: 1, second: true };
 ```
 
 Expression generic instantiation also uses `[]` for explicit type arguments in
@@ -2724,7 +2727,7 @@ extend Vec2 {
 Method call:
 
 ```nia
-let mut v: Vec2 = { x: 3, y: 4 };
+let mut v = Vec2 { x: 3, y: 4 };
 let mut n = v.len2();
 ```
 
@@ -2819,7 +2822,7 @@ extend[T] Box[T] {
     }
 }
 
-let mut box: Box[i32] = { value: 1 };
+let mut box = Box[i32] { value: 1 };
 let mut x = box.replace[bool](true);
 ```
 
@@ -3504,7 +3507,7 @@ A conforming Nia compiler supports:
 - `switch` and enum exhaustiveness checks;
 - `std::builtin::size[T]()`, `std::builtin::align[T]()`, `value.len()`,
   `range.start()`, `range.end()`, `slice.ptr()`, `slice.ptrMut()`, and
-  `std::builtin::asm({...})`;
+  `std::builtin::asm(std::builtin::AsmConfig {...})`;
 - explicit `module` declarations, module-map package roots, and `using`;
 - global static storage from top-level `static mut` and `static`;
 - top-level `pub` visibility;
@@ -3582,9 +3585,9 @@ fn score(answer: Pair[i32, i32]) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let mut v: Vec2 = { x: 3, y: 4 };
+    let mut v = Vec2 { x: 3, y: 4 };
     let mut values = [_]i32[add(40, 2), v.len2(), 7];
-    let mut pair: Pair[i32, i32] = { first: values[0], second: sum(&values) };
+    let mut pair = Pair[i32, i32] { first: values[0], second: sum(&values) };
 
     if score(pair) != 116 {
         return process::exit(1)!;

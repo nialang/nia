@@ -1027,7 +1027,7 @@ extend[T] Box[T] : Source {
 }
 
 fn main() i32 {
-    let mut value: Box[i32] = { value: 0 };
+    let mut value = Box[i32] { value: 0 };
     _ = value;
     0
 }

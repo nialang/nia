@@ -230,6 +230,8 @@ pub mod known {
     known_symbol!(SLICE_LEN, "sliceLen");
 
     known_symbol!(ASM_CONFIG, "AsmConfig");
+    known_symbol!(ASM_INPUTS, "AsmInputs");
+    known_symbol!(ASM_OUTPUTS, "AsmOutputs");
     known_symbol!(I8, "i8");
     known_symbol!(I16, "i16");
     known_symbol!(I32, "i32");
@@ -385,6 +387,8 @@ pub mod known {
         (CHAR_FROM_U32, "charFromU32"),
         (SLICE_LEN, "sliceLen"),
         (ASM_CONFIG, "AsmConfig"),
+        (ASM_INPUTS, "AsmInputs"),
+        (ASM_OUTPUTS, "AsmOutputs"),
         (I8, "i8"),
         (I16, "i16"),
         (I32, "i32"),
@@ -582,6 +586,8 @@ impl ToSymbolId for nia_ids::BuiltinType {
     fn symbol_id(self) -> SymbolId {
         match self {
             Self::AsmConfig => known::ASM_CONFIG,
+            Self::AsmInputs => known::ASM_INPUTS,
+            Self::AsmOutputs => known::ASM_OUTPUTS,
         }
     }
 }

@@ -245,7 +245,7 @@ union WideSlot {
 }
 
 fn wrap(vector: u8x32) WideSlot {
-    { vector: vector }
+    WideSlot { vector }
 }
 
 fn read(slot: WideSlot) u8x32 {

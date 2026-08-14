@@ -17,7 +17,7 @@ using process::{Init, ExitCode, exit};
 pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut point: Point = { x: 3, y: 4 };
+    let mut point = Point { x: 3, y: 4 };
     let mut values: [config::width]i32 = [1, 2, 3, 4];
     let mut sum = plus(values[0], values[3]);
     let mut len2 = point.len2();

@@ -478,7 +478,7 @@ struct Width {
 
 extend Width {
     const fn fromValue(value: usize) Width {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -511,7 +511,7 @@ extend[T] Box[T] {
     }
 
     const fn fromValue(value: T) Box[T] {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -562,7 +562,7 @@ pub const fn double(value: usize) usize {
 
 extend Width {
     pub const fn fromValue(value: usize) Width {
-        { value: value }
+        Self { value }
     }
 
     pub const fn doubled(self) usize {
@@ -671,13 +671,15 @@ fn main() i32 {
 }
 
 #[test]
-fn function_local_structural_const_array_index_drives_field_access() {
-    let root = temp_dir("function_local_structural_const_array_index_drives_field_access");
+fn function_local_nominal_const_array_index_drives_field_access() {
+    let root = temp_dir("function_local_nominal_const_array_index_drives_field_access");
     write(
         &root.join("main.nia"),
         r#"
+struct Config { width: usize }
+
 fn main() i32 {
-    const configs = [{width: 2usize}, {width: 4usize}];
+    const configs = [Config { width: 2usize }, Config { width: 4usize }];
     const width: usize = configs[1].width;
     let mut values: [width]i32 = [0; width];
     values.len() as i32

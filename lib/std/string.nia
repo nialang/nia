@@ -38,7 +38,7 @@ struct TextFormatWriter {
 
 extend String {
     pub fn init() String {
-        { text: collections::ArrayList[char]::init() }
+        Self { text: collections::ArrayList[char]::init() }
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!String {
@@ -47,7 +47,7 @@ extend String {
     }
 
     pub fn fromOwnedSlice(text: &mut [char]) String {
-        { text: collections::ArrayList[char]::fromOwnedSlice(text) }
+        Self { text: collections::ArrayList[char]::fromOwnedSlice(text) }
     }
 
     pub fn fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
@@ -297,7 +297,7 @@ extend String : Eq[String] {
 
 extend TextFormatWriter {
     fn init(allocator: &mut mem::Allocator) TextFormatWriter {
-        {
+        Self {
             allocator: allocator,
             bytes: collections::ArrayList[u8]::init(),
             failure: null,

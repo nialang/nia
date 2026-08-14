@@ -474,7 +474,7 @@ struct RejectPointerAllocator {
 
 extend RejectPointerAllocator {
     fn init() RejectPointerAllocator {
-        {
+        Self {
             backing: mem::PageAllocator::init(),
             activeAllocations: 0usize,
             rejectedPointerTable: false,
@@ -1954,7 +1954,7 @@ struct FailFreeAllocator {
 
 extend FailFreeAllocator {
     fn init() FailFreeAllocator {
-        { backing: mem::PageAllocator::init(), failNextFree: false }
+        Self { backing: mem::PageAllocator::init(), failNextFree: false }
     }
 
     fn failNext(&mut self) () {
@@ -3509,7 +3509,7 @@ struct Counter {
 
 extend Counter {
     fn init() Counter {
-        { value: 0 }
+        Self { value: 0 }
     }
 
     fn add(&mut self, amount: i32) () {

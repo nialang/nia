@@ -270,7 +270,7 @@ union Slot {
 const fn read() usize {
     let value: usize = 21;
     let pointer = &value;
-    let slot: Slot = { pointer: pointer };
+    let slot = Slot { pointer: pointer };
     if slot.pointer == pointer { slot.pointer.* } else { 0 }
 }
 
@@ -298,7 +298,7 @@ union Slot {
     integer: usize,
 }
 
-const slot: Slot = { pointer: &34usize };
+const slot: Slot = Slot { pointer: &34usize };
 const width: usize = slot.pointer.*;
 
 fn main() usize {
@@ -325,7 +325,7 @@ union Slot {
 
 const fn bits() usize {
     let value: usize = 21;
-    let slot: Slot = { pointer: &value };
+    let slot = Slot { pointer: &value };
     slot.integer
 }
 
@@ -356,7 +356,7 @@ union Slot {
 }
 
 const fn pointer() &usize {
-    let slot: Slot = { integer: 0 };
+    let slot = Slot { integer: 0 };
     slot.pointer
 }
 
@@ -390,7 +390,7 @@ union Slot {
 
 const fn bits() usize {
     let value: usize = 21;
-    let mut slot: Slot = { pointer: &value };
+    let mut slot = Slot { pointer: &value };
     slot.byte = 0;
     slot.integer
 }
@@ -423,7 +423,7 @@ union Slot {
 
 const fn dangling() Slot {
     let value: usize = 21;
-    { pointer: &value }
+    Slot { pointer: &value }
 }
 
 const slot: Slot = dangling();
@@ -452,7 +452,7 @@ union Slot {
     integer: usize,
 }
 
-const slot: Slot = { pointer: &34usize };
+const slot: Slot = Slot { pointer: &34usize };
 
 fn main() Slot {
     slot
@@ -550,10 +550,10 @@ pub union PointerSlot[T] {
     integer: usize,
 }
 
-pub const firstSlot: PointerSlot[usize] = { pointer: &41usize };
-pub const secondSlot: PointerSlot[usize] = { pointer: &41usize };
-pub const constOnlySlot: PointerSlot[u32] = { pointer: &89u32 };
-pub const runtimeOnlySlot: PointerSlot[u64] = { pointer: &144u64 };
+pub const firstSlot: PointerSlot[usize] = PointerSlot[usize] { pointer: &41usize };
+pub const secondSlot: PointerSlot[usize] = PointerSlot[usize] { pointer: &41usize };
+pub const constOnlySlot: PointerSlot[u32] = PointerSlot[u32] { pointer: &89u32 };
+pub const runtimeOnlySlot: PointerSlot[u64] = PointerSlot[u64] { pointer: &144u64 };
 
 pub const fn pass[T](slot: PointerSlot[T]) PointerSlot[T] {
     slot

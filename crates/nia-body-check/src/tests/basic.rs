@@ -131,7 +131,7 @@ union Bits {
 }
 
 const fn inspect() usize {
-    let bits: Bits = { integer: 1 };
+    let bits = Bits { integer: 1 };
     bits.integer
 }
 "#,
@@ -162,7 +162,7 @@ union Nested {
 }
 
 const fn inspect() u16 {
-    let payload: Payload = { integer: 1 };
+    let payload = Payload { integer: 1 };
     payload.integer
 }
 "#,
@@ -185,7 +185,7 @@ union Payload {
 }
 
 const fn inspect() u16 {
-    let payload: Payload = { integer: 1 };
+    let payload = Payload { integer: 1 };
     payload.integer
 }
 "#,
@@ -258,7 +258,7 @@ union Bits[T] {
 }
 
 fn main() i32 {
-    let mut bits: Bits[i32] = { value: 10 };
+    let mut bits = Bits[i32] { value: 10 };
     bits.value
 }
 "#,
@@ -272,7 +272,7 @@ union Bits {
 }
 
 fn main() i32 {
-    let mut bits: Bits = {};
+    let mut bits = Bits {};
     0
 }
 "#,
@@ -294,7 +294,7 @@ union Bits {
 }
 
 fn main() i32 {
-    let mut bits: Bits = { i: 1, f: 2.0 };
+    let mut bits = Bits { i: 1, f: 2.0 };
     0
 }
 "#,
@@ -320,7 +320,7 @@ fn take_read_opaque(p: &opaque) {}
 
 fn main() {
     let mut unit: () = ();
-    let mut empty: Empty = {};
+    let mut empty = Empty {};
     let mut value: i32 = 1;
     take_opaque(&value as &opaque);
     take_read_opaque(&value as &opaque);

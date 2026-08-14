@@ -121,15 +121,8 @@ fn lower_expr_internal(
             ty: Some(lower_type_arg(ty, context)?),
             elems: lower_array_elements_with_context(elems, context)?,
         },
-        nia_ast::ExprKind::StructLiteral { fields } => EarlyConstExprKind::StructLiteral {
-            ty: None,
-            fields: fields
-                .iter()
-                .map(|field| lower_field_init_with_context(field, context))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => EarlyConstExprKind::StructLiteral {
-            ty: Some(lower_type_arg(ty, context)?),
+            ty: lower_type_arg(ty, context)?,
             fields: fields
                 .iter()
                 .map(|field| lower_field_init_with_context(field, context))

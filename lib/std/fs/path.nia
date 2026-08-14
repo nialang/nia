@@ -15,7 +15,7 @@ using types::{
 
 extend PathView {
     pub fn init(text: &[char]) PathView {
-        { text: text }
+        Self { text: text }
     }
 
     pub fn text(&self) &[char] {
@@ -55,7 +55,7 @@ extend PathView {
 
 extend RelativePathView {
     fn init(path: PathView) RelativePathView {
-        { path: path }
+        Self { path: path }
     }
 
     pub fn fromText(text: &[char]) PathError!RelativePathView {
@@ -83,7 +83,7 @@ extend RelativePathView {
 
 extend Path {
     pub fn init() Path {
-        { text: string::String::init() }
+        Self { text: string::String::init() }
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!Path {
@@ -92,7 +92,7 @@ extend Path {
     }
 
     pub fn fromString(text: string::String) Path {
-        { text: text }
+        Self { text: text }
     }
 
     pub fn fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!Path {
@@ -188,7 +188,7 @@ fn isSeparator(ch: char) bool {
 
 extend NativePathView {
     fn init(ptr: &u8, len: usize) NativePathView {
-        { ptr: ptr, len: len }
+        Self { ptr: ptr, len: len }
     }
 
     pub fn fromBytes(bytes: &[u8]) PathError!NativePathView {
@@ -229,7 +229,7 @@ extend NativePathView {
 
 extend RelativeNativePathView {
     fn init(path: NativePathView) RelativeNativePathView {
-        { path: path }
+        Self { path: path }
     }
 
     pub fn fromBytes(bytes: &[u8]) PathError!RelativeNativePathView {

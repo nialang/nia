@@ -5,7 +5,7 @@ use super::*;
 fn extension_queries_use_module_semantic_queries() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+        "struct S { value: i32 } extend S { pub fn make(value: i32) S { Self { value } } }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

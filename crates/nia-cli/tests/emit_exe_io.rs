@@ -750,7 +750,7 @@ extend Level : parse::From[&[char]] {
 
     fn from(input: &[char]) LevelError!Level {
         if input.equals(&"high") {
-            !{ code: 1 }
+            !Level { code: 1 }
         } else {
             LevelError::Invalid!
         }
@@ -1129,7 +1129,7 @@ struct PartialWriter {
 
 extend PartialWriter {
     fn init(buffer: &mut [u8]) PartialWriter {
-        { inner: io::FixedBufferWriter::init(buffer) }
+        Self { inner: io::FixedBufferWriter::init(buffer) }
     }
 
     fn len(&self) usize {
@@ -1265,7 +1265,7 @@ struct RetryWriter {
 
 extend RetryWriter {
     fn init(buffer: &mut [u8]) RetryWriter {
-        { inner: io::FixedBufferWriter::init(buffer), attempt: 0 }
+        Self { inner: io::FixedBufferWriter::init(buffer), attempt: 0 }
     }
 
     fn written(&self) &[u8] {
@@ -1499,7 +1499,7 @@ struct PartialReader {
 
 extend PartialReader {
     fn init(bytes: &[u8]) PartialReader {
-        { inner: io::FixedBufferReader::init(bytes) }
+        Self { inner: io::FixedBufferReader::init(bytes) }
     }
 }
 

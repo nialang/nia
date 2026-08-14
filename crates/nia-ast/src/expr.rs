@@ -246,9 +246,6 @@ pub enum ExprKind {
     ArrayLiteral {
         elems: ArrayElements,
     },
-    StructLiteral {
-        fields: Vec<FieldInit>,
-    },
     TypedArrayLiteral {
         ty: TypeRef,
         elems: ArrayElements,

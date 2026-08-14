@@ -510,7 +510,7 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
+            ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
                     self.check_expr_flow(&field.value);
                 }

@@ -30,7 +30,7 @@ struct FaultAllocator {
 
 extend FaultAllocator {
     fn init() FaultAllocator {
-        {
+        Self {
             backing: mem::PageAllocator::init(),
             allocationAttempts: 0usize,
             activeAllocations: 0usize,

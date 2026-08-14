@@ -9,6 +9,12 @@ enum ConstTypeCompatibility {
 impl Analyzer<'_> {
     pub(super) fn substitute_ty_generics(&mut self, ty: InternedTyId) -> InternedTyId {
         let module_id = self.current_execution_module_id();
+        // Imported const queries install their execution frame before they
+        // necessarily touch that module's type interner. Substitution owns
+        // this prerequisite because every caller needs the destination
+        // interner, even when only a nested const generic changes.
+        self.ensure_type_context(module_id)
+            .expect("current execution module must have a type context");
         let mut type_substitutions = SymbolMap::default();
         let mut const_substitutions = SymbolMap::default();
         let frames = self.active_execution_frames().collect::<Vec<_>>();
@@ -274,8 +280,7 @@ impl Analyzer<'_> {
             ConstValueType::Int
             | ConstValueType::Bool
             | ConstValueType::String
-            | ConstValueType::Array { len: None, .. }
-            | ConstValueType::Struct(_) => None,
+            | ConstValueType::Array { len: None, .. } => None,
         }
     }
 
@@ -534,15 +539,11 @@ impl Analyzer<'_> {
                 ty: Some(ty),
                 elems,
             } => self.resolved_const_array_literal_type(expr.span(), elems, Some(*ty)),
-            ResolvedConstExprKind::StructLiteral {
-                ty: Some(ty),
-                fields,
-            } => self.resolved_const_aggregate_literal_type(expr.span(), fields, Some(*ty)),
+            ResolvedConstExprKind::StructLiteral { ty, fields } => {
+                self.resolved_const_aggregate_literal_type(expr.span(), fields, *ty)
+            }
             ResolvedConstExprKind::ArrayLiteral { ty: None, elems } => {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
-            }
-            ResolvedConstExprKind::StructLiteral { ty: None, fields } => {
-                self.resolved_const_aggregate_literal_type(expr.span(), fields, expected)
             }
             ResolvedConstExprKind::EnumStructLiteral { variant, fields } => self
                 .resolved_const_named_enum_literal_type(expr.span(), variant, fields)
@@ -874,10 +875,7 @@ impl Analyzer<'_> {
                     .map(ConstValueType::Runtime),
                 _ => None,
             },
-            ConstValueType::Struct(_)
-            | ConstValueType::Int
-            | ConstValueType::Bool
-            | ConstValueType::String => None,
+            ConstValueType::Int | ConstValueType::Bool | ConstValueType::String => None,
         }
     }
 
@@ -1208,7 +1206,6 @@ impl Analyzer<'_> {
         name: &SymbolId,
     ) -> Option<ConstValueType> {
         match &lhs {
-            ConstValueType::Struct(_) => lhs.structural_field(name).cloned(),
             ConstValueType::Runtime(ty) => self
                 .const_nominal_aggregate_field_type(*ty, name)
                 .map(ConstValueType::Runtime),
@@ -1269,16 +1266,6 @@ impl Analyzer<'_> {
                 elem: Box::new(self.value_type_for_module(*elem, target_module_id)?),
                 len,
             }),
-            ConstValueType::Struct(fields) => fields
-                .into_iter()
-                .map(|field| {
-                    Some(ConstValueFieldType {
-                        name: field.name,
-                        ty: self.value_type_for_module(field.ty, target_module_id)?,
-                    })
-                })
-                .collect::<Option<Vec<_>>>()
-                .map(ConstValueType::Struct),
             ConstValueType::Int => Some(ConstValueType::Int),
             ConstValueType::Bool => Some(ConstValueType::Bool),
             ConstValueType::String => Some(ConstValueType::String),

@@ -246,27 +246,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_struct_literal(
         &mut self,
         span: Span,
-        expected: Option<InternedTyId>,
+        aggregate_ty: InternedTyId,
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
-        if self.in_const_context()
-            && expected.is_some_and(|expected| self.is_const_only_ty(expected))
-        {
-            return self.check_structural_const_struct_literal(fields);
-        }
-        let Some(aggregate_ty) = expected else {
-            if self.in_const_context() {
-                return self.check_structural_const_struct_literal(fields);
-            }
-            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                span,
-                "aggregate literal requires an expected struct or union type; add a type annotation",
-            ));
-            for field in fields {
-                self.check_expr(&field.value);
-            }
-            return self.error();
-        };
         let (def_id, args, const_args) = match self.expect_ty_kind(aggregate_ty) {
             TyKind::Nominal {
                 def_id,
@@ -356,16 +338,6 @@ impl<'a> BodyChecker<'a> {
             ));
         }
         aggregate_ty
-    }
-
-    fn check_structural_const_struct_literal(
-        &mut self,
-        fields: &[nia_ast::FieldInit],
-    ) -> InternedTyId {
-        for field in fields {
-            self.check_expr(&field.value);
-        }
-        self.interner.intern(TyKind::ConstOnly)
     }
 
     fn check_union_literal(
@@ -917,7 +889,7 @@ impl<'a> BodyChecker<'a> {
                 args,
                 const_args,
             });
-            return self.check_struct_literal(expr.span, Some(ty), fields);
+            return self.check_struct_literal(expr.span, ty, fields);
         }
         for field in fields {
             self.check_expr(&field.value);
@@ -1601,17 +1573,6 @@ impl<'a> BodyChecker<'a> {
                     elem: Box::new(self.import_current_const_expr_type(*elem)),
                     len,
                 }
-            }
-            nia_const_check::ConstValueType::Struct(fields) => {
-                nia_const_check::ConstValueType::Struct(
-                    fields
-                        .into_iter()
-                        .map(|field| nia_const_check::ConstValueFieldType {
-                            name: field.name,
-                            ty: self.import_current_const_expr_type(field.ty),
-                        })
-                        .collect(),
-                )
             }
             nia_const_check::ConstValueType::Int => nia_const_check::ConstValueType::Int,
             nia_const_check::ConstValueType::Bool => nia_const_check::ConstValueType::Bool,

@@ -29,7 +29,7 @@ fn closeHandle(handle: &mut ?os::FileHandle) io::Error!() {
 
 extend ChildStdin {
     pub(pkg) fn init(handle: os::FileHandle) ChildStdin {
-        { handle: ?handle }
+        Self { handle: ?handle }
     }
 
     pub fn close(&mut self) io::Error!() {
@@ -55,7 +55,7 @@ extend ChildStdin : io::Writer {
 
 extend ChildStdout {
     pub(pkg) fn init(handle: os::FileHandle) ChildStdout {
-        { handle: ?handle }
+        Self { handle: ?handle }
     }
 
     pub fn close(&mut self) io::Error!() {
@@ -81,7 +81,7 @@ extend ChildStdout : io::Reader {
 
 extend ChildStderr {
     pub(pkg) fn init(handle: os::FileHandle) ChildStderr {
-        { handle: ?handle }
+        Self { handle: ?handle }
     }
 
     pub fn close(&mut self) io::Error!() {

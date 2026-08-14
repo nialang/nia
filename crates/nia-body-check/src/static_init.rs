@@ -106,7 +106,10 @@ impl<'a> BodyChecker<'a> {
                     count: self.lower_array_repeat_count(count),
                 },
             },
-            ExprKind::StructLiteral { fields } => {
+            ExprKind::TypedStructLiteral { fields, .. }
+            | ExprKind::QualifiedStructLiteral { fields, .. } => {
+                // Static aggregate layout is always driven by the nominal type
+                // recorded for the checked expression, never by field shape.
                 let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
                 StaticInit::Struct(
                     fields

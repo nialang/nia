@@ -40,8 +40,8 @@ fn main() i32 {
 }
 
 #[test]
-fn const_switch_structural_struct_fields_have_typed_values() {
-    let root = temp_dir("const_switch_structural_struct_fields_have_typed_values");
+fn const_switch_nominal_struct_fields_have_typed_values() {
+    let root = temp_dir("const_switch_nominal_struct_fields_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -49,9 +49,11 @@ const fn id[T](value: T) T {
     value
 }
 
+struct Config { width: usize }
+
 const config = switch 1usize {
-    1usize => ({width: 4usize}),
-    _ => ({width: 8usize}),
+    1usize => Config { width: 4usize },
+    _ => Config { width: 8usize },
 };
 const n: usize = id(config.width);
 
@@ -67,8 +69,8 @@ fn main() i32 {
 }
 
 #[test]
-fn structural_const_array_elements_have_typed_values() {
-    let root = temp_dir("structural_const_array_elements_have_typed_values");
+fn nominal_const_array_elements_have_typed_values() {
+    let root = temp_dir("nominal_const_array_elements_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -76,7 +78,8 @@ const fn id[T](value: T) T {
     value
 }
 
-const configs = [{width: 4usize}, {width: 8usize}];
+struct Config { width: usize }
+const configs = [Config { width: 4usize }, Config { width: 8usize }];
 const n: usize = id(configs[1].width);
 
 fn main() i32 {
@@ -91,8 +94,8 @@ fn main() i32 {
 }
 
 #[test]
-fn structural_const_array_slices_have_typed_values() {
-    let root = temp_dir("structural_const_array_slices_have_typed_values");
+fn nominal_const_array_slices_have_typed_values() {
+    let root = temp_dir("nominal_const_array_slices_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -100,7 +103,8 @@ const fn id[T](value: T) T {
     value
 }
 
-const configs = [{width: 4usize}, {width: 8usize}, {width: 16usize}];
+struct Config { width: usize }
+const configs = [Config { width: 4usize }, Config { width: 8usize }, Config { width: 16usize }];
 const selected = configs[1..=2];
 const n: usize = id(selected[1].width);
 
@@ -116,8 +120,8 @@ fn main() i32 {
 }
 
 #[test]
-fn structural_const_array_repeat_elements_have_typed_values() {
-    let root = temp_dir("structural_const_array_repeat_elements_have_typed_values");
+fn nominal_const_array_repeat_elements_have_typed_values() {
+    let root = temp_dir("nominal_const_array_repeat_elements_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -125,7 +129,8 @@ const fn id[T](value: T) T {
     value
 }
 
-const configs = [{width: 4usize}; 2usize];
+struct Config { width: usize }
+const configs = [Config { width: 4usize }; 2usize];
 const n: usize = id(configs[1].width);
 
 fn main() i32 {
@@ -281,7 +286,9 @@ const fn id[T](value: T) T {
     value
 }
 
-const config = {target: {pointer_width: 64usize}};
+struct Target { pointer_width: usize }
+struct Config { target: Target }
+const config = Config { target: Target { pointer_width: 64usize } };
 const bits: usize = id(config.target.pointer_width);
 const n: usize = bits / 8usize;
 
@@ -306,7 +313,9 @@ const fn id[T](value: T) T {
     value
 }
 
-const builtin = {target: {pointer_width: 64usize}};
+struct Target { pointer_width: usize }
+struct Config { target: Target }
+const builtin = Config { target: Target { pointer_width: 64usize } };
 const bits: usize = id(builtin.target.pointer_width);
 const n: usize = bits / 8usize;
 
@@ -613,7 +622,7 @@ pub union ScalarSlot[T] {
 }
 
 pub const fn slot[T](value: T) ScalarSlot[T] {
-    { value: value }
+    ScalarSlot[T] { value }
 }
 
 pub const fn readBits[T](slot: ScalarSlot[T]) u32 {
@@ -636,11 +645,11 @@ fn imported_generic_struct_union_preserves_padding_across_const_and_runtime_call
 module bits;
 using entry::bits;
 
-const compileBytes: [5]u8 = bits::encode[u32]({ marker: 170, value: 287454020 });
+const compileBytes: [5]u8 = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
 const compilePair: bits::Pair[u32] = bits::decode[u32](compileBytes);
 
 fn main() i32 {
-    let runtimeBytes = bits::encode[u32]({ marker: 170, value: 287454020 });
+    let runtimeBytes = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
     let runtimePair = bits::decode[u32](runtimeBytes);
     if compileBytes[4] == 170
         and compilePair.value == 287454020
@@ -667,12 +676,12 @@ pub union PairSlot[T] {
 }
 
 pub const fn encode[T](value: Pair[T]) [5]u8 {
-    let slot: PairSlot[T] = { value: value };
+    let slot = PairSlot[T] { value: value };
     slot.prefix
 }
 
 pub const fn decode[T](bytes: [5]u8) Pair[T] {
-    let slot: PairSlot[T] = { prefix: bytes };
+    let slot = PairSlot[T] { prefix: bytes };
     slot.value
 }
 "#,
@@ -726,9 +735,9 @@ pub union Outer[T] {
 }
 
 pub const fn layered[T](wide: T, narrow: u16) Outer[T] {
-    let mut inner: Inner[T] = { wide: wide };
+    let mut inner = Inner[T] { wide: wide };
     inner.narrow = narrow;
-    { inner: inner }
+    Outer[T] { inner }
 }
 
 pub const fn readBytes[T](slot: Outer[T]) [4]u8 {
@@ -790,16 +799,16 @@ pub union VectorSlot[V] {
 }
 
 pub const fn slot[V](value: V) VectorSlot[V] {
-    { value: value }
+    VectorSlot[V] { value }
 }
 
 pub const fn encode[V](value: V) [4]u8 {
-    let slot: VectorSlot[V] = { value: value };
+    let slot = VectorSlot[V] { value: value };
     slot.bytes
 }
 
 pub const fn decode[V](bytes: [4]u8) V {
-    let slot: VectorSlot[V] = { bytes: bytes };
+    let slot = VectorSlot[V] { bytes: bytes };
     slot.value
 }
 
@@ -924,7 +933,7 @@ pub struct Boxed {
 
 extend Item {
     pub fn zero() Item {
-        { value: 0 }
+        Self { value: 0 }
     }
 }
 "#,
@@ -937,7 +946,7 @@ using entry::defs;
 using defs::*;
 
 fn make() Boxed {
-    {
+    Boxed {
         items: [Item::zero(); 4],
     }
 }
@@ -971,7 +980,7 @@ pub struct Boxed {
 
 extend Item {
     pub fn zero() Item {
-        { value: 0 }
+        Self { value: 0 }
     }
 }
 "#,
@@ -984,7 +993,7 @@ using entry::defs;
 using defs::*;
 
 fn make() Boxed {
-    {
+    Boxed {
         items: [Item::zero(); defs::N],
     }
 }

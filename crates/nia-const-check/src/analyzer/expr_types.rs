@@ -119,10 +119,9 @@ impl Analyzer<'_> {
                             elem: inner_ty,
                         },
                     },
-                    ConstValueType::Int
-                    | ConstValueType::Bool
-                    | ConstValueType::String
-                    | ConstValueType::Struct(_) => return None,
+                    ConstValueType::Int | ConstValueType::Bool | ConstValueType::String => {
+                        return None;
+                    }
                 };
                 let ty = self.intern_current_ty(kind)?;
                 Some(ConstValueType::Runtime(ty))

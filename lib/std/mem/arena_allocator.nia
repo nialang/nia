@@ -19,7 +19,7 @@ pub struct ArenaAllocator {
 
 extend ArenaAllocator {
     pub fn init(child: &mut Allocator) ArenaAllocator {
-        { child: child, usedList: null, freeList: null }
+        Self { child, usedList: null, freeList: null }
     }
 
     pub fn deinit(&mut self) Error!() {
@@ -194,7 +194,7 @@ extend ArenaAllocator {
         let blockLayout = Layout::init(totalSize, blockAlign).?;
         let block = self.child.alloc(blockLayout).?;
         let mut chunk = block.ptr() as &mut ArenaChunk;
-        chunk.* = { block: block, endIndex: 0, next: null };
+        chunk.* = ArenaChunk { block, endIndex: 0, next: null };
         !chunk
     }
 

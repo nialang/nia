@@ -78,7 +78,7 @@ const fn makeVector() u16x2 {
 }
 
 const fn makeSlot(vector: u16x2) VectorSlot {
-    { vector: vector }
+    VectorSlot { vector }
 }
 
 const fn readBytes(slot: VectorSlot) [4]u8 {
@@ -86,7 +86,7 @@ const fn readBytes(slot: VectorSlot) [4]u8 {
 }
 
 const fn decode(bytes: [4]u8) u16x2 {
-    let slot: VectorSlot = { bytes: bytes };
+    let slot = VectorSlot { bytes: bytes };
     slot.vector
 }
 
@@ -99,7 +99,7 @@ const compileMask: boolx4 = std::builtin::insert(
     1,
     true,
 );
-const compileMaskSlot: MaskSlot = { mask: compileMask };
+const compileMaskSlot: MaskSlot = MaskSlot { mask: compileMask };
 const compileMaskRaw: u8 = compileMaskSlot.raw;
 const compileMaskBits: usize = std::builtin::bitmask(compileMask);
 
@@ -107,7 +107,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let runtimeBytes = readBytes(makeSlot(makeVector()));
     let materializedBytes = readBytes(compileSlot);
-    let runtimeMaskSlot: MaskSlot = { mask: compileMask };
+    let runtimeMaskSlot = MaskSlot { mask: compileMask };
     if compileBytes[0] != 34
         or compileBytes[1] != 17
         or compileBytes[2] != 68
@@ -499,7 +499,7 @@ const fn compileOnlyWidth() usize {
 
 extend Width {
     const fn fromValue(value: usize) Width {
-        { value: value }
+        Self { value }
     }
 
     const fn doubled(self) usize {
@@ -527,12 +527,12 @@ const fn iterationTotal(end: usize) usize {
 }
 
 const fn oneBits() u32 {
-    let bits: Bits = { float: 1.0 };
+    let bits = Bits { float: 1.0 };
     bits.integer
 }
 
 const fn oneFromBits() f32 {
-    let bits: Bits = { integer: 1065353216 };
+    let bits = Bits { integer: 1065353216 };
     bits.float
 }
 
@@ -541,12 +541,12 @@ const fn readBits(bits: Bits) u32 {
 }
 
 const fn oneBytes() [4]u8 {
-    let bits: ByteBits = { float: 1.0 };
+    let bits = ByteBits { float: 1.0 };
     bits.bytes
 }
 
 const fn floatFromBytes(bytes: [4]u8) f32 {
-    let bits: ByteBits = { bytes: bytes };
+    let bits = ByteBits { bytes: bytes };
     bits.float
 }
 
@@ -568,19 +568,21 @@ const arrayLen: usize = double(2)
     + incrementedWidth()
     + iterationTotal(3)
     + pairTotal(pairs::pair(1, 2));
-const compileOneBits: u32 = readBits({ float: 1.0 });
-const compileUnion: Bits = { float: 1.0 };
+const compileOneBits: u32 = readBits(Bits { float: 1.0 });
+const compileUnion: Bits = Bits { float: 1.0 };
 const compileOneBytes: [4]u8 = oneBytes();
 const compileOneFromBytes: f32 = floatFromBytes(compileOneBytes);
-const compileByteUnion: ByteBits = { bytes: compileOneBytes };
+const compileByteUnion: ByteBits = ByteBits { bytes: compileOneBytes };
 const compileImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
 const compileImportedBits: u32 = pairs::readSlotBits[f32](compileImportedSlot);
 const compilePairBytes: [8]u8 = pairs::encodePair[u32]([2]u32[7, 8]);
 const compilePairValues: [2]u32 = pairs::decodePair[u32](compilePairBytes);
-const compileStructBytes: [5]u8 = pairs::encodeStruct[u32]({ marker: 170, value: 287454020 });
+const compileStructBytes: [5]u8 = pairs::encodeStruct[u32](
+    pairs::Padded[u32] { marker: 170, value: 287454020 },
+);
 const compileStruct: pairs::Padded[u32] = pairs::decodeStruct[u32](compileStructBytes);
 const packetWidth: usize = 2;
-const compilePacketValue: pairs::Packet[u8, packetWidth, u16] = {
+const compilePacketValue: pairs::Packet[u8, packetWidth, u16] = pairs::Packet[u8, packetWidth, u16] {
     marker: 170,
     values: [2]u16[4386, 13124],
 };
@@ -600,9 +602,11 @@ fn runtimeChecks(value: usize) bool {
     let runtimePairValues: [2]u32 = pairs::decodePair[u32](
         pairs::encodePair[u32]([2]u32[value as u32, value as u32 + 1])
     );
-    let runtimeStructBytes = pairs::encodeStruct[u32]({ marker: 170, value: 287454020 });
+    let runtimeStructBytes = pairs::encodeStruct[u32](
+        pairs::Padded[u32] { marker: 170, value: 287454020 },
+    );
     let runtimeStruct = pairs::decodeStruct[u32](runtimeStructBytes);
-    let runtimePacketBytes = pairs::encodePacket({
+    let runtimePacketBytes = pairs::encodePacket(pairs::Packet[u8, 2, u16] {
         marker: 170,
         values: [2]u16[4386, 13124],
     });
@@ -752,7 +756,7 @@ pub const fn pair[T](first: T, second: T) Pair[T] {
 }
 
 pub const fn scalarSlot[T](value: T) ScalarSlot[T] {
-    { value: value }
+    ScalarSlot[T] { value }
 }
 
 pub const fn readSlotBits[T](slot: ScalarSlot[T]) u32 {
@@ -760,39 +764,39 @@ pub const fn readSlotBits[T](slot: ScalarSlot[T]) u32 {
 }
 
 pub const fn encodePair[T](values: [2]T) [8]u8 {
-    let slot: PairBytes[T] = { values: values };
+    let slot = PairBytes[T] { values: values };
     slot.bytes
 }
 
 pub const fn decodePair[T](bytes: [8]u8) [2]T {
-    let slot: PairBytes[T] = { bytes: bytes };
+    let slot = PairBytes[T] { bytes: bytes };
     slot.values
 }
 
 pub const fn encodeStruct[T](value: Padded[T]) [5]u8 {
-    let slot: PaddedBytes[T] = { value: value };
+    let slot = PaddedBytes[T] { value: value };
     slot.prefix
 }
 
 pub const fn decodeStruct[T](bytes: [5]u8) Padded[T] {
-    let slot: PaddedBytes[T] = { prefix: bytes };
+    let slot = PaddedBytes[T] { prefix: bytes };
     slot.value
 }
 
 pub const fn encodePacket(value: Packet[u8, 2, u16]) [5]u8 {
-    let slot: PacketBytes[u8, 2, u16] = { value: value };
+    let slot = PacketBytes[u8, 2, u16] { value: value };
     slot.prefix
 }
 
 pub const fn decodePacket(bytes: [5]u8) Packet[u8, 2, u16] {
-    let slot: PacketBytes[u8, 2, u16] = { prefix: bytes };
+    let slot = PacketBytes[u8, 2, u16] { prefix: bytes };
     slot.value
 }
 
 pub const fn layeredSlot[T](wide: T, narrow: u16) OuterSlot[T] {
-    let mut inner: InnerSlot[T] = { wide: wide };
+    let mut inner = InnerSlot[T] { wide: wide };
     inner.narrow = narrow;
-    { inner: inner }
+    OuterSlot[T] { inner }
 }
 
 pub const fn readLayeredBytes[T](slot: OuterSlot[T]) [4]u8 {

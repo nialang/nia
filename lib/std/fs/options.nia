@@ -5,15 +5,15 @@ using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, 
 
 extend OpenOptions {
     pub fn readOnly() OpenOptions {
-        { mode: OpenMode::ReadOnly }
+        Self { mode: OpenMode::ReadOnly }
     }
 
     pub fn writeOnly() OpenOptions {
-        { mode: OpenMode::WriteOnly }
+        Self { mode: OpenMode::WriteOnly }
     }
 
     pub fn readWrite() OpenOptions {
-        { mode: OpenMode::ReadWrite }
+        Self { mode: OpenMode::ReadWrite }
     }
 
     pub fn mode(&self) OpenMode {
@@ -32,11 +32,11 @@ extend OpenOptions {
 
 extend OpenDirOptions {
     pub fn init() OpenDirOptions {
-        { follow_symlinks: true }
+        Self { follow_symlinks: true }
     }
 
     pub fn noFollow() OpenDirOptions {
-        { follow_symlinks: false }
+        Self { follow_symlinks: false }
     }
 
     pub fn followSymlinks(&self) bool {
@@ -46,11 +46,11 @@ extend OpenDirOptions {
 
 extend MetadataOptions {
     pub fn init() MetadataOptions {
-        { follow_symlinks: true }
+        Self { follow_symlinks: true }
     }
 
     pub fn noFollow() MetadataOptions {
-        { follow_symlinks: false }
+        Self { follow_symlinks: false }
     }
 
     pub fn followSymlinks(&self) bool {
@@ -60,15 +60,15 @@ extend MetadataOptions {
 
 extend CreateOptions {
     pub fn init() CreateOptions {
-        { read: false, truncate: true, exclusive: false, permissions: 0o666 }
+        Self { read: false, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
     pub fn readWrite() CreateOptions {
-        { read: true, truncate: true, exclusive: false, permissions: 0o666 }
+        Self { read: true, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
     pub fn exclusive() CreateOptions {
-        { read: false, truncate: true, exclusive: true, permissions: 0o666 }
+        Self { read: false, truncate: true, exclusive: true, permissions: 0o666 }
     }
 
     pub fn read(&self) bool {
@@ -98,7 +98,7 @@ extend CreateOptions {
 
 extend CreateDirOptions {
     pub fn init() CreateDirOptions {
-        { permissions: 0o777 }
+        Self { permissions: 0o777 }
     }
 
     pub fn permissions(&self) u32 {

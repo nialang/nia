@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use crate::{
     ConstArmType, ConstArrayLengths, ConstCheck, ConstEnumValues, ConstInput, ConstKey,
-    ConstProgramContext, ConstTypedFacts, ConstValue, ConstValueFieldType, ConstValueType,
-    ConstValues, TypedConstValue, resolved_pattern_local_id,
+    ConstProgramContext, ConstTypedFacts, ConstValue, ConstValueType, ConstValues, TypedConstValue,
+    resolved_pattern_local_id,
     support::{
         const_string_to_char_array, enum_next_value, float_literal_suffix_ty,
         int_const_in_i128_range, integer_literal_suffix_ty, integer_range, is_float_primitive,
@@ -678,27 +678,6 @@ impl Analyzer<'_> {
                     self.validate_typed_value(span, value, elem);
                 }
             }
-            ConstValueType::Struct(fields) => {
-                let ConstValue::Struct(values) = value else {
-                    self.push_const_type_mismatch(span, "struct");
-                    return;
-                };
-                let field_set: FieldSetCheck<SymbolId> = check_value_field_set(
-                    values.keys().cloned(),
-                    fields.iter().map(|field| field.name),
-                );
-                for field in fields {
-                    if let Some(value) = values.get(&field.name) {
-                        self.validate_typed_value(span, value, &field.ty);
-                    }
-                }
-                for name in &field_set.missing_fields {
-                    self.push_const_missing_struct_field(span, name);
-                }
-                for field in &field_set.unknown_fields {
-                    self.push_const_extra_struct_field(span, &field.name);
-                }
-            }
             ConstValueType::Int => {
                 if !matches!(value, ConstValue::Int(_)) {
                     self.push_const_type_mismatch(span, "int");
@@ -731,20 +710,6 @@ impl Analyzer<'_> {
                         .map(|value| self.normalize_typed_const_value(value, elem))
                         .collect(),
                 ),
-                value => value,
-            },
-            ConstValueType::Struct(fields) => match value {
-                ConstValue::Struct(mut values) => {
-                    for field in fields {
-                        if let Some(value) = values.remove(&field.name) {
-                            values.insert(
-                                field.name,
-                                self.normalize_typed_const_value(value, &field.ty),
-                            );
-                        }
-                    }
-                    ConstValue::Struct(values)
-                }
                 value => value,
             },
             ConstValueType::Int | ConstValueType::Bool | ConstValueType::String => value,

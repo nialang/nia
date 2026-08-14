@@ -80,7 +80,7 @@ extend Pair {
 
 extend Width {
     const fn fromValue(value: i32) Width {
-        { value: value }
+        Self { value }
     }
 }
 
@@ -161,34 +161,34 @@ const genericExpected: i32 = select[i32](true, 13, 2);
 const importedExpected: i32 = helper::importedScore(6);
 const associatedExpected: i32 = Width::fromValue(14).value;
 const constGenericExpected: i32 = constGenericScore[4](11);
-const firstPointerSlot: PointerSlot = { pointer: &34usize };
-const secondPointerSlot: PointerSlot = { pointer: &34usize };
-const arrayPointerSlot: ArrayPointerSlot = { pointer: &[3]u8[2, 4, 8] };
-const pairPointerSlot: PairPointerSlot = { pointer: &Pair{left: 5, right: 7} };
-const vectorPointerSlot: VectorPointerSlot = {
+const firstPointerSlot: PointerSlot = PointerSlot { pointer: &34usize };
+const secondPointerSlot: PointerSlot = PointerSlot { pointer: &34usize };
+const arrayPointerSlot: ArrayPointerSlot = ArrayPointerSlot { pointer: &[3]u8[2, 4, 8] };
+const pairPointerSlot: PairPointerSlot = PairPointerSlot { pointer: &Pair{left: 5, right: 7} };
+const vectorPointerSlot: VectorPointerSlot = VectorPointerSlot {
     pointer: &std::builtin::insert(
         std::builtin::splat[u16x2](4386),
         1,
         13124,
     ),
 };
-const nestedPointerSlot: NestedPointerSlot = {
+const nestedPointerSlot: NestedPointerSlot = NestedPointerSlot {
     pointer: &PointerSlot{pointer: &91usize},
 };
-const holderPointerSlot: HolderPointerSlot = {
+const holderPointerSlot: HolderPointerSlot = HolderPointerSlot {
     pointer: &PointerHolder{marker: 3, slot: PointerSlot{pointer: &37usize}},
 };
-const nestedArrayPointerSlot: NestedArrayPointerSlot = {
+const nestedArrayPointerSlot: NestedArrayPointerSlot = NestedArrayPointerSlot {
     pointer: &[2]PointerSlot[
         PointerSlot{pointer: &11usize},
         PointerSlot{pointer: &13usize},
     ],
 };
-const byteUnionPointerSlot: ByteUnionPointerSlot = {
+const byteUnionPointerSlot: ByteUnionPointerSlot = ByteUnionPointerSlot {
     pointer: &ByteUnion{byte: 7},
 };
-const firstEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
-const secondEmptyPointerSlot: EmptyPointerSlot = { pointer: &Empty{} };
+const firstEmptyPointerSlot: EmptyPointerSlot = EmptyPointerSlot { pointer: &Empty{} };
+const secondEmptyPointerSlot: EmptyPointerSlot = EmptyPointerSlot { pointer: &Empty{} };
 const directArrayPointer: &[3]u8 = &[3]u8[6, 7, 8];
 const secondDirectArrayPointer: &[3]u8 = &[3]u8[6, 7, 8];
 const importedGenericPointer: helper::PointerSlot[usize] =
@@ -224,9 +224,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let firstEmptyPointer: EmptyPointerSlot = firstEmptyPointerSlot;
     let sameEmptyPointer: EmptyPointerSlot = firstEmptyPointerSlot;
     let secondEmptyPointer: EmptyPointerSlot = secondEmptyPointerSlot;
-    let directArrayFirst: ArrayPointerSlot = { pointer: directArrayPointer };
-    let directArraySame: ArrayPointerSlot = { pointer: directArrayPointer };
-    let directArraySecond: ArrayPointerSlot = { pointer: secondDirectArrayPointer };
+    let directArrayFirst = ArrayPointerSlot { pointer: directArrayPointer };
+    let directArraySame = ArrayPointerSlot { pointer: directArrayPointer };
+    let directArraySecond = ArrayPointerSlot { pointer: secondDirectArrayPointer };
     let runtimeImportedGenericPointer =
         helper::passPointer[usize](helper::firstPointerSlot);
     let runtimeOnlyImportedGenericPointer =

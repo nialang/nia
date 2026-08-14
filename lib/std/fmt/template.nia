@@ -70,7 +70,7 @@ fn parse_spec_end(
     if index >= template.len() or template[index] != '}' {
         return core::Error::InvalidTemplate!;
     }
-    !{
+    !ParsedSpec {
         spec: core::FormatSpec::init(presentation, width, precision, fill, alignment, sign_plus, alternate),
         next_index: index + 1usize,
         dynamic_width: dynamic_width,

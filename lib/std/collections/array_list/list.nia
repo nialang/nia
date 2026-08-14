@@ -13,7 +13,7 @@ extend[T] ArrayList[T]
 where T: Sized
 {
     pub fn init() ArrayList[T] {
-        { items: raw::danglingSlice[T](0), capacity: 0 }
+        Self { items: raw::danglingSlice[T](0), capacity: 0 }
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
@@ -23,7 +23,7 @@ where T: Sized
     }
 
     pub fn fromOwnedSlice(items: &mut [T]) ArrayList[T] {
-        { items: items, capacity: items.len() }
+        Self { items, capacity: items.len() }
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {

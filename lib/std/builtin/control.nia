@@ -18,6 +18,14 @@ pub const fn embed(path: &[char]) ();
 @[builtin("AsmConfig")]
 pub type AsmConfig;
 
+// Target register or register-class inputs consumed by `AsmConfig`.
+@[builtin("AsmInputs")]
+pub type AsmInputs;
+
+// Target register or register-class output places consumed by `AsmConfig`.
+@[builtin("AsmOutputs")]
+pub type AsmOutputs;
+
 // Emits target inline assembly from a compiler-checked configuration literal.
 @[builtin("asm")]
 pub fn asm(config: AsmConfig) ();

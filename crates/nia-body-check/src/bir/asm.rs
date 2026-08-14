@@ -7,7 +7,7 @@ use nia_symbol::known;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn lower_inline_asm(&mut self, config: &Expr) -> TypedExprKind {
-        let ExprKind::StructLiteral { fields } = &config.kind else {
+        let Some(fields) = asm_literal_fields(config) else {
             return TypedExprKind::Error;
         };
         let mut code = String::new();
@@ -44,7 +44,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_asm_inputs(&mut self, expr: &Expr, out: &mut Vec<TypedAsmInput>) {
-        let ExprKind::StructLiteral { fields } = &expr.kind else {
+        let Some(fields) = asm_literal_fields(expr) else {
             return;
         };
         for field in fields {
@@ -57,7 +57,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_asm_outputs(&mut self, expr: &Expr, out: &mut Vec<TypedAsmOutput>) {
-        let ExprKind::StructLiteral { fields } = &expr.kind else {
+        let Some(fields) = asm_literal_fields(expr) else {
             return;
         };
         for field in fields {
@@ -121,6 +121,14 @@ impl<'a> BodyChecker<'a> {
             known::FREG => "=f".to_string(),
             _ => format!("={{{}}}", self.symbol_name(name)),
         }
+    }
+}
+
+fn asm_literal_fields(expr: &Expr) -> Option<&[nia_ast::FieldInit]> {
+    match &expr.kind {
+        ExprKind::TypedStructLiteral { fields, .. }
+        | ExprKind::QualifiedStructLiteral { fields, .. } => Some(fields),
+        _ => None,
     }
 }
 
