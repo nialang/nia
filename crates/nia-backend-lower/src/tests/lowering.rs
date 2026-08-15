@@ -667,6 +667,32 @@ fn main() i32 {
 }
 
 #[test]
+fn nested_local_static_shadowing_keeps_distinct_definition_ids() {
+    let source = r#"
+fn main() i32 {
+    static mut value: i32 = 1;
+    if true {
+        static mut value: i32 = 2;
+        value
+    } else {
+        value
+    }
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let values = module
+        .globals
+        .iter()
+        .filter(|global| global.name == sym("value"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(values.len(), 2, "nested static definitions: {values:?}");
+    assert_ne!(values[0].def_id, values[1].def_id);
+    assert!(values.iter().all(|global| global.init.is_some()));
+}
+
+#[test]
 fn instantiates_nested_generic_function_instance_args_in_canonical_store() {
     let source = r#"
 fn inner[T](value: T) T {

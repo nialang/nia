@@ -31,6 +31,31 @@ pub trait Visitor<'ast> {
     }
 }
 
+/// Visits every `static` statement reachable from a block, including blocks
+/// nested inside expressions (`if`, `match`, closures, and block tails).
+///
+/// Static declarations are semantically item-like, but syntactically they can
+/// occur anywhere a statement block is accepted. Consumers that build
+/// definitions, signatures, diagnostics, or backend globals should use this
+/// traversal instead of recursing over only loop statements.
+pub fn walk_static_bindings<'ast>(block: &'ast Block, callback: &mut impl FnMut(&'ast Stmt)) {
+    struct StaticVisitor<'a, F> {
+        callback: &'a mut F,
+    }
+
+    impl<'ast, F: FnMut(&'ast Stmt)> Visitor<'ast> for StaticVisitor<'_, F> {
+        fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+            if matches!(stmt.kind, StmtKind::Static(_)) {
+                (self.callback)(stmt);
+            }
+            walk_stmt(self, stmt);
+        }
+    }
+
+    let mut visitor = StaticVisitor { callback };
+    visitor.visit_block(block);
+}
+
 pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, module: &'ast Module) {
     for item in &module.items {
         visitor.visit_item(item);

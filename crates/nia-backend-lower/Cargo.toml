@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 nia-ast.workspace = true
+nia-ast-walk.workspace = true
 nia-backend-ir.workspace = true
 nia-const-check.workspace = true
 nia-function-ir.workspace = true

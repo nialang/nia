@@ -501,6 +501,7 @@ fn main() i32 {
     limit = 11;
     if flag { counter } else { limit }
 }
+
 "#,
     );
     assert!(
@@ -520,5 +521,31 @@ fn main() i32 {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("global type is not available"))
+    );
+}
+
+#[test]
+fn checks_mutable_references_to_static_storage() {
+    let checked = pipeline(
+        r#"
+static immutable: i32 = 1;
+static mut mutable: i32 = 2;
+
+fn main() i32 {
+    let read_only: &i32 = &immutable;
+    let writable: &mut i32 = &mut mutable;
+    let bad: &mut i32 = &mut immutable;
+    read_only.* + writable.* + bad.*
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("static is immutable")),
+        "{:?}",
+        checked.diagnostics
     );
 }

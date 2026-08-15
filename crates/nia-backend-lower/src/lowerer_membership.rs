@@ -77,50 +77,18 @@ impl<'a> ModuleLowerer<'a> {
         globals: &mut Vec<BackendGlobal>,
         worklist: &mut ReachabilityWorklist,
     ) {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                StmtKind::Static(binding) => {
-                    self.lower_local_static_global_binding(
-                        stmt.span,
-                        binding,
-                        owner_has_effective_generics,
-                        globals,
-                        worklist,
-                    );
-                }
-                StmtKind::ForIn(for_stmt) => {
-                    self.lower_block_static_globals(
-                        &for_stmt.body,
-                        owner_has_effective_generics,
-                        globals,
-                        worklist,
-                    );
-                }
-                StmtKind::While(while_stmt) => {
-                    self.lower_block_static_globals(
-                        &while_stmt.body,
-                        owner_has_effective_generics,
-                        globals,
-                        worklist,
-                    );
-                }
-                StmtKind::Loop(loop_stmt) => {
-                    self.lower_block_static_globals(
-                        &loop_stmt.body,
-                        owner_has_effective_generics,
-                        globals,
-                        worklist,
-                    );
-                }
-                StmtKind::Binding(_)
-                | StmtKind::Using(_)
-                | StmtKind::Expr(_)
-                | StmtKind::Return(_)
-                | StmtKind::Break
-                | StmtKind::Continue
-                | StmtKind::Defer(_) => {}
-            }
-        }
+        nia_ast_walk::walk_static_bindings(block, &mut |stmt| {
+            let StmtKind::Static(binding) = &stmt.kind else {
+                return;
+            };
+            self.lower_local_static_global_binding(
+                stmt.span,
+                binding,
+                owner_has_effective_generics,
+                globals,
+                worklist,
+            );
+        });
     }
 
     pub(crate) fn lower_local_static_global_binding(
