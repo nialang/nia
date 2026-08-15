@@ -66,6 +66,8 @@ backends directly.
 - `crates/nia-build/src/output_recovery.rs`: journaled multi-output recovery.
 - `crates/nia-pattern-analysis/src/lib.rs`: constructor-matrix usefulness,
   exhaustiveness, scalar-domain partitioning, and witness generation.
+- `docs/pattern-matching.md`: paper references, matrix semantics, soundness
+  invariants, conservative boundaries, and an audit checklist for this area.
 - `crates/nia-body-check/src/patterns/analysis.rs`: runtime typed-pattern and
   type-domain adapter for the shared matrix analysis.
 - `crates/nia-const-check/src/analyzer/switch_patterns/coverage.rs`: static
