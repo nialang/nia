@@ -205,6 +205,7 @@ impl<'a> SignatureCollector<'a> {
                 generic_params: self.generic_param_signatures(&item_struct.generics),
                 where_predicates: self.where_predicate_signatures(&item_struct.where_clause),
                 fields,
+                is_tuple: item_struct.is_tuple,
                 is_extern: item_struct.is_extern,
                 span: item.span,
             },

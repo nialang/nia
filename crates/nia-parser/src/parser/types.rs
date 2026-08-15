@@ -597,6 +597,20 @@ impl Parser {
         while !self.at(TokenKind::LBrace)
             && !self.at(TokenKind::Semicolon)
             && !self.at(TokenKind::Eof)
+            && !matches!(
+                self.peek().kind,
+                TokenKind::Struct
+                    | TokenKind::Union
+                    | TokenKind::Enum
+                    | TokenKind::Trait
+                    | TokenKind::Fn
+                    | TokenKind::Extern
+                    | TokenKind::Pub
+                    | TokenKind::Using
+                    | TokenKind::Module
+                    | TokenKind::Static
+                    | TokenKind::Type
+            )
         {
             let start = self.peek().span.start;
             let Some(ty) = self.parse_type_until(&[TokenKind::Colon]) else {
@@ -614,6 +628,17 @@ impl Parser {
                 TokenKind::Plus,
                 TokenKind::LBrace,
                 TokenKind::Semicolon,
+                TokenKind::Struct,
+                TokenKind::Union,
+                TokenKind::Enum,
+                TokenKind::Trait,
+                TokenKind::Fn,
+                TokenKind::Extern,
+                TokenKind::Pub,
+                TokenKind::Using,
+                TokenKind::Module,
+                TokenKind::Static,
+                TokenKind::Type,
             ]) {
                 let end = bound.span.end;
                 bounds.push(bound);

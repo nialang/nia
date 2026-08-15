@@ -527,13 +527,19 @@ impl<'a> BodyChecker<'a> {
                                 .signature
                                 .fields
                                 .into_iter()
-                                .filter_map(|expected| {
+                                .enumerate()
+                                .filter_map(|(index, expected)| {
                                     let (field, rest) = match fields {
                                         nia_ast::NominalPatternFields::Named { fields, rest } => (
-                                            fields.iter().find(|field| field.name == expected.name),
+                                            fields
+                                                .iter()
+                                                .find(|field| field.name == expected.name)
+                                                .map(|field| &field.pattern),
                                             *rest,
                                         ),
-                                        nia_ast::NominalPatternFields::Tuple(_) => return None,
+                                        nia_ast::NominalPatternFields::Tuple(fields) => {
+                                            (fields.get(index), None)
+                                        }
                                     };
                                     let field_def =
                                         self.field_def_for_nominal(def_id, &expected.name)?;
@@ -546,7 +552,7 @@ impl<'a> BodyChecker<'a> {
                                             span: rest.unwrap_or(pattern.span),
                                             kind: TypedPatternKind::Wildcard,
                                         },
-                                        |field| self.lower_pattern(&field.pattern, field_ty),
+                                        |field| self.lower_pattern(field, field_ty),
                                     );
                                     Some((field_def, pattern))
                                 })
@@ -1211,7 +1217,32 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Call { callee, args } => {
-                if let Some((enum_id, variant_def)) = self.enum_variant_info(callee) {
+                if let Some((def_id, _, _)) = self.type_prefix_instance(callee)
+                    && self
+                        .resolved_struct_signature(def_id)
+                        .is_some_and(|resolved| resolved.signature.is_tuple)
+                {
+                    let fields = self
+                        .resolved_struct_signature(def_id)
+                        .map(|resolved| resolved.signature.fields)
+                        .unwrap_or_default();
+                    TypedExprKind::StructLiteral {
+                        def_id,
+                        fields: args
+                            .iter()
+                            .zip(fields)
+                            .map(|(arg, field)| {
+                                let field_ty = self.field_ty_for_aggregate_ty(ty, &field.name);
+                                TypedFieldInit {
+                                    field: self.field_def_for_aggregate_ty(ty, &field.name),
+                                    name: self.symbol_name(field.name),
+                                    value: self.lower_expr_with_ty(arg, field_ty),
+                                    span: arg.span,
+                                }
+                            })
+                            .collect(),
+                    }
+                } else if let Some((enum_id, variant_def)) = self.enum_variant_info(callee) {
                     TypedExprKind::EnumVariant {
                         variant: nia_ids::GlobalDefId {
                             module_id: enum_id.module_id,

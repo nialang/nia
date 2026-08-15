@@ -237,6 +237,7 @@ pub struct StructSignature {
     pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
+    pub is_tuple: bool,
     pub is_extern: bool,
     pub span: Span,
 }
@@ -379,6 +380,7 @@ impl UnionSignature {
             generic_params: self.generic_params.clone(),
             where_predicates: self.where_predicates.clone(),
             fields: self.fields.clone(),
+            is_tuple: false,
             is_extern: self.is_extern,
             span: self.span,
         }

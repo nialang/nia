@@ -137,6 +137,8 @@ pub struct StructItem {
     pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub fields: Vec<Field>,
+    /// Positional fields use tuple construction and projection syntax.
+    pub is_tuple: bool,
     pub is_extern: bool,
 }
 

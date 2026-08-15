@@ -837,6 +837,17 @@ impl Analyzer<'_> {
         }
     }
 
+    pub(super) fn struct_ty_in_current_module(&self, struct_id: GlobalDefId) -> InternedTyId {
+        self.input
+            .type_store
+            .append_for_module(self.current_execution_module_id())
+            .intern(TyKind::Nominal {
+                def_id: struct_id,
+                args: Vec::new(),
+                const_args: Vec::new(),
+            })
+    }
+
     pub(super) fn current_execution_module_id(&self) -> ModuleId {
         if let Some(module_id) = self.execution_module_overrides.last().copied() {
             return module_id;

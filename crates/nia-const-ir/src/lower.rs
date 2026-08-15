@@ -404,6 +404,28 @@ fn lower_call_with_context(
         ),
         _ => (callee, Vec::new()),
     };
+    if let Some(def_id) = context.probe_type_prefix(&callee.node_key)
+        && generic_args.is_empty()
+    {
+        let fields = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                let name = context
+                    .intern_name(&index.to_string(), arg.span)?
+                    .ok_or_else(|| ConstLowerError {
+                        span: arg.span,
+                        message: "failed to intern tuple struct field name".to_string(),
+                    })?;
+                Ok(EarlyConstFieldInit {
+                    span: arg.span,
+                    name,
+                    value: lower_expr_internal(arg, context)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ConstLowerError>>()?;
+        return Ok(EarlyConstExprKind::TupleStructLiteral { def_id, fields });
+    }
     if let nia_ast::ExprKind::Field { lhs, name } = &callee.kind {
         return Ok(EarlyConstExprKind::Call {
             callee: Box::new(EarlyConstExpr {
@@ -1103,11 +1125,27 @@ fn lower_pattern_with_context(
             fields,
         } => {
             if let Some(def_id) = context.probe_type_prefix(&constructor.node_key) {
-                let nia_ast::NominalPatternFields::Named { fields, rest } = fields else {
-                    return Err(ConstLowerError {
-                        span: pattern.span,
-                        message: "const struct patterns require named fields".to_string(),
-                    });
+                let (fields, rest) = match fields {
+                    nia_ast::NominalPatternFields::Named { fields, rest } => (
+                        fields
+                            .iter()
+                            .map(|field| (field.name, &field.pattern, field.span))
+                            .collect::<Vec<_>>(),
+                        *rest,
+                    ),
+                    nia_ast::NominalPatternFields::Tuple(fields) => {
+                        let mut named = Vec::with_capacity(fields.len());
+                        for (index, field) in fields.iter().enumerate() {
+                            let name = context
+                                .intern_name(&index.to_string(), field.span)?
+                                .ok_or_else(|| ConstLowerError {
+                                    span: field.span,
+                                    message: "failed to intern tuple struct field name".to_string(),
+                                })?;
+                            named.push((name, field, field.span));
+                        }
+                        (named, None)
+                    }
                 };
                 return Ok(EarlyConstPattern::Struct {
                     def_id,
@@ -1115,13 +1153,13 @@ fn lower_pattern_with_context(
                         .iter()
                         .map(|field| {
                             Ok(ConstNamedPatternField {
-                                name: field.name,
-                                pattern: lower_pattern_with_context(&field.pattern, context)?,
-                                span: field.span,
+                                name: field.0,
+                                pattern: lower_pattern_with_context(field.1, context)?,
+                                span: field.2,
                             })
                         })
                         .collect::<Result<Vec<_>, ConstLowerError>>()?,
-                    rest: *rest,
+                    rest,
                     span: pattern.span,
                 });
             }

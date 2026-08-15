@@ -284,7 +284,8 @@ impl<'a> BodyChecker<'a> {
                 target
             }
             ExprKind::Call { callee, args } => self
-                .check_enum_variant_call(expr, callee, args)
+                .check_tuple_struct_call(expr, callee, args)
+                .or_else(|| self.check_enum_variant_call(expr, callee, args))
                 .unwrap_or_else(|| self.check_call(expr, callee, args, expected)),
             ExprKind::Field { lhs, name } => self.check_field_access(expr, lhs, name),
             ExprKind::TupleField { lhs, index } => {

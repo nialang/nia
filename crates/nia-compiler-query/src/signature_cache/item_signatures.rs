@@ -295,6 +295,9 @@ pub(crate) fn write_struct_signature(
     write_generic_params(encoded, &signature.generic_params, graph)?;
     write_where_predicates(encoded, &signature.where_predicates, graph)?;
     write_fields(encoded, &signature.fields, graph)?;
+    // Keep the tuple-shape bit adjacent to fields; changing this order makes
+    // old cache payloads fail decoding rather than silently changing layout.
+    write_bool(encoded, signature.is_tuple);
     write_bool(encoded, signature.is_extern);
     write_span(encoded, signature.span);
     Ok(())
@@ -311,6 +314,7 @@ pub(crate) fn read_struct_signature(
         generic_params: read_generic_params(cursor, types, symbols)?,
         where_predicates: read_where_predicates(cursor, types, symbols, source_len)?,
         fields: read_fields(cursor, types, symbols, source_len)?,
+        is_tuple: read_bool(cursor)?,
         is_extern: read_bool(cursor)?,
         span: read_span(cursor, source_len)?,
     })

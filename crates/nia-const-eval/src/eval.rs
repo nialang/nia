@@ -308,6 +308,16 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::StructLiteral { ty, fields } => {
             return aggregates::eval_resolved_struct_literal_flow(span, *ty, fields, env);
         }
+        ResolvedConstExprKind::TupleStructLiteral { fields, .. } => {
+            let mut values = std::collections::BTreeMap::new();
+            for field in fields {
+                values.insert(
+                    *field.name_symbol(),
+                    eval_resolved_value_or_return_flow!(field.value(), env),
+                );
+            }
+            return Ok(ConstEvalFlow::Value(ConstValue::Struct(values)));
+        }
         ResolvedConstExprKind::EnumStructLiteral { variant, fields } => {
             return aggregates::eval_resolved_enum_struct_literal_flow(span, variant, fields, env);
         }
@@ -631,6 +641,13 @@ fn eval_const_expr_flow(
         }
         EarlyConstExprKind::StructLiteral { fields, .. } => {
             return aggregates::eval_struct_literal_flow(fields, env);
+        }
+        EarlyConstExprKind::TupleStructLiteral { fields, .. } => {
+            let mut values = std::collections::BTreeMap::new();
+            for field in fields {
+                values.insert(field.name, eval_value_or_return_flow!(&field.value, env));
+            }
+            return Ok(ConstEvalFlow::Value(ConstValue::Struct(values)));
         }
         EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
             return aggregates::eval_enum_struct_literal_flow(expr.span, variant, fields, env);

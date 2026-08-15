@@ -196,6 +196,15 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                 .map(resolve_const_field_init)
                 .collect::<Result<Vec<_>, _>>()?,
         },
+        EarlyConstExprKind::TupleStructLiteral { def_id, fields } => {
+            ResolvedConstExprKind::TupleStructLiteral {
+                def_id,
+                fields: fields
+                    .into_iter()
+                    .map(resolve_const_field_init)
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
         EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
             ResolvedConstExprKind::EnumStructLiteral {
                 variant: Box::new(resolve_expr(*variant)?),

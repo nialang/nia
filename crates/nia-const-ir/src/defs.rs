@@ -1020,6 +1020,11 @@ pub enum ResolvedConstExprKind {
         ty: InternedTyId,
         fields: Vec<ResolvedConstFieldInit>,
     },
+    /// Positional nominal construction lowered from `Type(value, ...)`.
+    TupleStructLiteral {
+        def_id: GlobalDefId,
+        fields: Vec<ResolvedConstFieldInit>,
+    },
     EnumStructLiteral {
         variant: Box<ResolvedConstExpr>,
         fields: Vec<ResolvedConstFieldInit>,
@@ -1566,6 +1571,11 @@ pub enum EarlyConstExprKind {
         /// The source syntax names every constructed aggregate. Resolution
         /// may still fail inside this type argument, but it is never absent.
         ty: EarlyConstTypeArg,
+        fields: Vec<EarlyConstFieldInit>,
+    },
+    /// Positional nominal construction lowered from `Type(value, ...)`.
+    TupleStructLiteral {
+        def_id: GlobalDefId,
         fields: Vec<EarlyConstFieldInit>,
     },
     EnumStructLiteral {

@@ -301,6 +301,51 @@ impl Parser {
         self.expect(TokenKind::Struct, "expected `struct`")?;
         let name = self.expect_name(TokenKind::Ident, "expected struct name")?;
         let generics = self.parse_generic_params();
+        if self.eat(TokenKind::LParen).is_some() {
+            if is_extern {
+                self.error_here("extern tuple structs are not supported");
+            }
+            let mut fields = Vec::new();
+            while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                let start = self.peek().span.start;
+                let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
+                let index = fields.len();
+                let field_name = match self.symbols.intern(&index.to_string()) {
+                    Ok(symbol) => symbol,
+                    Err(collision) => {
+                        self.error_at(
+                            Span::new(start, ty.span.end),
+                            format!("failed to create positional field name: {collision}"),
+                        );
+                        nia_symbol::SymbolId::EMPTY
+                    }
+                };
+                fields.push(self.make_field(
+                    field_name,
+                    ty.clone(),
+                    Vec::new(),
+                    Span::new(start, ty.span.end),
+                ));
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if fields.is_empty() {
+                self.error_here(
+                    "tuple struct requires at least one field; use `{}` for an empty struct",
+                );
+            }
+            self.expect(TokenKind::RParen, "expected `)` after tuple struct fields")?;
+            let where_clause = self.parse_where_clause();
+            return Some(StructItem {
+                name,
+                generics,
+                where_clause,
+                fields,
+                is_tuple: true,
+                is_extern,
+            });
+        }
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after struct name")?;
         let mut fields = Vec::new();
@@ -324,6 +369,7 @@ impl Parser {
             generics,
             where_clause,
             fields,
+            is_tuple: false,
             is_extern,
         })
     }

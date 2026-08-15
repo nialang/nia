@@ -12,6 +12,25 @@ fn test_backend_symbol_suffix(symbol: SymbolId) -> String {
 }
 
 #[test]
+fn codegens_tuple_struct_constructor_projection_and_match() {
+    let root = temp_dir("tuple_struct_codegen");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct FooId(u64)
+
+fn main() u64 {
+    let id = FooId(41u64);
+    match id {
+        FooId(value) => value + 1,
+    }
+}
+"#,
+    );
+    let _program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+}
+
+#[test]
 fn error_union_structural_extend_supports_conversion_methods() {
     let root = temp_dir("error_union_structural_extend_supports_conversion_methods");
     write(
