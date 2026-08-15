@@ -175,6 +175,7 @@ version = "0.4.3"
 dependencies = [
  "nia-abi-check",
  "nia-ast",
+ "nia-ast-walk",
  "nia-backend-ir",
  "nia-body-check",
  "nia-const-check",
@@ -476,6 +477,7 @@ name = "nia-defs"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
+ "nia-ast-walk",
  "nia-diagnostic",
  "nia-ids",
  "nia-item-tree",
@@ -662,6 +664,7 @@ name = "nia-item-signatures"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
+ "nia-ast-walk",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
@@ -957,6 +960,7 @@ name = "nia-static-check"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
+ "nia-ast-walk",
  "nia-const-check",
  "nia-const-eval",
  "nia-const-ir",

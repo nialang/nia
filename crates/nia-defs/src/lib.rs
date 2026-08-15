@@ -1244,52 +1244,20 @@ impl<'a> Collector<'a> {
         block: &Block,
         visibility: Visibility,
     ) {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                StmtKind::Static(binding) => {
-                    let def_id = self.push_member_def(
-                        owner_identity.child(DefKind::Global, &binding.name),
-                        Some(parent),
-                        binding.name,
-                        DefKind::Global,
-                        visibility,
-                        stmt.span,
-                    );
-                    self.def_nodes.insert(binding.node_key.clone(), def_id);
-                }
-                StmtKind::ForIn(for_stmt) => {
-                    self.collect_block_static_bindings(
-                        owner_identity,
-                        parent,
-                        &for_stmt.body,
-                        visibility,
-                    );
-                }
-                StmtKind::While(while_stmt) => {
-                    self.collect_block_static_bindings(
-                        owner_identity,
-                        parent,
-                        &while_stmt.body,
-                        visibility,
-                    );
-                }
-                StmtKind::Loop(loop_stmt) => {
-                    self.collect_block_static_bindings(
-                        owner_identity,
-                        parent,
-                        &loop_stmt.body,
-                        visibility,
-                    );
-                }
-                StmtKind::Binding(_)
-                | StmtKind::Using(_)
-                | StmtKind::Expr(_)
-                | StmtKind::Return(_)
-                | StmtKind::Break
-                | StmtKind::Continue
-                | StmtKind::Defer(_) => {}
-            }
-        }
+        nia_ast_walk::walk_static_bindings(block, &mut |stmt| {
+            let StmtKind::Static(binding) = &stmt.kind else {
+                return;
+            };
+            let def_id = self.push_member_def(
+                owner_identity.child(DefKind::Global, &binding.name),
+                Some(parent),
+                binding.name,
+                DefKind::Global,
+                visibility,
+                stmt.span,
+            );
+            self.def_nodes.insert(binding.node_key.clone(), def_id);
+        });
     }
 
     fn push_associated_value_def(

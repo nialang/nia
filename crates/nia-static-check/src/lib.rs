@@ -169,21 +169,11 @@ impl StaticChecker<'_> {
     }
 
     fn check_block_static_bindings(&mut self, block: &Block) {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                StmtKind::Static(binding) => self.check_global_binding(stmt.span, binding),
-                StmtKind::ForIn(for_stmt) => self.check_block_static_bindings(&for_stmt.body),
-                StmtKind::While(while_stmt) => self.check_block_static_bindings(&while_stmt.body),
-                StmtKind::Loop(loop_stmt) => self.check_block_static_bindings(&loop_stmt.body),
-                StmtKind::Binding(_)
-                | StmtKind::Using(_)
-                | StmtKind::Expr(_)
-                | StmtKind::Return(_)
-                | StmtKind::Break
-                | StmtKind::Continue
-                | StmtKind::Defer(_) => {}
+        nia_ast_walk::walk_static_bindings(block, &mut |stmt| {
+            if let StmtKind::Static(binding) = &stmt.kind {
+                self.check_global_binding(stmt.span, binding);
             }
-        }
+        });
     }
 
     fn check_global_binding(&mut self, span: Span, binding: &BindingItem) {
@@ -1036,6 +1026,33 @@ static mut copy: [i32; 2] = values;
             checked.diagnostics.iter().any(|diagnostic| diagnostic
                 .summary
                 .contains("const value is not representable as static initializer data")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn checks_static_nested_in_expression_blocks() {
+        let checked = check(
+            r#"
+fn make() i32 { 1 }
+
+fn main() i32 {
+    if true {
+        static bad: i32 = make();
+        bad
+    } else {
+        0
+    }
+}
+"#,
+        );
+
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("function calls")),
             "{:?}",
             checked.diagnostics
         );

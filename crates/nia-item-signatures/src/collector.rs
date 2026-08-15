@@ -562,42 +562,25 @@ impl<'a> SignatureCollector<'a> {
     }
 
     fn collect_block_static_signatures(&mut self, signatures: &mut ItemSignatures, block: &Block) {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                StmtKind::Static(binding) => {
-                    let Some(def_id) =
-                        self.def_id_for_node(&binding.node_key, stmt.span, DefKind::Global)
-                    else {
-                        continue;
-                    };
-                    signatures.globals.insert(
-                        def_id,
-                        GlobalSignature {
-                            explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
-                            is_mutable: binding.is_mutable(),
-                            is_extern: false,
-                            span: stmt.span,
-                        },
-                    );
-                }
-                StmtKind::ForIn(for_stmt) => {
-                    self.collect_block_static_signatures(signatures, &for_stmt.body);
-                }
-                StmtKind::While(while_stmt) => {
-                    self.collect_block_static_signatures(signatures, &while_stmt.body);
-                }
-                StmtKind::Loop(loop_stmt) => {
-                    self.collect_block_static_signatures(signatures, &loop_stmt.body);
-                }
-                StmtKind::Binding(_)
-                | StmtKind::Using(_)
-                | StmtKind::Expr(_)
-                | StmtKind::Return(_)
-                | StmtKind::Break
-                | StmtKind::Continue
-                | StmtKind::Defer(_) => {}
-            }
-        }
+        nia_ast_walk::walk_static_bindings(block, &mut |stmt| {
+            let StmtKind::Static(binding) = &stmt.kind else {
+                return;
+            };
+            let Some(def_id) = self.def_id_for_node(&binding.node_key, stmt.span, DefKind::Global)
+            else {
+                return;
+            };
+            let explicit_type = binding.ty.as_ref().map(|ty| self.ty_for_type(ty));
+            signatures.globals.insert(
+                def_id,
+                GlobalSignature {
+                    explicit_type,
+                    is_mutable: binding.is_mutable(),
+                    is_extern: false,
+                    span: stmt.span,
+                },
+            );
+        });
     }
 
     fn collect_global(
