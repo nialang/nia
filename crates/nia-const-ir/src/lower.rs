@@ -884,23 +884,32 @@ fn lower_stmt_with_context(
                     message: "const function binding requires an initializer".to_string(),
                 });
             };
-            let (name, node_key) =
-                single_pattern_binding(&binding.pattern).ok_or_else(|| ConstLowerError {
-                    span: binding.pattern.span,
-                    message: "const function binding requires a single binding pattern".to_string(),
-                })?;
-            EarlyConstStmtKind::Binding(EarlyConstBinding {
-                span: stmt.span,
-                name: *name,
-                local_id: lower_local_id(context, node_key, binding.pattern.span)?,
-                explicit_type: binding
-                    .ty
-                    .as_ref()
-                    .map(|ty| lower_type_arg(ty, context))
-                    .transpose()?,
-                is_mutable: binding.is_mutable(),
-                value: lower_expr_internal(value, context)?,
-            })
+            let explicit_type = binding
+                .ty
+                .as_ref()
+                .map(|ty| lower_type_arg(ty, context))
+                .transpose()?;
+            let value = lower_expr_internal(value, context)?;
+            // Keep the compact, established IR for a single name. Every other binding shape must
+            // preserve its recursive pattern so checking and evaluation can agree on projections.
+            if let Some((name, node_key)) = single_pattern_binding(&binding.pattern) {
+                EarlyConstStmtKind::Binding(EarlyConstBinding {
+                    span: stmt.span,
+                    name: *name,
+                    local_id: lower_local_id(context, node_key, binding.pattern.span)?,
+                    explicit_type,
+                    is_mutable: binding.is_mutable(),
+                    value,
+                })
+            } else {
+                EarlyConstStmtKind::PatternBinding(Box::new(EarlyConstPatternBinding {
+                    span: stmt.span,
+                    pattern: lower_pattern_with_context(&binding.pattern, context)?,
+                    explicit_type,
+                    is_mutable: binding.is_mutable(),
+                    value,
+                }))
+            }
         }
         nia_ast::StmtKind::Static(_) => {
             return Err(ConstLowerError {
@@ -1089,35 +1098,53 @@ fn lower_pattern_with_context(
                 .collect::<Result<Vec<_>, _>>()?,
             span: pattern.span,
         }),
-        nia_ast::PatternKind::EnumVariant { variant, fields } => {
+        nia_ast::PatternKind::Nominal {
+            constructor,
+            fields,
+        } => {
+            if let Some(def_id) = context.probe_type_prefix(&constructor.node_key) {
+                let nia_ast::NominalPatternFields::Named(fields) = fields else {
+                    return Err(ConstLowerError {
+                        span: pattern.span,
+                        message: "const struct patterns require named fields".to_string(),
+                    });
+                };
+                return Ok(EarlyConstPattern::Struct {
+                    def_id,
+                    fields: fields
+                        .iter()
+                        .map(|field| {
+                            Ok(ConstNamedPatternField {
+                                name: field.name,
+                                pattern: lower_pattern_with_context(&field.pattern, context)?,
+                                span: field.span,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ConstLowerError>>()?,
+                    span: pattern.span,
+                });
+            }
             Ok(EarlyConstPattern::EnumVariant {
-                variant: lower_expr_internal(variant, context)?,
+                variant: lower_expr_internal(constructor, context)?,
                 fields: match fields {
-                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
-                        ConstEnumPatternFields::Tuple(
-                            fields
-                                .iter()
-                                .map(|field| lower_pattern_with_context(field, context))
-                                .collect::<Result<Vec<_>, _>>()?,
-                        )
-                    }
-                    nia_ast::EnumVariantPatternFields::Named(fields) => {
-                        ConstEnumPatternFields::Named(
-                            fields
-                                .iter()
-                                .map(|field| {
-                                    Ok(ConstNamedPatternField {
-                                        name: field.name,
-                                        pattern: lower_pattern_with_context(
-                                            &field.pattern,
-                                            context,
-                                        )?,
-                                        span: field.span,
-                                    })
+                    nia_ast::NominalPatternFields::Tuple(fields) => ConstEnumPatternFields::Tuple(
+                        fields
+                            .iter()
+                            .map(|field| lower_pattern_with_context(field, context))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                    nia_ast::NominalPatternFields::Named(fields) => ConstEnumPatternFields::Named(
+                        fields
+                            .iter()
+                            .map(|field| {
+                                Ok(ConstNamedPatternField {
+                                    name: field.name,
+                                    pattern: lower_pattern_with_context(&field.pattern, context)?,
+                                    span: field.span,
                                 })
-                                .collect::<Result<Vec<_>, ConstLowerError>>()?,
-                        )
-                    }
+                            })
+                            .collect::<Result<Vec<_>, ConstLowerError>>()?,
+                    ),
                 },
                 span: pattern.span,
             })

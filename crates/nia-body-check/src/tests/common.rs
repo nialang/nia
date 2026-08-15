@@ -563,9 +563,23 @@ pub(super) fn semantic_use_table(
             nia_local_resolve::LocalUse::Static(global_id) => {
                 builder.insert_node_global_value_use(key.clone(), *global_id);
             }
+            nia_local_resolve::LocalUse::TypePrefix => {
+                let def_id = match type_resolution.node_type_names.get(key.site()) {
+                    Some(nia_type_resolve::TypeNameResolution::Def(def_id)) => {
+                        Some(nia_ids::GlobalDefId {
+                            module_id,
+                            def_id: *def_id,
+                        })
+                    }
+                    Some(nia_type_resolve::TypeNameResolution::External(def_id)) => Some(*def_id),
+                    _ => None,
+                };
+                if let Some(def_id) = def_id {
+                    builder.insert_node_type_prefix(key.clone(), def_id);
+                }
+            }
             nia_local_resolve::LocalUse::ModuleValue
             | nia_local_resolve::LocalUse::Module
-            | nia_local_resolve::LocalUse::TypePrefix
             | nia_local_resolve::LocalUse::Unresolved => {}
         }
     }
@@ -578,6 +592,12 @@ pub(super) fn semantic_use_table(
     builder.extend_node_type_prefixes(
         values
             .node_qualified_type_prefixes
+            .iter()
+            .map(|(key, def_id)| (key.clone(), *def_id)),
+    );
+    builder.extend_node_type_prefixes(
+        locals
+            .node_type_prefixes
             .iter()
             .map(|(key, def_id)| (key.clone(), *def_id)),
     );

@@ -101,6 +101,13 @@ pub(super) fn early_pattern_matches(
                 |value, pattern, bindings| early_pattern_matches(value, pattern, env, bindings),
             )
         }
+        EarlyConstPattern::Struct { fields, span, .. } => struct_pattern_matches(
+            target,
+            fields,
+            bindings,
+            *span,
+            |value, pattern, bindings| early_pattern_matches(value, pattern, env, bindings),
+        ),
         EarlyConstPattern::Expr(pattern) => {
             let pattern = super::eval_const_expr(pattern, env)?;
             Ok(super::values_equal(target, &pattern).unwrap_or(false))
@@ -211,6 +218,13 @@ pub(super) fn resolved_pattern_matches(
                 |value, pattern, bindings| resolved_pattern_matches(value, pattern, env, bindings),
             )
         }
+        ResolvedConstPatternKind::Struct { fields, span, .. } => struct_pattern_matches(
+            target,
+            fields,
+            bindings,
+            *span,
+            |value, pattern, bindings| resolved_pattern_matches(value, pattern, env, bindings),
+        ),
         ResolvedConstPatternKind::Expr(pattern) => {
             let pattern = super::eval_resolved_const_expr_value(pattern, env)?;
             Ok(super::values_equal(target, &pattern).unwrap_or(false))
@@ -222,6 +236,40 @@ pub(super) fn resolved_pattern_matches(
             span,
         } => resolved_switch_range_matches(target, start, end, *inclusive, *span, env),
     }
+}
+
+fn struct_pattern_matches<P>(
+    target: &ConstValue,
+    fields: &[nia_const_ir::ConstNamedPatternField<P>],
+    bindings: &mut Vec<ConstSwitchBinding>,
+    span: Span,
+    mut pattern_matches: impl FnMut(
+        &ConstValue,
+        &P,
+        &mut Vec<ConstSwitchBinding>,
+    ) -> Result<bool, ConstError>,
+) -> Result<bool, ConstError> {
+    // Constructor identity and the complete field set are type-checking invariants. Evaluation
+    // only performs the recursive value match, using names because ConstValue stores struct fields
+    // by symbol rather than declaration index.
+    let ConstValue::Struct(values) = target else {
+        return Err(ConstError {
+            span,
+            message: "const struct pattern requires a struct target".to_string(),
+        });
+    };
+    for field in fields {
+        let Some(value) = values.get(&field.name) else {
+            return Err(ConstError {
+                span: field.span,
+                message: "const struct pattern references a missing field".to_string(),
+            });
+        };
+        if !pattern_matches(value, &field.pattern, bindings)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn enum_pattern_matches<P>(
@@ -377,6 +425,20 @@ pub(super) fn bind_pattern_value(
     )
 }
 
+pub(super) fn bind_function_pattern_value(
+    binding: &ConstSwitchBinding,
+    pattern_binding: &EarlyConstPatternBinding,
+    env: &mut impl EarlyConstEnv,
+) -> Result<(), ConstError> {
+    env.bind_function_pattern_local(
+        binding.span,
+        pattern_binding,
+        &binding.name,
+        binding.local_id,
+        binding.value.clone(),
+    )
+}
+
 pub(super) fn bind_resolved_pattern_value(
     binding: &ConstSwitchBinding,
     env: &mut impl ResolvedConstEnv,
@@ -385,4 +447,21 @@ pub(super) fn bind_resolved_pattern_value(
         .local_id
         .expect("resolved const switch pattern must have a local id");
     env.bind_resolved_pattern_local(binding.span, &binding.name, local_id, binding.value.clone())
+}
+
+pub(super) fn bind_resolved_function_pattern_value(
+    binding: &ConstSwitchBinding,
+    pattern_binding: &ResolvedConstPatternBinding,
+    env: &mut impl ResolvedConstEnv,
+) -> Result<(), ConstError> {
+    let local_id = binding
+        .local_id
+        .expect("resolved const pattern binding must have a local id");
+    env.bind_resolved_function_pattern_local(
+        binding.span,
+        pattern_binding,
+        &binding.name,
+        local_id,
+        binding.value.clone(),
+    )
 }

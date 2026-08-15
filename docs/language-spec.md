@@ -1010,6 +1010,21 @@ items` are binding destructuring forms too, but they are parsed on local/loop
 bindings through the irrefutable subset of the same pattern model. `switch`
 accepts the refutable forms shown above as well as pointer patterns.
 
+Nominal patterns destructure structs and named enum payloads:
+
+```nia
+let Point { x, y: renamed } = point;
+
+switch event {
+    Event::Resize { width, height: h } => width + h,
+}
+```
+
+A field written as `x` is shorthand for `x: x`; `field: _` discards that
+field. Fields may appear in any source order, but every declared field is
+required. Nia does not currently have a `..` rest pattern. Struct patterns use
+the nominal constructor (`Point { ... }`), not an anonymous `{ ... }` pattern.
+
 ### 4.6 Structs
 
 Struct declaration:
@@ -1575,8 +1590,9 @@ Integers may be explicitly cast to open enums:
 let mut flag: Flag = 3 as Flag;
 ```
 
-`switch` is the canonical multi-arm matching expression. It matches scalar and
-enum values and may recursively destructure optional and error-union values:
+`switch` is the canonical multi-arm matching expression. It matches scalar,
+enum, and nominal struct values and may recursively destructure their fields,
+optional values, and error-union values:
 
 ```nia
 let mut value = switch c {
@@ -1638,6 +1654,20 @@ error union. `null` matches the empty optional case. `_` and a bare binding are
 catch-all patterns. These patterns may nest across optional and error-union
 layers, and pointer patterns such as `&value` use ordinary Nia pointer-copy
 semantics.
+
+Struct and named enum-payload patterns use one nominal field syntax. Field
+shorthand binds a same-named local, while an explicit subpattern can rename,
+discard, or recursively match the field:
+
+```nia
+switch point {
+    Point { x: 0, y } => y,
+    Point { x: _, y: _ } => 0,
+}
+```
+
+All fields are required and duplicate or unknown fields are rejected. A fully
+irrefutable struct pattern acts as a catch-all for exhaustiveness purposes.
 
 A bare identifier in a pattern always introduces a binding. Named constant and
 enum value patterns must be syntactically explicit: use a qualified path such as
@@ -1851,7 +1881,20 @@ trap primitive. Merely declaring it in a branch does not execute it.
 whose evaluated const string becomes the diagnostic message.
 
 Constant evaluation may use ordinary `let mut` locals for loops, accumulation,
-and aggregate construction. Each call receives fresh local state. Taking the
+aggregate construction, and destructuring. Const-function bindings use the same
+irrefutable pattern rules as runtime bindings. A type annotation constrains the
+whole pattern, and `let mut PATTERN` makes every local bound by that pattern
+mutable:
+
+```nia
+const fn adjustedSum(point: Point) i32 {
+    let mut Point { x, y }: Point = point;
+    x += 1;
+    x + y
+}
+```
+
+Each call receives fresh local state. Taking the
 address of a local creates a transient place pointer to that call's allocation;
 dereferencing it reads the current allocation value rather than a snapshot, and
 pointer equality compares allocation plus projection identity rather than
@@ -2016,8 +2059,11 @@ whole pattern. It therefore constrains both `value` and the recursive pattern;
 `let &x: &T = ptr` is the annotated form, while `let &x: T = ptr` is a type
 mismatch. This single rule also applies to tuple and nested pointer patterns.
 Pointer-destructuring local bindings require an initializer. Local and loop
-bindings accept only the irrefutable subset of the pattern language; ordinary
-struct value patterns are not currently part of the language.
+bindings accept only the irrefutable subset of the pattern language. This
+includes exhaustive struct patterns whose recursive field patterns are all
+irrefutable, such as `let Point { x, y } = point;`; enum-variant patterns and
+struct patterns containing value/range/optional cases remain refutable and are
+rejected in a binding.
 
 ## 7. Statements And Semicolons
 

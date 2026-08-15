@@ -554,19 +554,22 @@ impl Pruner<'_> {
                         .map(|field| self.prune_pattern(field))
                         .collect(),
                 ),
-                PatternKind::EnumVariant { variant, fields } => PatternKind::EnumVariant {
-                    variant: Box::new(self.prune_expr(*variant)),
+                PatternKind::Nominal {
+                    constructor: variant,
+                    fields,
+                } => PatternKind::Nominal {
+                    constructor: Box::new(self.prune_expr(*variant)),
                     fields: match fields {
-                        nia_ast::EnumVariantPatternFields::Tuple(fields) => {
-                            nia_ast::EnumVariantPatternFields::Tuple(
+                        nia_ast::NominalPatternFields::Tuple(fields) => {
+                            nia_ast::NominalPatternFields::Tuple(
                                 fields
                                     .into_iter()
                                     .map(|field| self.prune_pattern(field))
                                     .collect(),
                             )
                         }
-                        nia_ast::EnumVariantPatternFields::Named(fields) => {
-                            nia_ast::EnumVariantPatternFields::Named(
+                        nia_ast::NominalPatternFields::Named(fields) => {
+                            nia_ast::NominalPatternFields::Named(
                                 fields
                                     .into_iter()
                                     .map(|mut field| {

@@ -546,6 +546,105 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
 }
 
 #[test]
+fn parses_nominal_patterns_with_shorthand_and_renaming() {
+    let (module, errors) = parse_module(
+        r#"
+struct Point { x: i32, y: i32 }
+enum Event { Resize { width: i32, height: i32 } }
+
+fn inspect(point: Point, event: Event) i32 {
+    let Point { y: second, x } = point;
+    switch event {
+        Event::Resize { width, height: h } => x + second + width + h,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    let PatternKind::Nominal {
+        constructor,
+        fields: nia_ast::NominalPatternFields::Named(fields),
+    } = &binding.pattern.kind
+    else {
+        panic!("expected struct pattern");
+    };
+    assert!(matches!(constructor.kind, ExprKind::Ident(name) if name == sym("Point")));
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, sym("y"));
+    assert!(matches!(
+        fields[0].pattern.kind,
+        PatternKind::Bind { name, .. } if name == sym("second")
+    ));
+    assert_eq!(fields[1].name, sym("x"));
+    assert!(matches!(
+        fields[1].pattern.kind,
+        PatternKind::Bind { name, .. } if name == sym("x")
+    ));
+}
+
+#[test]
+fn parses_named_nominal_pattern_inside_error_payload() {
+    let (module, errors) = parse_module(
+        r#"
+enum Operation { Read, Write }
+enum Failure { System { operation: Operation, code: i32 } }
+
+fn inspect(value: Failure!i32) i32 {
+    switch value {
+        Failure::System { operation: Operation::Read, code: _ }! => 1,
+        _ => 0,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected tail").kind else {
+        panic!("expected switch expression");
+    };
+    assert!(matches!(
+        &switch.arms[0].patterns[0].kind,
+        PatternKind::ErrorErr(inner)
+            if matches!(
+                &inner.kind,
+                PatternKind::Nominal {
+                    fields: nia_ast::NominalPatternFields::Named(fields),
+                    ..
+                } if matches!(
+                    &fields[0].pattern.kind,
+                    PatternKind::Expr(expr)
+                        if matches!(expr.kind, ExprKind::Qualified { .. })
+                )
+            )
+    ));
+}
+
+#[test]
+fn does_not_consume_if_body_as_unqualified_nominal_pattern_before_fallible_tail() {
+    let (_, errors) = parse_module(
+        r#"
+fn inspect(value: ?i32) i32 {
+    if value is ?error {
+        return error!;
+    }
+    !()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
 fn parses_switch_arm_pattern_lists_and_ranges() {
     let (module, errors) = parse_module(
         r#"

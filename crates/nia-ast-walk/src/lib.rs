@@ -458,15 +458,18 @@ fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'as
                 visit_pattern(visitor, pattern);
             }
         }
-        PatternKind::EnumVariant { variant, fields } => {
+        PatternKind::Nominal {
+            constructor: variant,
+            fields,
+        } => {
             visitor.visit_expr(variant);
             match fields {
-                nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                nia_ast::NominalPatternFields::Tuple(fields) => {
                     for field in fields {
                         visit_pattern(visitor, field);
                     }
                 }
-                nia_ast::EnumVariantPatternFields::Named(fields) => {
+                nia_ast::NominalPatternFields::Named(fields) => {
                     for field in fields {
                         visit_pattern(visitor, &field.pattern);
                     }

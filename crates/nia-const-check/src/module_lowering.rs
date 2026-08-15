@@ -498,15 +498,18 @@ impl ConstModuleLowerer<'_> {
                     self.collect_pattern_locals(pattern, out);
                 }
             }
-            nia_ast::PatternKind::EnumVariant { variant, fields } => {
+            nia_ast::PatternKind::Nominal {
+                constructor: variant,
+                fields,
+            } => {
                 self.collect_expr_locals(variant, out);
                 match fields {
-                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                    nia_ast::NominalPatternFields::Tuple(fields) => {
                         for field in fields {
                             self.collect_pattern_locals(field, out);
                         }
                     }
-                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named(fields) => {
                         for field in fields {
                             self.collect_pattern_locals(&field.pattern, out);
                         }

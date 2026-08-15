@@ -149,9 +149,8 @@ pub enum TypedPatternKind {
     ErrorOk(Box<TypedPattern>),
     ErrorErr(Box<TypedPattern>),
     Tuple(Vec<TypedPattern>),
-    EnumVariant {
-        variant: GlobalDefId,
-        backing_type: InternedTyId,
+    Nominal {
+        constructor: TypedNominalPatternConstructor,
         fields: Vec<TypedPattern>,
     },
     Expr(TypedExpr),
@@ -167,6 +166,17 @@ pub enum TypedPatternKind {
         start: i128,
         end: i128,
         inclusive: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedNominalPatternConstructor {
+    Struct {
+        field_defs: Vec<GlobalDefId>,
+    },
+    EnumVariant {
+        variant: GlobalDefId,
+        backing_type: InternedTyId,
     },
 }
 

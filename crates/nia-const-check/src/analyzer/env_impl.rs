@@ -17,7 +17,7 @@ use nia_const_eval::{
 use nia_const_ir::{
     ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
     ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg, ResolvedConstParam,
-    ResolvedConstTypeArg,
+    ResolvedConstPatternBinding, ResolvedConstTypeArg,
 };
 use nia_defs::DefKind;
 use nia_ids::{
@@ -500,6 +500,23 @@ impl ResolvedConstEnv for Analyzer<'_> {
     fn prepare_resolved_binding(
         &mut self,
         binding: &ResolvedConstBinding,
+    ) -> Result<(), ConstError> {
+        if !matches!(
+            binding.value().kind(),
+            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
+        ) {
+            return Ok(());
+        }
+        let expected = binding
+            .explicit_type()
+            .map(|ty| self.substitute_ty_generics(ty));
+        let _ = self.resolved_const_expr_type(binding.value(), expected);
+        Ok(())
+    }
+
+    fn prepare_resolved_pattern_binding(
+        &mut self,
+        binding: &ResolvedConstPatternBinding,
     ) -> Result<(), ConstError> {
         if !matches!(
             binding.value().kind(),
@@ -1159,6 +1176,31 @@ impl ResolvedConstEnv for Analyzer<'_> {
             .find_local_binding_type(local_id)
             .map(|ty| ConstValueType::Runtime(self.substitute_ty_generics(ty)));
         self.bind_local_value(span, local_id, false, value, ty)
+    }
+
+    fn bind_resolved_function_pattern_local(
+        &mut self,
+        span: Span,
+        binding: &ResolvedConstPatternBinding,
+        _name: &SymbolId,
+        local_id: LocalId,
+        value: ConstValue,
+    ) -> Result<(), ConstError> {
+        let target_ty = binding
+            .explicit_type()
+            .map(|ty| self.substitute_ty_generics(ty))
+            .or_else(
+                || match self.resolved_const_expr_type(binding.value(), None) {
+                    Some(ConstValueType::Runtime(ty)) => Some(ty),
+                    _ => None,
+                },
+            );
+        let ty = target_ty
+            .and_then(|target_ty| {
+                self.resolved_pattern_binding_type(binding.pattern(), target_ty, local_id)
+            })
+            .map(ConstValueType::Runtime);
+        self.bind_local_value(span, local_id, binding.is_mutable(), value, ty)
     }
 
     fn assign_resolved_local(

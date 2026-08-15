@@ -9,9 +9,9 @@ use nia_body_ir::{
     LocalName, MemoryIntrinsicOp, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody,
     TypedCallee, TypedClosureCapture, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
     TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternBinding, TypedPatternKind, TypedRange,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedTryErrorConversion, TypedWhile,
+    TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding,
+    TypedPatternKind, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArm, TypedSwitchArmBody, TypedTryErrorConversion, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, InternedTyId};
 use nia_item_signatures::FunctionAttribute;
@@ -454,13 +454,16 @@ impl<'a> BodyChecker<'a> {
                         .collect(),
                 )
             }
-            nia_ast::PatternKind::EnumVariant { variant, fields } => {
-                let variant_id =
-                    self.enum_variant_info(variant)
-                        .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
-                            module_id: enum_id.module_id,
-                            def_id,
-                        });
+            nia_ast::PatternKind::Nominal {
+                constructor,
+                fields,
+            } => {
+                let variant_id = self
+                    .enum_variant_info(constructor)
+                    .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
+                        module_id: enum_id.module_id,
+                        def_id,
+                    });
                 let typed_fields = variant_id
                     .and_then(|variant_id| {
                         self.resolved_enum_variant(variant_id)
@@ -476,7 +479,7 @@ impl<'a> BodyChecker<'a> {
                         let fields = match (signature.payload, fields) {
                             (
                                 nia_item_signatures::EnumVariantPayloadSignature::Tuple(types),
-                                nia_ast::EnumVariantPatternFields::Tuple(patterns),
+                                nia_ast::NominalPatternFields::Tuple(patterns),
                             ) => patterns
                                 .iter()
                                 .zip(types)
@@ -484,7 +487,7 @@ impl<'a> BodyChecker<'a> {
                                 .collect(),
                             (
                                 nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
-                                nia_ast::EnumVariantPatternFields::Named(patterns),
+                                nia_ast::NominalPatternFields::Named(patterns),
                             ) => expected
                                 .into_iter()
                                 .filter_map(|expected| {
@@ -499,10 +502,41 @@ impl<'a> BodyChecker<'a> {
                         (variant_id, backing_type, fields)
                     });
                 if let Some((variant, backing_type, fields)) = typed_fields {
-                    TypedPatternKind::EnumVariant {
-                        variant,
-                        backing_type,
+                    TypedPatternKind::Nominal {
+                        constructor: TypedNominalPatternConstructor::EnumVariant {
+                            variant,
+                            backing_type,
+                        },
                         fields,
+                    }
+                } else if let Some((def_id, _, _)) = self.type_prefix_instance(constructor) {
+                    let signature = self.resolved_struct_signature(def_id);
+                    let (field_defs, patterns) = signature
+                        .map(|signature| {
+                            signature
+                                .signature
+                                .fields
+                                .into_iter()
+                                .filter_map(|expected| {
+                                    let field = match fields {
+                                        nia_ast::NominalPatternFields::Named(fields) => fields
+                                            .iter()
+                                            .find(|field| field.name == expected.name)?,
+                                        nia_ast::NominalPatternFields::Tuple(_) => return None,
+                                    };
+                                    let field_def =
+                                        self.field_def_for_nominal(def_id, &expected.name)?;
+                                    let field_ty = self
+                                        .field_ty_for_aggregate_ty(target_ty, &expected.name)
+                                        .unwrap_or_else(|| self.error());
+                                    Some((field_def, self.lower_pattern(&field.pattern, field_ty)))
+                                })
+                                .unzip()
+                        })
+                        .unwrap_or_default();
+                    TypedPatternKind::Nominal {
+                        constructor: TypedNominalPatternConstructor::Struct { field_defs },
+                        fields: patterns,
                     }
                 } else {
                     TypedPatternKind::Wildcard
@@ -531,9 +565,11 @@ impl<'a> BodyChecker<'a> {
             && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
             && let Some(signature) = self.resolved_enum_signature(enum_id)
         {
-            return TypedPatternKind::EnumVariant {
-                variant,
-                backing_type: signature.signature.backing_type,
+            return TypedPatternKind::Nominal {
+                constructor: TypedNominalPatternConstructor::EnumVariant {
+                    variant,
+                    backing_type: signature.signature.backing_type,
+                },
                 fields: Vec::new(),
             };
         }
@@ -1611,7 +1647,7 @@ impl<'a> BodyChecker<'a> {
         self.field_def_for_nominal(def_id, name)
     }
 
-    fn field_ty_for_aggregate_ty(
+    pub(crate) fn field_ty_for_aggregate_ty(
         &mut self,
         ty: nia_ids::InternedTyId,
         name: &SymbolId,

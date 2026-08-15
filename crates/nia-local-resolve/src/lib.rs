@@ -28,6 +28,12 @@ pub struct LocalResolution {
     pub locals: LocalMap,
     pub node_local_defs: NodeMap<LocalId>,
     pub node_uses: NodeMap<LocalUse>,
+    /// Exact nominal definitions for nodes classified as type prefixes.
+    ///
+    /// `LocalUse::TypePrefix` is intentionally only a use category. Consumers that lower a
+    /// constructor-shaped expression, such as a struct pattern, also need its stable cross-module
+    /// identity and must not reconstruct that identity from the source spelling.
+    pub node_type_prefixes: NodeMap<nia_ids::GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -36,6 +42,7 @@ pub struct LocalResolutionBuilder {
     locals: LocalMap,
     node_local_defs: NodeMapBuilder<LocalId>,
     node_uses: NodeMapBuilder<LocalUse>,
+    node_type_prefixes: NodeMapBuilder<nia_ids::GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -45,6 +52,7 @@ impl LocalResolution {
             locals: LocalMap::default(),
             node_local_defs: NodeMap::with_store(store),
             node_uses: NodeMap::with_store(store),
+            node_type_prefixes: NodeMap::with_store(store),
             diagnostics: Vec::new(),
         }
     }
@@ -54,6 +62,7 @@ impl LocalResolution {
             locals: self.locals,
             node_local_defs: self.node_local_defs.into_builder(),
             node_uses: self.node_uses.into_builder(),
+            node_type_prefixes: self.node_type_prefixes.into_builder(),
             diagnostics: self.diagnostics,
         }
     }
@@ -69,6 +78,7 @@ impl LocalResolutionBuilder {
             locals: self.locals,
             node_local_defs: self.node_local_defs.finish(),
             node_uses: self.node_uses.finish(),
+            node_type_prefixes: self.node_type_prefixes.finish(),
             diagnostics: self.diagnostics,
         }
     }

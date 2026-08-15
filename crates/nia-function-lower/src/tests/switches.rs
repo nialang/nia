@@ -111,6 +111,101 @@ fn statement_switch_with_range_patterns_lowers_to_condition_chain() {
 }
 
 #[test]
+fn nested_enum_payload_pattern_lowers_each_enum_to_a_tag_comparison() {
+    let ty = test_ty();
+    let span = Span::default();
+    let target_local = LocalId(0);
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let outer_variant = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let nested_variant = GlobalDefId {
+        module_id,
+        def_id: DefId(2),
+    };
+    let pattern = TypedPattern {
+        ty,
+        span,
+        kind: TypedPatternKind::ErrorErr(Box::new(TypedPattern {
+            ty,
+            span,
+            kind: TypedPatternKind::Nominal {
+                constructor: TypedNominalPatternConstructor::EnumVariant {
+                    variant: outer_variant,
+                    backing_type: ty,
+                },
+                fields: vec![TypedPattern {
+                    ty,
+                    span,
+                    kind: TypedPatternKind::Nominal {
+                        constructor: TypedNominalPatternConstructor::EnumVariant {
+                            variant: nested_variant,
+                            backing_type: ty,
+                        },
+                        fields: Vec::new(),
+                    },
+                }],
+            },
+        })),
+    };
+    let body = TypedBody {
+        span,
+        locals: vec![TypedLocal {
+            id: target_local,
+            name: local_name("value"),
+            kind: TypedLocalKind::Param,
+            ty,
+            span,
+        }],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Expr(TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::IfPattern(Box::new(TypedIfPattern {
+                    target: TypedExpr {
+                        span,
+                        ty,
+                        kind: TypedExprKind::Local(target_local),
+                    },
+                    bool_ty: ty,
+                    pattern,
+                    then_branch: empty_body(ty),
+                    else_branch: Some(Box::new(int_expr(0))),
+                })),
+            }),
+        }],
+        tail: None,
+        ty,
+    };
+
+    let function_body = lower_test_function_body(&body).expect("valid nested enum pattern body");
+    let condition = function_body
+        .blocks
+        .iter()
+        .find_map(|block| match &block.terminator {
+            FunctionTerminator::If { cond, .. } => Some(cond),
+            _ => None,
+        })
+        .expect("expected pattern condition");
+    assert_eq!(enum_tag_comparison_count(condition), 2, "{condition:#?}");
+}
+
+fn enum_tag_comparison_count(expr: &FunctionExpr) -> usize {
+    let FunctionExprKind::Binary { lhs, op, rhs } = &expr.kind else {
+        return 0;
+    };
+    let current = usize::from(
+        *op == nia_ast::BinaryOp::Eq
+            && matches!(lhs.kind, FunctionExprKind::EnumTag { .. })
+            && matches!(rhs.kind, FunctionExprKind::EnumVariantTag(_)),
+    );
+    current + enum_tag_comparison_count(lhs) + enum_tag_comparison_count(rhs)
+}
+
+#[test]
 fn statement_if_pattern_binding_stores_tagged_union_payload() {
     let ty = test_ty();
     let target_local = LocalId(0);

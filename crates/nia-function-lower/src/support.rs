@@ -261,7 +261,10 @@ impl FunctionLowerer<'_> {
                         | TypedPatternKind::Wildcard
                 ) && !matches!(
                     &pattern.kind,
-                    TypedPatternKind::EnumVariant { fields, .. } if fields.is_empty()
+                    TypedPatternKind::Nominal {
+                        constructor: TypedNominalPatternConstructor::EnumVariant { .. },
+                        fields,
+                    } if fields.is_empty()
                 )
             })
         })
@@ -278,10 +281,10 @@ impl FunctionLowerer<'_> {
                 .iter()
                 .flat_map(|arm| &arm.patterns)
                 .find_map(|pattern| match &pattern.kind {
-                    TypedPatternKind::EnumVariant {
-                        backing_type,
+                    TypedPatternKind::Nominal {
+                        constructor:
+                            TypedNominalPatternConstructor::EnumVariant { backing_type, .. },
                         fields,
-                        ..
                     } if fields.is_empty() => Some(*backing_type),
                     _ => None,
                 })
@@ -301,9 +304,12 @@ impl FunctionLowerer<'_> {
         &self,
         pattern: &TypedPattern,
     ) -> Option<FunctionExpr> {
-        let TypedPatternKind::EnumVariant {
-            variant,
-            backing_type,
+        let TypedPatternKind::Nominal {
+            constructor:
+                TypedNominalPatternConstructor::EnumVariant {
+                    variant,
+                    backing_type,
+                },
             fields,
         } = &pattern.kind
         else {
@@ -389,49 +395,52 @@ impl FunctionLowerer<'_> {
                 );
                 self.pattern_payload_condition(target, inner, tag, context)
             }
-            TypedPatternKind::EnumVariant {
-                variant,
-                backing_type,
+            TypedPatternKind::Nominal {
+                constructor,
                 fields,
             } => {
-                let tag = FunctionExpr {
-                    span: pattern.span,
-                    ty: *backing_type,
-                    kind: FunctionExprKind::EnumTag {
-                        value: Box::new(target.clone()),
-                    },
+                let mut condition = match constructor {
+                    TypedNominalPatternConstructor::Struct { .. } => None,
+                    TypedNominalPatternConstructor::EnumVariant {
+                        variant,
+                        backing_type,
+                    } => {
+                        let tag = FunctionExpr {
+                            span: pattern.span,
+                            ty: *backing_type,
+                            kind: FunctionExprKind::EnumTag {
+                                value: Box::new(target.clone()),
+                            },
+                        };
+                        let expected = FunctionExpr {
+                            span: pattern.span,
+                            ty: *backing_type,
+                            kind: FunctionExprKind::EnumVariantTag(*variant),
+                        };
+                        Some(self.switch_eq_condition(&tag, expected, context.bool_ty))
+                    }
                 };
-                let expected = FunctionExpr {
-                    span: pattern.span,
-                    ty: *backing_type,
-                    kind: FunctionExprKind::EnumVariantTag(*variant),
-                };
-                let mut condition = self.switch_eq_condition(&tag, expected, context.bool_ty);
                 for (field, field_pattern) in fields.iter().enumerate() {
-                    let payload = FunctionExpr {
-                        span: field_pattern.span,
-                        ty: field_pattern.ty,
-                        kind: FunctionExprKind::EnumPayloadField {
-                            value: Box::new(target.clone()),
-                            variant: *variant,
-                            field,
-                        },
-                    };
+                    let payload =
+                        self.nominal_pattern_field_expr(target, constructor, field, field_pattern);
                     if let Some(field_condition) =
                         self.pattern_condition(&payload, field_pattern, context)
                     {
-                        condition = FunctionExpr {
-                            span: pattern.span,
-                            ty: context.bool_ty,
-                            kind: FunctionExprKind::Binary {
-                                lhs: Box::new(condition),
-                                op: BinaryOp::And,
-                                rhs: Box::new(field_condition),
+                        condition = Some(match condition {
+                            Some(previous) => FunctionExpr {
+                                span: pattern.span,
+                                ty: context.bool_ty,
+                                kind: FunctionExprKind::Binary {
+                                    lhs: Box::new(previous),
+                                    op: BinaryOp::And,
+                                    rhs: Box::new(field_condition),
+                                },
                             },
-                        };
+                            None => field_condition,
+                        });
                     }
                 }
-                Some(condition)
+                condition
             }
             TypedPatternKind::Expr(pattern) => {
                 let pattern = self.lower_value_expr(
@@ -589,6 +598,35 @@ impl FunctionLowerer<'_> {
         }
     }
 
+    fn nominal_pattern_field_expr(
+        &self,
+        target: &FunctionExpr,
+        constructor: &TypedNominalPatternConstructor,
+        index: usize,
+        pattern: &TypedPattern,
+    ) -> FunctionExpr {
+        // Input validation guarantees that declaration-ordered struct fields and their field
+        // definitions stay aligned. Keeping that invariant here avoids name lookup in lowering.
+        let kind = match constructor {
+            TypedNominalPatternConstructor::Struct { field_defs } => FunctionExprKind::Field {
+                lhs: Box::new(target.clone()),
+                field: field_defs[index],
+            },
+            TypedNominalPatternConstructor::EnumVariant { variant, .. } => {
+                FunctionExprKind::EnumPayloadField {
+                    value: Box::new(target.clone()),
+                    variant: *variant,
+                    field: index,
+                }
+            }
+        };
+        FunctionExpr {
+            span: pattern.span,
+            ty: pattern.ty,
+            kind,
+        }
+    }
+
     pub(super) fn lower_pattern_binding(
         &self,
         pattern: &TypedPattern,
@@ -620,19 +658,13 @@ impl FunctionLowerer<'_> {
                 let payload = self.tagged_union_payload_expr(target, inner.ty, inner.span);
                 self.lower_pattern_binding(inner, &payload, ops);
             }
-            TypedPatternKind::EnumVariant {
-                variant, fields, ..
+            TypedPatternKind::Nominal {
+                constructor,
+                fields,
             } => {
                 for (field, field_pattern) in fields.iter().enumerate() {
-                    let payload = FunctionExpr {
-                        span: field_pattern.span,
-                        ty: field_pattern.ty,
-                        kind: FunctionExprKind::EnumPayloadField {
-                            value: Box::new(target.clone()),
-                            variant: *variant,
-                            field,
-                        },
-                    };
+                    let payload =
+                        self.nominal_pattern_field_expr(target, constructor, field, field_pattern);
                     self.lower_pattern_binding(field_pattern, &payload, ops);
                 }
             }
@@ -1140,7 +1172,7 @@ impl FunctionLowerer<'_> {
                 | TypedPatternKind::OptionalSome(pattern)
                 | TypedPatternKind::ErrorOk(pattern)
                 | TypedPatternKind::ErrorErr(pattern) => visit_pattern(pattern, max_id),
-                TypedPatternKind::EnumVariant { fields, .. } => {
+                TypedPatternKind::Nominal { fields, .. } => {
                     for field in fields {
                         visit_pattern(field, max_id);
                     }

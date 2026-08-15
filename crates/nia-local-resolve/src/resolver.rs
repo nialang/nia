@@ -19,6 +19,7 @@ pub(super) fn resolve_module_locals_from_filtered_items(
         locals: allocated.locals,
         node_local_defs: allocated.node_local_defs.clone(),
         node_uses: HashMap::new(),
+        node_type_prefixes: HashMap::new(),
         diagnostics: Vec::new(),
         symbols,
         scopes: Vec::new(),
@@ -51,6 +52,7 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
         locals: LocalMap::default(),
         node_local_defs: HashMap::new(),
         node_uses: HashMap::new(),
+        node_type_prefixes: HashMap::new(),
         diagnostics: Vec::new(),
         symbols,
         scopes: Vec::new(),
@@ -66,10 +68,13 @@ fn finish_local_resolution(resolver: LocalResolver<'_>, node_store: &NodeStore) 
     node_local_defs.extend(resolver.node_local_defs);
     let mut node_uses = NodeMap::builder(node_store);
     node_uses.extend(resolver.node_uses);
+    let mut node_type_prefixes = NodeMap::builder(node_store);
+    node_type_prefixes.extend(resolver.node_type_prefixes);
     LocalResolution {
         locals: resolver.locals,
         node_local_defs: node_local_defs.finish(),
         node_uses: node_uses.finish(),
+        node_type_prefixes: node_type_prefixes.finish(),
         diagnostics: resolver.diagnostics,
     }
 }
@@ -80,6 +85,7 @@ struct LocalResolver<'a> {
     locals: LocalMap,
     node_local_defs: HashMap<VersionedNodeKey, LocalId>,
     node_uses: HashMap<VersionedNodeKey, LocalUse>,
+    node_type_prefixes: HashMap<VersionedNodeKey, nia_ids::GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
     symbols: Option<&'a dyn SymbolText>,
     scopes: Vec<Scope>,
@@ -650,10 +656,15 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_pattern_with_span(field, binding_kind, binding_span, duplicate);
                 }
             }
-            PatternKind::EnumVariant { variant, fields } => {
-                self.resolve_expr(variant);
+            PatternKind::Nominal {
+                constructor: variant,
+                fields,
+            } => {
+                if !self.try_resolve_type_prefix(variant) {
+                    self.resolve_expr(variant);
+                }
                 match fields {
-                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                    nia_ast::NominalPatternFields::Tuple(fields) => {
                         for field in fields {
                             self.resolve_pattern_with_span(
                                 field,
@@ -663,7 +674,7 @@ impl<'a> LocalResolver<'a> {
                             );
                         }
                     }
-                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named(fields) => {
                         for field in fields {
                             self.resolve_pattern_with_span(
                                 &field.pattern,
@@ -720,15 +731,18 @@ impl<'a> LocalResolver<'a> {
             return true;
         }
         if let ExprKind::Qualified { lhs, .. } = &expr.kind {
-            if self
+            if let Some(type_id) = self
                 .values
                 .node_qualified_type_prefixes
-                .contains_key(&expr.node_key)
+                .get(&expr.node_key)
+                .copied()
             {
                 // The Qualified's own span resolves to a type — recurse into
                 // lhs so the module-alias span still gets marked, then mark us.
                 self.resolve_expr(lhs);
                 self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
+                self.node_type_prefixes
+                    .insert(expr.node_key.clone(), type_id);
                 return true;
             }
             return false;
@@ -736,17 +750,30 @@ impl<'a> LocalResolver<'a> {
         let ExprKind::Ident(name) = &expr.kind else {
             return false;
         };
+        let type_id = self
+            .defs
+            .module_scope
+            .types
+            .get(name)
+            .map(|def_id| nia_ids::GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            })
+            .or_else(|| {
+                self.values
+                    .node_qualified_type_prefixes
+                    .get(&expr.node_key)
+                    .copied()
+            });
         if matches!(
             self.values.node_names.get(&expr.node_key),
             None | Some(ValueNameResolution::LocalDeferred | ValueNameResolution::External(_))
         ) && self.lookup_any(name).is_none()
-            && (self.defs.module_scope.types.get(name).is_some()
-                || self
-                    .values
-                    .node_qualified_type_prefixes
-                    .contains_key(&expr.node_key))
+            && let Some(type_id) = type_id
         {
             self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
+            self.node_type_prefixes
+                .insert(expr.node_key.clone(), type_id);
             return true;
         }
         false

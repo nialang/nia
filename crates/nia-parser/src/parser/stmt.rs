@@ -355,6 +355,9 @@ impl Parser {
                 kind: PatternKind::Tuple(fields),
             });
         }
+        if let Some(pattern) = self.parse_nominal_pattern(stops) {
+            return Some(pattern);
+        }
         if self.at(TokenKind::Ident)
             && self
                 .tokens
@@ -400,13 +403,13 @@ impl Parser {
                     Self::mark_pattern_bindings_mutable(field);
                 }
             }
-            PatternKind::EnumVariant { fields, .. } => match fields {
-                EnumVariantPatternFields::Tuple(fields) => {
+            PatternKind::Nominal { fields, .. } => match fields {
+                NominalPatternFields::Tuple(fields) => {
                     for field in fields {
                         Self::mark_pattern_bindings_mutable(field);
                     }
                 }
-                EnumVariantPatternFields::Named(fields) => {
+                NominalPatternFields::Named(fields) => {
                     for field in fields {
                         Self::mark_pattern_bindings_mutable(&mut field.pattern);
                     }
@@ -538,7 +541,7 @@ impl Parser {
                 kind: PatternKind::Tuple(fields),
             });
         }
-        if let Some(pattern) = self.parse_enum_variant_payload_pattern(stops) {
+        if let Some(pattern) = self.parse_nominal_pattern(stops) {
             return Some(pattern);
         }
         if self.at_bare_pattern_binding(stops) {
@@ -588,14 +591,30 @@ impl Parser {
         }
     }
 
-    fn parse_enum_variant_payload_pattern(&mut self, _stops: &[TokenKind]) -> Option<Pattern> {
+    fn parse_nominal_pattern(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
         let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
-        let Some(variant) = self.parse_qualified_value_path() else {
+        let (constructor, is_qualified) =
+            if let Some(constructor) = self.parse_qualified_value_path() {
+                (constructor, true)
+            } else {
+                self.tokens.rewind(checkpoint);
+                self.errors.truncate(errors_len);
+                let token = self.peek().clone();
+                if token.kind != TokenKind::Ident {
+                    return None;
+                }
+                let name = self.expect_name(TokenKind::Ident, "expected nominal pattern name")?;
+                (self.make_expr(token.span, ExprKind::Ident(name)), false)
+            };
+        if (!is_qualified && !self.at(TokenKind::LBrace))
+            || (self.at(TokenKind::LBrace)
+                && !self.nominal_brace_is_followed_by_pattern_boundary(stops))
+        {
             self.tokens.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
-        };
+        }
         let fields = if self.eat(TokenKind::LParen).is_some() {
             let mut fields = Vec::new();
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
@@ -605,7 +624,7 @@ impl Parser {
                 }
             }
             self.expect(TokenKind::RParen, "expected `)` after enum variant pattern")?;
-            EnumVariantPatternFields::Tuple(fields)
+            NominalPatternFields::Tuple(fields)
         } else if self.eat(TokenKind::LBrace).is_some() {
             let mut fields = Vec::new();
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
@@ -634,20 +653,50 @@ impl Parser {
                 }
             }
             self.expect(TokenKind::RBrace, "expected `}` after enum variant pattern")?;
-            EnumVariantPatternFields::Named(fields)
+            NominalPatternFields::Named(fields)
         } else {
             self.tokens.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
         };
-        let span = Span::new(variant.span.start, self.previous_end());
+        let span = Span::new(constructor.span.start, self.previous_end());
         Some(Pattern {
             span,
-            kind: PatternKind::EnumVariant {
-                variant: Box::new(variant),
+            kind: PatternKind::Nominal {
+                constructor: Box::new(constructor),
                 fields,
             },
         })
+    }
+
+    fn nominal_brace_is_followed_by_pattern_boundary(&self, stops: &[TokenKind]) -> bool {
+        let mut depth = 0usize;
+        let mut offset = 0usize;
+        loop {
+            match self.tokens.nth_kind(offset) {
+                Some(TokenKind::LBrace) => depth += 1,
+                Some(TokenKind::RBrace) => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        // `!` belongs to the surrounding pattern grammar, so it is a valid
+                        // boundary only when the token after that suffix is also a caller
+                        // boundary. This avoids treating an `if` body's `{ ... } !()` tail as a
+                        // nominal pattern such as `error { ... }!`.
+                        return match self.tokens.nth_kind(offset + 1) {
+                            Some(TokenKind::Bang) => self
+                                .tokens
+                                .nth_kind(offset + 2)
+                                .is_some_and(|kind| stops.contains(kind)),
+                            Some(kind) => stops.contains(kind),
+                            None => false,
+                        };
+                    }
+                }
+                Some(TokenKind::Eof) | None => return false,
+                _ => {}
+            }
+            offset += 1;
+        }
     }
 
     fn at_bare_pattern_binding(&self, stops: &[TokenKind]) -> bool {

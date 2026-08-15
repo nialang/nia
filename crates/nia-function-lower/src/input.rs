@@ -316,7 +316,18 @@ impl BodyInputValidator {
             | TypedPatternKind::OptionalSome(inner)
             | TypedPatternKind::ErrorOk(inner)
             | TypedPatternKind::ErrorErr(inner) => self.validate_pattern(inner),
-            TypedPatternKind::EnumVariant { fields, .. } => {
+            TypedPatternKind::Nominal {
+                constructor,
+                fields,
+            } => {
+                if let TypedNominalPatternConstructor::Struct { field_defs } = constructor
+                    && field_defs.len() != fields.len()
+                {
+                    return Err(FunctionLoweringDiagnostic {
+                        span: pattern.span,
+                        message: "typed struct pattern field metadata is inconsistent".to_string(),
+                    });
+                }
                 for field in fields {
                     self.validate_pattern(field)?;
                 }

@@ -73,6 +73,95 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_nominal_struct_patterns_match_runtime_and_const_values() {
+    let root = temp_dir("emit_exe_nominal_struct_patterns_match_runtime_and_const_values");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+struct Point { x: i32, y: i32 }
+struct Box[T] { value: T }
+
+const fn constSum(point: Point) i32 {
+    let mut Point { y, x } = point;
+    x += 1;
+    x + y
+}
+
+fn runtimeSum(point: Point) i32 {
+    let Point { y: second, x } = point;
+    x + second
+}
+
+fn unbox[T](boxed: Box[T]) T {
+    let Box { value } = boxed;
+    value
+}
+
+fn classify(point: Point) i32 {
+    switch point {
+        Point { x: 0, y } => y,
+        Point { x: _, y: _ } => 9,
+    }
+}
+
+fn readOptional(point: ?Point) i32 {
+    if point is ?Point { x, y: _ } {
+        x
+    } else {
+        0
+    }
+}
+
+const total: i32 = constSum(Point { x: 19, y: 22 });
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if total != 42 {
+        return process::exit(1)!;
+    }
+    if runtimeSum(Point { x: 20, y: 22 }) != 42 {
+        return process::exit(2)!;
+    }
+    if unbox[i32](Box[i32] { value: 42 }) != 42 {
+        return process::exit(3)!;
+    }
+    if classify(Point { x: 0, y: 7 }) != 7 {
+        return process::exit(4)!;
+    }
+    if classify(Point { x: 1, y: 7 }) != 9 {
+        return process::exit(5)!;
+    }
+    if readOptional(?Point { x: 42, y: 0 }) != 42 {
+        return process::exit(6)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write nominal struct pattern executable source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit nominal struct pattern executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run nominal struct pattern executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_switch_destructuring_matches_const_semantics() {
     let root = temp_dir("emit_exe_switch_destructuring_matches_const_semantics");
     let main = root.join("main.nia");

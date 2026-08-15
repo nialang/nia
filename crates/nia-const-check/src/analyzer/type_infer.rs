@@ -1136,6 +1136,39 @@ impl Analyzer<'_> {
         }
     }
 
+    pub(super) fn resolved_const_struct_pattern_fields<'a>(
+        &mut self,
+        def_id: GlobalDefId,
+        fields: &'a [ConstNamedPatternField<ResolvedConstPattern>],
+        target_ty: InternedTyId,
+    ) -> Option<Vec<(&'a ResolvedConstPattern, InternedTyId)>> {
+        let (target_def, _, _) = self.expected_nominal_parts(target_ty)?;
+        if target_def != def_id || self.def_kind_of(def_id) != Some(DefKind::Struct) {
+            return None;
+        }
+        let expected = self.struct_signature_for(def_id)?.fields;
+        let field_set = check_required_field_set(
+            fields
+                .iter()
+                .map(|field| NamedField::new(field.span, field.name)),
+            expected.iter().map(|field| field.name),
+        );
+        if !field_set.is_valid() {
+            return None;
+        }
+
+        // Resolve against the instantiated target, not the constructor spelling: patterns omit
+        // generic arguments and inherit them from the value being destructured.
+        expected
+            .iter()
+            .map(|expected| {
+                let field = fields.iter().find(|field| field.name == expected.name)?;
+                let ty = self.const_nominal_aggregate_field_type(target_ty, &expected.name)?;
+                Some((&field.pattern, ty))
+            })
+            .collect()
+    }
+
     pub(super) fn resolved_pattern_binding_type(
         &mut self,
         pattern: &ResolvedConstPattern,
@@ -1185,6 +1218,12 @@ impl Analyzer<'_> {
                 variant, fields, ..
             } => self
                 .resolved_const_enum_pattern_fields(variant, fields, target_ty)?
+                .into_iter()
+                .find_map(|(pattern, ty)| {
+                    self.resolved_pattern_binding_type(pattern, ty, local_id)
+                }),
+            ResolvedConstPatternKind::Struct { def_id, fields, .. } => self
+                .resolved_const_struct_pattern_fields(*def_id, fields, target_ty)?
                 .into_iter()
                 .find_map(|(pattern, ty)| {
                     self.resolved_pattern_binding_type(pattern, ty, local_id)
@@ -1523,6 +1562,7 @@ impl Analyzer<'_> {
             | ResolvedConstStmtKind::Break
             | ResolvedConstStmtKind::Continue => Some(ConstArmType::ControlFlow),
             ResolvedConstStmtKind::Binding(_)
+            | ResolvedConstStmtKind::PatternBinding(_)
             | ResolvedConstStmtKind::If { .. }
             | ResolvedConstStmtKind::ForIn(_)
             | ResolvedConstStmtKind::While { .. }
@@ -1633,6 +1673,9 @@ impl Analyzer<'_> {
                 self.bind_const_local_type(binding.local_id(), ty, binding.is_mutable());
                 Some(())
             }
+            ResolvedConstStmtKind::PatternBinding(binding) => {
+                self.bind_typed_resolved_const_pattern_binding(binding)
+            }
             ResolvedConstStmtKind::Expr(expr) => {
                 let _ = self.resolved_const_expr_type(expr, None);
                 Some(())
@@ -1659,6 +1702,30 @@ impl Analyzer<'_> {
             | ResolvedConstStmtKind::Break
             | ResolvedConstStmtKind::Continue => None,
         }
+    }
+
+    fn bind_typed_resolved_const_pattern_binding(
+        &mut self,
+        binding: &ResolvedConstPatternBinding,
+    ) -> Option<()> {
+        let explicit = binding
+            .explicit_type()
+            .map(|ty| self.substitute_ty_generics(ty));
+        let inferred = self.resolved_const_expr_type(binding.value(), explicit);
+        if let (Some(expected), Some(ConstValueType::Runtime(actual))) = (explicit, &inferred)
+            && !self.const_function_types_match(expected, *actual)
+        {
+            self.push_const_function_type_mismatch(
+                binding.value().span(),
+                "const pattern binding initializer",
+            );
+        }
+        let target_ty = explicit.or(match inferred {
+            Some(ConstValueType::Runtime(ty)) => Some(ty),
+            _ => None,
+        })?;
+        self.check_resolved_const_patterns(std::slice::from_ref(binding.pattern()), target_ty)?;
+        self.bind_typed_resolved_const_pattern(binding.pattern(), target_ty, binding.is_mutable())
     }
 
     pub(super) fn check_resolved_const_block(&mut self, block: &ResolvedConstBlock) -> Option<()> {
@@ -1894,6 +1961,7 @@ impl Analyzer<'_> {
     ) -> Option<()> {
         match stmt.kind() {
             ResolvedConstStmtKind::Binding(_)
+            | ResolvedConstStmtKind::PatternBinding(_)
             | ResolvedConstStmtKind::If { .. }
             | ResolvedConstStmtKind::ForIn(_)
             | ResolvedConstStmtKind::While { .. }
@@ -1942,7 +2010,7 @@ impl Analyzer<'_> {
             let ConstValueType::Runtime(binding_ty) = binding_ty else {
                 return None;
             };
-            self.bind_typed_resolved_const_pattern(for_in.pattern(), binding_ty)?;
+            self.bind_typed_resolved_const_pattern(for_in.pattern(), binding_ty, false)?;
             for stmt in for_in.body().stmts() {
                 self.check_resolved_const_stmt(stmt)?;
             }

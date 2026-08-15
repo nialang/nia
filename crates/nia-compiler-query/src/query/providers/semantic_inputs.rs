@@ -289,6 +289,12 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             .iter()
             .map(|(key, def_id)| (key.clone(), *def_id)),
     );
+    builder.extend_node_type_prefixes(
+        locals
+            .node_type_prefixes
+            .iter()
+            .map(|(key, def_id)| (key.clone(), *def_id)),
+    );
     builder.extend_node_builtin_associated_values(
         values
             .node_builtin_associated_values

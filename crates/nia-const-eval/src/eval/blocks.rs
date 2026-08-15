@@ -109,6 +109,39 @@ pub(super) fn eval_function_stmt(
                 message: "const function binding requires a value".to_string(),
             }),
         },
+        EarlyConstStmtKind::PatternBinding(binding) => {
+            match eval_const_expr_flow(&binding.value, env)? {
+                ConstEvalFlow::Value(value) => {
+                    let mut bindings = Vec::new();
+                    if !patterns::early_pattern_matches(
+                        &value,
+                        &binding.pattern,
+                        env,
+                        &mut bindings,
+                    )? {
+                        return Err(ConstError {
+                            span: binding.span,
+                            message: "const binding pattern did not match its initializer"
+                                .to_string(),
+                        });
+                    }
+                    bindings.iter().try_for_each(|value| {
+                        patterns::bind_function_pattern_value(value, binding, env)
+                    })?;
+                    Ok(ConstEvalFlow::Void)
+                }
+                ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
+                ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Propagate(value)),
+                ConstEvalFlow::Break | ConstEvalFlow::Continue => Err(ConstError {
+                    span: stmt.span,
+                    message: "const binding value cannot contain loop control flow".to_string(),
+                }),
+                ConstEvalFlow::Void => Err(ConstError {
+                    span: stmt.span,
+                    message: "const function binding requires a value".to_string(),
+                }),
+            }
+        }
         EarlyConstStmtKind::Expr(expr) => match eval_const_expr_flow(expr, env)? {
             ConstEvalFlow::Value(_) | ConstEvalFlow::Void => Ok(ConstEvalFlow::Void),
             flow @ (ConstEvalFlow::Return(_)
@@ -163,6 +196,40 @@ pub(super) fn eval_resolved_function_stmt(
             match eval_resolved_const_expr_flow(binding.value(), env)? {
                 ConstEvalFlow::Value(value) => {
                     env.bind_resolved_function_local(stmt.span(), binding, value)?;
+                    Ok(ConstEvalFlow::Void)
+                }
+                ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
+                ConstEvalFlow::Propagate(value) => Ok(ConstEvalFlow::Propagate(value)),
+                ConstEvalFlow::Break | ConstEvalFlow::Continue => Err(ConstError {
+                    span: stmt.span(),
+                    message: "const binding value cannot contain loop control flow".to_string(),
+                }),
+                ConstEvalFlow::Void => Err(ConstError {
+                    span: stmt.span(),
+                    message: "const function binding requires a value".to_string(),
+                }),
+            }
+        }
+        ResolvedConstStmtKind::PatternBinding(binding) => {
+            env.prepare_resolved_pattern_binding(binding)?;
+            match eval_resolved_const_expr_flow(binding.value(), env)? {
+                ConstEvalFlow::Value(value) => {
+                    let mut bindings = Vec::new();
+                    if !patterns::resolved_pattern_matches(
+                        &value,
+                        binding.pattern(),
+                        env,
+                        &mut bindings,
+                    )? {
+                        return Err(ConstError {
+                            span: binding.span(),
+                            message: "const binding pattern did not match its initializer"
+                                .to_string(),
+                        });
+                    }
+                    bindings.iter().try_for_each(|value| {
+                        patterns::bind_resolved_function_pattern_value(value, binding, env)
+                    })?;
                     Ok(ConstEvalFlow::Void)
                 }
                 ConstEvalFlow::Return(value) => Ok(ConstEvalFlow::Return(value)),
