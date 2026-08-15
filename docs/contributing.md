@@ -94,6 +94,9 @@ the tree are grouped here so their role stays explicit:
 - `NO_COLOR`: standard terminal convention respected by CLI help rendering.
 - `LLVM_SYS_221_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
   installations.
+- `NIA_TEST_RESOURCE_TRACE=1`: test-only diagnostics for permit waits and the
+  peak process count/RSS observed for each managed command. It is useful when
+  tuning a new host; it does not change libtest scheduling or resource limits.
 
 Test-only fixture variables such as `NIA_TEST_ENV` may appear inside tests that
 verify process environment behavior. Do not add new `NIA_*` variables without
