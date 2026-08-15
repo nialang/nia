@@ -10,7 +10,7 @@ pub trait IntoError[Target] {
 
 extend[Value, Source, Target] Source!Value {
     pub fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
-        switch self {
+        match self {
             !value => {
                 !value
             },
@@ -21,7 +21,7 @@ extend[Value, Source, Target] Source!Value {
     }
 
     pub fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
-        switch self {
+        match self {
             !value => {
                 !value
             },
@@ -36,7 +36,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     pub fn cast_error(self) Target!T {
-        switch self {
+        match self {
             !ok => {
                 !ok
             },

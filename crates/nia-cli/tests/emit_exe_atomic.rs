@@ -34,12 +34,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if value.fetch_xor_seq_cst(2usize) != 6usize {
         return process::exit(4)!;
     }
-    switch value.cmpxchg_strong_seq_cst(4usize, 5usize) {
+    match value.cmpxchg_strong_seq_cst(4usize, 5usize) {
         ?actual => { _ = actual;
                 return process::exit(5)!; },
         null => { },
     }
-    switch value.cmpxchg_strong_seq_cst(4usize, 5usize) {
+    match value.cmpxchg_strong_seq_cst(4usize, 5usize) {
         ?actual => { if actual != 5usize {
                     return process::exit(6)!;
                 } },

@@ -113,7 +113,7 @@ pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
     if capacity == 0 {
         return !0;
     }
-    switch capacity.checked_add(groupWidth - 1) {
+    match capacity.checked_add(groupWidth - 1) {
         ?value => {
             !value
         },
@@ -159,7 +159,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
         return !16;
     }
 
-    let multiplied = switch capacity.checked_mul(8) {
+    let multiplied = match capacity.checked_mul(8) {
         ?value => {
             value
         },
@@ -167,7 +167,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
             return mem::Error::OutOfMemory!;
         },
     };
-    let biased = switch multiplied.checked_add(6) {
+    let biased = match multiplied.checked_add(6) {
         ?value => {
             value
         },
@@ -190,7 +190,7 @@ pub fn maxUsize(left: usize, right: usize) usize {
 pub fn nextPowerOfTwo(value: usize) mem::Error!usize {
     let mut n: usize = 1;
     while n < value {
-        n = switch n.checked_mul(2) {
+        n = match n.checked_mul(2) {
             ?next => {
                 next
             },

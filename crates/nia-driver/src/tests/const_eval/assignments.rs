@@ -794,7 +794,7 @@ const fn width() usize {
     let mut total = 0usize;
     let bounds = Bounds { start: 2, end: 5 };
     let mut direct = bounds.iter();
-    switch direct.next() {
+    match direct.next() {
         ?value => {
             total += value;
         },
@@ -862,7 +862,7 @@ extend[T] PairIter[T] : Iterator {
     type Item = T;
 
     pub const fn next(&mut self) ?T {
-        switch self.index {
+        match self.index {
             0usize => {
                 self.index += 1;
                 ?self.first
@@ -962,7 +962,7 @@ const fn total(iter: counter::Counter) usize {
 
 const fn first(iter: counter::DirectCounter) usize {
     let mut values = iter;
-    switch values.next() {
+    match values.next() {
         ?value => value,
         null => 0,
     }

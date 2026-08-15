@@ -15,7 +15,7 @@ enum Event {
 }
 
 const fn score(event: Event) usize {
-    switch event {
+    match event {
         Event::Closed => 0usize,
         Event::Data(value) => value,
         Event::Move(x, y) => x + y,
@@ -40,8 +40,8 @@ fn main() i32 {
 }
 
 #[test]
-fn const_switch_nominal_struct_fields_have_typed_values() {
-    let root = temp_dir("const_switch_nominal_struct_fields_have_typed_values");
+fn const_match_nominal_struct_fields_have_typed_values() {
+    let root = temp_dir("const_match_nominal_struct_fields_have_typed_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -51,7 +51,7 @@ const fn id[T](value: T) T {
 
 struct Config { width: usize }
 
-const config = switch 1usize {
+const config = match 1usize {
     1usize => Config { width: 4usize },
     _ => Config { width: 8usize },
 };
@@ -187,7 +187,7 @@ const fn some[T](value: T) ?T {
 }
 
 const fn unwrap(value: ?usize) usize {
-    switch value {
+    match value {
         ?payload => {
             payload
         },
@@ -224,7 +224,7 @@ const fn use_try(value: ?usize) ?usize {
     ?id(value.?)
 }
 
-const n: usize = switch use_try(?7usize) {
+const n: usize = match use_try(?7usize) {
     ?value => value,
     null => 0usize,
 };
@@ -256,7 +256,7 @@ const fn use_try(value: usize!usize) usize!usize {
 }
 
 const got: usize!usize = use_try(!7usize);
-const n: usize = switch got {
+const n: usize = match got {
     !payload => {
         payload
     },
@@ -341,7 +341,7 @@ const fn id[T](value: T) T {
 }
 
 const fn unwrap(value: ?usize) usize {
-    switch value {
+    match value {
         ?payload => {
             payload
         },
@@ -376,7 +376,7 @@ const fn id[T](value: usize!T) usize!T {
 }
 
 const fn unwrap(value: usize!usize) usize {
-    switch value {
+    match value {
         !payload => {
             payload
         },
@@ -411,7 +411,7 @@ const fn id[T](value: T!usize) T!usize {
 }
 
 const fn unwrap(value: usize!usize) usize {
-    switch value {
+    match value {
         !payload => {
             payload
         },

@@ -28,7 +28,7 @@ fn classify(pair: (i32, (bool, i32))) i32 {
     if pair is (40, (true, value)) {
         value
     } else {
-        switch pair {
+        match pair {
             (left, (false, right)) => left + right,
             (_, (_, fallback)) => fallback,
         }
@@ -329,7 +329,7 @@ fn ok() Error!() {
 }
 
 fn main() i32 {
-    switch ok() {
+    match ok() {
         !value => {
             _ = value;
             0

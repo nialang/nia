@@ -88,7 +88,7 @@ fn testTarget(text: &[char]) build::TargetView {
 }
 
 fn isBuildDirRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::BuildDir,
@@ -100,7 +100,7 @@ fn isBuildDirRetainOom(error: build::Error) bool {
 
 fn isTargetRetainOom(error: build::Error, host: bool) bool {
     if host {
-        switch error {
+        match error {
             build::Error::Failure {
                 operation: build::ErrorOperation::Retain,
                 subject: build::ErrorSubject::HostTarget,
@@ -109,7 +109,7 @@ fn isTargetRetainOom(error: build::Error, host: bool) bool {
             _ => false,
         }
     } else {
-        switch error {
+        match error {
             build::Error::Failure {
                 operation: build::ErrorOperation::Retain,
                 subject: build::ErrorSubject::ArtifactTarget,
@@ -121,7 +121,7 @@ fn isTargetRetainOom(error: build::Error, host: bool) bool {
 }
 
 fn isPackageRootReleaseInvalid(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Release,
             subject: build::ErrorSubject::PackageRoot,
@@ -132,7 +132,7 @@ fn isPackageRootReleaseInvalid(error: build::Error) bool {
 }
 
 fn isImportRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::ModuleImport(1usize),
@@ -143,7 +143,7 @@ fn isImportRetainOom(error: build::Error) bool {
 }
 
 fn isExecutableRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::Executable(0usize),
@@ -154,7 +154,7 @@ fn isExecutableRetainOom(error: build::Error) bool {
 }
 
 fn isGeneratedFileRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::Step(1usize),
@@ -165,7 +165,7 @@ fn isGeneratedFileRetainOom(error: build::Error) bool {
 }
 
 fn isRunRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::Step(1usize),
@@ -176,7 +176,7 @@ fn isRunRetainOom(error: build::Error) bool {
 }
 
 fn isExternalCommandRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::Step(1usize),
@@ -187,7 +187,7 @@ fn isExternalCommandRetainOom(error: build::Error) bool {
 }
 
 fn isDependencyRetainOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::Dependencies,
@@ -198,7 +198,7 @@ fn isDependencyRetainOom(error: build::Error) bool {
 }
 
 fn isPlanValidationOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
             subject: build::ErrorSubject::Dependencies,
@@ -209,7 +209,7 @@ fn isPlanValidationOom(error: build::Error) bool {
 }
 
 fn isPlanEncodingOom(error: build::Error) bool {
-    switch error {
+    match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Encode,
             subject: build::ErrorSubject::BuildPlan,
@@ -233,7 +233,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
-    switch build::Build::init(
+    match build::Build::init(
         &mut allocator,
         path,
         path,
@@ -269,7 +269,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
-    switch build::Build::init(
+    match build::Build::init(
         &mut allocator,
         path,
         path,
@@ -307,7 +307,7 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!() {
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
-    switch build::Build::init(
+    match build::Build::init(
         &mut allocator,
         path,
         path,
@@ -371,7 +371,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ];
     let beforeModule = allocator.activeAllocations;
     allocator.failAfter(6usize);
-    switch api.addModule(
+    match api.addModule(
         build::ModuleOptions::init(&"root", fs::PathView::init(&rootSource)).withImports(&imports[..]),
     ) {
         !handle => {
@@ -394,7 +394,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     let targetName = "app";
     let outputName = "output";
     allocator.failAfter(1usize);
-    switch api.addExecutable(
+    match api.addExecutable(
         build::ExecutableOptions::init(&targetName, moduleHandle).withOutputName(&outputName),
     ) {
         !handle => {
@@ -418,7 +418,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     let runArguments: [&[char]; 2] = [&"first", &"second"];
     let beforeRun = allocator.activeAllocations;
     allocator.failAfter(1usize);
-    switch api.addRunExecutableStep(
+    match api.addRunExecutableStep(
         &"run",
         build::RunOptions::init(executable).withArguments(&runArguments[..]),
     ) {
@@ -438,7 +438,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     allocator.disableFailure();
     let beforeDependency = allocator.activeAllocations;
     allocator.failAfter(4usize);
-    switch api.addRunExecutableStep(
+    match api.addRunExecutableStep(
         &"run",
         build::RunOptions::init(executable).withArguments(&runArguments[..]),
     ) {
@@ -458,7 +458,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     allocator.disableFailure();
     let beforeGenerated = allocator.activeAllocations;
     allocator.failAfter(1usize);
-    switch api.addGeneratedFileStep(
+    match api.addGeneratedFileStep(
         &"generate",
         build::BuildPathView::init(&"generated/source.nia"),
         &b"contents"[..],
@@ -484,7 +484,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ];
     let beforeCommand = allocator.activeAllocations;
     allocator.failAfter(3usize);
-    switch api.addExternalCommandStep(
+    match api.addExternalCommandStep(
         &"tool",
         build::ExternalCommandOptions::search(&"tool").withArguments(&commandArguments),
     ) {
@@ -548,7 +548,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     api.setDefaultStep(emit).exit().?;
     let beforeValidate = allocator.activeAllocations;
     allocator.failAfter(1usize);
-    switch api.validatePlan() {
+    match api.validatePlan() {
         !ok => {
             _ = ok;
             return process::exit(21)!;
@@ -564,7 +564,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     api.validatePlan().exit().?;
     let beforeEncode = allocator.activeAllocations;
     allocator.failAfter(0usize);
-    switch api.writePlanDraft(fs::PathView::init(&"plan.draft")) {
+    match api.writePlanDraft(fs::PathView::init(&"plan.draft")) {
         !ok => {
             _ = ok;
             return process::exit(24)!;

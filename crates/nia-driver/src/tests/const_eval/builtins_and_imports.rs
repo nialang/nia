@@ -148,7 +148,7 @@ where I: Iterator {
     let mut total = 0usize;
     let mut done = false;
     while not done {
-        switch values.next() {
+        match values.next() {
             ?value => {
                 _ = value;
                 total += 1usize;
@@ -417,11 +417,11 @@ using std::unicode;
 
 const scalar: ?char = unicode::fromScalarValue(0x03bb);
 const surrogate: ?char = unicode::fromScalarValue(0xd800);
-const width: usize = switch scalar {
+const width: usize = match scalar {
     ?value => if (value as u32) == 0x03bb { 3 } else { 1 },
     null => 1,
 };
-const invalidWidth: usize = switch surrogate {
+const invalidWidth: usize = match surrogate {
     ?value => if (value as u32) == 0xd800 { 1 } else { 1 },
     null => 2,
 };

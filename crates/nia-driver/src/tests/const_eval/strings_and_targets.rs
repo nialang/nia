@@ -246,7 +246,7 @@ const fn sample_os() ?[char; 5] {
     ?"linux"
 }
 
-const n: usize = switch sample_os() {
+const n: usize = match sample_os() {
     ?os => {
         os.len()
     },
@@ -273,7 +273,7 @@ fn const_optional_constructor_projects_char_array_payload() {
         &root.join("main.nia"),
         r#"
 const os = ?"linux";
-const n: usize = switch os {
+const n: usize = match os {
     ?payload => {
         payload.len()
     },

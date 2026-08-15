@@ -6,9 +6,9 @@ use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
     TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee, TypedExpr,
     TypedExprKind, TypedForIn, TypedIfPattern, TypedInlineAsm, TypedLocal, TypedLocalKind,
-    TypedLoop, TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern,
-    TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
-    TypedSwitch, TypedSwitchArmBody, TypedWhile,
+    TypedLoop, TypedMatch, TypedMatchArmBody, TypedMemoryIntrinsicSource,
+    TypedNominalPatternConstructor, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedWhile,
 };
 use nia_ids::{ClosureId, InternedTyId, LocalId, ModuleId};
 use nia_span::Span;

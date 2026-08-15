@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::support::{LoweringContext, PatternConditionContext, SwitchValueArmContext};
+use super::support::{LoweringContext, MatchValueArmContext, PatternConditionContext};
 use super::*;
 
 impl FunctionLowerer<'_> {
@@ -121,8 +121,8 @@ impl FunctionLowerer<'_> {
                 };
                 return self.lower_value_if_pattern_expr(expr, if_pattern, &mut context);
             }
-            TypedExprKind::Switch(switch) => {
-                return self.lower_value_switch_expr(expr, switch, scope, current, ops, blocks);
+            TypedExprKind::Match(matched) => {
+                return self.lower_value_match_expr(expr, matched, scope, current, ops, blocks);
             }
             TypedExprKind::Range(range) => {
                 FunctionExprKind::Range(self.lower_range(range, scope, current, ops, blocks))
@@ -574,8 +574,8 @@ impl FunctionLowerer<'_> {
             TypedExprKind::IfPattern(if_pattern) => {
                 self.lower_if_pattern_expr_stmt(expr.span, if_pattern, scope, current, ops, blocks);
             }
-            TypedExprKind::Switch(switch) => {
-                self.lower_switch_expr_stmt(expr.span, switch, scope, current, ops, blocks);
+            TypedExprKind::Match(matched) => {
+                self.lower_match_expr_stmt(expr.span, matched, scope, current, ops, blocks);
             }
             TypedExprKind::MemoryIntrinsic(memory) => {
                 let op = self.lower_memory_intrinsic_op(memory, scope, current, ops, blocks);
@@ -976,32 +976,32 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    pub(super) fn lower_value_switch_expr(
+    pub(super) fn lower_value_match_expr(
         &mut self,
         expr: &TypedExpr,
-        switch: &TypedSwitch,
+        matched: &TypedMatch,
         scope: FunctionScopeId,
         current: &mut FunctionBlockId,
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionExpr {
-        if self.switch_requires_pattern_chain(switch) {
+        if self.match_requires_pattern_chain(matched) {
             let mut context = LoweringContext {
                 scope,
                 current,
                 ops,
                 blocks,
             };
-            return self.lower_value_switch_expr_as_chain(expr, switch, &mut context);
+            return self.lower_value_match_expr_as_chain(expr, matched, &mut context);
         }
-        let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
-        let target = self.direct_switch_target(switch, target);
+        let target = self.lower_value_expr(&matched.target, scope, current, ops, blocks);
+        let target = self.direct_match_target(matched, target);
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let merge_target = self.alloc_block();
         let mut arms = Vec::new();
         let mut lowered_arms = Vec::new();
         let mut default = None;
-        for arm in &switch.arms {
+        for arm in &matched.arms {
             let arm_target = self.alloc_block();
             for pattern in &arm.patterns {
                 match &pattern.kind {
@@ -1016,7 +1016,7 @@ impl FunctionLowerer<'_> {
                     TypedPatternKind::Nominal { .. } => {
                         arms.push(FunctionSwitchArm {
                             pattern: self
-                                .direct_enum_switch_pattern(pattern)
+                                .direct_enum_match_pattern(pattern)
                                 .expect("payload enum patterns require condition-chain lowering"),
                             target: arm_target,
                         });
@@ -1054,7 +1054,7 @@ impl FunctionLowerer<'_> {
 
         for (arm_target, arm) in lowered_arms {
             let arm_scope = self.alloc_scope(Some(scope), arm.span);
-            let mut arm_context = SwitchValueArmContext {
+            let mut arm_context = MatchValueArmContext {
                 span: arm.span,
                 scope: arm_scope,
                 entry: arm_target,
@@ -1062,7 +1062,7 @@ impl FunctionLowerer<'_> {
                 merge_target,
                 blocks,
             };
-            self.lower_value_switch_arm_body(&arm.body, &mut arm_context);
+            self.lower_value_match_arm_body(&arm.body, &mut arm_context);
         }
 
         *current = merge_target;
@@ -1073,28 +1073,28 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    fn lower_value_switch_expr_as_chain(
+    fn lower_value_match_expr_as_chain(
         &mut self,
         expr: &TypedExpr,
-        switch: &TypedSwitch,
+        matched: &TypedMatch,
         context: &mut LoweringContext<'_>,
     ) -> FunctionExpr {
         let target_value = self.lower_value_expr(
-            &switch.target,
+            &matched.target,
             context.scope,
             context.current,
             context.ops,
             context.blocks,
         );
-        let target_local = self.alloc_temp_local(switch.target.span, switch.target.ty);
+        let target_local = self.alloc_temp_local(matched.target.span, matched.target.ty);
         context.ops.push(FunctionOp::StoreLocal {
             local_id: target_local,
             value: target_value,
-            span: switch.target.span,
+            span: matched.target.span,
         });
         let target = FunctionExpr {
-            span: switch.target.span,
-            ty: switch.target.ty,
+            span: matched.target.span,
+            ty: matched.target.ty,
             kind: FunctionExprKind::Local(target_local),
         };
         let result_local = self.alloc_temp_local(expr.span, expr.ty);
@@ -1102,7 +1102,7 @@ impl FunctionLowerer<'_> {
         let mut lowered_arms = Vec::new();
         let mut tests = Vec::new();
         let mut default = merge_target;
-        for arm in &switch.arms {
+        for arm in &matched.arms {
             let arm_target = self.alloc_block();
             for pattern in &arm.patterns {
                 if matches!(&pattern.kind, TypedPatternKind::Wildcard) {
@@ -1136,13 +1136,13 @@ impl FunctionLowerer<'_> {
                 current: &mut check_current,
                 ops: &mut check_ops,
                 blocks: context.blocks,
-                bool_ty: switch.bool_ty,
+                bool_ty: matched.bool_ty,
             };
             let cond = self
                 .pattern_condition(&target, pattern, &mut condition_context)
                 .unwrap_or(FunctionExpr {
                     span: expr.span,
-                    ty: switch.bool_ty,
+                    ty: matched.bool_ty,
                     kind: FunctionExprKind::Bool(true),
                 });
             let else_target = check_blocks.get(index + 1).copied().unwrap_or(default);
@@ -1172,7 +1172,7 @@ impl FunctionLowerer<'_> {
                     context.blocks,
                 )
             });
-            let mut arm_context = SwitchValueArmContext {
+            let mut arm_context = MatchValueArmContext {
                 span: arm.span,
                 scope: arm_scope,
                 entry: arm_entry,
@@ -1180,7 +1180,7 @@ impl FunctionLowerer<'_> {
                 merge_target,
                 blocks: context.blocks,
             };
-            self.lower_value_switch_arm_body(&arm.body, &mut arm_context);
+            self.lower_value_match_arm_body(&arm.body, &mut arm_context);
         }
         *context.current = merge_target;
         FunctionExpr {
@@ -1190,13 +1190,13 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    pub(super) fn lower_value_switch_arm_body(
+    pub(super) fn lower_value_match_arm_body(
         &mut self,
-        body: &TypedSwitchArmBody,
-        context: &mut SwitchValueArmContext<'_>,
+        body: &TypedMatchArmBody,
+        context: &mut MatchValueArmContext<'_>,
     ) {
         match body {
-            TypedSwitchArmBody::Expr(expr) => {
+            TypedMatchArmBody::Expr(expr) => {
                 let mut current = context.entry;
                 let mut ops = Vec::new();
                 let terminated = self.store_expr_result_or_effect(
@@ -1221,7 +1221,7 @@ impl FunctionLowerer<'_> {
                     );
                 }
             }
-            TypedSwitchArmBody::Stmt(stmt) => {
+            TypedMatchArmBody::Stmt(stmt) => {
                 let mut current = context.entry;
                 let mut ops = Vec::new();
                 if !self.lower_stmt_into(
@@ -1244,7 +1244,7 @@ impl FunctionLowerer<'_> {
                     );
                 }
             }
-            TypedSwitchArmBody::Block(body) => {
+            TypedMatchArmBody::Block(body) => {
                 self.lower_body_into(
                     body,
                     context.entry,

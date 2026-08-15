@@ -93,7 +93,7 @@ O2 = 2,
 extend Mode {
 fn argv(self) &u8 {
     static o2 = b"-O2\0";
-    switch self {
+    match self {
         Mode::O2 => &o2[0],
         _ => &o2[0],
     }
@@ -158,7 +158,7 @@ O2 = 2,
 extend Mode {
 pub fn argv(self) &u8 {
     static o2 = b"-O2\0";
-    switch self {
+    match self {
         Mode::O2 => &o2[0],
         _ => &o2[0],
     }

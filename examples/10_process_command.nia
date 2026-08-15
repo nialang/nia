@@ -13,7 +13,7 @@ pub fn main(init: Init) ExitCode!() {
         .withEnvironment(&environment)
         .withStdout(process::StdIo::Pipe);
     let mut child = command.spawn().?;
-    let mut stdout = switch child.takeStdout() {
+    let mut stdout = match child.takeStdout() {
         ?value => value,
         null => return process::exit(1)!,
     };

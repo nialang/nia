@@ -7,7 +7,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if helper::value() != 7 {
         return process::exit(1)!;
     }
-    let argument = switch init.args().get(1usize) {
+    let argument = match init.args().get(1usize) {
         ?argument => argument,
         null => return process::exit(2)!,
     };

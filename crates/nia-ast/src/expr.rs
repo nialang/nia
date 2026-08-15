@@ -86,15 +86,15 @@ pub struct IfPatternExpr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SwitchStmt {
+pub struct MatchExpr {
     pub target: Expr,
-    pub arms: Vec<SwitchArm>,
+    pub arms: Vec<MatchArm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SwitchArm {
+pub struct MatchArm {
     pub patterns: Vec<Pattern>,
-    pub body: SwitchArmBody,
+    pub body: MatchArmBody,
     pub span: Span,
 }
 
@@ -180,13 +180,13 @@ pub struct NamedPatternField {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SwitchArmBody {
+pub enum MatchArmBody {
     Expr(Box<Expr>),
     Stmt(Box<Stmt>),
     Block(Box<Block>),
 }
 
-impl SwitchArmBody {
+impl MatchArmBody {
     pub fn span(&self) -> Span {
         match self {
             Self::Expr(expr) => expr.span,
@@ -318,7 +318,7 @@ pub enum ExprKind {
         else_branch: Option<Box<Expr>>,
     },
     IfPattern(Box<IfPatternExpr>),
-    Switch(Box<SwitchStmt>),
+    Match(Box<MatchExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

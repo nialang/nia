@@ -69,7 +69,7 @@ start: i32,
 }
 
 fn value(input: ?S) ?i32 {
-switch input {
+match input {
     ?range => {
         ?range.start
     },

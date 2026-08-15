@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use nia_body_ir::{
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedMemoryIntrinsicSource, TypedPlace, TypedStmtKind, TypedSwitchArmBody,
+    TypedExprKind, TypedMatchArmBody, TypedMemoryIntrinsicSource, TypedPlace, TypedStmtKind,
 };
 
 use super::{CallableBody, CallableKey};
@@ -213,13 +213,13 @@ fn collect_expr_closures<'a>(
                 collect_expr_closures(branch, callables);
             }
         }
-        TypedExprKind::Switch(switch) => {
-            collect_expr_closures(&switch.target, callables);
-            for arm in &switch.arms {
+        TypedExprKind::Match(matched) => {
+            collect_expr_closures(&matched.target, callables);
+            for arm in &matched.arms {
                 match &arm.body {
-                    TypedSwitchArmBody::Expr(expr) => collect_expr_closures(expr, callables),
-                    TypedSwitchArmBody::Stmt(stmt) => collect_stmt_closures(stmt, callables),
-                    TypedSwitchArmBody::Block(body) => collect_body_closures(body, callables),
+                    TypedMatchArmBody::Expr(expr) => collect_expr_closures(expr, callables),
+                    TypedMatchArmBody::Stmt(stmt) => collect_stmt_closures(stmt, callables),
+                    TypedMatchArmBody::Block(body) => collect_body_closures(body, callables),
                 }
             }
         }

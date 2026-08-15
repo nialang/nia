@@ -16,7 +16,7 @@ pub(super) struct PatternConditionContext<'a> {
     pub(super) bool_ty: InternedTyId,
 }
 
-pub(super) struct SwitchValueArmContext<'a> {
+pub(super) struct MatchValueArmContext<'a> {
     pub(super) span: Span,
     pub(super) scope: FunctionScopeId,
     pub(super) entry: FunctionBlockId,
@@ -25,7 +25,7 @@ pub(super) struct SwitchValueArmContext<'a> {
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
 }
 
-pub(super) struct SwitchStmtArmContext<'a> {
+pub(super) struct MatchExprArmContext<'a> {
     pub(super) span: Span,
     pub(super) scope: FunctionScopeId,
     pub(super) entry: FunctionBlockId,
@@ -251,8 +251,8 @@ impl FunctionLowerer<'_> {
         id
     }
 
-    pub(super) fn switch_requires_pattern_chain(&self, switch: &TypedSwitch) -> bool {
-        switch.arms.iter().any(|arm| {
+    pub(super) fn match_requires_pattern_chain(&self, matched: &TypedMatch) -> bool {
+        matched.arms.iter().any(|arm| {
             arm.patterns.iter().any(|pattern| {
                 !matches!(
                     &pattern.kind,
@@ -270,13 +270,13 @@ impl FunctionLowerer<'_> {
         })
     }
 
-    pub(super) fn direct_switch_target(
+    pub(super) fn direct_match_target(
         &self,
-        switch: &TypedSwitch,
+        matched: &TypedMatch,
         target: FunctionExpr,
     ) -> FunctionExpr {
         let Some(backing_type) =
-            switch
+            matched
                 .arms
                 .iter()
                 .flat_map(|arm| &arm.patterns)
@@ -300,10 +300,7 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    pub(super) fn direct_enum_switch_pattern(
-        &self,
-        pattern: &TypedPattern,
-    ) -> Option<FunctionExpr> {
+    pub(super) fn direct_enum_match_pattern(&self, pattern: &TypedPattern) -> Option<FunctionExpr> {
         let TypedPatternKind::Nominal {
             constructor:
                 TypedNominalPatternConstructor::EnumVariant {
@@ -417,7 +414,7 @@ impl FunctionLowerer<'_> {
                             ty: *backing_type,
                             kind: FunctionExprKind::EnumVariantTag(*variant),
                         };
-                        Some(self.switch_eq_condition(&tag, expected, context.bool_ty))
+                        Some(self.match_eq_condition(&tag, expected, context.bool_ty))
                     }
                 };
                 for (field, field_pattern) in fields.iter().enumerate() {
@@ -450,11 +447,11 @@ impl FunctionLowerer<'_> {
                     context.ops,
                     context.blocks,
                 );
-                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
+                Some(self.match_eq_condition(target, pattern, context.bool_ty))
             }
             TypedPatternKind::CheckedInt { value } => {
                 let pattern = self.checked_int_pattern_expr(*value, pattern.ty, pattern.span);
-                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
+                Some(self.match_eq_condition(target, pattern, context.bool_ty))
             }
             TypedPatternKind::Range {
                 start,
@@ -475,7 +472,7 @@ impl FunctionLowerer<'_> {
                     context.ops,
                     context.blocks,
                 );
-                Some(self.switch_range_condition(
+                Some(self.match_range_condition(
                     target,
                     start,
                     end,
@@ -491,7 +488,7 @@ impl FunctionLowerer<'_> {
             } => {
                 let start = self.checked_int_pattern_expr(*start, pattern.ty, pattern.span);
                 let end = self.checked_int_pattern_expr(*end, pattern.ty, pattern.span);
-                Some(self.switch_range_condition(
+                Some(self.match_range_condition(
                     target,
                     start,
                     end,
@@ -526,7 +523,7 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    fn switch_eq_condition(
+    fn match_eq_condition(
         &self,
         target: &FunctionExpr,
         pattern: FunctionExpr,
@@ -543,7 +540,7 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    fn switch_range_condition(
+    fn match_range_condition(
         &self,
         target: &FunctionExpr,
         start: FunctionExpr,
@@ -830,16 +827,16 @@ impl FunctionLowerer<'_> {
                     self.collect_expr_locals(else_branch, locals);
                 }
             }
-            TypedExprKind::Switch(switch) => {
-                for arm in &switch.arms {
+            TypedExprKind::Match(matched) => {
+                for arm in &matched.arms {
                     match &arm.body {
-                        TypedSwitchArmBody::Expr(expr) => self.collect_expr_locals(expr, locals),
-                        TypedSwitchArmBody::Stmt(stmt) => {
+                        TypedMatchArmBody::Expr(expr) => self.collect_expr_locals(expr, locals),
+                        TypedMatchArmBody::Stmt(stmt) => {
                             if let TypedStmtKind::Expr(expr) = &stmt.kind {
                                 self.collect_expr_locals(expr, locals);
                             }
                         }
-                        TypedSwitchArmBody::Block(body) => self.collect_body_locals(body, locals),
+                        TypedMatchArmBody::Block(body) => self.collect_body_locals(body, locals),
                     }
                 }
             }
@@ -900,7 +897,7 @@ impl FunctionLowerer<'_> {
 
     pub(super) fn next_available_local(&self, body: &TypedBody) -> u32 {
         // Temporaries are allocated after every source local referenced by the
-        // typed body, including locals hidden inside expression blocks, switch
+        // typed body, including locals hidden inside expression blocks, matched
         // arms, and defer bodies. This keeps generated locals disjoint from
         // ids assigned before function lowering.
         pub(super) fn visit_body(body: &TypedBody, max_id: &mut u32) {
@@ -1049,15 +1046,15 @@ impl FunctionLowerer<'_> {
                         visit_expr(else_branch, max_id);
                     }
                 }
-                TypedExprKind::Switch(switch) => {
-                    visit_expr(&switch.target, max_id);
-                    for arm in &switch.arms {
+                TypedExprKind::Match(matched) => {
+                    visit_expr(&matched.target, max_id);
+                    for arm in &matched.arms {
                         for pattern in &arm.patterns {
                             visit_pattern(pattern, max_id);
                         }
                         match &arm.body {
-                            TypedSwitchArmBody::Expr(expr) => visit_expr(expr, max_id),
-                            TypedSwitchArmBody::Stmt(stmt) => match &stmt.kind {
+                            TypedMatchArmBody::Expr(expr) => visit_expr(expr, max_id),
+                            TypedMatchArmBody::Stmt(stmt) => match &stmt.kind {
                                 TypedStmtKind::Expr(expr)
                                 | TypedStmtKind::Return(Some(expr))
                                 | TypedStmtKind::Defer(expr) => visit_expr(expr, max_id),
@@ -1087,7 +1084,7 @@ impl FunctionLowerer<'_> {
                                 | TypedStmtKind::Break
                                 | TypedStmtKind::Continue => {}
                             },
-                            TypedSwitchArmBody::Block(body) => visit_body(body, max_id),
+                            TypedMatchArmBody::Block(body) => visit_body(body, max_id),
                         }
                     }
                 }

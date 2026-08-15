@@ -2,7 +2,7 @@
 use nia_ast::{
     ArrayElements, Attribute, AttributeKind, Block, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
-    Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody,
+    MatchArmBody, Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
@@ -418,9 +418,9 @@ impl Pruner<'_> {
                 node_key,
                 kind: ExprKind::Range(self.prune_range(range)),
             },
-            ExprKind::Switch(mut switch) => {
-                switch.target = self.prune_expr(switch.target);
-                for arm in &mut switch.arms {
+            ExprKind::Match(mut matched) => {
+                matched.target = self.prune_expr(matched.target);
+                for arm in &mut matched.arms {
                     for pattern in &mut arm.patterns {
                         *pattern = self.prune_pattern(std::mem::replace(
                             pattern,
@@ -432,36 +432,36 @@ impl Pruner<'_> {
                     }
                     arm.body = match std::mem::replace(
                         &mut arm.body,
-                        SwitchArmBody::Block(Box::new(Block {
+                        MatchArmBody::Block(Box::new(Block {
                             span: arm.span,
                             stmts: Vec::new(),
                             tail: None,
                         })),
                     ) {
-                        SwitchArmBody::Expr(expr) => {
-                            SwitchArmBody::Expr(Box::new(self.prune_expr(*expr)))
+                        MatchArmBody::Expr(expr) => {
+                            MatchArmBody::Expr(Box::new(self.prune_expr(*expr)))
                         }
-                        SwitchArmBody::Stmt(stmt) => {
+                        MatchArmBody::Stmt(stmt) => {
                             let mut stmts = self.prune_stmt(*stmt);
                             if stmts.len() == 1 {
-                                SwitchArmBody::Stmt(Box::new(stmts.remove(0)))
+                                MatchArmBody::Stmt(Box::new(stmts.remove(0)))
                             } else {
-                                SwitchArmBody::Block(Box::new(Block {
+                                MatchArmBody::Block(Box::new(Block {
                                     span: arm.span,
                                     stmts,
                                     tail: None,
                                 }))
                             }
                         }
-                        SwitchArmBody::Block(block) => {
-                            SwitchArmBody::Block(Box::new(self.prune_block(*block)))
+                        MatchArmBody::Block(block) => {
+                            MatchArmBody::Block(Box::new(self.prune_block(*block)))
                         }
                     };
                 }
                 Expr {
                     span,
                     node_key,
-                    kind: ExprKind::Switch(switch),
+                    kind: ExprKind::Match(matched),
                 }
             }
             other => Expr {

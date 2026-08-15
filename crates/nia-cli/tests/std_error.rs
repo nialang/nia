@@ -43,7 +43,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         std::builtin::trap();
         TargetError::Wrapped
     });
-    switch success {
+    match success {
         !(left, right) => {
             if left + right != 42 {
                 return process::exit(1)!;
@@ -62,7 +62,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             TargetError::Unexpected
         }
     });
-    switch failure {
+    match failure {
         !value => {
             _ = value;
             return process::exit(3)!;
@@ -134,7 +134,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         std::builtin::trap();
         TargetError::Unexpected!
     });
-    switch success {
+    match success {
         !(left, right) => if left + right != 42 {
             return process::exit(1)!;
         },
@@ -152,7 +152,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             TargetError::Unexpected!
         }
     });
-    switch recovered {
+    match recovered {
         !(left, right) => if left + right != 42 {
             return process::exit(3)!;
         },
@@ -169,7 +169,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             TargetError::Unexpected!
         }
     });
-    switch replaced {
+    match replaced {
         !value => {
             _ = value;
             return process::exit(5)!;
@@ -229,7 +229,7 @@ enum TargetError: i32 {
 
 extend SourceError : error::IntoError[TargetError] {
     const fn into_error(self) TargetError {
-        switch self {
+        match self {
             SourceError::Missing => TargetError::Wrapped,
             _ => TargetError::Unexpected,
         }
@@ -247,14 +247,14 @@ const fn propagateStd(value: fs::Error!usize) process::ExitCode!usize {
 const success = propagate(!(20, 22));
 const failure = propagate(SourceError::Missing!);
 const standardFailure = propagateStd(fs::Error::NotFound!);
-const width: usize = switch success {
+const width: usize = match success {
     !(left, right) => left + right,
     cause! => 0,
-} + switch failure {
+} + match failure {
     !value => value.0 + value.1,
     TargetError::Wrapped! => 8,
     cause! => 0,
-} + switch standardFailure {
+} + match standardFailure {
     !value => value,
     cause! => cause as i32 as usize,
 };

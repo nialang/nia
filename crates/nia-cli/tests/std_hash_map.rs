@@ -227,7 +227,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not direct.isEmpty() {
         return process::exit(1)!;
     }
-    let fallible = switch std::HashMap[i32, i32]::tryInit() {
+    let fallible = match std::HashMap[i32, i32]::tryInit() {
         !map => map,
         error! => {
             _ = error;
@@ -241,7 +241,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not contextual.isEmpty() {
         return process::exit(4)!;
     }
-    let typed = switch collections::HashMapWithContext[i32, i32, Context]::tryInitContext(Context::init()) {
+    let typed = match collections::HashMapWithContext[i32, i32, Context]::tryInitContext(Context::init()) {
         !map => map,
         std::HashMapInitError::System! => return process::exit(5)!,
         error! => {
@@ -487,7 +487,7 @@ fn run(init: process::Init) mem::Error!() {
     if not map.containsKey(&42) {
         return mem::Error::Invalid!;
     }
-    switch map.get(&42) {
+    match map.get(&42) {
         ?value => { if value.* != 420 {
                 return mem::Error::Invalid!;
             } },
@@ -502,30 +502,30 @@ fn run(init: process::Init) mem::Error!() {
     } else {
         return mem::Error::Invalid!;
     }
-    switch map.getMut(&42) {
+    match map.getMut(&42) {
         mut ?value => { value.* = value.* + 1; },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.get(&42) {
+    match map.get(&42) {
         ?value => { if value.* != 8 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.getEntry(&42) {
+    match map.getEntry(&42) {
         ?entry => { if entry.key().* != 42 or entry.value().* != 8 {
                     return mem::Error::Invalid!;
                 } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.getEntryMut(&42) {
+    match map.getEntryMut(&42) {
         mut ?entry => { if entry.key().* != 42 or entry.value().* != 8 {
                     return mem::Error::Invalid!;
                 }
                 entry.valueMut().* = 9; },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.get(&42) {
+    match map.get(&42) {
         ?value => { if value.* != 9 {
                 return mem::Error::Invalid!;
             } },
@@ -534,7 +534,7 @@ fn run(init: process::Init) mem::Error!() {
     for value in map.valuesMut() {
         value.* = value.* + 1;
     }
-    switch map.get(&42) {
+    match map.get(&42) {
         ?value => { if value.* != 10 {
                 return mem::Error::Invalid!;
             } },
@@ -545,13 +545,13 @@ fn run(init: process::Init) mem::Error!() {
             entry.valueMut().* = entry.value().* + 2;
         }
     }
-    switch map.get(&42) {
+    match map.get(&42) {
         ?value => { if value.* != 12 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.remove(&10) {
+    match map.remove(&10) {
         ?value => { if value != 101 {
                 return mem::Error::Invalid!;
             } },
@@ -601,7 +601,7 @@ fn run(init: process::Init) mem::Error!() {
         return mem::Error::Invalid!;
     }
 
-    switch map.removeEntry(&42) {
+    match map.removeEntry(&42) {
         ?entry => { if entry.key().* != 42 or entry.value().* != 12 {
                     return mem::Error::Invalid!;
                 } },
@@ -616,7 +616,7 @@ fn run(init: process::Init) mem::Error!() {
         _ = unexpected;
         return mem::Error::Invalid!;
     }
-    switch map.get(&74) {
+    match map.get(&74) {
         ?value => { if value.* != 740 {
                 return mem::Error::Invalid!;
             } },
@@ -630,7 +630,7 @@ fn run(init: process::Init) mem::Error!() {
     } else {
         return mem::Error::Invalid!;
     }
-    switch map.removeEntry(&74) {
+    match map.removeEntry(&74) {
         ?entry => { if entry.key().* != 74 or entry.value().* != 741 {
                     return mem::Error::Invalid!;
                 } },
@@ -655,7 +655,7 @@ fn run(init: process::Init) mem::Error!() {
     } else {
         return mem::Error::Invalid!;
     }
-    switch map.get(&5) {
+    match map.get(&5) {
         ?value => { if value.* != 50 {
                 return mem::Error::Invalid!;
             } },
@@ -682,7 +682,7 @@ fn run(init: process::Init) mem::Error!() {
         return mem::Error::Invalid!;
     }
     existingEntry.value().* = 62;
-    switch map.get(&6) {
+    match map.get(&6) {
         ?value => { if value.* != 62 {
                 return mem::Error::Invalid!;
             } },
@@ -705,7 +705,7 @@ fn run(init: process::Init) mem::Error!() {
         return mem::Error::Invalid!;
     }
     rawEntry.value().* = 81;
-    switch map.get(&8) {
+    match map.get(&8) {
         ?value => { if value.* != 81 {
                 return mem::Error::Invalid!;
             } },
@@ -723,7 +723,7 @@ fn run(init: process::Init) mem::Error!() {
     if not setLike.containsKey(&1) or not setLike.containsKey(&2) {
         return mem::Error::Invalid!;
     }
-    switch setLike.remove(&1) {
+    match setLike.remove(&1) {
         ?value => { _ = value; },
         null => { return mem::Error::Invalid!; },
     }
@@ -752,13 +752,13 @@ fn run(init: process::Init) mem::Error!() {
     if unitKeys.len() != 1 {
         return mem::Error::Invalid!;
     }
-    switch unitKeys.get(&{}) {
+    match unitKeys.get(&{}) {
         ?value => { if value.* != 22 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch unitKeys.remove(&{}) {
+    match unitKeys.remove(&{}) {
         ?value => { if value != 22 {
                 return mem::Error::Invalid!;
             } },
@@ -782,7 +782,7 @@ fn run(init: process::Init) mem::Error!() {
         }
         key = 0;
         while key < 28 {
-            switch churn.remove(&key) {
+            match churn.remove(&key) {
                 ?value => { _ = value; },
                 null => { return mem::Error::Invalid!; },
             }
@@ -803,7 +803,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 100;
     while key < 128 {
-        switch churn.get(&key) {
+        match churn.get(&key) {
             ?value => { if value.* != key * 2 {
                     return mem::Error::Invalid!;
                 } },
@@ -827,7 +827,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 56 {
-        switch tombstones.remove(&key) {
+        match tombstones.remove(&key) {
             ?value => { if value != key {
                     return mem::Error::Invalid!;
                 } },
@@ -849,7 +849,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 32 {
-        switch tombstones.get(&(key + 200)) {
+        match tombstones.get(&(key + 200)) {
             ?value => { if value.* != key * 4 {
                     return mem::Error::Invalid!;
                 } },
@@ -863,7 +863,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 32 {
-        switch tombstones.get(&(key + 200)) {
+        match tombstones.get(&(key + 200)) {
             ?value => { if value.* != key * 4 {
                     return mem::Error::Invalid!;
                 } },
@@ -873,7 +873,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 32 {
-        switch tombstones.remove(&(key + 200)) {
+        match tombstones.remove(&(key + 200)) {
             ?value => { if value != key * 4 {
                     return mem::Error::Invalid!;
                 } },
@@ -886,7 +886,7 @@ fn run(init: process::Init) mem::Error!() {
         return mem::Error::Invalid!;
     }
     _ = tombstones.insert(&mut gpa, 777, 888).?;
-    switch tombstones.get(&777) {
+    match tombstones.get(&777) {
         ?value => { if value.* != 888 {
                 return mem::Error::Invalid!;
             } },
@@ -896,7 +896,7 @@ fn run(init: process::Init) mem::Error!() {
     if tombstones.len() != 1 or tombstones.capacity() != 7 {
         return mem::Error::Invalid!;
     }
-    switch tombstones.get(&777) {
+    match tombstones.get(&777) {
         ?value => { if value.* != 888 {
                 return mem::Error::Invalid!;
             } },
@@ -906,7 +906,7 @@ fn run(init: process::Init) mem::Error!() {
     if tombstones.len() != 1 or tombstones.capacity() != 7 {
         return mem::Error::Invalid!;
     }
-    switch tombstones.remove(&777) {
+    match tombstones.remove(&777) {
         ?value => { if value != 888 {
                 return mem::Error::Invalid!;
             } },
@@ -931,7 +931,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 10 {
-        switch tombstones.get(&key) {
+        match tombstones.get(&key) {
             ?value => { if value.* != key * 11 {
                     return mem::Error::Invalid!;
                 } },
@@ -951,7 +951,7 @@ fn run(init: process::Init) mem::Error!() {
         key += 1;
     }
     failAllocator.failNextAlloc();
-    switch rollback.insert(&mut failAllocator, 99, 990) {
+    match rollback.insert(&mut failAllocator, 99, 990) {
         !old => { _ = old;
                 return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -964,7 +964,7 @@ fn run(init: process::Init) mem::Error!() {
     failAllocator.clearFailures();
     key = 0;
     while key < 14 {
-        switch rollback.get(&key) {
+        match rollback.get(&key) {
             ?value => { if value.* != key * 10 {
                     return mem::Error::Invalid!;
                 } },
@@ -973,7 +973,7 @@ fn run(init: process::Init) mem::Error!() {
         key += 1;
     }
     failAllocator.failNextAlloc();
-    switch rollback.clone(&mut failAllocator) {
+    match rollback.clone(&mut failAllocator) {
         !cloned => { _ = cloned;
                 return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -982,7 +982,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     failAllocator.clearFailures();
     failAllocator.failAllocAt = failAllocator.allocCount + 2;
-    switch rollback.clone(&mut failAllocator) {
+    match rollback.clone(&mut failAllocator) {
         !cloned => { _ = cloned;
                 return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -994,7 +994,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 14 {
-        switch rollback.get(&key) {
+        match rollback.get(&key) {
             ?value => { if value.* != key * 10 {
                     return mem::Error::Invalid!;
                 } },
@@ -1004,7 +1004,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     failAllocator.clearFailures();
     _ = rollback.insert(&mut failAllocator, 99, 990).?;
-    switch rollback.get(&99) {
+    match rollback.get(&99) {
         ?value => { if value.* != 990 {
                 return mem::Error::Invalid!;
             } },
@@ -1020,7 +1020,7 @@ fn run(init: process::Init) mem::Error!() {
         key += 1;
     }
     failAllocator.failNextAlloc();
-    switch rollbackGet.getOrInsert(&mut failAllocator, 77, 770) {
+    match rollbackGet.getOrInsert(&mut failAllocator, 77, 770) {
         !entry => { _ = entry;
                 return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -1036,7 +1036,7 @@ fn run(init: process::Init) mem::Error!() {
         _ = unexpected;
         return mem::Error::Invalid!;
     }
-    switch rollbackGet.get(&77) {
+    match rollbackGet.get(&77) {
         ?value => { if value.* != 770 {
                 return mem::Error::Invalid!;
             } },
@@ -1055,7 +1055,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     let oldFreeFailCapacity = freeFail.capacity();
     freeFailAllocator.failNextFree();
-    switch freeFail.reserve(&mut freeFailAllocator, 64) {
+    match freeFail.reserve(&mut freeFailAllocator, 64) {
         !ok => { return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
                 return err!;
@@ -1066,7 +1066,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 14 {
-        switch freeFail.get(&key) {
+        match freeFail.get(&key) {
             ?value => { if value.* != key + 5 {
                     return mem::Error::Invalid!;
                 } },
@@ -1076,7 +1076,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     let freeFailGrownCapacity = freeFail.capacity();
     freeFailAllocator.failNextFree();
-    switch freeFail.compact(&mut freeFailAllocator) {
+    match freeFail.compact(&mut freeFailAllocator) {
         !ok => { return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
                 return err!;
@@ -1087,7 +1087,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 14 {
-        switch freeFail.get(&key) {
+        match freeFail.get(&key) {
             ?value => { if value.* != key + 5 {
                     return mem::Error::Invalid!;
                 } },
@@ -1097,7 +1097,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     freeFailAllocator.clearFailures();
     freeFailAllocator.failNextFree();
-    switch freeFail.shrinkToFit(&mut freeFailAllocator) {
+    match freeFail.shrinkToFit(&mut freeFailAllocator) {
         !ok => { return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
                 return err!;
@@ -1111,7 +1111,7 @@ fn run(init: process::Init) mem::Error!() {
     freeFail.shrinkToCapacity(&mut freeFailAllocator, freeFail.capacity()).?;
     key = 0;
     while key < 14 {
-        switch freeFail.get(&key) {
+        match freeFail.get(&key) {
             ?value => { if value.* != key + 5 {
                     return mem::Error::Invalid!;
                 } },
@@ -1121,7 +1121,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     freeFailAllocator.clearFailures();
     _ = freeFail.insert(&mut freeFailAllocator, 90, 900).?;
-    switch freeFail.get(&90) {
+    match freeFail.get(&90) {
         ?value => { if value.* != 900 {
                 return mem::Error::Invalid!;
             } },
@@ -1144,7 +1144,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 20 {
-        switch collisions.get(&key) {
+        match collisions.get(&key) {
             ?value => { if value.* != key + 1000 {
                     return mem::Error::Invalid!;
                 } },
@@ -1154,7 +1154,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 10 {
-        switch collisions.remove(&key) {
+        match collisions.remove(&key) {
             ?value => { if value != key + 1000 {
                     return mem::Error::Invalid!;
                 } },
@@ -1179,7 +1179,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 100;
     while key < 110 {
-        switch collisions.get(&key) {
+        match collisions.get(&key) {
             ?value => { if value.* != key + 2000 {
                     return mem::Error::Invalid!;
                 } },
@@ -1212,19 +1212,19 @@ fn run(init: process::Init) mem::Error!() {
         return mem::Error::Invalid!;
     }
     let equivalent = Key::init(11);
-    switch modulo.getKey(&equivalent) {
+    match modulo.getKey(&equivalent) {
         ?storedKey => { if storedKey.value != 1 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch modulo.getEntry(&equivalent) {
+    match modulo.getEntry(&equivalent) {
         ?entry => { if entry.key().*.value != 1 or entry.value().* != 60 {
                     return mem::Error::Invalid!;
                 } },
         null => { return mem::Error::Invalid!; },
     }
-    switch modulo.get(&equivalent) {
+    match modulo.get(&equivalent) {
         ?value => { if value.* != 60 {
                 return mem::Error::Invalid!;
             } },
@@ -1239,7 +1239,7 @@ fn run(init: process::Init) mem::Error!() {
         return mem::Error::Invalid!;
     }
     let replaced = Key::init(46);
-    switch modulo.get(&replaced) {
+    match modulo.get(&replaced) {
         ?value => { if value.* != 56 * 3 {
                 return mem::Error::Invalid!;
             } },
@@ -1262,7 +1262,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 8 {
-        switch tailProbe.get(&key) {
+        match tailProbe.get(&key) {
             ?value => { if value.* != key + 100 {
                     return mem::Error::Invalid!;
                 } },
@@ -1270,7 +1270,7 @@ fn run(init: process::Init) mem::Error!() {
         }
         key += 1;
     }
-    switch tailProbe.remove(&0) {
+    match tailProbe.remove(&0) {
         ?value => { if value != 100 {
                 return mem::Error::Invalid!;
             } },
@@ -1281,7 +1281,7 @@ fn run(init: process::Init) mem::Error!() {
         _ = unexpected;
         return mem::Error::Invalid!;
     }
-    switch tailProbe.get(&16) {
+    match tailProbe.get(&16) {
         ?value => { if value.* != 1600 {
                 return mem::Error::Invalid!;
             } },
@@ -1289,7 +1289,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     tailProbe.clear();
     _ = tailProbe.insert(&mut gpa, 0, 700).?;
-    switch tailProbe.get(&0) {
+    match tailProbe.get(&0) {
         ?value => { if value.* != 700 {
                 return mem::Error::Invalid!;
             } },
@@ -1300,7 +1300,7 @@ fn run(init: process::Init) mem::Error!() {
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage);
     let mut tinyMap = std::HashMap[i32, i32]::initSeed(11u64);
     defer tinyMap.deinit(&mut tiny).?;
-    switch tinyMap.reserve(&mut tiny, 64) {
+    match tinyMap.reserve(&mut tiny, 64) {
         !ok => { return mem::Error::Invalid!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
                 return err!;
@@ -1438,7 +1438,7 @@ fn run(init: process::Init) mem::Error!() {
             expected[slot] = step + 1000;
         } else if op == 1 {
             let wasPresent = present[slot];
-            switch modelMap.remove(&slot) {
+            match modelMap.remove(&slot) {
                 ?value => { if not wasPresent or value != expected[slot] {
                             return mem::Error::Invalid!;
                         }
@@ -1490,7 +1490,7 @@ fn run(init: process::Init) mem::Error!() {
                 expected[slot] = step + 3000;
             }
         } else if op == 4 {
-            switch modelMap.get(&slot) {
+            match modelMap.get(&slot) {
                 ?value => { if not present[slot] or value.* != expected[slot] {
                         return mem::Error::Invalid!;
                     } },
@@ -1557,7 +1557,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     key = 0;
     while key < 40 {
-        switch clonedModel.get(&key) {
+        match clonedModel.get(&key) {
             ?value => { if not present[key] or value.* != expected[key] {
                     return mem::Error::Invalid!;
                 } },
@@ -1568,7 +1568,7 @@ fn run(init: process::Init) mem::Error!() {
         key += 1;
     }
     _ = modelMap.insert(&mut gpa, 3, 12345).?;
-    switch clonedModel.get(&3) {
+    match clonedModel.get(&3) {
         ?value => { if value.* == 12345 {
                 return mem::Error::Invalid!;
             }; },
@@ -1674,7 +1674,7 @@ fn run(init: process::Init) mem::Error!() {
 
     key = 0;
     while key < 14 {
-        switch map.remove(&key) {
+        match map.remove(&key) {
             ?value => { if value != key {
                     return mem::Error::Invalid!;
                 } },
@@ -1691,13 +1691,13 @@ fn run(init: process::Init) mem::Error!() {
     if map.len() != 2 {
         return mem::Error::Invalid!;
     }
-    switch map.get(&100) {
+    match map.get(&100) {
         ?value => { if value.* != 1000 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.get(&101) {
+    match map.get(&101) {
         ?value => { if value.* != 1010 {
                 return mem::Error::Invalid!;
             } },
@@ -1798,19 +1798,19 @@ fn run(init: process::Init) mem::Error!() {
     if map.len() != 3 {
         return mem::Error::Invalid!;
     }
-    switch map.get(&1) {
+    match map.get(&1) {
         ?value => { if value.* != 12 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.get(&2) {
+    match map.get(&2) {
         ?value => { if value.* != 20 {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
     }
-    switch map.get(&3) {
+    match map.get(&3) {
         ?value => { if value.* != 30 {
                 return mem::Error::Invalid!;
             } },

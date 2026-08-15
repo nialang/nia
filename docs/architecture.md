@@ -144,7 +144,7 @@ Nia-owned optimization consumers:
   enables empty jump block merging,
   same-target branch simplification when the condition is pure, unreachable
   block removal, and the same CFG cleanup inside defer bodies. Full CFG
-  simplification additionally folds pure same-target switch terminators to
+  simplification additionally folds pure same-target match terminators to
   direct branches. Full constant folding plus full CFG simplification folds
   switches with literal targets and literal patterns to the selected branch.
   Full local-copy propagation enables local copy propagation, including
@@ -1269,22 +1269,22 @@ typed const value shape before the `if` expression can feed generic
 const call inference: runtime Nia values agree by `TyId`, while structural
 const-only structs agree by their field type surface.
 
-Const `switch` expressions follow the same source-shaped typed surface as
-runtime source `switch`: recursive nominal patterns, value patterns, integer
+Const `match` expressions follow the same source-shaped typed surface as
+runtime source `match`: recursive nominal patterns, value patterns, integer
 ranges, and catch-all cases. Struct pattern fields are checked against the
 instantiated target type, so generic arguments are inherited from the matched
 value rather than repeated on the pattern constructor.
-Successful static const-switch typing delegates usefulness and exhaustiveness
+Successful static const-match typing delegates usefulness and exhaustiveness
 to `nia-pattern-analysis`, using the same constructor identity and field-order
 contract as runtime body checking. Const evaluation remains path-driven: when
 executing a `const fn`, it evaluates the selected arm rather than pretending to
 be a whole-function static analysis. `nia-body-check` therefore remains the
 owner of whole-function soundness, while const-check applies the shared matrix
-whenever a source-shaped const switch passes through static const typing.
+whenever a source-shaped const match passes through static const typing.
 Value-producing arm bodies are typed and unified to one typed const value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
-do not invent a switch result type. Optional and error-union payload locals are
-typed from the target type while checking either switch or if-pattern arms. The
+do not invent a match result type. Optional and error-union payload locals are
+typed from the target type while checking either match or if-pattern arms. The
 evaluator still performs
 actual matching; the checker only records the arm and payload types needed for
 const generic inference.
@@ -1305,7 +1305,7 @@ imports, definitions, values, locals, and const modules are available.
 ### 8.4 `nia-pattern-analysis`
 
 Owns the pure pattern-matrix algorithm shared by runtime body checking and
-static const-switch typing. It accepts only canonical type-column identities,
+static const-match typing. It accepts only canonical type-column identities,
 constructor identities, constructor field types, scalar bounds, and normalized
 patterns. It has no dependency on AST, name resolution, type storage,
 diagnostics, or lowering.
@@ -1414,7 +1414,7 @@ Checks flow-sensitive structural rules:
 - unreachable statements;
 - `break` and `continue` outside loops;
 - ordinary control-flow validity inside deferred expressions;
-- switch duplicate defaults and duplicate syntactic patterns.
+- match duplicate defaults and duplicate syntactic patterns.
 
 It should not perform full type checking.
 
@@ -1428,7 +1428,7 @@ Type-checks function bodies and expression semantics. It owns:
 - literal and pointer array-to-slice coercions;
 - indexing, slicing, field access, and method calls;
 - function calls and generic argument inference;
-- enum casts, switch usefulness/exhaustiveness, missing witnesses, and switch
+- enum casts, match usefulness/exhaustiveness, missing witnesses, and match
   range-pattern validation;
 - builtin expression typing;
 - inline assembly configuration validation.
@@ -1481,7 +1481,7 @@ Defines checked body data products:
   aggregate, inline assembly, and control-flow nodes produced after body
   checking.
 
-This crate is source-shaped: blocks, if expressions, switch expressions, and
+This crate is source-shaped: blocks, if expressions, match expressions, and
 for headers still reflect the checked language form. It is not an optimization
 MIR and does not own diagnostics or checking policy. It is the durable data
 product of body checking and the input boundary for later lowering,
@@ -1505,7 +1505,7 @@ variants enter one typed nominal-pattern representation: its constructor
 selects either a struct field projection or an enum tag/payload projection,
 while fields are normalized to declaration order. A terminal source `..` is
 not encoded as a fake field: omitted fields are materialized as typed wildcard
-children so `field_defs[index]` and `fields[index]` remain aligned. `let`, `for`, `switch`, and
+children so `field_defs[index]` and `fields[index]` remain aligned. `let`, `for`, `match`, and
 if-pattern expressions therefore consume the same recursive representation;
 only their source control-flow shape and irrefutability requirements differ.
 
@@ -1516,7 +1516,7 @@ blocks, scopes, operations, terminators, places, callees, locals, builtin
 values, inline assembly, and runtime expressions.
 
 Function IR is the current function backend boundary. It removes source-shaped
-control expressions from runtime expression trees: block, if, switch, for,
+control expressions from runtime expression trees: block, if, match, for,
 return, break, continue, and defer behavior is represented through blocks,
 terminators, scope edges, and defer bodies. LLVM codegen consumes this IR rather
 than rediscovering control-flow or place semantics from typed AST-shaped nodes.
@@ -1692,7 +1692,7 @@ Collects concrete generic function and method instances required by the checked
 program. It deduplicates exact instance keys for symbol uniqueness and uses
 recursive-expansion guards to diagnose cycles. This exact-key deduplication is
 a required correctness invariant at every optimization level; the
-`dedup_monomorphized_instances` policy switch reports that the monomorphization
+`dedup_monomorphized_instances` policy match reports that the monomorphization
 boundary participates in size policy, but it does not make exact-key
 deduplication optional or permit merging instances with distinct symbol
 identity.

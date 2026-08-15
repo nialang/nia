@@ -733,8 +733,8 @@ extend Box {
 }
 
 #[test]
-fn switch_exhaustive_over_cross_module_enum() {
-    let root = temp_dir("switch_exhaustive_over_cross_module_enum");
+fn match_exhaustive_over_cross_module_enum() {
+    let root = temp_dir("match_exhaustive_over_cross_module_enum");
     write(
         &root.join("main.nia"),
         r#"
@@ -742,7 +742,7 @@ module palette;
 using entry::palette;
 
 fn pick(c: palette::Color) i32 {
-    switch c {
+    match c {
         palette::Color::Red => return 0,
         palette::Color::Black => return 1,
         palette::Color::Green => return 2,
@@ -763,8 +763,8 @@ fn main() i32 { pick(palette::Color::Red) }
 }
 
 #[test]
-fn switch_over_cross_module_enum_reports_missing_variants() {
-    let root = temp_dir("switch_over_cross_module_enum_reports_missing_variants");
+fn match_over_cross_module_enum_reports_missing_variants() {
+    let root = temp_dir("match_over_cross_module_enum_reports_missing_variants");
     write(
         &root.join("main.nia"),
         r#"
@@ -772,7 +772,7 @@ module palette;
 using entry::palette;
 
 fn pick(c: palette::Color) i32 {
-    switch c {
+    match c {
         palette::Color::Red => return 0,
     }
     -1
@@ -791,7 +791,7 @@ fn main() i32 { pick(palette::Color::Red) }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("non-exhaustive switch, missing pattern: `Black`")),
+            .contains("non-exhaustive matched, missing pattern: `Black`")),
         "{:?}",
         program.diagnostics
     );

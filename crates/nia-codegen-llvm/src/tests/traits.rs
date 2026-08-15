@@ -871,7 +871,7 @@ where W: FormatWriter
 
 fn main() i32 {
     let mut sink = Sink { count: 0 };
-    switch use_format[Sink](&mut sink, &b"ok") {
+    match use_format[Sink](&mut sink, &b"ok") {
         !ok => {
             _ = ok;
             sink.count as i32
@@ -980,7 +980,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    switch sink.write(&b"ok") {
+    match sink.write(&b"ok") {
         !value => {
             value as i32
         },

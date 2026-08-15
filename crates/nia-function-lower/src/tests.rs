@@ -4,6 +4,6 @@ mod common;
 mod basic;
 mod blocks_and_ifs;
 mod loops;
+mod matches;
 mod scope_edges;
-mod switches;
 mod validation;

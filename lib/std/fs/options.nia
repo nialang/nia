@@ -21,7 +21,7 @@ extend OpenOptions {
     }
 
     pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
-        switch self.mode() {
+        match self.mode() {
             OpenMode::ReadOnly => !os::OpenMode::ReadOnly,
             OpenMode::WriteOnly => !os::OpenMode::WriteOnly,
             OpenMode::ReadWrite => !os::OpenMode::ReadWrite,

@@ -129,7 +129,7 @@ enum FoldError: i32 {
 
 extend FoldError : error::IntoError[process::ExitCode] {
     const fn into_error(self) process::ExitCode {
-        switch self {
+        match self {
             FoldError::Rejected => {},
             _ => {},
         }
@@ -166,7 +166,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             }
         },
     );
-    switch failed {
+    match failed {
         !value => {
             _ = value;
             return process::exit(2)!;
@@ -223,7 +223,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         predicateCount += 1;
         value == target
     });
-    switch index {
+    match index {
         ?found => if found != 3 {
             return process::exit(1)!;
         },
@@ -233,7 +233,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         predicateCount += 1;
         value == 9
     });
-    switch missing {
+    match missing {
         ?_ => return process::exit(3)!,
         null => {},
     }

@@ -361,7 +361,7 @@ fn main(flag: bool) {
     };
     defer {
         let mut state = 1;
-        switch state {
+        match state {
             0 => cleanup(),
             _ => cleanup(),
         }
@@ -392,14 +392,14 @@ fn main(flag: bool) {
 }
 
 #[test]
-fn parses_switch_arm_expression_statement_and_block_bodies() {
+fn parses_match_arm_expression_statement_and_block_bodies() {
     let (module, errors) = parse_module(
         r#"
 fn cleanup() {}
 
 fn main(state: i32) i32 {
     loop {
-        switch state {
+        match state {
             0 => cleanup(),
             1 => defer cleanup(),
             2 => {
@@ -421,28 +421,28 @@ fn main(state: i32) i32 {
     let StmtKind::Loop(loop_stmt) = &body.stmts[0].kind else {
         panic!("expected loop statement");
     };
-    let expr = loop_stmt.body.tail.as_ref().expect("expected switch tail");
-    let ExprKind::Switch(switch) = &expr.kind else {
-        panic!("expected switch expression");
+    let expr = loop_stmt.body.tail.as_ref().expect("expected match tail");
+    let ExprKind::Match(matched) = &expr.kind else {
+        panic!("expected match expression");
     };
-    assert!(matches!(switch.arms[0].body, SwitchArmBody::Expr(_)));
+    assert!(matches!(matched.arms[0].body, MatchArmBody::Expr(_)));
     assert!(matches!(
-        &switch.arms[1].body,
-        SwitchArmBody::Stmt(stmt) if matches!(stmt.kind, StmtKind::Defer(_))
+        &matched.arms[1].body,
+        MatchArmBody::Stmt(stmt) if matches!(stmt.kind, StmtKind::Defer(_))
     ));
-    assert!(matches!(switch.arms[2].body, SwitchArmBody::Block(_)));
+    assert!(matches!(matched.arms[2].body, MatchArmBody::Block(_)));
     assert!(matches!(
-        &switch.arms[3].body,
-        SwitchArmBody::Stmt(stmt) if matches!(stmt.kind, StmtKind::Break)
+        &matched.arms[3].body,
+        MatchArmBody::Stmt(stmt) if matches!(stmt.kind, StmtKind::Break)
     ));
 }
 
 #[test]
-fn parses_if_is_and_recursive_switch_patterns() {
+fn parses_if_is_and_recursive_match_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
-    let a = switch result {
+    let a = match result {
         !ok => {
             ok
         },
@@ -455,7 +455,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     } else {
         0
     };
-    switch nested {
+    match nested {
         ?5! => {
             5
         },
@@ -481,17 +481,17 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     let StmtKind::Binding(first) = &body.stmts[0].kind else {
         panic!("expected first binding");
     };
-    let ExprKind::Switch(switch) = &first.value.as_ref().expect("expected value").kind else {
-        panic!("expected switch expression");
+    let ExprKind::Match(matched) = &first.value.as_ref().expect("expected value").kind else {
+        panic!("expected match expression");
     };
-    assert_eq!(switch.arms.len(), 2);
+    assert_eq!(matched.arms.len(), 2);
     assert!(matches!(
-        &switch.arms[0].patterns[0].kind,
+        &matched.arms[0].patterns[0].kind,
         PatternKind::ErrorOk(inner)
             if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("ok"))
     ));
     assert!(matches!(
-        &switch.arms[1].patterns[0].kind,
+        &matched.arms[1].patterns[0].kind,
         PatternKind::ErrorErr(inner)
             if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("err"))
     ));
@@ -513,11 +513,11 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     ));
     assert!(if_pattern.else_branch.is_some());
 
-    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected tail").kind else {
-        panic!("expected switch tail");
+    let ExprKind::Match(matched) = &body.tail.as_ref().expect("expected tail").kind else {
+        panic!("expected match tail");
     };
     assert!(matches!(
-        &switch.arms[0].patterns[0].kind,
+        &matched.arms[0].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -526,7 +526,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             )
     ));
     assert!(matches!(
-        &switch.arms[1].patterns[0].kind,
+        &matched.arms[1].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -535,7 +535,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             )
     ));
     assert!(matches!(
-        &switch.arms[2].patterns[0].kind,
+        &matched.arms[2].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -554,7 +554,7 @@ enum Event { Resize { width: i32, height: i32 } }
 
 fn inspect(point: Point, event: Event) i32 {
     let Point { y: second, x } = point;
-    switch event {
+    match event {
         Event::Resize { width, height: h } => x + second + width + h,
     }
 }
@@ -598,7 +598,7 @@ enum Event { Resize { width: i32, height: i32 } }
 
 fn inspect(point: Point, event: Event) i32 {
     let Point { x, .. } = point;
-    switch event {
+    match event {
         Event::Resize { .. } => x,
     }
 }
@@ -661,7 +661,7 @@ enum Operation { Read, Write }
 enum Failure { System { operation: Operation, code: i32 } }
 
 fn inspect(value: Failure!i32) i32 {
-    switch value {
+    match value {
         Failure::System { operation: Operation::Read, code: _ }! => 1,
         _ => 0,
     }
@@ -673,11 +673,11 @@ fn inspect(value: Failure!i32) i32 {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected tail").kind else {
-        panic!("expected switch expression");
+    let ExprKind::Match(matched) = &body.tail.as_ref().expect("expected tail").kind else {
+        panic!("expected match expression");
     };
     assert!(matches!(
-        &switch.arms[0].patterns[0].kind,
+        &matched.arms[0].patterns[0].kind,
         PatternKind::ErrorErr(inner)
             if matches!(
                 &inner.kind,
@@ -709,11 +709,11 @@ fn inspect(value: ?i32) i32 {
 }
 
 #[test]
-fn parses_switch_arm_pattern_lists_and_ranges() {
+fn parses_match_arm_pattern_lists_and_ranges() {
     let (module, errors) = parse_module(
         r#"
 fn main(state: i32) i32 {
-    switch state {
+    match state {
         0, 1 => 10,
         2..5 => 20,
         5..=7 => 30,
@@ -727,47 +727,47 @@ fn main(state: i32) i32 {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let expr = body.tail.as_ref().expect("expected switch tail");
-    let ExprKind::Switch(switch) = &expr.kind else {
-        panic!("expected switch expression");
+    let expr = body.tail.as_ref().expect("expected match tail");
+    let ExprKind::Match(matched) = &expr.kind else {
+        panic!("expected match expression");
     };
-    assert_eq!(switch.arms[0].patterns.len(), 2);
+    assert_eq!(matched.arms[0].patterns.len(), 2);
     assert!(matches!(
-        &switch.arms[0].patterns[0].kind,
+        &matched.arms[0].patterns[0].kind,
         PatternKind::Expr(_)
     ));
     assert!(matches!(
-        &switch.arms[0].patterns[1].kind,
+        &matched.arms[0].patterns[1].kind,
         PatternKind::Expr(_)
     ));
     assert!(matches!(
-        &switch.arms[1].patterns[0].kind,
+        &matched.arms[1].patterns[0].kind,
         PatternKind::Range {
             inclusive: false,
             ..
         }
     ));
     assert!(matches!(
-        &switch.arms[2].patterns[0].kind,
+        &matched.arms[2].patterns[0].kind,
         PatternKind::Range {
             inclusive: true,
             ..
         }
     ));
     assert!(matches!(
-        &switch.arms[3].patterns[0].kind,
+        &matched.arms[3].patterns[0].kind,
         PatternKind::Wildcard
     ));
 }
 
 #[test]
-fn parses_switch_destructuring_bindings_and_explicit_value_patterns() {
+fn parses_match_destructuring_bindings_and_explicit_value_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn main(value: ?i32, tag: i32) i32 {
-    switch value {
+    match value {
         ?payload => payload,
-        null => switch tag {
+        null => match tag {
             (expected) => 1,
             _ => 0,
         },
@@ -780,23 +780,23 @@ fn main(value: ?i32, tag: i32) i32 {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected switch tail").kind else {
-        panic!("expected switch expression");
+    let ExprKind::Match(matched) = &body.tail.as_ref().expect("expected match tail").kind else {
+        panic!("expected match expression");
     };
     assert!(matches!(
-        &switch.arms[0].patterns[0].kind,
+        &matched.arms[0].patterns[0].kind,
         PatternKind::OptionalSome(inner)
             if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("payload"))
     ));
     assert!(matches!(
-        switch.arms[1].patterns[0].kind,
+        matched.arms[1].patterns[0].kind,
         PatternKind::OptionalNull
     ));
-    let SwitchArmBody::Expr(nested) = &switch.arms[1].body else {
-        panic!("expected nested switch expression");
+    let MatchArmBody::Expr(nested) = &matched.arms[1].body else {
+        panic!("expected nested match expression");
     };
-    let ExprKind::Switch(nested) = &nested.kind else {
-        panic!("expected nested switch");
+    let ExprKind::Match(nested) = &nested.kind else {
+        panic!("expected nested match");
     };
     assert!(matches!(
         nested.arms[0].patterns[0].kind,
@@ -805,11 +805,11 @@ fn main(value: ?i32, tag: i32) i32 {
 }
 
 #[test]
-fn rejects_open_ended_switch_range_patterns() {
+fn rejects_open_ended_match_range_patterns() {
     let (_module, errors) = parse_module(
         r#"
 fn main(state: i32) i32 {
-    switch state {
+    match state {
         1.. => 10,
         _ => 20,
     }
@@ -819,7 +819,7 @@ fn main(state: i32) i32 {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("open-ended switch range patterns are not supported")),
+            .contains("open-ended match range patterns are not supported")),
         "{errors:?}"
     );
 }

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::{
-    ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, IndexArg, SliceRange, Stmt,
-    StmtKind, SwitchArmBody, UnaryOp,
+    ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, IndexArg, MatchArmBody,
+    SliceRange, Stmt, StmtKind, UnaryOp,
 };
 use nia_body_ir::{
     AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinMethod, BuiltinOperator, BuiltinPlaceMethod,
     LocalName, MemoryIntrinsicOp, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody,
     TypedCallee, TypedClosureCapture, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
-    TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding,
-    TypedPatternKind, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArm, TypedSwitchArmBody, TypedTryErrorConversion, TypedWhile,
+    TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMatch, TypedMatchArm,
+    TypedMatchArmBody, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
+    TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding, TypedPatternKind,
+    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedTryErrorConversion, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, InternedTyId};
 use nia_item_signatures::FunctionAttribute;
@@ -357,30 +357,28 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_switch(&mut self, switch: &nia_ast::SwitchStmt) -> TypedSwitch {
-        let target = self.lower_expr(&switch.target);
+    fn lower_switch(&mut self, matched: &nia_ast::MatchExpr) -> TypedMatch {
+        let target = self.lower_expr(&matched.target);
         let target_ty = target.ty;
-        TypedSwitch {
+        TypedMatch {
             target,
             bool_ty: self.bool(),
-            arms: switch
+            arms: matched
                 .arms
                 .iter()
-                .map(|arm| TypedSwitchArm {
+                .map(|arm| TypedMatchArm {
                     patterns: arm
                         .patterns
                         .iter()
                         .map(|pattern| self.lower_pattern(pattern, target_ty))
                         .collect(),
                     body: match &arm.body {
-                        SwitchArmBody::Expr(expr) => {
-                            TypedSwitchArmBody::Expr(self.lower_expr(expr))
+                        MatchArmBody::Expr(expr) => TypedMatchArmBody::Expr(self.lower_expr(expr)),
+                        MatchArmBody::Stmt(stmt) => {
+                            TypedMatchArmBody::Stmt(Box::new(self.lower_stmt(stmt)))
                         }
-                        SwitchArmBody::Stmt(stmt) => {
-                            TypedSwitchArmBody::Stmt(Box::new(self.lower_stmt(stmt)))
-                        }
-                        SwitchArmBody::Block(block) => {
-                            TypedSwitchArmBody::Block(Box::new(self.lower_body(block)))
+                        MatchArmBody::Block(block) => {
+                            TypedMatchArmBody::Block(Box::new(self.lower_body(block)))
                         }
                     },
                     span: arm.span,
@@ -1355,7 +1353,7 @@ impl<'a> BodyChecker<'a> {
                     }),
                 }))
             }
-            ExprKind::Switch(switch) => TypedExprKind::Switch(Box::new(self.lower_switch(switch))),
+            ExprKind::Match(matched) => TypedExprKind::Match(Box::new(self.lower_switch(matched))),
         };
         TypedExpr {
             span: expr.span,

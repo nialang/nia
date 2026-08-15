@@ -113,7 +113,7 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](len).?;
-        switch allocator.remap(oldBlock, layout) {
+        match allocator.remap(oldBlock, layout) {
             ?block => {
                 self.items = raw::danglingSlice[T](0);
                 self.capacity = 0;
@@ -126,12 +126,12 @@ where T: Sized
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, len);
         _ = newItems.copyFrom(self.asSlice());
-        switch allocator.free(oldBlock) {
+        match allocator.free(oldBlock) {
             !ok => {
                 _ = ok;
             },
             err! => {
-                switch allocator.free(newBlock) {
+                match allocator.free(newBlock) {
                     !ok => {
                         _ = ok;
                     },
@@ -227,7 +227,7 @@ where T: Sized
         if start > len {
             return mem::Error::Invalid!;
         }
-        let end = switch start.checked_add(count) {
+        let end = match start.checked_add(count) {
             ?value => {
                 value
             },
@@ -265,12 +265,12 @@ where T: Sized
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(values);
-            switch self.insertStableSlice(allocator, index, copy) {
+            match self.insertStableSlice(allocator, index, copy) {
                 !ok => {
                     _ = ok;
                 },
                 err! => {
-                    switch allocator.free(copyBlock) {
+                    match allocator.free(copyBlock) {
                         !ok => {
                             _ = ok;
                         },
@@ -296,7 +296,7 @@ where T: Sized
         if start > self.len() {
             return mem::Error::Invalid!;
         }
-        let end = switch start.checked_add(count) {
+        let end = match start.checked_add(count) {
             ?value => {
                 value
             },
@@ -313,12 +313,12 @@ where T: Sized
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(values);
-            switch self.replaceRangeStable(allocator, start, count, copy) {
+            match self.replaceRangeStable(allocator, start, count, copy) {
                 !ok => {
                     _ = ok;
                 },
                 err! => {
-                    switch allocator.free(copyBlock) {
+                    match allocator.free(copyBlock) {
                         !ok => {
                             _ = ok;
                         },
@@ -374,7 +374,7 @@ where T: Sized
         }
 
         let added = replacementLen - count;
-        let newLen = switch len.checked_add(added) {
+        let newLen = match len.checked_add(added) {
             ?value => {
                 value
             },
@@ -398,7 +398,7 @@ where T: Sized
 
     pub fn reserveExact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
-        let needed = switch len.checked_add(additional) {
+        let needed = match len.checked_add(additional) {
             ?value => {
                 value
             },
@@ -411,7 +411,7 @@ where T: Sized
 
     fn ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
-        let needed = switch len.checked_add(additional) {
+        let needed = match len.checked_add(additional) {
             ?value => {
                 value
             },
@@ -444,12 +444,12 @@ where T: Sized
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(items);
-            switch self.appendStableSlice(allocator, copy) {
+            match self.appendStableSlice(allocator, copy) {
                 !ok => {
                     _ = ok;
                 },
                 err! => {
-                    switch allocator.free(copyBlock) {
+                    match allocator.free(copyBlock) {
                         !ok => {
                             _ = ok;
                         },
@@ -493,7 +493,7 @@ where T: Sized
 
     fn addManyUninitialized(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
         let oldLen = self.len();
-        let newLen = switch oldLen.checked_add(count) {
+        let newLen = match oldLen.checked_add(count) {
             ?value => {
                 value
             },
@@ -508,7 +508,7 @@ where T: Sized
 
     fn addManyUninitializedAssumeCapacity(&mut self, count: usize) &mut [T] {
         let oldLen = self.len();
-        let newLen = switch oldLen.checked_add(count) {
+        let newLen = match oldLen.checked_add(count) {
             ?value => {
                 value
             },
@@ -528,7 +528,7 @@ where T: Sized
         if index > self.len() {
             return mem::Error::Invalid!;
         }
-        let newLen = switch self.len().checked_add(count) {
+        let newLen = match self.len().checked_add(count) {
             ?value => {
                 value
             },
@@ -548,7 +548,7 @@ where T: Sized
         if index > len {
             std::builtin::trap()
         }
-        let newLen = switch len.checked_add(count) {
+        let newLen = match len.checked_add(count) {
             ?value => {
                 value
             },
@@ -601,7 +601,7 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](targetCapacity).?;
-        switch allocator.remap(oldBlock, layout) {
+        match allocator.remap(oldBlock, layout) {
             ?block => {
                 self.setAllocatedBlock(block, targetCapacity);
                 return !();
@@ -613,12 +613,12 @@ where T: Sized
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, targetCapacity);
         _ = (&mut newItems[0..self.len()]).copyFrom(self.asSlice());
-        switch allocator.free(oldBlock) {
+        match allocator.free(oldBlock) {
             !ok => {
                 _ = ok;
             },
             err! => {
-                switch allocator.free(newBlock) {
+                match allocator.free(newBlock) {
                     !ok => {
                         _ = ok;
                     },
@@ -641,7 +641,7 @@ where T: Sized
             initCapacity = 1;
         }
         let half = needed / 2;
-        let extra = switch half.checked_add(initCapacity) {
+        let extra = match half.checked_add(initCapacity) {
             ?value => {
                 value
             },
@@ -649,7 +649,7 @@ where T: Sized
                 return mem::Error::OutOfMemory!;
             },
         };
-        switch needed.checked_add(extra) {
+        match needed.checked_add(extra) {
             ?capacity => {
                 !capacity
             },
@@ -666,7 +666,7 @@ where T: Sized
         }
         let oldBlock = self.allocatedBlock().?;
         let layout = mem::Layout::array[T](capacity).?;
-        switch allocator.remap(oldBlock, layout) {
+        match allocator.remap(oldBlock, layout) {
             ?block => {
                 self.setAllocatedBlock(block, capacity);
                 return !();
@@ -678,12 +678,12 @@ where T: Sized
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, capacity);
         _ = newItems.copyFrom(self.asSlice());
-        switch allocator.free(oldBlock) {
+        match allocator.free(oldBlock) {
             !ok => {
                 _ = ok;
             },
             err! => {
-                switch allocator.free(newBlock) {
+                match allocator.free(newBlock) {
                     !ok => {
                         _ = ok;
                     },
@@ -734,7 +734,7 @@ where T: Sized
         }
 
         let byteOffset = ptr - base;
-        let allocBytes = switch self.capacity.checked_mul(itemSize) {
+        let allocBytes = match self.capacity.checked_mul(itemSize) {
             ?value => {
                 value
             },
@@ -742,7 +742,7 @@ where T: Sized
                 return false;
             },
         };
-        let itemBytes = switch items.len().checked_mul(itemSize) {
+        let itemBytes = match items.len().checked_mul(itemSize) {
             ?value => {
                 value
             },

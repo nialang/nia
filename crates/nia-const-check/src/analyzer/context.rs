@@ -78,7 +78,7 @@ impl Analyzer<'_> {
         // Local ids are allocated per module, while a const call can execute a
         // function from any module. Once a function frame is active, searching
         // unrelated module functions can re-enter type inference through a
-        // different switch target (and can bind a payload local to the wrong
+        // different match target (and can bind a payload local to the wrong
         // function). Restrict the fallback to the active function body.
         if let Some(function_id) = self.current_execution_function_id() {
             let body = self.const_function_body(function_id)?.body().clone();
@@ -202,18 +202,18 @@ impl Analyzer<'_> {
                         self.find_local_binding_type_in_resolved_expr(else_branch, local_id)
                     })
                 }),
-            ResolvedConstExprKind::Switch(switch) => {
-                if let Some(ty) = self.find_resolved_pattern_local_type(switch, local_id) {
+            ResolvedConstExprKind::Match(matched) => {
+                if let Some(ty) = self.find_resolved_pattern_local_type(matched, local_id) {
                     return Some(ty);
                 }
-                switch
+                matched
                     .arms()
                     .iter()
                     .find_map(|arm| match arm.body().kind() {
-                        ResolvedConstSwitchArmBodyKind::Expr(expr) => {
+                        ResolvedConstMatchArmBodyKind::Expr(expr) => {
                             self.find_local_binding_type_in_resolved_expr(expr, local_id)
                         }
-                        ResolvedConstSwitchArmBodyKind::Stmt(stmt) => match stmt.kind() {
+                        ResolvedConstMatchArmBodyKind::Stmt(stmt) => match stmt.kind() {
                             ResolvedConstStmtKind::Binding(binding)
                                 if binding.local_id() == local_id =>
                             {
@@ -234,7 +234,7 @@ impl Analyzer<'_> {
                             }
                             _ => None,
                         },
-                        ResolvedConstSwitchArmBodyKind::Block(block) => {
+                        ResolvedConstMatchArmBodyKind::Block(block) => {
                             self.find_local_binding_type_in_resolved_block(block, local_id)
                         }
                     })

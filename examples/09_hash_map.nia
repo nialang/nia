@@ -26,7 +26,7 @@ fn run(init: Init) ExitCode!() {
     let mut answerSlot = scores.getOrInsert(allocator, 42, 0).?;
     _ = answerSlot.intoRejected();
     answerSlot.value().* = answerSlot.value().* + 1;
-    switch scores.getEntryMut(&42) {
+    match scores.getEntryMut(&42) {
         mut ?entry => {
             entry.valueMut().* = entry.value().* + 9;
         },
@@ -39,7 +39,7 @@ fn run(init: Init) ExitCode!() {
     }
 
     let mut answer = 0;
-    switch scores.get(&42) {
+    match scores.get(&42) {
         ?value => {
             answer = value.*;
         },
@@ -51,7 +51,7 @@ fn run(init: Init) ExitCode!() {
     let mut removedKey = 0;
     let mut removedValue = 0;
     // removeEntry transfers the removed key and value out of the map.
-    switch scores.removeEntry(&7) {
+    match scores.removeEntry(&7) {
         ?entry => {
             removedKey = entry.key().*;
             removedValue = entry.value().*;

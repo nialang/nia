@@ -34,7 +34,7 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     fn as_b(self) B!T {
-        switch self {
+        match self {
             !value => {
                 !value
             },
@@ -50,7 +50,7 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    switch fail().as_b() {
+    match fail().as_b() {
         !value => {
             value
         },
@@ -164,7 +164,7 @@ extend[T, Source] Source!T
 where Source: IntoB
 {
     fn as_b(self) B!T {
-        switch self {
+        match self {
             !value => {
                 !value
             },
@@ -180,7 +180,7 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    switch fail().as_b() {
+    match fail().as_b() {
         !value => {
             value
         },
@@ -229,7 +229,7 @@ extend[T, Source, Target] Source!T
 where Source: Convert[Target]
 {
     fn convert_error(self) Target!T {
-        switch self {
+        match self {
             !value => {
                 !value
             },
@@ -249,7 +249,7 @@ fn wrap() B!i32 {
 }
 
 fn main() i32 {
-    switch wrap() {
+    match wrap() {
         !value => {
             value
         },
@@ -1148,7 +1148,7 @@ const fn propagate(value: SourceError!i32) TargetError!i32 {
 }
 
 const converted = propagate(SourceError::Failed!);
-const width: usize = switch converted {
+const width: usize = match converted {
     TargetError::First! => 1,
     TargetError::Second! => 2,
     _ => 3,

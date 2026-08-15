@@ -381,7 +381,7 @@ fn main() i32 {
         x += i;
         x >>= 1;
     }
-    switch x {
+    match x {
         0 => return 1,
         _ => return 0,
     }
@@ -400,14 +400,14 @@ fn main() i32 {
     assert!(matches!(body.stmts[2].kind, StmtKind::Expr(_)));
     assert!(matches!(body.stmts[3].kind, StmtKind::ForIn(_)));
     let StmtKind::Expr(expr) = &body.stmts[4].kind else {
-        panic!("expected switch");
+        panic!("expected match");
     };
-    let ExprKind::Switch(switch) = &expr.kind else {
-        panic!("expected switch expression");
+    let ExprKind::Match(matched) = &expr.kind else {
+        panic!("expected match expression");
     };
     assert!(matches!(
-        &switch.arms[0].body,
-        SwitchArmBody::Stmt(boxed) if matches!(boxed.as_ref(), Stmt {
+        &matched.arms[0].body,
+        MatchArmBody::Stmt(boxed) if matches!(boxed.as_ref(), Stmt {
             kind: StmtKind::Return(_),
             ..
         })
@@ -1193,7 +1193,7 @@ fn optional(value: ?i32) i32 {
 }
 
 fn error_union(value: i32!i32) i32 {
-    switch value {
+    match value {
         !x => {
             x
         },

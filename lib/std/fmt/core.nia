@@ -115,7 +115,7 @@ extend FormatSpec {
     }
 
     pub fn has_precision(&self) bool {
-        switch self.precision {
+        match self.precision {
             ?precision => {
                 _ = precision;
                 true
@@ -186,7 +186,7 @@ extend Formatter {
 
     pub fn precision_width(&mut self, content_width: usize, spec: FormatSpec) usize {
         _ = self;
-        switch spec.precision() {
+        match spec.precision() {
             ?precision => {
                 if precision < content_width {
                     precision
@@ -220,7 +220,7 @@ extend Formatter {
 
     pub fn write_padding_before(&mut self, content_width: usize, spec: FormatSpec) Error!() {
         let padding = self.padding_width(content_width, spec);
-        switch spec.alignment() {
+        match spec.alignment() {
             FormatAlignment::Left => !(),
             FormatAlignment::Center => self.write_fill(spec.fill(), padding / 2usize),
             _ => self.write_fill(spec.fill(), padding),
@@ -229,7 +229,7 @@ extend Formatter {
 
     pub fn write_padding_after(&mut self, content_width: usize, spec: FormatSpec) Error!() {
         let padding = self.padding_width(content_width, spec);
-        switch spec.alignment() {
+        match spec.alignment() {
             FormatAlignment::Left => self.write_fill(spec.fill(), padding),
             FormatAlignment::Center => self.write_fill(spec.fill(), padding - (padding / 2usize)),
             _ => !(),
@@ -484,7 +484,7 @@ extend[W] W : FormatWriter
 where W: io::Writer
 {
     fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!() {
-        switch self.writeAll(bytes) {
+        match self.writeAll(bytes) {
             !ok => {
                 !ok
             },

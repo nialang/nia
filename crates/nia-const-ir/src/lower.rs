@@ -177,11 +177,11 @@ fn lower_expr_internal(
                 .transpose()?
                 .map(Box::new),
         },
-        nia_ast::ExprKind::IfPattern(if_pattern) => EarlyConstExprKind::Switch(Box::new(
+        nia_ast::ExprKind::IfPattern(if_pattern) => EarlyConstExprKind::Match(Box::new(
             lower_if_pattern_as_switch(expr.span, if_pattern, context)?,
         )),
-        nia_ast::ExprKind::Switch(switch) => EarlyConstExprKind::Switch(Box::new(
-            lower_switch_with_context(expr.span, switch, context)?,
+        nia_ast::ExprKind::Match(matched) => EarlyConstExprKind::Match(Box::new(
+            lower_match_with_context(expr.span, matched, context)?,
         )),
         nia_ast::ExprKind::Cast { expr, ty } => EarlyConstExprKind::Cast {
             expr: Box::new(lower_expr_internal(expr, context)?),
@@ -997,18 +997,18 @@ fn lower_if_stmt_else_branch_with_context(
     }
 }
 
-fn lower_switch_with_context(
+fn lower_match_with_context(
     span: Span,
-    switch: &nia_ast::SwitchStmt,
+    matched: &nia_ast::MatchExpr,
     context: &dyn ConstLowerContext,
-) -> Result<EarlyConstSwitch, ConstLowerError> {
-    Ok(EarlyConstSwitch {
+) -> Result<EarlyConstMatch, ConstLowerError> {
+    Ok(EarlyConstMatch {
         span,
-        target: lower_expr_internal(&switch.target, context)?,
-        arms: switch
+        target: lower_expr_internal(&matched.target, context)?,
+        arms: matched
             .arms
             .iter()
-            .map(|arm| lower_switch_arm_with_context(arm, context))
+            .map(|arm| lower_match_arm_with_context(arm, context))
             .collect::<Result<Vec<_>, _>>()?,
     })
 }
@@ -1017,43 +1017,43 @@ fn lower_if_pattern_as_switch(
     span: Span,
     if_pattern: &nia_ast::IfPatternExpr,
     context: &dyn ConstLowerContext,
-) -> Result<EarlyConstSwitch, ConstLowerError> {
-    let mut arms = vec![EarlyConstSwitchArm {
+) -> Result<EarlyConstMatch, ConstLowerError> {
+    let mut arms = vec![EarlyConstMatchArm {
         span: if_pattern.then_branch.span,
         patterns: vec![lower_pattern_with_context(&if_pattern.pattern, context)?],
-        body: EarlyConstSwitchArmBody::Block(lower_block_with_context(
+        body: EarlyConstMatchArmBody::Block(lower_block_with_context(
             &if_pattern.then_branch,
             context,
         )?),
     }];
     if let Some(else_branch) = &if_pattern.else_branch {
-        arms.push(EarlyConstSwitchArm {
+        arms.push(EarlyConstMatchArm {
             span: else_branch.span,
             patterns: vec![EarlyConstPattern::Wildcard {
                 span: else_branch.span,
             }],
-            body: EarlyConstSwitchArmBody::Expr(lower_expr_internal(else_branch, context)?),
+            body: EarlyConstMatchArmBody::Expr(lower_expr_internal(else_branch, context)?),
         });
     }
-    Ok(EarlyConstSwitch {
+    Ok(EarlyConstMatch {
         span,
         target: lower_expr_internal(&if_pattern.target, context)?,
         arms,
     })
 }
 
-fn lower_switch_arm_with_context(
-    arm: &nia_ast::SwitchArm,
+fn lower_match_arm_with_context(
+    arm: &nia_ast::MatchArm,
     context: &dyn ConstLowerContext,
-) -> Result<EarlyConstSwitchArm, ConstLowerError> {
-    Ok(EarlyConstSwitchArm {
+) -> Result<EarlyConstMatchArm, ConstLowerError> {
+    Ok(EarlyConstMatchArm {
         span: arm.span,
         patterns: arm
             .patterns
             .iter()
             .map(|pattern| lower_pattern_with_context(pattern, context))
             .collect::<Result<Vec<_>, _>>()?,
-        body: lower_switch_arm_body_with_context(&arm.body, context)?,
+        body: lower_match_arm_body_with_context(&arm.body, context)?,
     })
 }
 
@@ -1184,19 +1184,19 @@ fn single_pattern_binding(
     }
 }
 
-fn lower_switch_arm_body_with_context(
-    body: &nia_ast::SwitchArmBody,
+fn lower_match_arm_body_with_context(
+    body: &nia_ast::MatchArmBody,
     context: &dyn ConstLowerContext,
-) -> Result<EarlyConstSwitchArmBody, ConstLowerError> {
+) -> Result<EarlyConstMatchArmBody, ConstLowerError> {
     match body {
-        nia_ast::SwitchArmBody::Expr(expr) => {
-            lower_expr_internal(expr, context).map(EarlyConstSwitchArmBody::Expr)
+        nia_ast::MatchArmBody::Expr(expr) => {
+            lower_expr_internal(expr, context).map(EarlyConstMatchArmBody::Expr)
         }
-        nia_ast::SwitchArmBody::Stmt(stmt) => lower_stmt_with_context(stmt, context)
+        nia_ast::MatchArmBody::Stmt(stmt) => lower_stmt_with_context(stmt, context)
             .map(Box::new)
-            .map(EarlyConstSwitchArmBody::Stmt),
-        nia_ast::SwitchArmBody::Block(block) => {
-            lower_block_with_context(block, context).map(EarlyConstSwitchArmBody::Block)
+            .map(EarlyConstMatchArmBody::Stmt),
+        nia_ast::MatchArmBody::Block(block) => {
+            lower_block_with_context(block, context).map(EarlyConstMatchArmBody::Block)
         }
     }
 }

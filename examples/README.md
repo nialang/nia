@@ -113,7 +113,7 @@ should receive that same handle.
 ## Reading Order
 
 - `00_minimal.nia`: the smallest debug-printing executable entry.
-- `01_values_control_flow.nia`: structs, methods, slices, ranges, `switch`,
+- `01_values_control_flow.nia`: structs, methods, slices, ranges, `match`,
   `defer`, debug printing, and exit-code checks.
 - `02_slices_and_strings.nia`: arrays, slices, byte strings, string pointers,
   mutable slice writes, and count-returning `copyFrom`.

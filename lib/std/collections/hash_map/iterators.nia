@@ -190,7 +190,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = &K;
 
     pub fn next(&mut self) ?&K {
-        switch self.iter.next() {
+        match self.iter.next() {
             ?entry => {
                 ?entry.key()
             },
@@ -219,7 +219,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = &V;
 
     pub fn next(&mut self) ?&V {
-        switch self.iter.next() {
+        match self.iter.next() {
             ?entry => {
                 ?entry.value()
             },
@@ -248,7 +248,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = &mut V;
 
     pub fn next(&mut self) ?&mut V {
-        switch self.iter.next() {
+        match self.iter.next() {
             mut ?entry => {
                 ?entry.valueMut()
             },

@@ -6,7 +6,7 @@ use nia_ty::IntConst;
 fn const_switches_share_matrix_exhaustiveness_and_usefulness_rules() {
     let accepted = check_source(
         r#"
-const RESULT: i32 = switch true {
+const RESULT: i32 = match true {
         true => 1,
         false => 0,
 };
@@ -25,11 +25,11 @@ const RESULT: i32 = switch true {
 
     let rejected = check_source(
         r#"
-const A: i32 = switch true {
+const A: i32 = match true {
         true => 1,
 };
 
-const B: i32 = switch false {
+const B: i32 = match false {
         _ => 0,
         false => 1,
 };
@@ -39,7 +39,7 @@ const B: i32 = switch false {
         rejected.checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .summary
-                .contains("non-exhaustive const switch, missing pattern: `false`")
+                .contains("non-exhaustive const matched, missing pattern: `false`")
         }),
         "{:?}",
         rejected.checked.diagnostics
@@ -48,7 +48,7 @@ const B: i32 = switch false {
         rejected.checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .summary
-                .contains("const switch pattern is unreachable")
+                .contains("const match pattern is unreachable")
         }),
         "{:?}",
         rejected.checked.diagnostics

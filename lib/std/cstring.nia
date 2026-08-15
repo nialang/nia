@@ -37,7 +37,7 @@ extend CString {
                 return CStringBuildError::ContainsNul!;
             }
         }
-        let capacity = switch bytes.len().checked_add(1) {
+        let capacity = match bytes.len().checked_add(1) {
             ?value => value,
             null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
@@ -57,12 +57,12 @@ extend CString {
             if ch.codepoint() == 0 {
                 return CStringBuildError::ContainsNul!;
             }
-            byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+            byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
                 ?value => value,
                 null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
             };
         }
-        let capacity = switch byteLen.checked_add(1) {
+        let capacity = match byteLen.checked_add(1) {
             ?value => value,
             null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
@@ -213,7 +213,7 @@ where T: parse::FromRadix[&[u8]]
 
 extend[T] mem::Error!T {
     fn asCStringBuildError(self) CStringBuildError!T {
-        switch self {
+        match self {
             !value => !value,
             error! => CStringBuildError::Allocation(error)!,
         }

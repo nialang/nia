@@ -154,7 +154,7 @@ extend Errno {
 
 extend SpawnError {
     pub fn from_stage(stage: SpawnStage, errno: Errno) SpawnError {
-        switch stage {
+        match stage {
             SpawnStage::Setup => SpawnError::Setup(errno),
             SpawnStage::Stdio => SpawnError::Stdio(errno),
             SpawnStage::Cwd => SpawnError::Cwd(errno),

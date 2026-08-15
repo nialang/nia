@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern, PatternKind, Stmt, StmtKind,
-    SwitchArmBody,
+    Block, Expr, ExprKind, FunctionItem, IndexArg, MatchArmBody, Module, Pattern, PatternKind,
+    Stmt, StmtKind,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalDefId, ModuleId};
@@ -321,25 +321,25 @@ impl FlowChecker<'_> {
             }
             ExprKind::Block(block) if block.stmts.is_empty() && block.tail.is_none() => true,
             ExprKind::Block(block) => self.block_returns_on_all_paths(block),
-            ExprKind::Switch(switch) => self.switch_tail_covers_all_paths(switch),
+            ExprKind::Match(matched) => self.match_tail_covers_all_paths(matched),
             _ => true,
         }
     }
 
-    fn switch_tail_covers_all_paths(&mut self, switch: &nia_ast::SwitchStmt) -> bool {
-        self.check_switch_patterns(switch);
-        let mut all_arms_produce = !switch.arms.is_empty();
-        for arm in &switch.arms {
-            all_arms_produce &= self.switch_tail_arm_produces_value(&arm.body);
+    fn match_tail_covers_all_paths(&mut self, matched: &nia_ast::MatchExpr) -> bool {
+        self.check_match_patterns(matched);
+        let mut all_arms_produce = !matched.arms.is_empty();
+        for arm in &matched.arms {
+            all_arms_produce &= self.match_tail_arm_produces_value(&arm.body);
         }
         all_arms_produce
     }
 
-    fn switch_tail_arm_produces_value(&mut self, body: &SwitchArmBody) -> bool {
+    fn match_tail_arm_produces_value(&mut self, body: &MatchArmBody) -> bool {
         match body {
-            SwitchArmBody::Expr(_) => true,
-            SwitchArmBody::Stmt(stmt) => !self.check_stmt(stmt).falls_through,
-            SwitchArmBody::Block(block) => self.block_returns_on_all_paths(block),
+            MatchArmBody::Expr(_) => true,
+            MatchArmBody::Stmt(stmt) => !self.check_stmt(stmt).falls_through,
+            MatchArmBody::Block(block) => self.block_returns_on_all_paths(block),
         }
     }
 
@@ -450,17 +450,17 @@ impl FlowChecker<'_> {
                 }
                 Flow { falls_through }
             }
-            ExprKind::Switch(switch) => {
-                self.check_switch_patterns(switch);
-                self.check_expr_flow(&switch.target);
+            ExprKind::Match(matched) => {
+                self.check_match_patterns(matched);
+                self.check_expr_flow(&matched.target);
                 let mut coverage = SyntacticPatternCoverage::default();
-                let mut all_arms_terminate = !switch.arms.is_empty();
-                for arm in &switch.arms {
+                let mut all_arms_terminate = !matched.arms.is_empty();
+                for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         coverage.record(pattern);
                         self.check_pattern_flow(pattern);
                     }
-                    all_arms_terminate &= !self.check_switch_arm_flow(&arm.body).falls_through;
+                    all_arms_terminate &= !self.check_match_arm_flow(&arm.body).falls_through;
                 }
                 Flow {
                     falls_through: !(coverage.covers_all() && all_arms_terminate),
@@ -618,11 +618,11 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn check_switch_arm_flow(&mut self, body: &SwitchArmBody) -> Flow {
+    fn check_match_arm_flow(&mut self, body: &MatchArmBody) -> Flow {
         match body {
-            SwitchArmBody::Expr(expr) => self.check_expr_flow(expr),
-            SwitchArmBody::Stmt(stmt) => self.check_stmt(stmt),
-            SwitchArmBody::Block(block) => self.check_block(block),
+            MatchArmBody::Expr(expr) => self.check_expr_flow(expr),
+            MatchArmBody::Stmt(stmt) => self.check_stmt(stmt),
+            MatchArmBody::Block(block) => self.check_block(block),
         }
     }
 
@@ -671,17 +671,17 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn check_switch_patterns(&mut self, switch: &nia_ast::SwitchStmt) {
+    fn check_match_patterns(&mut self, matched: &nia_ast::MatchExpr) {
         let mut has_default = false;
         let mut seen = HashSet::new();
-        for arm in &switch.arms {
+        for arm in &matched.arms {
             for pattern in &arm.patterns {
                 if Self::pattern_is_catch_all(pattern) {
                     if has_default {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::STATIC_CHECK,
                             arm.span,
-                            "duplicate switch default",
+                            "duplicate match default",
                         ));
                     }
                     has_default = true;
@@ -693,7 +693,7 @@ impl FlowChecker<'_> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
                         pattern.span,
-                        "duplicate switch pattern",
+                        "duplicate match pattern",
                     ));
                 }
             }
@@ -882,11 +882,11 @@ fn b() i32 {
     }
 
     #[test]
-    fn checks_switch_duplicate_default_and_patterns() {
+    fn checks_match_duplicate_default_and_patterns() {
         let checked = pipeline(
             r#"
 fn main(x: i32) {
-    switch x {
+    match x {
         1 => return,
         1 => return,
         _ => return,
@@ -899,13 +899,13 @@ fn main(x: i32) {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.summary.contains("duplicate switch pattern"))
+                .any(|diagnostic| diagnostic.summary.contains("duplicate match pattern"))
         );
         assert!(
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.summary.contains("duplicate switch default"))
+                .any(|diagnostic| diagnostic.summary.contains("duplicate match default"))
         );
     }
 
@@ -924,11 +924,11 @@ fn make() Empty {
     }
 
     #[test]
-    fn exhaustive_switch_returns_on_all_paths() {
+    fn exhaustive_match_returns_on_all_paths() {
         let checked = pipeline(
             r#"
 fn name(x: u32) &u8 {
-    switch x {
+    match x {
         1 => return 0 as &u8,
         _ => return 1 as &u8,
     }
@@ -945,18 +945,18 @@ fn name(x: u32) &u8 {
     }
 
     #[test]
-    fn destructuring_switch_returns_on_all_paths() {
+    fn destructuring_match_returns_on_all_paths() {
         let checked = pipeline(
             r#"
 fn optional(value: ?i32) i32 {
-    switch value {
+    match value {
         ?payload => return payload,
         null => return 0,
     }
 }
 
 fn nested(value: ?(i32!i32)) i32 {
-    switch value {
+    match value {
         ?!payload => return payload,
         ?error! => return error,
         null => return 0,
@@ -974,11 +974,11 @@ fn nested(value: ?(i32!i32)) i32 {
     }
 
     #[test]
-    fn switch_tail_expression_satisfies_return_analysis() {
+    fn match_tail_expression_satisfies_return_analysis() {
         let checked = pipeline(
             r#"
 fn name(x: u32) &u8 {
-    switch x {
+    match x {
         1 => 0 as &u8,
         _ => 1 as &u8,
     }
@@ -995,7 +995,7 @@ fn name(x: u32) &u8 {
     }
 
     #[test]
-    fn exhaustive_switch_tail_without_default_satisfies_return_analysis() {
+    fn exhaustive_match_tail_without_default_satisfies_return_analysis() {
         let checked = pipeline(
             r#"
 enum Mode: u8 {
@@ -1004,7 +1004,7 @@ enum Mode: u8 {
 }
 
 fn name(mode: Mode) u32 {
-    switch mode {
+    match mode {
         Mode::A => 1,
         Mode::B => 2,
     }
@@ -1068,7 +1068,7 @@ fn main() {
         break;
     }
     defer {
-        switch 1 {
+        match 1 {
             1 => return,
             _ => cleanup(),
         }
@@ -1095,7 +1095,7 @@ fn bad_continue(flag: bool) {
 
 fn bad_break() {
     defer {
-        switch 1 {
+        match 1 {
             0 => {
                 break;
             },
@@ -1167,11 +1167,11 @@ fn main(limit: i32) {
     }
 
     #[test]
-    fn reports_unreachable_after_switch_arm_control_flow_blocks() {
+    fn reports_unreachable_after_match_arm_control_flow_blocks() {
         let checked = pipeline(
             r#"
 fn main(kind: i32) {
-    switch kind {
+    match kind {
         0 => return,
         _ => {
             return;

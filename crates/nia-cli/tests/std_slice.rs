@@ -206,7 +206,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(12)!;
     }
 
-    switch valueSlice.getRange(1, 4) {
+    match valueSlice.getRange(1, 4) {
         ?middle => {
             if middle.len() != 3 or sum(middle) != 15 {
                 return process::exit(13)!;
@@ -232,7 +232,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         _ = unexpected;
         return process::exit(18)!;
     }
-    switch empty.getRange(0, 0) {
+    match empty.getRange(0, 0) {
         ?range => {
             if not range.isEmpty() {
                 return process::exit(19)!;
@@ -243,19 +243,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut checked: [i32; 4] = [1, 2, 3, 4];
     let mut checkedSlice = &mut checked[..];
-    switch checkedSlice.getMut(1) {
+    match checkedSlice.getMut(1) {
         mut ?value => { value.* = 20; },
         null => { return process::exit(21)!; },
     }
-    switch checkedSlice.firstMut() {
+    match checkedSlice.firstMut() {
         mut ?value => { value.* = 10; },
         null => { return process::exit(22)!; },
     }
-    switch checkedSlice.lastMut() {
+    match checkedSlice.lastMut() {
         mut ?value => { value.* = 40; },
         null => { return process::exit(23)!; },
     }
-    switch checkedSlice.getRangeMut(1, 3) {
+    match checkedSlice.getRangeMut(1, 3) {
         mut ?range => {
             for value in range.iterMut() {
                 value.* += 1;

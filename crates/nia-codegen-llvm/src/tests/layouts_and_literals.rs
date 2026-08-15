@@ -16,7 +16,7 @@ enum Event {
 }
 
 fn score(event: Event) i32 {
-    switch event {
+    match event {
         Event::Closed => 0,
         Event::Data(value) => value,
         Event::Move(x, y) => x + y,

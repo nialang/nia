@@ -215,13 +215,13 @@ fn main() i32 {
 }
 
 #[test]
-fn const_function_switch_expression_drives_array_lengths() {
-    let root = temp_dir("const_function_switch_expression_drives_array_lengths");
+fn const_function_match_expression_drives_array_lengths() {
+    let root = temp_dir("const_function_match_expression_drives_array_lengths");
     write(
         &root.join("main.nia"),
         r#"
 const fn word_bytes(bits: usize) usize {
-    switch bits {
+    match bits {
         16 => 2,
         32 => 4,
         64 => 8,
@@ -250,7 +250,7 @@ fn const_tuple_patterns_drive_array_lengths() {
         &root.join("main.nia"),
         r#"
 const fn select(value: (usize, (bool, usize))) usize {
-    switch value {
+    match value {
         (0, (false, _)) => 1,
         (left, (true, right)) => left + right,
         (_, (_, fallback)) => fallback,
@@ -271,13 +271,13 @@ fn main() i32 {
 }
 
 #[test]
-fn const_function_switch_ranges_and_return_arms_drive_array_lengths() {
-    let root = temp_dir("const_function_switch_ranges_and_return_arms_drive_array_lengths");
+fn const_function_match_ranges_and_return_arms_drive_array_lengths() {
+    let root = temp_dir("const_function_match_ranges_and_return_arms_drive_array_lengths");
     write(
         &root.join("main.nia"),
         r#"
 const fn bucket(value: usize) usize {
-    switch value {
+    match value {
         0..4 => return 4,
         4..8 => 8,
         _ => return 16,
@@ -304,7 +304,7 @@ fn const_function_if_pattern_optional_payload_drives_array_lengths() {
         &root.join("main.nia"),
         r#"
 const fn unwrap(value: ?usize) usize {
-    switch value {
+    match value {
         ?payload => {
             payload
         },
@@ -335,7 +335,7 @@ fn const_function_if_pattern_error_payload_drives_array_lengths() {
         &root.join("main.nia"),
         r#"
 const fn unwrap(value: usize!usize) usize {
-    switch value {
+    match value {
         !payload => {
             payload
         },
@@ -784,7 +784,7 @@ const fn add_one(value: ?usize) ?usize {
 
 const some: ?usize = add_one(?7usize);
 const none: ?usize = add_one(null);
-const width: usize = switch some {
+const width: usize = match some {
     ?payload => {
         payload
     },
@@ -792,7 +792,7 @@ const width: usize = switch some {
         1
     },
 };
-const fallback: usize = switch none {
+const fallback: usize = match none {
     ?payload => {
         payload
     },
@@ -824,7 +824,7 @@ const fn add_one(value: usize!usize) usize!usize {
 
 const ok: usize!usize = add_one(!7usize);
 const err: usize!usize = add_one(3usize!);
-const width: usize = switch ok {
+const width: usize = match ok {
     !payload => {
         payload
     },
@@ -832,7 +832,7 @@ const width: usize = switch ok {
         0
     },
 };
-const fallback: usize = switch err {
+const fallback: usize = match err {
     !payload => {
         payload
     },
@@ -875,7 +875,7 @@ enum TargetError: i32 {
 
 extend SourceError : IntoError[TargetError] {
     const fn into_error(self) TargetError {
-        switch self {
+        match self {
             SourceError::Failed => TargetError::Converted,
             _ => TargetError::Unknown,
         }
@@ -888,13 +888,13 @@ const fn propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize)
 
 const success: TargetError!(usize, usize) = propagate(!(2usize, 3usize));
 const failure: TargetError!(usize, usize) = propagate(SourceError::Failed!);
-const successWidth: usize = switch success {
+const successWidth: usize = match success {
     !payload => payload.0 + payload.1,
     cause! => 0,
 };
-const failureWidth: usize = switch failure {
+const failureWidth: usize = match failure {
     !payload => payload.0 + payload.1,
-    cause! => switch cause {
+    cause! => match cause {
         TargetError::Converted => 4usize,
         _ => 0,
     },
@@ -941,7 +941,7 @@ const fn propagate(value: SourceError[i32]!usize) TargetError!usize {
 }
 
 const failure = propagate(SourceError[i32] { value: 7 }!);
-const width: usize = switch failure {
+const width: usize = match failure {
     !value => value,
     TargetError::Converted! => 4,
     cause! => 0,

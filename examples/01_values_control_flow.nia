@@ -28,8 +28,8 @@ fn sum(values: &[i32]) i32 {
 }
 
 fn grade(score: i32) i32 {
-    // switch ranges are half-open with .. and inclusive with ..=.
-    switch score {
+    // match ranges are half-open with .. and inclusive with ..=.
+    match score {
         0..60 => 0,
         60..=79 => 1,
         80..=89 => 2,

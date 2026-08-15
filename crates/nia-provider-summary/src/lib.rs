@@ -530,7 +530,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     pub fn cast_error(self) Target!T {
-        switch self {
+        match self {
             !ok => {
                 !ok
             },

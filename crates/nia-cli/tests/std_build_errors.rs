@@ -215,21 +215,21 @@ fn systemFailure() fs::OperationError!() {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let allocation = switch allocationFailure().asBuildError(
+    let allocation = match allocationFailure().asBuildError(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
         !ok => { _ = ok; return process::exit(1)!; },
         cause! => cause,
     };
-    let path = switch pathFailure().asBuildError(
+    let path = match pathFailure().asBuildError(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
         !ok => { _ = ok; return process::exit(2)!; },
         cause! => cause,
     };
-    let system = switch systemFailure().asBuildError(
+    let system = match systemFailure().asBuildError(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {

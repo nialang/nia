@@ -286,7 +286,7 @@ impl StaticChecker<'_> {
             ExprKind::Block(_) => Some("block expressions require const execution"),
             ExprKind::If { .. } => Some("if expressions require const execution"),
             ExprKind::IfPattern(_) => Some("if pattern expressions require const execution"),
-            ExprKind::Switch(_) => Some("switch expressions require const execution"),
+            ExprKind::Match(_) => Some("match expressions require const execution"),
             ExprKind::Call { .. } => Some("function calls require const execution"),
             ExprKind::Assign { .. } => Some("assignment cannot initialize global storage"),
             ExprKind::BracketSuffix { .. } => Some("generic instantiation is not a static value"),

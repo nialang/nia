@@ -22,8 +22,8 @@ Nia provides:
 - methods declared in `extend` blocks;
 - traits implemented by `extend Type : Trait` blocks;
 - expression-oriented blocks and `if`;
-- C-style enums with namespaces and `switch` without fallthrough;
-- recursive optional/error-union and value patterns through `switch` and
+- C-style enums with namespaces and `match` without fallthrough;
+- recursive optional/error-union and value patterns through `match` and
   if-pattern expressions;
 - compile-time value bindings with `const`;
 - `defer` for scope cleanup;
@@ -158,7 +158,7 @@ or
 pub
 return
 struct
-switch
+match
 trait
 true
 type
@@ -787,7 +787,7 @@ Direct `slice[index]` and `&slice[start..end]` remain the explicit unchecked
 language primitives. The standard library does not duplicate them under an
 `unchecked` method name. A single read-only checked branch can use
 `if slice.get(index) is ?value`; mutable optional references use an explicitly
-mutable pattern such as `switch slice.getMut(index) { mut ?value => ... }`.
+mutable pattern such as `match slice.getMut(index) { mut ?value => ... }`.
 
 When `T: Eq[T]`, `equals`, `startsWith`, `endsWith`, `find`, and `contains`
 operate on complete contiguous element sequences. `find` returns the first
@@ -988,12 +988,12 @@ if maybe is ?x {
     0
 }
 
-switch result {
+match result {
     !x => x,
     err! => err,
 }
 
-switch nested {
+match nested {
     ?!value => value,
     ?err! => err,
     null => 0,
@@ -1007,7 +1007,7 @@ Patterns may be nested, so `?!value` matches an optional present value whose
 payload is an error-union success value, while `?err!` matches the nested error
 case. Ptr binding forms such as `let &value = ptr;` and `for &value in
 items` are binding destructuring forms too, but they are parsed on local/loop
-bindings through the irrefutable subset of the same pattern model. `switch`
+bindings through the irrefutable subset of the same pattern model. `match`
 accepts the refutable forms shown above as well as pointer patterns.
 
 Nominal patterns destructure structs and named enum payloads:
@@ -1015,7 +1015,7 @@ Nominal patterns destructure structs and named enum payloads:
 ```nia
 let Point { x, y: renamed } = point;
 
-switch event {
+match event {
     Event::Resize { width, height: h } => width + h,
 }
 ```
@@ -1027,7 +1027,7 @@ unless the pattern ends with `..`, which explicitly ignores all omitted fields:
 ```nia
 let Point { x, .. } = point;
 
-switch event {
+match event {
     Event::Resize { width, .. } => width,
 }
 ```
@@ -1602,23 +1602,23 @@ Integers may be explicitly cast to open enums:
 let mut flag: Flag = 3 as Flag;
 ```
 
-`switch` is the canonical multi-arm matching expression. It matches scalar,
+`match` is the canonical multi-arm matching expression. It matches scalar,
 enum, and nominal struct values and may recursively destructure their fields,
 optional values, and error-union values:
 
 ```nia
-let mut value = switch c {
+let mut value = match c {
     Color::Black => return 0;
     Color::White => 1,
     Color::Red => 2,
 };
 ```
 
-As with `if`, a `switch` may also be used as an expression statement. `switch`
+As with `if`, a `match` may also be used as an expression statement. `match`
 has no fallthrough. `_` is the default arm:
 
 ```nia
-switch code {
+match code {
     ErrorCode::Ok => return 0;
     _ => return 1;
 }
@@ -1628,7 +1628,7 @@ An arm may list multiple patterns separated by commas. Integer switches also
 support closed range patterns with both endpoints present:
 
 ```nia
-switch value {
+match value {
     0, 1 => return 0;
     2..5 => return 1;   // 2, 3, 4
     5..=7 => return 2;  // 5, 6, 7
@@ -1636,7 +1636,7 @@ switch value {
 }
 ```
 
-Open-ended switch range patterns are not supported; use `_` for the fallback
+Open-ended match range patterns are not supported; use `_` for the fallback
 case. Range pattern endpoints must be compile-time integer constants. Empty
 ranges are rejected. Partially overlapping ranges are allowed when they still
 match new values; a pattern wholly covered by earlier arms is unreachable.
@@ -1644,17 +1644,17 @@ match new values; a pattern wholly covered by earlier arms is unreachable.
 Optional and error-union patterns use the same recursive matcher:
 
 ```nia
-switch value {
+match value {
     ?x => x,
     null => 0,
 }
 
-switch result {
+match result {
     !x => x,
     err! => err,
 }
 
-switch nested {
+match nested {
     ?!value => value,
     ?err! => err,
     null => 0,
@@ -1673,7 +1673,7 @@ shorthand binds a same-named local, while an explicit subpattern can rename,
 discard, or recursively match the field:
 
 ```nia
-switch point {
+match point {
     Point { x: 0, y } => y,
     Point { .. } => 0,
 }
@@ -1691,8 +1691,8 @@ rule does not depend on capitalization or name-resolution results. An arm may
 list multiple alternatives only when none of them binds a value, because every
 entry edge to an arm body must define the same locals.
 
-Switch expression arms must produce compatible value types unless an arm exits
-through `return`, `break`, or `continue`. Every `switch`, including one used
+Match expression arms must produce compatible value types unless an arm exits
+through `return`, `break`, or `continue`. Every `match`, including one used
 only for effects, must be exhaustive; write `_ => {}` when intentionally doing
 nothing for remaining values. Exhaustiveness is computed across recursive
 product patterns rather than independently per field, and diagnostics include
@@ -2102,7 +2102,7 @@ Block-shaped control flow used as a standalone statement does not need a trailin
 semicolon. The recommended rule is:
 
 - ordinary expression statements need `;`;
-- `if`, if-pattern expressions, `for`, and `switch` used as standalone statements
+- `if`, if-pattern expressions, `for`, and `match` used as standalone statements
   do not need `;`;
 - a block tail expression does not use `;`.
 
@@ -2154,10 +2154,10 @@ branch, and `mut` belongs inside the pattern, for example
 `if maybe is mut ?value { ... }`. A non-exhaustive value-producing if-pattern
 requires `else`; an effect-only if-pattern may omit it.
 
-Use `switch` for multiple refutable alternatives:
+Use `match` for multiple refutable alternatives:
 
 ```nia
-switch result {
+match result {
     !value => use(value),
     err! => {
         return map_error(err)!;
@@ -3578,7 +3578,7 @@ A conforming Nia compiler supports:
 - `if` expressions;
 - the three `for` forms;
 - `defer`;
-- `switch` and enum exhaustiveness checks;
+- `match` and enum exhaustiveness checks;
 - `std::builtin::size[T]()`, `std::builtin::align[T]()`, `value.len()`,
   `range.start()`, `range.end()`, `slice.ptr()`, `slice.ptrMut()`, and
   `std::builtin::asm(std::builtin::AsmConfig {...})`;
@@ -3649,7 +3649,7 @@ fn sum(xs: &[i32]) i32 {
 }
 
 fn score(answer: Pair[i32, i32]) i32 {
-    switch answer.first {
+    match answer.first {
         0..10 => answer.second,
         10..=42 => answer.first + answer.second,
         _ => 0,

@@ -14,7 +14,7 @@ fn at(values: &[i32], index: usize) ?i32 {
 }
 
 fn require_at(values: &[i32], index: usize) i32!i32 {
-    switch at(values, index) {
+    match at(values, index) {
         ?value => {
             // !value constructs the success side of an error union.
             !value

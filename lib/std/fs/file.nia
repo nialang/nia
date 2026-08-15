@@ -41,7 +41,7 @@ fn lowerPath(
     path: PathView,
     operation: Operation,
 ) OperationError!cstring::CString {
-    switch cstring::CString::fromText(allocator, path.text()) {
+    match cstring::CString::fromText(allocator, path.text()) {
         !value => !value,
         cstring::CStringBuildError::ContainsNul! => OperationError::Path {
             operation: operation,
@@ -59,7 +59,7 @@ fn lowerNativeBytes(
     bytes: &[u8],
     operation: Operation,
 ) OperationError!cstring::CString {
-    switch cstring::CString::fromBytes(allocator, bytes) {
+    match cstring::CString::fromBytes(allocator, bytes) {
         !value => !value,
         cstring::CStringBuildError::ContainsNul! => OperationError::Path {
             operation: operation,
@@ -342,12 +342,12 @@ extend Dir {
         let bytes = path.bytes();
         let split = parentSplit(bytes, true);
         let current = b".";
-        let mut parent = switch split.separator {
+        let mut parent = match split.separator {
             ?index => lowerNativeBytes(allocator, &bytes[0..index], Operation::CreateDir).?,
             null => lowerNativeBytes(allocator, &current[..], Operation::CreateDir).?,
         };
         defer parent.deinit(allocator).withOperation(Operation::CreateDir).?;
-        let nameStart = switch split.separator {
+        let nameStart = match split.separator {
             ?index => index + 1usize,
             null => 0usize,
         };
@@ -400,12 +400,12 @@ extend Dir {
         let bytes = path.bytes();
         let split = parentSplit(bytes, trimTrailingSeparators);
         let current = b".";
-        let mut parent = switch split.separator {
+        let mut parent = match split.separator {
             ?index => lowerNativeBytes(allocator, &bytes[0..index], operation).?,
             null => lowerNativeBytes(allocator, &current[..], operation).?,
         };
         defer parent.deinit(allocator).withOperation(operation).?;
-        let nameStart = switch split.separator {
+        let nameStart = match split.separator {
             ?index => index + 1usize,
             null => 0usize,
         };
@@ -440,12 +440,12 @@ extend Dir {
         let oldBytes = oldPath.bytes();
         let oldSplit = parentSplit(oldBytes, false);
         let current = b".";
-        let mut oldParent = switch oldSplit.separator {
+        let mut oldParent = match oldSplit.separator {
             ?index => lowerNativeBytes(allocator, &oldBytes[0..index], Operation::Rename).?,
             null => lowerNativeBytes(allocator, &current[..], Operation::Rename).?,
         };
         defer oldParent.deinit(allocator).withOperation(Operation::Rename).?;
-        let oldNameStart = switch oldSplit.separator {
+        let oldNameStart = match oldSplit.separator {
             ?index => index + 1usize,
             null => 0usize,
         };
@@ -458,12 +458,12 @@ extend Dir {
 
         let newBytes = newPath.bytes();
         let newSplit = parentSplit(newBytes, false);
-        let mut newParent = switch newSplit.separator {
+        let mut newParent = match newSplit.separator {
             ?index => lowerNativeBytes(allocator, &newBytes[0..index], Operation::Rename).?,
             null => lowerNativeBytes(allocator, &current[..], Operation::Rename).?,
         };
         defer newParent.deinit(allocator).withOperation(Operation::Rename).?;
-        let newNameStart = switch newSplit.separator {
+        let newNameStart = match newSplit.separator {
             ?index => index + 1usize,
             null => 0usize,
         };
@@ -494,7 +494,7 @@ extend Dir {
     }
 
     pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
-        switch self.handle {
+        match self.handle {
             ?handle => {
                 !handle
             },
@@ -574,7 +574,7 @@ extend File {
     }
 
     pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
-        switch self.handle {
+        match self.handle {
             ?handle => {
                 !handle
             },

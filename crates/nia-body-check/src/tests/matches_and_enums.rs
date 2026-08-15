@@ -23,7 +23,7 @@ fn resize(width: i32, height: i32) Event {
 }
 
 fn sum(event: Event) i32 {
-    switch event {
+    match event {
         Event::Closed => 0,
         Event::Data(value) => value,
         Event::Move(x, y) => x + y,
@@ -63,7 +63,7 @@ const DATA: Event = Event::Data(7);
 const RESIZE: Event = Event::Resize { height: 3, width: 5 };
 
 fn score(event: Event) i32 {
-    switch event {
+    match event {
         Event::Closed => 0,
         Event::Data(value) => value,
         Event::Resize { width, height } => width + height,
@@ -98,7 +98,7 @@ fn invalid_constructors() {
 }
 
 fn invalid_patterns(event: Event) i32 {
-    switch event {
+    match event {
         Event::Closed(value) => value,
         Event::Data() => 0,
         Event::Data { value } => value,
@@ -151,7 +151,7 @@ enum Envelope {
 }
 
 fn complete(event: Event) i32 {
-    switch event {
+    match event {
         Event::Closed => 0,
         Event::Data(?value) => value,
         Event::Data(null) => 1,
@@ -161,7 +161,7 @@ fn complete(event: Event) i32 {
 }
 
 fn nested_complete(envelope: Envelope) i32 {
-    switch envelope {
+    match envelope {
         Envelope::Event(Event::Closed) => 0,
         Envelope::Event(Event::Data(?value)) => value,
         Envelope::Event(Event::Data(null)) => 1,
@@ -171,7 +171,7 @@ fn nested_complete(envelope: Envelope) i32 {
 }
 
 fn missing_null(event: Event) i32 {
-    switch event {
+    match event {
         Event::Closed => 0,
         Event::Data(?value) => value,
         Event::Result(!value) => value,
@@ -180,14 +180,14 @@ fn missing_null(event: Event) i32 {
 }
 
 fn diagonal_is_not_complete(event: PairEvent) i32 {
-    switch event {
+    match event {
         PairEvent::Bits(true, true) => 1,
         PairEvent::Bits(false, false) => 0,
     }
 }
 
 fn binding_covers_product(event: PairEvent) i32 {
-    switch event {
+    match event {
         PairEvent::Bits(left, right) => if left == right { 1 } else { 0 },
     }
 }
@@ -198,7 +198,7 @@ fn binding_covers_product(event: PairEvent) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive match"))
             .count(),
         2,
         "{:?}",
@@ -219,7 +219,7 @@ fn id[T](value: T) T { value }
 
 fn main() i32 {
     let event = id[Event](Event::Data(7));
-    switch event {
+    match event {
         Event::Closed => 0,
         Event::Data(value) => value,
     }
@@ -230,7 +230,7 @@ fn main() i32 {
 }
 
 #[test]
-fn checks_enum_variants_and_switch_exhaustiveness() {
+fn checks_enum_variants_and_match_exhaustiveness() {
     let checked = pipeline(
         r#"
 enum Color {
@@ -244,7 +244,7 @@ enum Other {
 }
 
 fn full(c: Color) i32 {
-    switch c {
+    match c {
         Color::Red => return 1,
         Color::Green => return 2,
         Color::Blue => return 3,
@@ -253,14 +253,14 @@ fn full(c: Color) i32 {
 }
 
 fn missing(c: Color) i32 {
-    switch c {
+    match c {
         Color::Red => return 1,
     }
     0
 }
 
 fn with_default(c: Color) i32 {
-    switch c {
+    match c {
         Color::Red => return 1,
         _ => return 0,
     }
@@ -268,7 +268,7 @@ fn with_default(c: Color) i32 {
 }
 
 fn bad(c: Color) i32 {
-    switch c {
+    match c {
         Other::One => return 1,
         Color::Missing => return 2,
         _ => return 0,
@@ -281,7 +281,7 @@ fn bad(c: Color) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive match"))
             .count(),
         1
     );
@@ -289,7 +289,7 @@ fn bad(c: Color) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("switch pattern"))
+            .any(|diagnostic| diagnostic.summary.contains("match pattern"))
     );
     assert!(
         checked
@@ -397,7 +397,7 @@ fn if_pattern_payload_field_lhs_is_local(ir: &nia_body_ir::BodyIr, field_span: S
 }
 
 #[test]
-fn checks_switch_expressions() {
+fn checks_match_expressions() {
     let checked = pipeline(
         r#"
 enum Color {
@@ -406,28 +406,28 @@ enum Color {
 }
 
 fn pick(c: Color) i32 {
-    switch c {
+    match c {
         Color::Red => 1,
         Color::Green => 2,
     }
 }
 
 fn with_default(x: u32) i32 {
-    switch x {
+    match x {
         0 => 10,
         _ => 20,
     }
 }
 
 fn with_return_arm(x: u32) i32 {
-    switch x {
+    match x {
         0 => return 1,
         _ => 2,
     }
 }
 
 fn bad(x: u32) i32 {
-    switch x {
+    match x {
         0 => 1,
         _ => true,
     }
@@ -438,7 +438,7 @@ fn bad(x: u32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("type mismatch in switch arms")),
+            .any(|diagnostic| diagnostic.summary.contains("type mismatch in match arms")),
         "{:?}",
         checked.diagnostics
     );
@@ -446,7 +446,7 @@ fn bad(x: u32) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum match"))
             .count(),
         0,
         "{:?}",
@@ -455,21 +455,21 @@ fn bad(x: u32) i32 {
 }
 
 #[test]
-fn checks_switch_arm_body_edge_cases() {
+fn checks_match_arm_body_edge_cases() {
     let checked = pipeline(
         r#"
 fn value() i32 { 1 }
 fn cleanup() {}
 
 fn expr_stmt_arm(x: i32) i32 {
-    switch x {
+    match x {
         0 => cleanup(),
         _ => value(),
     }
 }
 
 fn block_arm_void_tail(x: i32) i32 {
-    switch x {
+    match x {
         0 => {
             cleanup();
         },
@@ -478,7 +478,7 @@ fn block_arm_void_tail(x: i32) i32 {
 }
 
 fn block_arm_never_tail(x: i32) i32 {
-    switch x {
+    match x {
         0 => {
             return 10;
         },
@@ -487,7 +487,7 @@ fn block_arm_never_tail(x: i32) i32 {
 }
 
 fn statement_arm_never(x: i32) i32 {
-    switch x {
+    match x {
         0 => return 1,
         _ => 2,
     }
@@ -502,7 +502,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("type mismatch in switch arms"))
+            .filter(|diagnostic| diagnostic.summary.contains("type mismatch in match arms"))
             .count(),
         2,
         "{:?}",
@@ -519,11 +519,11 @@ fn main() i32 {
 }
 
 #[test]
-fn infers_switch_pattern_numeric_literals_from_target_type() {
+fn infers_match_pattern_numeric_literals_from_target_type() {
     let checked = pipeline(
         r#"
 fn classify(value: usize) i32 {
-    switch value {
+    match value {
         0 => return 0,
         1 + 1 => return 2,
         _ => return 3,
@@ -532,7 +532,7 @@ fn classify(value: usize) i32 {
 }
 
 fn bad(value: u8) i32 {
-    switch value {
+    match value {
         256 => return 1,
         _ => return 0,
     }
@@ -553,18 +553,18 @@ fn bad(value: u8) i32 {
     assert!(
         !checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("type mismatch in switch pattern")),
+            .contains("type mismatch in match pattern")),
         "{:?}",
         checked.diagnostics
     );
 }
 
 #[test]
-fn checks_switch_pattern_lists_and_ranges() {
+fn checks_match_pattern_lists_and_ranges() {
     let checked = pipeline(
         r#"
 fn classify(value: i32) i32 {
-    switch value {
+    match value {
         0, 1 => 10,
         2..5 => 20,
         5..=7 => 30,
@@ -573,7 +573,7 @@ fn classify(value: i32) i32 {
 }
 
 fn overlap(value: i32) i32 {
-    switch value {
+    match value {
         0..3 => 10,
         2 => 20,
         _ => 30,
@@ -581,21 +581,21 @@ fn overlap(value: i32) i32 {
 }
 
 fn empty(value: i32) i32 {
-    switch value {
+    match value {
         3..3 => 10,
         _ => 20,
     }
 }
 
 fn non_integer(value: bool) i32 {
-    switch value {
+    match value {
         false..=true => 10,
         _ => 20,
     }
 }
 
 fn non_constant(value: i32, start: i32) i32 {
-    switch value {
+    match value {
         start..3 => 10,
         _ => 20,
     }
@@ -606,7 +606,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("switch pattern is unreachable")),
+            .any(|diagnostic| diagnostic.summary.contains("match pattern is unreachable")),
         "{:?}",
         checked.diagnostics
     );
@@ -614,7 +614,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("switch pattern range is empty")),
+            .any(|diagnostic| diagnostic.summary.contains("match pattern range is empty")),
         "{:?}",
         checked.diagnostics
     );
@@ -640,19 +640,19 @@ fn non_constant(value: i32, start: i32) i32 {
                 .facts
                 .iter_node_pattern_values()
                 .any(|(_, value)| *value == expected),
-            "missing switch pattern value {expected}: {:?}",
+            "missing match pattern value {expected}: {:?}",
             checked.facts.iter_node_pattern_values().collect::<Vec<_>>()
         );
     }
 }
 
 #[test]
-fn lowers_integer_switch_patterns_from_checked_values() {
+fn lowers_integer_match_patterns_from_checked_values() {
     let checked = pipeline(
         r#"
 fn main() i32 {
     let mut x: i32 = 2;
-    switch x {
+    match x {
         1 => return 10,
         2..5 => return 20,
         _ => return 30,
@@ -673,10 +673,10 @@ fn main() i32 {
             _ => None,
         })
         .filter_map(|expr| match &expr.kind {
-            nia_body_ir::TypedExprKind::Switch(switch) => Some(switch.as_ref()),
+            nia_body_ir::TypedExprKind::Match(matched) => Some(matched.as_ref()),
             _ => None,
         })
-        .flat_map(|switch| switch.arms.iter())
+        .flat_map(|matched| matched.arms.iter())
         .flat_map(|arm| arm.patterns.iter())
         .collect::<Vec<_>>();
 
@@ -712,7 +712,7 @@ fn checks_recursive_optional_error_union_patterns_and_if_patterns() {
     let checked = pipeline(
         r#"
 fn unwrap_result(result: i32!i32) i32 {
-    switch result {
+    match result {
         !value => {
             value
         },
@@ -723,7 +723,7 @@ fn unwrap_result(result: i32!i32) i32 {
 }
 
 fn unwrap_nested(value: ?(i32!i32)) i32 {
-    switch value {
+    match value {
         ?!ok => {
             ok
         },
@@ -737,7 +737,7 @@ fn unwrap_nested(value: ?(i32!i32)) i32 {
 }
 
 fn match_error_literal(value: ?(i32!i32)) i32 {
-    switch value {
+    match value {
         ?5! => {
             5
         },
@@ -765,25 +765,25 @@ fn bind_plain(value: i32) i32 {
 }
 
 #[test]
-fn checks_switch_destructuring_and_recursive_exhaustiveness() {
+fn checks_match_destructuring_and_recursive_exhaustiveness() {
     let checked = pipeline(
         r#"
 fn optional(value: ?i32) i32 {
-    switch value {
+    match value {
         ?payload => payload,
         null => 0,
     }
 }
 
 fn error_union(value: i32!i32) i32 {
-    switch value {
+    match value {
         !payload => payload,
         error! => error,
     }
 }
 
 fn nested(value: ?(i32!i32)) i32 {
-    switch value {
+    match value {
         ?!payload => payload,
         ?error! => error,
         null => 0,
@@ -827,14 +827,14 @@ fn nested(value: ?Point) i32 {
 }
 
 fn classify(point: Point) i32 {
-    switch point {
+    match point {
         Point { x: 0, y } => y,
         Point { x: _, y: _ } => 9,
     }
 }
 
 fn nestedEnum(value: Failure!i32) i32 {
-    switch value {
+    match value {
         !ok => { _ = ok; 0 },
         Failure::System { operation: Operation::Read, code: _ }! => 1,
         error! => { _ = error; 0 },
@@ -876,11 +876,11 @@ const TOTAL: i32 = constSum(Point { x: 19, y: 22 });
         let Some(tail) = &body.tail else {
             return false;
         };
-        let nia_body_ir::TypedExprKind::Switch(switch) = &tail.kind else {
+        let nia_body_ir::TypedExprKind::Match(matched) = &tail.kind else {
             return false;
         };
         matches!(
-            &switch.arms[1].patterns[0].kind,
+            &matched.arms[1].patterns[0].kind,
             nia_body_ir::TypedPatternKind::ErrorErr(outer)
                 if matches!(
                     &outer.kind,
@@ -917,7 +917,7 @@ fn generic[T](boxed: Box[T]) T {
 }
 
 fn classify(event: Event) i32 {
-    switch event {
+    match event {
         Event::Stop => 0,
         Event::Resize { wide: true, .. } => 1,
         Event::Resize { wide: false, .. } => 2,
@@ -925,7 +925,7 @@ fn classify(event: Event) i32 {
 }
 
 fn byte(value: u8) i32 {
-    switch value {
+    match value {
         0..=127 => 0,
         128..=255 => 1,
     }
@@ -950,34 +950,34 @@ const FLAG: bool = constBind(Point { x: true, y: 9 });
 struct Flags { left: bool, right: bool }
 
 fn boolean(value: bool) i32 {
-    switch value {
+    match value {
         true => 1,
     }
 }
 
 fn tupleProduct(value: (bool, bool)) i32 {
-    switch value {
+    match value {
         (true, _) => 1,
         (_, false) => 2,
     }
 }
 
 fn structProduct(value: Flags) i32 {
-    switch value {
+    match value {
         Flags { left: true, .. } => 1,
         Flags { right: false, .. } => 2,
     }
 }
 
 fn unreachable(value: Flags) i32 {
-    switch value {
+    match value {
         Flags { .. } => 1,
         Flags { left: true, .. } => 2,
     }
 }
 
 fn integerGap(value: u8) i32 {
-    switch value {
+    match value {
         0..10 => 0,
         11..=255 => 1,
     }
@@ -1003,7 +1003,7 @@ fn integerGap(value: u8) i32 {
         rejected
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("switch pattern is unreachable"))
+            .any(|diagnostic| diagnostic.summary.contains("match pattern is unreachable"))
     );
 }
 
@@ -1053,17 +1053,17 @@ fn wrong(point: Point) i32 {
 }
 
 #[test]
-fn rejects_non_exhaustive_and_ambiguous_switch_bindings() {
+fn rejects_non_exhaustive_and_ambiguous_match_bindings() {
     let checked = pipeline(
         r#"
 fn missing(value: ?i32) i32 {
-    switch value {
+    match value {
         ?payload => payload,
     }
 }
 
 fn alternatives(value: ?i32) i32 {
-    switch value {
+    match value {
         ?payload, null => payload,
         _ => 0,
     }
@@ -1074,7 +1074,7 @@ fn alternatives(value: ?i32) i32 {
         checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .summary
-                .contains("non-exhaustive switch, missing pattern")
+                .contains("non-exhaustive matched, missing pattern")
         }),
         "{:?}",
         checked.diagnostics
@@ -1095,7 +1095,7 @@ fn checks_if_pattern_binding_mutability() {
     let checked = pipeline(
         r#"
 fn mutable(value: ?i32) i32 {
-    switch value {
+    match value {
         mut ?current => {
             current += 1;
             current
@@ -1107,7 +1107,7 @@ fn mutable(value: ?i32) i32 {
 }
 
 fn immutable(value: ?i32) i32 {
-    switch value {
+    match value {
         ?current => {
             current += 1;
             current

@@ -7,7 +7,7 @@ using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, Pa
 
 extend os::Error : error::IntoError[Error] {
     const fn into_error(self) Error {
-        switch self {
+        match self {
             os::Error::PermissionDenied => Error::PermissionDenied,
             os::Error::NotFound => Error::NotFound,
             os::Error::Interrupted => Error::Interrupted,
@@ -50,7 +50,7 @@ extend[T] os::Error!T {
 
 extend[T] Error!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => OperationError::System { operation: operation, cause: cause }!,
         }
@@ -59,7 +59,7 @@ extend[T] Error!T {
 
 extend[T] mem::Error!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => OperationError::Allocation { operation: operation, cause: cause }!,
         }
@@ -68,7 +68,7 @@ extend[T] mem::Error!T {
 
 extend[T] PathError!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => OperationError::Path { operation: operation, cause: cause }!,
         }
@@ -77,7 +77,7 @@ extend[T] PathError!T {
 
 extend os::FileKind {
     pub(pkg) fn as_fs_file_kind(self) FileKind {
-        switch self {
+        match self {
             os::FileKind::BlockDevice => FileKind::BlockDevice,
             os::FileKind::CharacterDevice => FileKind::CharacterDevice,
             os::FileKind::Directory => FileKind::Directory,
@@ -99,14 +99,14 @@ extend os::Timestamp {
 extend os::FileMetadata {
     pub(pkg) fn as_fs_metadata(&self) Metadata {
         let mut accessed: ?Timestamp = null;
-        switch self.accessed() {
+        match self.accessed() {
             ?value => {
                 accessed = ?value.as_fs_timestamp();
             },
             null => {},
         }
         let mut status_changed: ?Timestamp = null;
-        switch self.statusChanged() {
+        match self.statusChanged() {
             ?value => {
                 status_changed = ?value.as_fs_timestamp();
             },

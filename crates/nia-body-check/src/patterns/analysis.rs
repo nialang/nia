@@ -22,13 +22,13 @@ impl BodyChecker<'_> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("non-exhaustive switch, missing pattern: `{witness}`"),
+                    format!("non-exhaustive matched, missing pattern: `{witness}`"),
                 ));
             }
             Err(error) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                format!("cannot analyze switch exhaustiveness: {error}"),
+                format!("cannot analyze match exhaustiveness: {error}"),
             )),
         }
     }

@@ -103,8 +103,8 @@ impl Analyzer<'_> {
                         return Err(ConstError {
                             span: arg_expr.span(),
                             message: match arg_expr.kind() {
-                                ResolvedConstExprKind::Switch(_) => {
-                                    "const switch expression does not match expected type"
+                                ResolvedConstExprKind::Match(_) => {
+                                    "const match expression does not match expected type"
                                 }
                                 _ => "const call argument does not match expected type",
                             }
@@ -296,8 +296,8 @@ impl Analyzer<'_> {
                     ConstTypeCompatibility::Unknown => ConstTypeCompatibility::Unknown,
                 }
             }
-            ResolvedConstExprKind::Switch(switch)
-                if self.resolved_const_switch_has_definite_pattern_mismatch(switch) =>
+            ResolvedConstExprKind::Match(matched)
+                if self.resolved_const_match_has_definite_pattern_mismatch(matched) =>
             {
                 ConstTypeCompatibility::Mismatch
             }
@@ -626,8 +626,8 @@ impl Analyzer<'_> {
                 else_branch.as_deref(),
                 expected,
             ),
-            ResolvedConstExprKind::Switch(switch) => {
-                self.resolved_const_switch_expr_type(switch, expected)
+            ResolvedConstExprKind::Match(matched) => {
+                self.resolved_const_match_expr_type(matched, expected)
             }
             ResolvedConstExprKind::Block(block) => {
                 self.resolved_const_block_tail_type(block, expected)
@@ -926,11 +926,11 @@ impl Analyzer<'_> {
 
     pub(super) fn find_resolved_pattern_local_type(
         &mut self,
-        switch: &ResolvedConstSwitch,
+        matched: &ResolvedConstMatch,
         local_id: LocalId,
     ) -> Option<InternedTyId> {
-        let target_ty = self.resolved_const_arg_runtime_type(switch.target(), None)?;
-        for arm in switch.arms() {
+        let target_ty = self.resolved_const_arg_runtime_type(matched.target(), None)?;
+        for arm in matched.arms() {
             for pattern in arm.patterns() {
                 if let Some(ty) = self.resolved_pattern_binding_type(pattern, target_ty, local_id) {
                     return Some(ty);
@@ -1427,17 +1427,17 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn resolved_const_switch_expr_type(
+    pub(super) fn resolved_const_match_expr_type(
         &mut self,
-        switch: &ResolvedConstSwitch,
+        matched: &ResolvedConstMatch,
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
-        let target_ty = self.resolved_const_arg_runtime_type(switch.target(), None);
+        let target_ty = self.resolved_const_arg_runtime_type(matched.target(), None);
         let expected = expected.and_then(|expected| self.usable_const_expected_type(expected));
         let mut result_ty = expected.map(ConstValueType::Runtime);
         let mut saw_value_arm = false;
         let mut all_arms_typed = true;
-        for arm in switch.arms() {
+        for arm in matched.arms() {
             if target_ty.is_some_and(|target_ty| {
                 self.const_runtime_type_is_known(target_ty)
                     && self
@@ -1445,9 +1445,9 @@ impl Analyzer<'_> {
             }) {
                 self.push_const_type_error(
                     arm.span(),
-                    "const switch pattern does not match the target type",
+                    "const match pattern does not match the target type",
                 );
-                let _ = self.resolved_const_switch_arm_body_type(
+                let _ = self.resolved_const_match_arm_body_type(
                     arm.body(),
                     result_ty.as_ref().and_then(ConstValueType::runtime),
                 );
@@ -1460,20 +1460,20 @@ impl Analyzer<'_> {
                 .and_then(|expected| {
                     let runtime_expected = expected.runtime();
                     let arm_ty =
-                        self.resolved_const_switch_arm_type(arm, target_ty, runtime_expected)?;
+                        self.resolved_const_match_arm_type(arm, target_ty, runtime_expected)?;
                     (arm_ty == ConstArmType::Value(expected)).then_some(arm_ty)
                 })
                 .or_else(|| {
-                    self.resolved_const_switch_arm_type(
+                    self.resolved_const_match_arm_type(
                         arm,
                         target_ty,
                         result_ty.as_ref()?.runtime(),
                     )
                 })
-                .or_else(|| self.resolved_const_switch_arm_type(arm, target_ty, None));
+                .or_else(|| self.resolved_const_match_arm_type(arm, target_ty, None));
             let Some(arm_ty) = arm_ty else {
                 if self.diagnostics.len() == diagnostics_before_arm {
-                    let _ = self.resolved_const_switch_arm_body_type(
+                    let _ = self.resolved_const_match_arm_body_type(
                         arm.body(),
                         result_ty.as_ref().and_then(ConstValueType::runtime),
                     );
@@ -1490,7 +1490,7 @@ impl Analyzer<'_> {
                     if self.const_value_types_have_known_mismatch(result_ty, &arm_ty) {
                         self.push_const_type_error(
                             arm.span(),
-                            "const switch arms have incompatible result types",
+                            "const match arms have incompatible result types",
                         );
                     }
                     all_arms_typed = false;
@@ -1503,7 +1503,7 @@ impl Analyzer<'_> {
             return None;
         }
         if let Some(target_ty) = target_ty {
-            self.check_resolved_const_switch_coverage(switch, target_ty);
+            self.check_resolved_const_match_coverage(matched, target_ty);
         }
         saw_value_arm.then_some(result_ty).flatten()
     }
@@ -1521,45 +1521,45 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn resolved_const_switch_arm_type(
+    pub(super) fn resolved_const_match_arm_type(
         &mut self,
-        arm: &nia_const_ir::ResolvedConstSwitchArm,
+        arm: &nia_const_ir::ResolvedConstMatchArm,
         target_ty: Option<InternedTyId>,
         expected: Option<InternedTyId>,
     ) -> Option<ConstArmType> {
         let target_ty = target_ty?;
         self.check_resolved_const_patterns(arm.patterns(), target_ty)?;
-        if !self.resolved_const_switch_arm_binds_pattern_locals(arm) {
-            return self.resolved_const_switch_arm_body_type(arm.body(), expected);
+        if !self.resolved_const_match_arm_binds_pattern_locals(arm) {
+            return self.resolved_const_match_arm_body_type(arm.body(), expected);
         }
         self.push_typed_const_scope();
         let result = (|| {
             self.bind_typed_resolved_const_patterns(arm.patterns(), target_ty)?;
-            self.resolved_const_switch_arm_body_type(arm.body(), expected)
+            self.resolved_const_match_arm_body_type(arm.body(), expected)
         })();
         self.pop_typed_const_scope();
         result
     }
 
-    pub(super) fn resolved_const_switch_arm_body_type(
+    pub(super) fn resolved_const_match_arm_body_type(
         &mut self,
-        body: &ResolvedConstSwitchArmBody,
+        body: &ResolvedConstMatchArmBody,
         expected: Option<InternedTyId>,
     ) -> Option<ConstArmType> {
         match body.kind() {
-            ResolvedConstSwitchArmBodyKind::Expr(expr) => self
+            ResolvedConstMatchArmBodyKind::Expr(expr) => self
                 .resolved_const_expr_type(expr, expected)
                 .map(ConstArmType::Value),
-            ResolvedConstSwitchArmBodyKind::Block(block) => {
-                self.resolved_const_switch_block_arm_type(block, expected)
+            ResolvedConstMatchArmBodyKind::Block(block) => {
+                self.resolved_const_match_block_arm_type(block, expected)
             }
-            ResolvedConstSwitchArmBodyKind::Stmt(stmt) => {
+            ResolvedConstMatchArmBodyKind::Stmt(stmt) => {
                 self.resolved_const_stmt_arm_type(stmt, expected)
             }
         }
     }
 
-    pub(super) fn resolved_const_switch_block_arm_type(
+    pub(super) fn resolved_const_match_block_arm_type(
         &mut self,
         block: &ResolvedConstBlock,
         expected: Option<InternedTyId>,

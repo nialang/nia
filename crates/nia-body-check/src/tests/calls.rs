@@ -158,7 +158,7 @@ fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
         r#"
 extend[Value, Source, Target] Source!Value {
     fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
-        switch self {
+        match self {
             !value => !value,
             error! => mapper(error)!,
         }
@@ -189,7 +189,7 @@ enum TargetError: i32 {
 
 extend[Value, Source, Target] Source!Value {
     fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
-        switch self {
+        match self {
             !value => !value,
             error! => mapper(error)!,
         }
@@ -220,7 +220,7 @@ fn fallible_callable_argument_infers_nested_error_union_return() {
         r#"
 extend[Value, Source, Target] Source!Value {
     fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
-        switch self {
+        match self {
             !value => !value,
             error! => fallback(error),
         }
@@ -239,7 +239,7 @@ fn main() i32 {
             true!
         }
     });
-    switch recovered {
+    match recovered {
         !value => value,
         error! => if error { 1 } else { 0 },
     }
@@ -256,7 +256,7 @@ fn fallible_error_recovery_rejects_a_different_success_type() {
         r#"
 extend[Value, Source, Target] Source!Value {
     fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
-        switch self {
+        match self {
             !value => !value,
             error! => fallback(error),
         }

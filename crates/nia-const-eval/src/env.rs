@@ -352,7 +352,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         }
         Err(ConstError {
             span,
-            message: "const switch pattern locals are not available in this context".to_string(),
+            message: "const match pattern locals are not available in this context".to_string(),
         })
     }
 
@@ -592,7 +592,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         let _ = value;
         Err(ConstError {
             span,
-            message: "resolved const switch pattern locals are not available in this context"
+            message: "resolved const match pattern locals are not available in this context"
                 .to_string(),
         })
     }

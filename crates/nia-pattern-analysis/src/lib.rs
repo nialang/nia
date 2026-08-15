@@ -144,7 +144,7 @@
 //! different ownership and evaluation constraints, so sharing a coverage
 //! proof is safer than sharing generated control flow.
 //!
-//! When changing pattern syntax, type lowering, or switch lowering, audit the
+//! When changing pattern syntax, type lowering, or match lowering, audit the
 //! parser representation, both adapters, constructor identity and field order,
 //! finite/open/opaque classification, scalar clipping, witness formatting,
 //! irrefutable `let`/`for` checks, runtime lowering, const evaluation, and the
@@ -173,7 +173,7 @@ pub enum Pattern<C> {
     /// A valid pattern whose matched values cannot be characterized statically.
     ///
     /// Opaque patterns are useful unless shadowed by a wildcard, but never make a
-    /// switch exhaustive. This is the conservative rule needed for runtime
+    /// match exhaustive. This is the conservative rule needed for runtime
     /// equality expressions and other user-defined matching behavior.
     Opaque,
 }
@@ -278,7 +278,7 @@ where
 
 /// Returns one value not covered by `matrix`, or `None` when it is exhaustive.
 ///
-/// This is the one-column convenience form used after all switch arms have
+/// This is the one-column convenience form used after all match arms have
 /// been normalized. It asks `useful_witness` about `_` and unwraps the only
 /// column, preserving the same validation and conservative domain rules.
 pub fn missing_witness<T, C, F>(

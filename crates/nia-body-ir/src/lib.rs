@@ -106,16 +106,16 @@ pub struct TypedLoop {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypedSwitch {
+pub struct TypedMatch {
     pub target: TypedExpr,
     pub bool_ty: InternedTyId,
-    pub arms: Vec<TypedSwitchArm>,
+    pub arms: Vec<TypedMatchArm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypedSwitchArm {
+pub struct TypedMatchArm {
     pub patterns: Vec<TypedPattern>,
-    pub body: TypedSwitchArmBody,
+    pub body: TypedMatchArmBody,
     pub span: Span,
 }
 
@@ -181,7 +181,7 @@ pub enum TypedNominalPatternConstructor {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypedSwitchArmBody {
+pub enum TypedMatchArmBody {
     Expr(TypedExpr),
     Stmt(Box<TypedStmt>),
     Block(Box<TypedBody>),
@@ -355,7 +355,7 @@ pub enum TypedExprKind {
         else_branch: Option<Box<TypedExpr>>,
     },
     IfPattern(Box<TypedIfPattern>),
-    Switch(Box<TypedSwitch>),
+    Match(Box<TypedMatch>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

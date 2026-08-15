@@ -437,7 +437,7 @@ fn dirent_name_len(buffer: &[u8], offset: usize, reclen: usize) usize {
 }
 
 fn dirent_kind(value: u8) FileKind {
-    switch value {
+    match value {
         (dirent_type_fifo) => FileKind::NamedPipe,
         (dirent_type_chr) => FileKind::CharacterDevice,
         (dirent_type_dir) => FileKind::Directory,

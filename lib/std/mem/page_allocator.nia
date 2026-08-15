@@ -35,7 +35,7 @@ extend PageAllocator : Allocator {
         }
 
         let mut oldSize: usize;
-        switch os::pageAlignedLen(block.size()) {
+        match os::pageAlignedLen(block.size()) {
             !size => {
                 oldSize = size;
             },
@@ -44,7 +44,7 @@ extend PageAllocator : Allocator {
             },
         }
         let mut newSize: usize;
-        switch os::pageAlignedLen(newLayout.size()) {
+        match os::pageAlignedLen(newLayout.size()) {
             !size => {
                 newSize = size;
             },
@@ -77,7 +77,7 @@ extend PageAllocator : Allocator {
 
 extend os::Error : error::IntoError[types::Error] {
     const fn into_error(self) types::Error {
-        switch self {
+        match self {
             os::Error::Invalid => types::Error::Invalid,
             os::Error::OutOfMemory => types::Error::OutOfMemory,
             _ => types::Error::System,

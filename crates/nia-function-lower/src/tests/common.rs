@@ -2,10 +2,10 @@
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
     AtomicOrder, GeneratedLocalName, LocalName, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr,
-    TypedExprKind, TypedForIn, TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop,
-    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern,
-    TypedPatternBinding, TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArmBody,
+    TypedExprKind, TypedForIn, TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMatch,
+    TypedMatchArmBody, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
+    TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding, TypedPatternKind,
+    TypedPlace, TypedStmt, TypedStmtKind,
 };
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
@@ -135,7 +135,7 @@ pub(super) fn for_iterator_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt
     }
 }
 
-pub(super) fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedBody {
+pub(super) fn match_stmt_body(arms: Vec<nia_body_ir::TypedMatchArm>) -> TypedBody {
     let span = Span::default();
     let ty = test_ty();
     TypedBody {
@@ -146,7 +146,7 @@ pub(super) fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedB
             kind: TypedStmtKind::Expr(TypedExpr {
                 span,
                 ty,
-                kind: TypedExprKind::Switch(Box::new(TypedSwitch {
+                kind: TypedExprKind::Match(Box::new(TypedMatch {
                     target: int_expr(1),
                     bool_ty: ty,
                     arms,
@@ -158,8 +158,8 @@ pub(super) fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedB
     }
 }
 
-pub(super) fn switch_expr_arm(value: i32, body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
-    nia_body_ir::TypedSwitchArm {
+pub(super) fn match_expr_arm(value: i32, body: TypedMatchArmBody) -> nia_body_ir::TypedMatchArm {
+    nia_body_ir::TypedMatchArm {
         patterns: vec![nia_body_ir::TypedPattern {
             ty: test_ty(),
             span: Span::default(),
@@ -172,13 +172,13 @@ pub(super) fn switch_expr_arm(value: i32, body: TypedSwitchArmBody) -> nia_body_
     }
 }
 
-pub(super) fn switch_range_arm(
+pub(super) fn match_range_arm(
     start: i32,
     end: i32,
     inclusive: bool,
-    body: TypedSwitchArmBody,
-) -> nia_body_ir::TypedSwitchArm {
-    nia_body_ir::TypedSwitchArm {
+    body: TypedMatchArmBody,
+) -> nia_body_ir::TypedMatchArm {
+    nia_body_ir::TypedMatchArm {
         patterns: vec![nia_body_ir::TypedPattern {
             ty: test_ty(),
             span: Span::default(),
@@ -193,8 +193,8 @@ pub(super) fn switch_range_arm(
     }
 }
 
-pub(super) fn switch_default_arm(body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
-    nia_body_ir::TypedSwitchArm {
+pub(super) fn match_default_arm(body: TypedMatchArmBody) -> nia_body_ir::TypedMatchArm {
+    nia_body_ir::TypedMatchArm {
         patterns: vec![nia_body_ir::TypedPattern {
             ty: test_ty(),
             span: Span::default(),

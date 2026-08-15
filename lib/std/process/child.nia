@@ -17,15 +17,15 @@ extend Child {
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         Self {
             state: ChildState::running(ProcessId::fromRaw(result.pid().raw())),
-            stdin: switch result.stdin() {
+            stdin: match result.stdin() {
                 ?handle => ?ChildStdin::init(handle),
                 null => null,
             },
-            stdout: switch result.stdout() {
+            stdout: match result.stdout() {
                 ?handle => ?ChildStdout::init(handle),
                 null => null,
             },
-            stderr: switch result.stderr() {
+            stderr: match result.stderr() {
                 ?handle => ?ChildStderr::init(handle),
                 null => null,
             },
@@ -55,7 +55,7 @@ extend Child {
     }
 
     pub fn closeStdin(&mut self) Error!() {
-        switch self.takeStdin() {
+        match self.takeStdin() {
             ?pipe => {
                 let mut owned = pipe;
                 owned.close().asProcessCloseError(StdStream::Stdin)
@@ -67,7 +67,7 @@ extend Child {
     }
 
     pub fn closeStdout(&mut self) Error!() {
-        switch self.takeStdout() {
+        match self.takeStdout() {
             ?pipe => {
                 let mut owned = pipe;
                 owned.close().asProcessCloseError(StdStream::Stdout)
@@ -79,7 +79,7 @@ extend Child {
     }
 
     pub fn closeStderr(&mut self) Error!() {
-        switch self.takeStderr() {
+        match self.takeStderr() {
             ?pipe => {
                 let mut owned = pipe;
                 owned.close().asProcessCloseError(StdStream::Stderr)
@@ -98,7 +98,7 @@ extend Child {
     }
 
     fn waitStatus(&mut self) Error!os::WaitStatus {
-        switch self.state.status() {
+        match self.state.status() {
             ?status => {
                 return !status;
             },
@@ -114,7 +114,7 @@ extend Child {
     }
 
     fn tryWaitStatus(&mut self) Error! ?os::WaitStatus {
-        switch self.state.status() {
+        match self.state.status() {
             ?status => {
                 return !(?status);
             },
@@ -122,7 +122,7 @@ extend Child {
         }
         let pid = self.state.pid();
         let status = os::tryWait(self.state.osPid()).asProcessTryWaitError().?;
-        switch status {
+        match status {
             ?value => {
                 self.state = ChildState::exited(pid, value);
                 self.closePipes().?;
@@ -141,7 +141,7 @@ extend Child {
 
     pub fn tryWait(&mut self) Error! ?Term {
         let status = self.tryWaitStatus().?;
-        switch status {
+        match status {
             ?value => {
                 !(?Term::fromWaitStatus(value))
             },
@@ -156,7 +156,7 @@ extend Child {
     }
 
     pub fn killWith(&mut self, signal: Signal) Error!Term {
-        switch self.state.status() {
+        match self.state.status() {
             ?status => {
                 return !Term::fromWaitStatus(status);
             },
@@ -183,7 +183,7 @@ extend ChildState {
     }
 
     fn pid(&self) ProcessId {
-        switch self.kind {
+        match self.kind {
             ChildStateKind::Running => self.payload.running.pid(),
             ChildStateKind::Exited => self.payload.exited.pid(),
         }
@@ -194,7 +194,7 @@ extend ChildState {
     }
 
     fn status(&self) ?os::WaitStatus {
-        switch self.kind {
+        match self.kind {
             ChildStateKind::Running => null,
             ChildStateKind::Exited => ?self.payload.exited.status(),
         }
@@ -237,7 +237,7 @@ extend ProcessId {
 
 extend[T] io::Error!T {
     fn asProcessCloseError(self, stream: StdStream) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => Error::Close { stream: stream, cause: cause }!,
         }
@@ -246,7 +246,7 @@ extend[T] io::Error!T {
 
 extend[T] os::Error!T {
     fn asProcessWaitError(self) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => Error::Wait(SystemError::fromOs(cause))!,
         }
@@ -255,7 +255,7 @@ extend[T] os::Error!T {
 
 extend[T] os::Error!T {
     fn asProcessTryWaitError(self) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => Error::TryWait(SystemError::fromOs(cause))!,
         }
@@ -264,7 +264,7 @@ extend[T] os::Error!T {
 
 extend[T] os::Error!T {
     fn asProcessKillError(self) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => Error::Kill(SystemError::fromOs(cause))!,
         }

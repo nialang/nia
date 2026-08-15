@@ -373,7 +373,7 @@ impl<'a> BodyChecker<'a> {
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
             ExprKind::IfPattern(if_pattern) => self.check_if_pattern_expr(if_pattern, expected),
-            ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
+            ExprKind::Match(matched) => self.check_match_expr(matched, expected),
         };
         let ty = if let Some(expected) = expected {
             self.coerce_pointer_array_to_slice(expr, expected, ty)

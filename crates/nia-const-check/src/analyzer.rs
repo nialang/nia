@@ -22,9 +22,9 @@ use nia_const_ir::{
     ResolvedConstArrayElementsKind, ResolvedConstAssign, ResolvedConstAssignPathElemKind,
     ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget, ResolvedConstBlock,
     ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
-    ResolvedConstGenericArg, ResolvedConstModule, ResolvedConstPattern,
+    ResolvedConstGenericArg, ResolvedConstMatch, ResolvedConstMatchArmBody,
+    ResolvedConstMatchArmBodyKind, ResolvedConstModule, ResolvedConstPattern,
     ResolvedConstPatternBinding, ResolvedConstPatternKind, ResolvedConstStmtKind,
-    ResolvedConstSwitch, ResolvedConstSwitchArmBody, ResolvedConstSwitchArmBodyKind,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -60,7 +60,7 @@ mod env_impl;
 mod expr_types;
 mod generics;
 mod indexing;
-mod switch_patterns;
+mod match_patterns;
 mod traits;
 mod ty_substitution;
 mod type_infer;

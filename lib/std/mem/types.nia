@@ -39,7 +39,7 @@ extend Layout {
     where T: Sized
     {
         let elemLen = std::builtin::size[T]();
-        let size = switch elemLen.checked_mul(count) {
+        let size = match elemLen.checked_mul(count) {
             ?value => {
                 value
             },

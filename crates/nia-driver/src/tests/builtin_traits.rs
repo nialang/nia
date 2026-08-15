@@ -920,7 +920,7 @@ fn unicode_char_api_models_checked_scalar_conversion() {
 using std::unicode;
 
 fn main() i32 {
-    let a = switch unicode::fromScalarValue(65) {
+    let a = match unicode::fromScalarValue(65) {
         ?ch => {
             ch
         },
@@ -928,7 +928,7 @@ fn main() i32 {
             return 1;
         },
     };
-    let b = switch unicode::fromScalarValue(0x10ffff) {
+    let b = match unicode::fromScalarValue(0x10ffff) {
         ?ch => {
             ch
         },
@@ -939,7 +939,7 @@ fn main() i32 {
     if a.codepoint() != 65 or b.codepoint() != 0x10ffff {
         return 3;
     }
-    switch unicode::fromScalarValue(0xd800) {
+    match unicode::fromScalarValue(0xd800) {
         ?ch => {
             _ = ch;
             return 4;

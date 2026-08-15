@@ -20,7 +20,7 @@ pub fn main(init: Init) ExitCode!() {
         value == target
     });
 
-    let found = switch position {
+    let found = match position {
         ?index => index,
         null => return exit(1)!,
     };

@@ -233,7 +233,7 @@ enum State: u8 {
 
 fn classify(state: State) i32 {
     defer log(1);
-    switch state {
+    match state {
         State::Start => return 10,
         State::Stop => return 20,
         _ => return 30,
@@ -366,7 +366,7 @@ fn main() i32 {
             )],
         },
         EmitSmokeCase {
-            name: "optional_error_union_switch_patterns",
+            name: "optional_error_union_match_patterns",
             root: "main.nia",
             files: &[(
                 "main.nia",
@@ -388,14 +388,14 @@ fn wrap(flag: bool) i32!i32 {
 }
 
 fn read_optional(value: ?i32) i32 {
-    switch value {
+    match value {
         ?x => x,
         null => 0,
     }
 }
 
 fn read_error(value: i32!i32) i32 {
-    switch value {
+    match value {
         !x => x,
         e! => e,
     }
@@ -437,9 +437,9 @@ fn read() convert::A!?Item {
 }
 
 pub fn run() i32 {
-    switch read().as_b() {
+    match read().as_b() {
         !maybe => {
-            switch maybe {
+            match maybe {
                 ?item => {
                     item.value
                 },
@@ -475,7 +475,7 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     pub fn as_b(self) B!T {
-        switch self {
+        match self {
             !value => {
                 !value
             },
@@ -541,7 +541,7 @@ enum Flag: u32 {
 fn main(flag: Flag) i32 {
     let mut values: [i32; width] = [10, 20, 30, 40];
     let mut bits = Bits { i: values[0] };
-    switch flag {
+    match flag {
         Flag::A => return bits.i,
         _ => return Flag::B as u32 as i32,
     }

@@ -47,7 +47,7 @@ where R: Reader
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
-        switch self.limit.remaining {
+        match self.limit.remaining {
             ?remaining => {
                 if remaining == 0 {
                     !0
@@ -58,7 +58,7 @@ where R: Reader
                     }
                     let chunk = &mut bytes[0..count];
                     let n = self.reader.read(chunk).?;
-                    switch self.limit.remaining {
+                    match self.limit.remaining {
                         ?current => {
                             self.limit = Limit::limited(current - n);
                         },

@@ -589,21 +589,21 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(else_branch);
                 }
             }
-            ExprKind::Switch(switch) => {
-                self.resolve_expr(&switch.target);
-                for arm in &switch.arms {
+            ExprKind::Match(matched) => {
+                self.resolve_expr(&matched.target);
+                for arm in &matched.arms {
                     self.push_scope();
                     for pattern in &arm.patterns {
                         self.resolve_pattern(
                             pattern,
                             LocalKind::ImmutableBinding,
-                            "duplicate switch pattern binding",
+                            "duplicate match pattern binding",
                         );
                     }
                     match &arm.body {
-                        SwitchArmBody::Expr(expr) => self.resolve_expr(expr),
-                        SwitchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
-                        SwitchArmBody::Block(block) => self.resolve_block(block),
+                        MatchArmBody::Expr(expr) => self.resolve_expr(expr),
+                        MatchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
+                        MatchArmBody::Block(block) => self.resolve_block(block),
                     }
                     self.pop_scope();
                 }

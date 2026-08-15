@@ -158,7 +158,7 @@ where B: Back
 
 fn main() i32 {
     let mut counter = Counter { value: 7 };
-    switch read_back[Counter](&mut counter) {
+    match read_back[Counter](&mut counter) {
         ?value => {
             value
         },
@@ -204,7 +204,7 @@ extend[T] Box[T] : Back {
 
 fn main() i32 {
     let mut value = Box[i32] { value: 7 };
-    switch value.next_back() {
+    match value.next_back() {
         ?item => {
             item
         },
@@ -250,7 +250,7 @@ extend[T] Box[T] : Back {
 
 fn main() i32 {
     let mut value = Box[i32] { value: 7 };
-    switch value.next_back() {
+    match value.next_back() {
         ?item => {
             item
         },
@@ -353,7 +353,7 @@ where R: Reader
 fn main() i32 {
     let mut source = Source {};
     let mut limit = Limit[Source] { reader: &source };
-    switch limit.read() {
+    match limit.read() {
         !n => {
             n as i32
         },
@@ -1083,7 +1083,7 @@ extend Device : Reader {
 
 fn main() i32 {
     let mut device = Device {};
-    switch device.read() {
+    match device.read() {
         !value => {
             value
         },
