@@ -17,7 +17,7 @@ pub trait HashMapContext[K] {
 
 extend HashMapInitError {
     pub(pkg) fn fromOs(cause: os::Error) HashMapInitError {
-        switch cause {
+        match cause {
             os::Error::PermissionDenied => HashMapInitError::PermissionDenied,
             os::Error::Io => HashMapInitError::Io,
             os::Error::Again => HashMapInitError::Again,

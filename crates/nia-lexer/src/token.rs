@@ -64,7 +64,7 @@ pub enum TokenKind {
     SelfType,
     Static,
     Super,
-    Switch,
+    Match,
     True,
     Trait,
     Type,

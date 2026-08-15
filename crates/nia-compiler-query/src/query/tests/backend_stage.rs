@@ -229,7 +229,7 @@ extend[T] PairIter[T] : Iterator {
 type Item = T;
 
 const fn next(&mut self) ?T {
-switch self.index {
+match self.index {
 0usize => {
 self.index += 1;
 ?self.first

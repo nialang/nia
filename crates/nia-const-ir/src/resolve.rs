@@ -286,8 +286,8 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                 .map(|else_branch| resolve_expr(*else_branch).map(Box::new))
                 .transpose()?,
         },
-        EarlyConstExprKind::Switch(switch) => {
-            ResolvedConstExprKind::Switch(Box::new(resolve_const_switch(*switch)?))
+        EarlyConstExprKind::Match(matched) => {
+            ResolvedConstExprKind::Match(Box::new(resolve_const_switch(*matched)?))
         }
         EarlyConstExprKind::Cast { expr, ty } => ResolvedConstExprKind::Cast {
             expr: Box::new(resolve_expr(*expr)?),
@@ -346,28 +346,28 @@ fn resolve_const_assign_path_elem(
     }
 }
 
-fn resolve_const_switch(switch: EarlyConstSwitch) -> Result<ResolvedConstSwitch, ConstLowerError> {
-    Ok(ResolvedConstSwitch::new(
-        switch.span,
-        resolve_expr(switch.target)?,
-        switch
+fn resolve_const_switch(matched: EarlyConstMatch) -> Result<ResolvedConstMatch, ConstLowerError> {
+    Ok(ResolvedConstMatch::new(
+        matched.span,
+        resolve_expr(matched.target)?,
+        matched
             .arms
             .into_iter()
-            .map(resolve_const_switch_arm)
+            .map(resolve_const_match_arm)
             .collect::<Result<Vec<_>, _>>()?,
     ))
 }
 
-fn resolve_const_switch_arm(
-    arm: EarlyConstSwitchArm,
-) -> Result<ResolvedConstSwitchArm, ConstLowerError> {
-    Ok(ResolvedConstSwitchArm::new(
+fn resolve_const_match_arm(
+    arm: EarlyConstMatchArm,
+) -> Result<ResolvedConstMatchArm, ConstLowerError> {
+    Ok(ResolvedConstMatchArm::new(
         arm.span,
         arm.patterns
             .into_iter()
             .map(resolve_const_pattern)
             .collect::<Result<Vec<_>, _>>()?,
-        resolve_const_switch_arm_body(arm.body)?,
+        resolve_const_match_arm_body(arm.body)?,
     ))
 }
 
@@ -382,7 +382,7 @@ fn resolve_const_pattern(
             span,
         } => Ok(ResolvedConstPattern::bind(
             name,
-            local_id.ok_or_else(|| unresolved_error(span, "const switch pattern local"))?,
+            local_id.ok_or_else(|| unresolved_error(span, "const match pattern local"))?,
             span,
         )),
         EarlyConstPattern::Pointer { pattern, span } => Ok(ResolvedConstPattern::pointer(
@@ -476,18 +476,18 @@ fn resolve_const_pattern(
     }
 }
 
-fn resolve_const_switch_arm_body(
-    body: EarlyConstSwitchArmBody,
-) -> Result<ResolvedConstSwitchArmBody, ConstLowerError> {
+fn resolve_const_match_arm_body(
+    body: EarlyConstMatchArmBody,
+) -> Result<ResolvedConstMatchArmBody, ConstLowerError> {
     match body {
-        EarlyConstSwitchArmBody::Expr(expr) => {
-            resolve_expr(expr).map(ResolvedConstSwitchArmBody::expr)
+        EarlyConstMatchArmBody::Expr(expr) => {
+            resolve_expr(expr).map(ResolvedConstMatchArmBody::expr)
         }
-        EarlyConstSwitchArmBody::Stmt(stmt) => {
-            resolve_const_stmt(*stmt).map(ResolvedConstSwitchArmBody::stmt)
+        EarlyConstMatchArmBody::Stmt(stmt) => {
+            resolve_const_stmt(*stmt).map(ResolvedConstMatchArmBody::stmt)
         }
-        EarlyConstSwitchArmBody::Block(block) => {
-            resolve_const_block(block).map(ResolvedConstSwitchArmBody::block)
+        EarlyConstMatchArmBody::Block(block) => {
+            resolve_const_block(block).map(ResolvedConstMatchArmBody::block)
         }
     }
 }

@@ -581,8 +581,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_switch_pattern_and_checks_arm_body() {
-    let root = temp_dir("unused_const_function_rejects_switch_pattern_and_checks_arm_body");
+fn unused_const_function_rejects_match_pattern_and_checks_arm_body() {
+    let root = temp_dir("unused_const_function_rejects_match_pattern_and_checks_arm_body");
     write(
         &root.join("main.nia"),
         r#"
@@ -591,7 +591,7 @@ fn runtimeOnly() usize {
 }
 
 const fn wrongSwitch(value: usize) usize {
-    switch value {
+    match value {
         true => runtimeOnly(),
         _ => 0,
     }
@@ -606,7 +606,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("type mismatch in switch pattern")),
+            .contains("type mismatch in match pattern")),
         "{:?}",
         program.diagnostics
     );
@@ -621,13 +621,13 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_incompatible_switch_arm_types() {
-    let root = temp_dir("unused_const_function_rejects_incompatible_switch_arm_types");
+fn unused_const_function_rejects_incompatible_match_arm_types() {
+    let root = temp_dir("unused_const_function_rejects_incompatible_match_arm_types");
     write(
         &root.join("main.nia"),
         r#"
 const fn wrongSwitch(value: usize) usize {
-    switch value {
+    match value {
         0usize => 1usize,
         _ => false,
     }
@@ -641,15 +641,15 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("type mismatch in switch arms")),
+            .contains("type mismatch in match arms")),
         "{:?}",
         program.diagnostics
     );
 }
 
 #[test]
-fn unused_const_function_checks_switch_body_when_pattern_type_is_unknown() {
-    let root = temp_dir("unused_const_function_checks_switch_body_when_pattern_type_is_unknown");
+fn unused_const_function_checks_match_body_when_pattern_type_is_unknown() {
+    let root = temp_dir("unused_const_function_checks_match_body_when_pattern_type_is_unknown");
     write(
         &root.join("main.nia"),
         r#"
@@ -658,7 +658,7 @@ fn runtimeOnly() usize {
 }
 
 const fn unresolvedSwitch(value: usize) usize {
-    switch value {
+    match value {
         0 => runtimeOnly(),
         _ => 0,
     }
@@ -1814,7 +1814,7 @@ fn runtimeOnly() usize {
 }
 
 const fn invalidPatterns(value: usize) usize {
-    switch value {
+    match value {
         ?payload => runtimeOnly(),
         !payload => runtimeOnly(),
         error! => runtimeOnly(),

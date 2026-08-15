@@ -252,7 +252,7 @@ using std::unicode;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let ascii = switch unicode::fromScalarValue(65) {
+    let ascii = match unicode::fromScalarValue(65) {
         ?ch => {
             ch
         },
@@ -264,7 +264,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(2)!;
     }
 
-    let direct = switch std::builtin::charFromU32(66) {
+    let direct = match std::builtin::charFromU32(66) {
         ?ch => {
             ch
         },
@@ -282,7 +282,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(23)!;
     }
 
-    let max = switch unicode::fromScalarValue(0x10ffff) {
+    let max = match unicode::fromScalarValue(0x10ffff) {
         ?ch => {
             ch
         },
@@ -294,14 +294,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(4)!;
     }
 
-    switch unicode::fromScalarValue(0xd800) {
+    match unicode::fromScalarValue(0xd800) {
         ?ch => {
             _ = ch;
             return process::exit(5)!;
         },
         null => {},
     }
-    switch unicode::fromScalarValue(0x110000) {
+    match unicode::fromScalarValue(0x110000) {
         ?ch => {
             _ = ch;
             return process::exit(6)!;
@@ -310,7 +310,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let euroBytes: [u8; 3] = [0xe2, 0x82, 0xac];
-    let euro = switch unicode::decodeUtf8First(&euroBytes) {
+    let euro = match unicode::decodeUtf8First(&euroBytes) {
         !decoded => {
             decoded
         },
@@ -324,14 +324,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let overlong: [u8; 2] = [0xc0, 0x80];
-    switch unicode::decodeUtf8First(&overlong) {
+    match unicode::decodeUtf8First(&overlong) {
         !decoded => { _ = decoded; return process::exit(9)!; },
         error! => if error != unicode::Utf8DecodeError::Overlong {
             return process::exit(12)!;
         },
     }
 
-    switch unicode::decodeUtf8First(&overlong[0..0]) {
+    match unicode::decodeUtf8First(&overlong[0..0]) {
         !decoded => { _ = decoded; return process::exit(13)!; },
         error! => if error != unicode::Utf8DecodeError::Empty {
             return process::exit(14)!;
@@ -339,7 +339,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let truncated: [u8; 2] = [0xe2, 0x82];
-    switch unicode::decodeUtf8First(&truncated) {
+    match unicode::decodeUtf8First(&truncated) {
         !decoded => { _ = decoded; return process::exit(15)!; },
         error! => if error != unicode::Utf8DecodeError::Truncated {
             return process::exit(16)!;
@@ -347,7 +347,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let invalidLeading: [u8; 1] = [0x80];
-    switch unicode::decodeUtf8First(&invalidLeading) {
+    match unicode::decodeUtf8First(&invalidLeading) {
         !decoded => { _ = decoded; return process::exit(17)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidLeadingByte {
             return process::exit(18)!;
@@ -355,7 +355,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let invalidContinuation: [u8; 3] = [0xe2, 0x28, 0xa1];
-    switch unicode::decodeUtf8First(&invalidContinuation) {
+    match unicode::decodeUtf8First(&invalidContinuation) {
         !decoded => { _ = decoded; return process::exit(19)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidContinuation {
             return process::exit(20)!;
@@ -363,7 +363,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let invalidScalar: [u8; 3] = [0xed, 0xa0, 0x80];
-    switch unicode::decodeUtf8First(&invalidScalar) {
+    match unicode::decodeUtf8First(&invalidScalar) {
         !decoded => { _ = decoded; return process::exit(21)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidScalar {
             return process::exit(22)!;
@@ -728,7 +728,7 @@ extend[T] PairIter[T] : Iterator {
     type Item = T;
 
     pub const fn next(&mut self) ?T {
-        switch self.index {
+        match self.index {
             0usize => {
                 self.index += 1;
                 ?self.first

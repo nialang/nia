@@ -214,48 +214,45 @@ impl Parser {
         Some(LoopStmt { body })
     }
 
-    pub(super) fn parse_switch_expr(&mut self) -> Option<Expr> {
+    pub(super) fn parse_match_expr(&mut self) -> Option<Expr> {
         let start = self.peek().span.start;
-        let switch = self.parse_switch()?;
+        let matched = self.parse_match()?;
         let end = self.previous_end();
-        Some(self.make_expr(Span::new(start, end), ExprKind::Switch(Box::new(switch))))
+        Some(self.make_expr(Span::new(start, end), ExprKind::Match(Box::new(matched))))
     }
 
-    fn parse_switch(&mut self) -> Option<SwitchStmt> {
-        self.expect(TokenKind::Switch, "expected `switch`")?;
+    fn parse_match(&mut self) -> Option<MatchExpr> {
+        self.expect(TokenKind::Match, "expected `match`")?;
         let target = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
-        self.expect(TokenKind::LBrace, "expected `{` after switch target")?;
+        self.expect(TokenKind::LBrace, "expected `{` after match target")?;
         let mut arms = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let patterns = self.parse_switch_arm_patterns()?;
-            self.expect(TokenKind::FatArrow, "expected `=>` in switch arm")?;
-            let body = self.parse_switch_arm_body()?;
+            let patterns = self.parse_match_arm_patterns()?;
+            self.expect(TokenKind::FatArrow, "expected `=>` in match arm")?;
+            let body = self.parse_match_arm_body()?;
             self.eat(TokenKind::Comma);
             let end = body.span().end;
-            arms.push(SwitchArm {
+            arms.push(MatchArm {
                 span: Span::new(start, end),
                 patterns,
                 body,
             });
         }
-        self.expect(TokenKind::RBrace, "expected `}` after switch")?;
-        Some(SwitchStmt { target, arms })
+        self.expect(TokenKind::RBrace, "expected `}` after match")?;
+        Some(MatchExpr { target, arms })
     }
 
-    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
+    fn parse_match_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
         let mut patterns = Vec::new();
         loop {
             patterns.push(self.parse_pattern_until(&[TokenKind::Comma, TokenKind::FatArrow])?);
             if self.at(TokenKind::FatArrow) {
                 break;
             }
-            self.expect(
-                TokenKind::Comma,
-                "expected `,` or `=>` after switch pattern",
-            )?;
+            self.expect(TokenKind::Comma, "expected `,` or `=>` after match pattern")?;
             if self.at(TokenKind::FatArrow) {
-                self.error_here("trailing comma is not allowed in switch pattern list");
+                self.error_here("trailing comma is not allowed in match pattern list");
                 break;
             }
         }
@@ -579,7 +576,7 @@ impl Parser {
             _ => {
                 self.error_at(
                     expr.span,
-                    "open-ended switch range patterns are not supported; use `_` for the default arm",
+                    "open-ended match range patterns are not supported; use `_` for the default arm",
                 );
                 Some(Pattern {
                     span: expr.span,
@@ -727,22 +724,22 @@ impl Parser {
                 .is_some_and(|kind| *kind == TokenKind::Bang || stops.contains(kind))
     }
 
-    fn parse_switch_arm_body(&mut self) -> Option<SwitchArmBody> {
+    fn parse_match_arm_body(&mut self) -> Option<MatchArmBody> {
         if self.at(TokenKind::LBrace) {
             return self
                 .parse_block()
-                .map(|block| SwitchArmBody::Block(Box::new(block)));
+                .map(|block| MatchArmBody::Block(Box::new(block)));
         }
         if self.starts_stmt() {
             return self
-                .parse_switch_arm_stmt()
-                .map(|stmt| SwitchArmBody::Stmt(Box::new(stmt)));
+                .parse_match_arm_stmt()
+                .map(|stmt| MatchArmBody::Stmt(Box::new(stmt)));
         }
         self.parse_expr()
-            .map(|expr| SwitchArmBody::Expr(Box::new(expr)))
+            .map(|expr| MatchArmBody::Expr(Box::new(expr)))
     }
 
-    fn parse_switch_arm_stmt(&mut self) -> Option<Stmt> {
+    fn parse_match_arm_stmt(&mut self) -> Option<Stmt> {
         let attributes = self.parse_attributes()?;
         let start = attributes
             .first()

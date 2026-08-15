@@ -34,7 +34,7 @@ extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 {
     pub fn init() HashMapWithContext[K, V, DefaultHashMapContext] {
-        switch HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() {
+        match HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() {
             !map => map,
             error! => {
                 _ = error;
@@ -70,7 +70,7 @@ extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn initContext(context: C) HashMapWithContext[K, V, C] {
-        switch HashMapWithContext[K, V, C]::tryInitContext(context) {
+        match HashMapWithContext[K, V, C]::tryInitContext(context) {
             !map => map,
             error! => {
                 _ = error;
@@ -110,7 +110,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut result: ?mem::Error = null;
-        switch self.freeAllocations(allocator) {
+        match self.freeAllocations(allocator) {
             !ok => {
                 _ = ok;
             },
@@ -124,7 +124,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.bucketCount = 0;
         self.len = 0;
         self.growthLeft = 0;
-        switch result {
+        match result {
             ?err => {
                 err!
             },
@@ -183,7 +183,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn containsKey(&self, key: &K) bool {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 _ = index;
                 true
@@ -195,7 +195,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn get(&self, key: &K) ?&V {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 ?&self.values[index]
             },
@@ -206,7 +206,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn getMut(&mut self, key: &K) ?&mut V {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 ?&mut self.values[index]
             },
@@ -217,7 +217,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn getEntry(&self, key: &K) ?HashMapEntryRef[K, V] {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 ?HashMapEntryRef[K, V] {
                     key: &self.keys[index],
@@ -231,7 +231,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn getEntryMut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 ?HashMapEntryMut[K, V] {
                     key: &self.keys[index],
@@ -245,7 +245,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn getKey(&self, key: &K) ?&K {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 ?&self.keys[index]
             },
@@ -339,7 +339,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) mem::Error!?HashMapReplacement[K, V] {
         let valueHash = self.hashKey(&key);
-        switch self.findIndex(&key, valueHash) {
+        match self.findIndex(&key, valueHash) {
             ?index => {
                 let old = self.values[index];
                 self.values[index] = value;
@@ -363,7 +363,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) mem::Error!?HashMapEntry[K, V] {
         let valueHash = self.hashKey(&key);
-        switch self.findIndex(&key, valueHash) {
+        match self.findIndex(&key, valueHash) {
             ?index => {
                 _ = index;
                 return !?HashMapEntry[K, V] { key, value };
@@ -378,7 +378,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn insertAssumeCapacity(&mut self, key: K, value: V) ?HashMapReplacement[K, V] {
         let valueHash = self.hashKey(&key);
-        switch self.findIndex(&key, valueHash) {
+        match self.findIndex(&key, valueHash) {
             ?index => {
                 let old = self.values[index];
                 self.values[index] = value;
@@ -401,7 +401,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) ?HashMapEntry[K, V] {
         let valueHash = self.hashKey(&key);
-        switch self.findIndex(&key, valueHash) {
+        match self.findIndex(&key, valueHash) {
             ?index => {
                 _ = index;
                 return ?HashMapEntry[K, V] { key, value };
@@ -421,7 +421,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) mem::Error!HashMapGetOrInsertResult[K, V] {
         let valueHash = self.hashKey(&key);
-        switch self.findIndex(&key, valueHash) {
+        match self.findIndex(&key, valueHash) {
             ?index => {
                 return !HashMapGetOrInsertResult[K, V] {
                     key: &self.keys[index],
@@ -447,7 +447,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         value: V,
     ) HashMapGetOrInsertResult[K, V] {
         let valueHash = self.hashKey(&key);
-        switch self.findIndex(&key, valueHash) {
+        match self.findIndex(&key, valueHash) {
             ?index => {
                 return HashMapGetOrInsertResult[K, V] {
                     key: &self.keys[index],
@@ -518,7 +518,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn remove(&mut self, key: &K) ?V {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 let value = self.values[index];
                 self.setCtrl(index, raw::ctrlDeleted);
@@ -532,7 +532,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn removeEntry(&mut self, key: &K) ?HashMapEntry[K, V] {
-        switch self.findIndex(key, self.hashKey(key)) {
+        match self.findIndex(key, self.hashKey(key)) {
             ?index => {
                 let foundKey = self.keys[index];
                 let value = self.values[index];
@@ -568,7 +568,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if additional <= self.growthLeft {
             return !();
         }
-        let needed = switch self.len.checked_add(additional) {
+        let needed = match self.len.checked_add(additional) {
             ?value => {
                 value
             },
@@ -711,12 +711,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if keysLayout.isEmpty() {
             self.keys = raw::danglingLenSlice[K](capacity);
         } else {
-            switch allocator.alloc(keysLayout) {
+            match allocator.alloc(keysLayout) {
                 !keysBlock => {
                     self.keys = keysBlock.asSlice[K]();
                 },
                 err! => {
-                    switch allocator.free(ctrlBlock) {
+                    match allocator.free(ctrlBlock) {
                         !ok => {
                             _ = ok;
                         },
@@ -730,21 +730,21 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if valuesLayout.isEmpty() {
             self.values = raw::danglingLenSlice[V](capacity);
         } else {
-            switch allocator.alloc(valuesLayout) {
+            match allocator.alloc(valuesLayout) {
                 !valuesBlock => {
                     self.values = valuesBlock.asSlice[V]();
                 },
                 err! => {
                     if not keysLayout.isEmpty() {
                         let keyBlock = mem::Block::init(self.keys.ptrMut() as &mut u8, keysLayout);
-                        switch allocator.free(keyBlock) {
+                        match allocator.free(keyBlock) {
                             !ok => {
                                 _ = ok;
                             },
                             error! => {},
                         }
                     }
-                    switch allocator.free(ctrlBlock) {
+                    match allocator.free(ctrlBlock) {
                         !ok => {
                             _ = ok;
                         },
@@ -768,7 +768,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         let mut firstError: ?mem::Error = null;
         if self.ctrl.len() != 0 {
             let layout = mem::Layout::array[u8](self.ctrl.len()).?;
-            switch allocator.free(mem::Block::init(self.ctrl.ptrMut() as &mut u8, layout)) {
+            match allocator.free(mem::Block::init(self.ctrl.ptrMut() as &mut u8, layout)) {
                 !ok => {
                     _ = ok;
                 },
@@ -780,12 +780,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.keys.len() != 0 {
             let layout = mem::Layout::array[K](self.bucketCount).?;
             if not layout.isEmpty() {
-                switch allocator.free(mem::Block::init(self.keys.ptrMut() as &mut u8, layout)) {
+                match allocator.free(mem::Block::init(self.keys.ptrMut() as &mut u8, layout)) {
                     !ok => {
                         _ = ok;
                     },
                     err! => {
-                        switch firstError {
+                        match firstError {
                             ?value => {
                                 _ = value;
                             },
@@ -800,12 +800,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.values.len() != 0 {
             let layout = mem::Layout::array[V](self.bucketCount).?;
             if not layout.isEmpty() {
-                switch allocator.free(mem::Block::init(self.values.ptrMut() as &mut u8, layout)) {
+                match allocator.free(mem::Block::init(self.values.ptrMut() as &mut u8, layout)) {
                     !ok => {
                         _ = ok;
                     },
                     err! => {
-                        switch firstError {
+                        match firstError {
                             ?value => {
                                 _ = value;
                             },
@@ -817,7 +817,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 }
             }
         }
-        switch firstError {
+        match firstError {
             ?err => {
                 err!
             },
@@ -830,7 +830,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
 extend[T] os::Error!T {
     fn asHashMapInitError(self) HashMapInitError!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => HashMapInitError::fromOs(cause)!,
         }

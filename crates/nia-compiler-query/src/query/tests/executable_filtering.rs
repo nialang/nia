@@ -204,7 +204,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 fn cast_error(self) Target!T {
-    switch self {
+    match self {
         !ok => {
             !ok
         },
@@ -239,7 +239,7 @@ fn into_error(self) Target {
 
 fn main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
-switch value.cast_error() {
+match value.cast_error() {
     !ok => {
         ok
     },

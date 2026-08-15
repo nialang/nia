@@ -146,7 +146,7 @@ where U: AsciiUnit
     let mut value: u128 = 0;
     let wideRadix = radix as u128;
     for &unit in &input[start..] {
-        let digit = switch digitValue[U](unit) {
+        let digit = match digitValue[U](unit) {
             ?digit => { digit },
             null => { return Error::InvalidDigit!; },
         };

@@ -589,12 +589,12 @@ using buildScript;
 
 extend[T] build::Error!T {
     fn reportAndExit(self, init: process::Init) process::ExitCode!T {
-        switch self {
+        match self {
             !value => !value,
             error! => {
                 let mut buffer: [u8; 1024] = [0; 1024];
                 let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
-                switch stderr.print(&"build error: {}\n", &[&error]).asBuildError(
+                match stderr.print(&"build error: {}\n", &[&error]).asBuildError(
                     build::ErrorOperation::Report,
                     build::ErrorSubject::Diagnostic,
                 ) {
@@ -605,7 +605,7 @@ extend[T] build::Error!T {
                         return reportError.asExitCode()!;
                     },
                 }
-                switch stderr.flush().asBuildError(
+                match stderr.flush().asBuildError(
                     build::ErrorOperation::Report,
                     build::ErrorSubject::Diagnostic,
                 ) {
@@ -635,7 +635,7 @@ fn rememberTargetCleanupError(
     firstError: &mut ?build::Error,
     result: build::Error!(),
 ) () {
-    switch result {
+    match result {
         !ok => {
             _ = ok;
         },
@@ -744,7 +744,7 @@ fn readText(
     storage: &mut string::String,
     subject: build::ErrorSubject,
 ) build::Error!&[char] {
-    storage.* = switch string::String::fromUtf8(allocator, cursor.textBytes().?) {
+    storage.* = match string::String::fromUtf8(allocator, cursor.textBytes().?) {
         !text => text,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -770,7 +770,7 @@ fn readPath(
     storage: &mut fs::Path,
     subject: build::ErrorSubject,
 ) build::Error!fs::PathView {
-    storage.* = switch fs::Path::fromUtf8(allocator, cursor.textBytes().?) {
+    storage.* = match fs::Path::fromUtf8(allocator, cursor.textBytes().?) {
         !path => path,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -808,7 +808,7 @@ fn readTarget(
 
 fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationMode {
     let value = cursor.u32().?;
-    switch value {
+    match value {
         0 => !build::OptimizationMode::O0,
         1 => !build::OptimizationMode::O1,
         2 => !build::OptimizationMode::O2,
@@ -833,7 +833,7 @@ fn configPathArg(
             subject: build::ErrorSubject::RunnerConfiguration,
         }!;
     }
-    let flag = switch init.args().get(1) {
+    let flag = match init.args().get(1) {
         ?value => value,
         null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
     };
@@ -843,11 +843,11 @@ fn configPathArg(
             subject: build::ErrorSubject::RunnerConfiguration,
         }!;
     }
-    let arg = switch init.args().get(2) {
+    let arg = match init.args().get(2) {
         ?value => value,
         null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
     };
-    storage.* = switch fs::Path::fromUtf8(allocator, arg.bytes()) {
+    storage.* = match fs::Path::fromUtf8(allocator, arg.bytes()) {
         !path => path,
         string::TextError::InvalidUtf8(error)! => {
             _ = error;
@@ -961,7 +961,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let mut requestedStepText = string::String::init();
     defer requestedStepText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
-    let requestedStep: ?&[char] = switch config.byte().reportAndExit(init).? {
+    let requestedStep: ?&[char] = match config.byte().reportAndExit(init).? {
         0 => null,
         1 => ?readText(
             &mut config,
@@ -1004,12 +1004,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
         r#"    ).reportAndExit(init).?;
     defer api.deinit().reportAndExit(init).?;
 
-    switch buildScript::build(&mut api) {
+    match buildScript::build(&mut api) {
         !ok => {
             _ = ok;
         },
         error! => {
-            switch api.reportError(error) {
+            match api.reportError(error) {
                 !reported => {
                     _ = reported;
                 },
@@ -1020,12 +1020,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return error.asExitCode()!;
         },
     }
-    switch api.writePlanDraft(planDraft) {
+    match api.writePlanDraft(planDraft) {
         !ok => {
             _ = ok;
         },
         error! => {
-            switch api.reportError(error) {
+            match api.reportError(error) {
                 !reported => {
                     _ = reported;
                 },
@@ -1596,11 +1596,7 @@ mod tests {
         assert!(runner.source.contains(").reportAndExit(init).?;"));
         assert!(!runner.source.contains("runRequestedStep"));
         assert!(!runner.source.contains("reportActions"));
-        assert!(
-            runner
-                .source
-                .contains("switch buildScript::build(&mut api)")
-        );
+        assert!(runner.source.contains("match buildScript::build(&mut api)"));
         assert!(runner.source.contains("return error.asExitCode()!;"));
         assert!(!runner.source.contains("const"));
     }

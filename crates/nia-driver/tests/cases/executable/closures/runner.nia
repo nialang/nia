@@ -35,7 +35,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut emptyStorage: [u8; 0] = [];
     let mut emptyAllocator = mem::FixedBufferAllocator::init(&mut emptyStorage[..]);
-    let failedAsExpected = switch emptyAllocator.allocValue(\[base] value: i32 -> { base + value }) {
+    let failedAsExpected = match emptyAllocator.allocValue(\[base] value: i32 -> { base + value }) {
         mem::Error::OutOfMemory! => true,
         !mut unexpected => {
             unexpected.deinit(&mut emptyAllocator).exit().?;

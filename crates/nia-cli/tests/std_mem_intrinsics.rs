@@ -18,11 +18,11 @@ using std::process;
 
 fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
-    switch allocator.allocSlice[i32](0) {
+    match allocator.allocSlice[i32](0) {
         !items => { if items.len() != 0 {
                     return process::exit(2)!;
                 }
-                switch allocator.freeSlice[i32](items) {
+                match allocator.freeSlice[i32](items) {
                     !ok => { _ = ok; },
                     error! => { return process::exit(3)!; },
                 } },
@@ -33,11 +33,11 @@ fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
 
 fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
-    switch allocator.allocSlice[()](4) {
+    match allocator.allocSlice[()](4) {
         !items => { if items.len() != 4 {
                     return process::exit(2)!;
                 }
-                switch allocator.freeSlice[()](items) {
+                match allocator.freeSlice[()](items) {
                     !ok => { _ = ok; },
                     error! => { return process::exit(3)!; },
                 } },
@@ -49,12 +49,12 @@ fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
 fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
-    switch mem::Layout::array[()](8) {
+    match mem::Layout::array[()](8) {
         !value => { layout = value; },
         error! => { return process::exit(1)!; },
     }
     let mut block: mem::Block;
-    switch allocator.alloc(layout) {
+    match allocator.alloc(layout) {
         !value => { block = value; },
         error! => { return process::exit(2)!; },
     }
@@ -62,7 +62,7 @@ fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!() {
     if items.len() != 0 {
         return process::exit(3)!;
     }
-    switch allocator.free(block) {
+    match allocator.free(block) {
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }

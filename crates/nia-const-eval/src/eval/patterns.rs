@@ -5,7 +5,7 @@ pub(super) fn early_pattern_matches(
     target: &ConstValue,
     pattern: &EarlyConstPattern,
     env: &mut impl EarlyConstEnv,
-    bindings: &mut Vec<ConstSwitchBinding>,
+    bindings: &mut Vec<ConstMatchBinding>,
 ) -> Result<bool, ConstError> {
     // Bindings are appended only as a pattern branch succeeds. The caller
     // discards this vector when a pattern returns false, so failed alternatives
@@ -17,7 +17,7 @@ pub(super) fn early_pattern_matches(
             local_id,
             span,
         } => {
-            bindings.push(ConstSwitchBinding {
+            bindings.push(ConstMatchBinding {
                 span: *span,
                 name: *name,
                 local_id: *local_id,
@@ -43,7 +43,7 @@ pub(super) fn early_pattern_matches(
             ConstValue::Optional(None) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const optional switch pattern requires an optional target".to_string(),
+                message: "const optional match pattern requires an optional target".to_string(),
             }),
         },
         EarlyConstPattern::OptionalNull { span } => match target {
@@ -51,7 +51,7 @@ pub(super) fn early_pattern_matches(
             ConstValue::Optional(Some(_)) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const null switch pattern requires an optional target".to_string(),
+                message: "const null match pattern requires an optional target".to_string(),
             }),
         },
         EarlyConstPattern::ErrorOk { pattern, span } => match target {
@@ -61,7 +61,7 @@ pub(super) fn early_pattern_matches(
             ConstValue::ErrorUnion(Err(_)) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const error-ok switch pattern requires an error union target".to_string(),
+                message: "const error-ok match pattern requires an error union target".to_string(),
             }),
         },
         EarlyConstPattern::ErrorErr { pattern, span } => match target {
@@ -71,7 +71,7 @@ pub(super) fn early_pattern_matches(
             ConstValue::ErrorUnion(Ok(_)) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const error switch pattern requires an error union target".to_string(),
+                message: "const error match pattern requires an error union target".to_string(),
             }),
         },
         EarlyConstPattern::Tuple { patterns, span } => tuple_pattern_matches(
@@ -117,7 +117,7 @@ pub(super) fn early_pattern_matches(
             end,
             inclusive,
             span,
-        } => switch_range_matches(target, start, end, *inclusive, *span, env),
+        } => match_range_matches(target, start, end, *inclusive, *span, env),
     }
 }
 
@@ -125,7 +125,7 @@ pub(super) fn resolved_pattern_matches(
     target: &ConstValue,
     pattern: &nia_const_ir::ResolvedConstPattern,
     env: &mut impl ResolvedConstEnv,
-    bindings: &mut Vec<ConstSwitchBinding>,
+    bindings: &mut Vec<ConstMatchBinding>,
 ) -> Result<bool, ConstError> {
     match pattern.kind() {
         ResolvedConstPatternKind::Wildcard { .. } => Ok(true),
@@ -134,7 +134,7 @@ pub(super) fn resolved_pattern_matches(
             local_id,
             span,
         } => {
-            bindings.push(ConstSwitchBinding {
+            bindings.push(ConstMatchBinding {
                 span: *span,
                 name: *name,
                 local_id: Some(*local_id),
@@ -160,7 +160,7 @@ pub(super) fn resolved_pattern_matches(
             ConstValue::Optional(None) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const optional switch pattern requires an optional target".to_string(),
+                message: "const optional match pattern requires an optional target".to_string(),
             }),
         },
         ResolvedConstPatternKind::OptionalNull { span } => match target {
@@ -168,7 +168,7 @@ pub(super) fn resolved_pattern_matches(
             ConstValue::Optional(Some(_)) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const null switch pattern requires an optional target".to_string(),
+                message: "const null match pattern requires an optional target".to_string(),
             }),
         },
         ResolvedConstPatternKind::ErrorOk { pattern, span } => match target {
@@ -178,7 +178,7 @@ pub(super) fn resolved_pattern_matches(
             ConstValue::ErrorUnion(Err(_)) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const error-ok switch pattern requires an error union target".to_string(),
+                message: "const error-ok match pattern requires an error union target".to_string(),
             }),
         },
         ResolvedConstPatternKind::ErrorErr { pattern, span } => match target {
@@ -188,7 +188,7 @@ pub(super) fn resolved_pattern_matches(
             ConstValue::ErrorUnion(Ok(_)) => Ok(false),
             _ => Err(ConstError {
                 span: *span,
-                message: "const error switch pattern requires an error union target".to_string(),
+                message: "const error match pattern requires an error union target".to_string(),
             }),
         },
         ResolvedConstPatternKind::Tuple { patterns, span } => tuple_pattern_matches(
@@ -234,23 +234,23 @@ pub(super) fn resolved_pattern_matches(
             end,
             inclusive,
             span,
-        } => resolved_switch_range_matches(target, start, end, *inclusive, *span, env),
+        } => resolved_match_range_matches(target, start, end, *inclusive, *span, env),
     }
 }
 
 fn struct_pattern_matches<P>(
     target: &ConstValue,
     fields: &[nia_const_ir::ConstNamedPatternField<P>],
-    bindings: &mut Vec<ConstSwitchBinding>,
+    bindings: &mut Vec<ConstMatchBinding>,
     span: Span,
     mut pattern_matches: impl FnMut(
         &ConstValue,
         &P,
-        &mut Vec<ConstSwitchBinding>,
+        &mut Vec<ConstMatchBinding>,
     ) -> Result<bool, ConstError>,
 ) -> Result<bool, ConstError> {
     // Constructor identity and the complete field set are type-checking invariants. Evaluation
-    // only performs the recursive value match, using names because ConstValue stores struct fields
+    // only performs the recursive value matched, using names because ConstValue stores struct fields
     // by symbol rather than declaration index.
     let ConstValue::Struct(values) = target else {
         return Err(ConstError {
@@ -276,12 +276,12 @@ fn enum_pattern_matches<P>(
     target: &ConstValue,
     variant: GlobalDefId,
     fields: &ConstEnumPatternFields<P>,
-    bindings: &mut Vec<ConstSwitchBinding>,
+    bindings: &mut Vec<ConstMatchBinding>,
     span: Span,
     mut pattern_matches: impl FnMut(
         &ConstValue,
         &P,
-        &mut Vec<ConstSwitchBinding>,
+        &mut Vec<ConstMatchBinding>,
     ) -> Result<bool, ConstError>,
 ) -> Result<bool, ConstError> {
     let ConstValue::Enum {
@@ -341,12 +341,12 @@ fn enum_pattern_matches<P>(
 fn tuple_pattern_matches<P>(
     target: &ConstValue,
     patterns: &[P],
-    bindings: &mut Vec<ConstSwitchBinding>,
+    bindings: &mut Vec<ConstMatchBinding>,
     span: Span,
     mut pattern_matches: impl FnMut(
         &ConstValue,
         &P,
-        &mut Vec<ConstSwitchBinding>,
+        &mut Vec<ConstMatchBinding>,
     ) -> Result<bool, ConstError>,
 ) -> Result<bool, ConstError> {
     let ConstValue::Tuple(values) = target else {
@@ -366,7 +366,7 @@ fn tuple_pattern_matches<P>(
     Ok(true)
 }
 
-fn switch_range_matches(
+fn match_range_matches(
     target: &ConstValue,
     start: &EarlyConstExpr,
     end: &EarlyConstExpr,
@@ -377,7 +377,7 @@ fn switch_range_matches(
     let ConstValue::Int(target) = target else {
         return Err(ConstError {
             span,
-            message: "const switch range requires an integer target".to_string(),
+            message: "const match range requires an integer target".to_string(),
         });
     };
     let start = super::eval_const_int_expr(start, env)?;
@@ -393,7 +393,7 @@ fn switch_range_matches(
     })
 }
 
-fn resolved_switch_range_matches(
+fn resolved_match_range_matches(
     target: &ConstValue,
     start: &ResolvedConstExpr,
     end: &ResolvedConstExpr,
@@ -404,7 +404,7 @@ fn resolved_switch_range_matches(
     let ConstValue::Int(target) = target else {
         return Err(ConstError {
             span,
-            message: "const switch range requires an integer target".to_string(),
+            message: "const match range requires an integer target".to_string(),
         });
     };
     let start = super::eval_resolved_const_int_expr_inner(start, env)?;
@@ -419,7 +419,7 @@ fn resolved_switch_range_matches(
 }
 
 pub(super) fn bind_pattern_value(
-    binding: &ConstSwitchBinding,
+    binding: &ConstMatchBinding,
     env: &mut impl EarlyConstEnv,
 ) -> Result<(), ConstError> {
     env.bind_pattern_local(
@@ -431,7 +431,7 @@ pub(super) fn bind_pattern_value(
 }
 
 pub(super) fn bind_function_pattern_value(
-    binding: &ConstSwitchBinding,
+    binding: &ConstMatchBinding,
     pattern_binding: &EarlyConstPatternBinding,
     env: &mut impl EarlyConstEnv,
 ) -> Result<(), ConstError> {
@@ -445,17 +445,17 @@ pub(super) fn bind_function_pattern_value(
 }
 
 pub(super) fn bind_resolved_pattern_value(
-    binding: &ConstSwitchBinding,
+    binding: &ConstMatchBinding,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<(), ConstError> {
     let local_id = binding
         .local_id
-        .expect("resolved const switch pattern must have a local id");
+        .expect("resolved const match pattern must have a local id");
     env.bind_resolved_pattern_local(binding.span, &binding.name, local_id, binding.value.clone())
 }
 
 pub(super) fn bind_resolved_function_pattern_value(
-    binding: &ConstSwitchBinding,
+    binding: &ConstMatchBinding,
     pattern_binding: &ResolvedConstPatternBinding,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<(), ConstError> {

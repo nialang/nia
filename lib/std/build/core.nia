@@ -378,7 +378,7 @@ extend Build {
         while archiveIndex < archiveCount {
             let archive = self.executables.asSlice()[target.index()]
                 .staticArchives.asSlice()[archiveIndex];
-            switch self.findEmitStaticArchiveStep(archive) {
+            match self.findEmitStaticArchiveStep(archive) {
                 ?producer => _ = producer,
                 null => return Error::Invalid {
                     operation: Operation::Validate,
@@ -404,7 +404,7 @@ extend Build {
         while archiveIndex < archiveCount {
             let archive = self.executables.asSlice()[target.index()]
                 .staticArchives.asSlice()[archiveIndex];
-            let producer = switch self.findEmitStaticArchiveStep(archive) {
+            let producer = match self.findEmitStaticArchiveStep(archive) {
                 ?producer => producer,
                 null => return Error::Invalid {
                     operation: Operation::Validate,
@@ -430,7 +430,7 @@ extend Build {
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
         self.validateExecutableHandle(options.target).?;
-        let producer = switch self.findEmitStep(options.target) {
+        let producer = match self.findEmitStep(options.target) {
             ?producer => producer,
             null => return Error::Invalid {
                 operation: Operation::Validate,
@@ -458,7 +458,7 @@ extend Build {
 
     pub fn addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
         self.validateExecutableHandle(options.target).?;
-        let producer = switch self.findEmitStep(options.target) {
+        let producer = match self.findEmitStep(options.target) {
             ?producer => producer,
             null => return Error::Invalid {
                 operation: Operation::Validate,
@@ -497,7 +497,7 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
-        let producer = switch self.findEmitStep(target) {
+        let producer = match self.findEmitStep(target) {
             ?producer => producer,
             null => return Error::Invalid {
                 operation: Operation::Validate,
@@ -543,7 +543,7 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
-        let producer = switch self.findEmitStaticArchiveStep(target) {
+        let producer = match self.findEmitStaticArchiveStep(target) {
             ?producer => producer,
             null => return Error::Invalid {
                 operation: Operation::Validate,
@@ -579,13 +579,13 @@ extend Build {
     pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
         validateExternalCommand(options, self.steps.len()).?;
         let mut artifactInputCount: usize = 0;
-        switch options.arguments {
+        match options.arguments {
             ?arguments => {
                 for &argument in arguments.iter() {
                     if argument.kind == CommandArgumentKind::ArtifactInput {
                         let target = argument.payload.artifact;
                         self.validateExecutableHandle(target).?;
-                        switch self.findEmitStep(target) {
+                        match self.findEmitStep(target) {
                             ?producer => _ = producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -596,7 +596,7 @@ extend Build {
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let target = argument.payload.object;
                         self.validateObjectHandle(target).?;
-                        switch self.findEmitObjectStep(target) {
+                        match self.findEmitObjectStep(target) {
                             ?producer => _ = producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -607,7 +607,7 @@ extend Build {
                     } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let target = argument.payload.staticArchive;
                         self.validateStaticArchiveHandle(target).?;
-                        switch self.findEmitStaticArchiveStep(target) {
+                        match self.findEmitStaticArchiveStep(target) {
                             ?producer => _ = producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -646,11 +646,11 @@ extend Build {
             }
             self.rollbackLastStep().?;
         };
-        switch options.arguments {
+        match options.arguments {
             ?arguments => {
                 for &argument in arguments.iter() {
                     if argument.kind == CommandArgumentKind::ArtifactInput {
-                        let producer = switch self.findEmitStep(argument.payload.artifact) {
+                        let producer = match self.findEmitStep(argument.payload.artifact) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -659,7 +659,7 @@ extend Build {
                         };
                         self.dependOn(result, producer).?;
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
-                        let producer = switch self.findEmitObjectStep(argument.payload.object) {
+                        let producer = match self.findEmitObjectStep(argument.payload.object) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -668,7 +668,7 @@ extend Build {
                         };
                         self.dependOn(result, producer).?;
                     } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
-                        let producer = switch self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
+                        let producer = match self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
@@ -750,7 +750,7 @@ extend Build {
                 subject: Subject::Module(handle.index()),
             }!;
         }
-        switch self.findModule(options.name) {
+        match self.findModule(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -760,7 +760,7 @@ extend Build {
             },
             null => {},
         }
-        let optimization = switch options.optimization {
+        let optimization = match options.optimization {
             ?optimization => optimization,
             null => self.defaultOptimization,
         };
@@ -790,7 +790,7 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
-        switch options.staticArchives {
+        match options.staticArchives {
             ?archives => {
                 let mut archiveIndex: usize = 0;
                 while archiveIndex < archives.len() {
@@ -825,7 +825,7 @@ extend Build {
                 subject: Subject::Executable(handle.index()),
             }!;
         }
-        switch self.findExecutable(options.name) {
+        match self.findExecutable(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -835,7 +835,7 @@ extend Build {
             },
             null => {},
         }
-        switch self.findObject(options.name) {
+        match self.findObject(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -845,7 +845,7 @@ extend Build {
             },
             null => {},
         }
-        switch self.findStaticArchive(options.name) {
+        match self.findStaticArchive(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -882,7 +882,7 @@ extend Build {
                 subject: Subject::Object(handle.index()),
             }!;
         }
-        switch self.findObject(options.name) {
+        match self.findObject(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -892,7 +892,7 @@ extend Build {
             },
             null => {},
         }
-        switch self.findExecutable(options.name) {
+        match self.findExecutable(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -902,7 +902,7 @@ extend Build {
             },
             null => {},
         }
-        switch self.findStaticArchive(options.name) {
+        match self.findStaticArchive(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -939,7 +939,7 @@ extend Build {
                 subject: Subject::StaticArchive(handle.index()),
             }!;
         }
-        switch self.findStaticArchive(options.name) {
+        match self.findStaticArchive(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -949,7 +949,7 @@ extend Build {
             },
             null => {},
         }
-        switch self.findExecutable(options.name) {
+        match self.findExecutable(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -959,7 +959,7 @@ extend Build {
             },
             null => {},
         }
-        switch self.findObject(options.name) {
+        match self.findObject(options.name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -993,9 +993,9 @@ extend Build {
             return !();
         }
         self.selectedStep = null;
-        switch self.requestedStep() {
+        match self.requestedStep() {
             ?step => {
-                switch self.findStep(step) {
+                match self.findStep(step) {
                     ?selected => {
                         self.selectedStep = ?StepHandle::init(self.ownerId, selected.index);
                     },
@@ -1006,7 +1006,7 @@ extend Build {
                 }
             },
             null => {
-                switch self.defaultStep {
+                match self.defaultStep {
                     ?handle => {
                         self.selectedStep = ?handle;
                     },
@@ -1045,7 +1045,7 @@ extend Build {
 
     fn compilerModuleIndexForStep(&self, index: usize) ?usize {
         let step = self.steps.asSlice()[index];
-        switch step.kind {
+        match step.kind {
             StepKind::CheckExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
             ].rootModule.index(),
@@ -1066,7 +1066,7 @@ extend Build {
     }
 
     fn missingGeneratedDependenciesForStep(&self, index: usize) Error!usize {
-        let moduleIndex = switch self.compilerModuleIndexForStep(index) {
+        let moduleIndex = match self.compilerModuleIndexForStep(index) {
             ?moduleIndex => moduleIndex,
             null => return !0,
         };
@@ -1098,7 +1098,7 @@ extend Build {
     }
 
     fn addGeneratedDependenciesForStep(&mut self, index: usize) Error!() {
-        let moduleIndex = switch self.compilerModuleIndexForStep(index) {
+        let moduleIndex = match self.compilerModuleIndexForStep(index) {
             ?moduleIndex => moduleIndex,
             null => return !(),
         };
@@ -1133,7 +1133,7 @@ extend Build {
         consumerIndex: usize,
         moduleIndex: usize,
     ) Error!StepHandle {
-        switch self.findGeneratedSourceProducer(path, consumerIndex) {
+        match self.findGeneratedSourceProducer(path, consumerIndex) {
             ?producer => !producer,
             null => Error::Invalid {
                 operation: Operation::Validate,
@@ -1177,7 +1177,7 @@ extend Build {
                 false
             };
             if matches {
-                switch found {
+                match found {
                     ?old => {
                         _ = old;
                         return null;
@@ -1343,7 +1343,7 @@ extend Build {
     }
 
     fn rollbackLastStep(&mut self) Error!() {
-        switch self.steps.pop() {
+        match self.steps.pop() {
             ?step => {
                 let mut owned = step;
                 owned.deinit(self.allocator)
@@ -1370,7 +1370,7 @@ extend Build {
         // Run and test actions execute while constructing this build, so their
         // program must match the host. An artifact-role executable remains
         // runnable for native builds because both roles resolve to one target.
-        let runsOnHost = switch role {
+        let runsOnHost = match role {
             TargetRole::Host => true,
             TargetRole::Artifact => self.hostTarget.view().equals(self.artifactTarget.view()),
             _ => false,
@@ -1450,7 +1450,7 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
-        switch self.findStep(name) {
+        match self.findStep(name) {
             ?old => {
                 _ = old;
                 return Error::Invalid {
@@ -1677,7 +1677,7 @@ extend RunExecutableStep {
         defer if not transferred {
             run.deinit(allocator, index).?;
         };
-        switch options.arguments {
+        match options.arguments {
             ?arguments => {
                 run.arguments = collections::ArrayList[string::String]::initCapacity(
                     allocator,
@@ -1992,7 +1992,7 @@ extend ExternalCommandStep {
             allocator,
             options.workingDirectory,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        switch options.arguments {
+        match options.arguments {
             ?arguments => {
                 command.arguments = collections::ArrayList[OwnedCommandArgument]::initCapacity(
                     allocator,
@@ -2010,7 +2010,7 @@ extend ExternalCommandStep {
             },
             null => {},
         }
-        switch options.environment {
+        match options.environment {
             ?environment => {
                 command.environment = collections::ArrayList[OwnedCommandEnvironmentInput]::initCapacity(
                     allocator,
@@ -2113,7 +2113,7 @@ extend Step {
 }
 
 fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
-    switch arguments {
+    match arguments {
         ?values => {
             for &value in values.iter() {
                 if runArgumentContainsNul(value) {
@@ -2136,18 +2136,18 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
     {
         return invalidStep(index);
     }
-    switch options.resourceClass {
+    match options.resourceClass {
         ActionResourceClass::Conservative => {},
         ActionResourceClass::Cpu => {},
         ActionResourceClass::Io => {},
         _ => return invalidStep(index),
     }
-    switch options.environmentPolicy {
+    match options.environmentPolicy {
         CommandEnvironmentPolicy::Inherit => {},
         CommandEnvironmentPolicy::Clear => {},
         _ => return invalidStep(index),
     }
-    switch options.cachePolicy {
+    match options.cachePolicy {
         CommandCachePolicy::Uncacheable => {},
         CommandCachePolicy::DeclaredInputs => {
             if options.environmentPolicy != CommandEnvironmentPolicy::Clear {
@@ -2156,7 +2156,7 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
         },
         _ => return invalidStep(index),
     }
-    switch options.environment {
+    match options.environment {
         ?environment => {
             let mut environmentIndex: usize = 0;
             while environmentIndex < environment.len() {
@@ -2179,7 +2179,7 @@ fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!
         null => {},
     }
     let mut hasOutput = false;
-    switch options.arguments {
+    match options.arguments {
         ?arguments => {
             for &argument in arguments.iter() {
                 if argument.kind == CommandArgumentKind::ArtifactInput
@@ -2390,7 +2390,7 @@ extend Module {
             index: index,
             name: string::String::init(),
             sourceRoot: options.sourceRoot,
-            package: switch options.package {
+            package: match options.package {
                 ?package => package,
                 null => PackageHandle::init(ownerId, 0),
             },
@@ -2467,7 +2467,7 @@ extend OwnedModuleImport {
             index: index,
             name: string::String::init(),
             sourceRoot: import.sourceRoot,
-            package: switch import.package {
+            package: match import.package {
                 ?package => package,
                 null => PackageHandle::init(ownerId, 0),
             },
@@ -2512,7 +2512,7 @@ extend ExecutableTarget {
         };
         target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Executable(index)).?;
         target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(index)).?;
-        switch options.staticArchives {
+        match options.staticArchives {
             ?archives => {
                 target.staticArchives.reserve(
                     allocator,
@@ -2902,7 +2902,7 @@ fn isValidBuildPath(text: &[char]) bool {
 }
 
 fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
-    switch imports {
+    match imports {
         ?items => {
             let mut index: usize = 0;
             for &import in items.iter() {
@@ -3007,7 +3007,7 @@ fn isValidModuleImportName(name: &[char]) bool {
 }
 
 fn rememberCleanupError(firstError: &mut ?Error, result: Error!()) () {
-    switch result {
+    match result {
         !ok => {
             _ = ok;
         },

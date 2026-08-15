@@ -178,7 +178,7 @@ extend PlanEncoder {
     }
 
     fn writeOptimization(&mut self, optimization: OptimizationMode) Error!() {
-        self.writeU8(switch optimization {
+        self.writeU8(match optimization {
             OptimizationMode::O0 => 0,
             OptimizationMode::O1 => 1,
             OptimizationMode::O2 => 2,
@@ -190,7 +190,7 @@ extend PlanEncoder {
     }
 
     fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
-        self.writeU8(switch resourceClass {
+        self.writeU8(match resourceClass {
             ActionResourceClass::Conservative => 0,
             ActionResourceClass::Cpu => 1,
             ActionResourceClass::Io => 2,
@@ -199,7 +199,7 @@ extend PlanEncoder {
     }
 
     fn writeCommandEnvironmentPolicy(&mut self, policy: CommandEnvironmentPolicy) Error!() {
-        self.writeU8(switch policy {
+        self.writeU8(match policy {
             CommandEnvironmentPolicy::Inherit => 0,
             CommandEnvironmentPolicy::Clear => 1,
             _ => return invalidPlan(),
@@ -207,7 +207,7 @@ extend PlanEncoder {
     }
 
     fn writeCommandCachePolicy(&mut self, policy: CommandCachePolicy) Error!() {
-        self.writeU8(switch policy {
+        self.writeU8(match policy {
             CommandCachePolicy::Uncacheable => 0,
             CommandCachePolicy::DeclaredInputs => 1,
             _ => return invalidPlan(),
@@ -216,7 +216,7 @@ extend PlanEncoder {
 
     fn writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!() {
         self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
-        switch moduleRecord.sourceRoot {
+        match moduleRecord.sourceRoot {
             ModuleSourceRoot::Package => self.writePackagePath(moduleRecord.package, moduleRecord.rootSource.view(), packages).?,
             ModuleSourceRoot::Build => self.writeBuildPath(moduleRecord.rootSource.text()).?,
             _ => return invalidPlan(),
@@ -225,7 +225,7 @@ extend PlanEncoder {
         self.writeCount(moduleRecord.imports.len()).?;
         for &import in moduleRecord.imports.iter() {
             self.writeString(import.name.text()).?;
-            switch import.sourceRoot {
+            match import.sourceRoot {
                 ModuleSourceRoot::Package => self.writePackagePath(import.package, import.path.view(), packages).?,
                 ModuleSourceRoot::Build => self.writeBuildPath(import.path.text()).?,
                 _ => return invalidPlan(),
@@ -273,7 +273,7 @@ extend PlanEncoder {
         packages: &[types::Package],
     ) Error!() {
         self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
-        switch step.kind {
+        match step.kind {
             StepKind::Aggregate => self.writeU8(4),
             StepKind::GeneratedFile => {
                 self.writeU8(3).?;
@@ -490,7 +490,7 @@ extend PlanEncoder {
     }
 
     fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle, packages: &[types::Package]) Error!() {
-        switch handle {
+        match handle {
             ?step => {
                 self.writeU8(1).?;
                 self.writeNodeKey(PackageHandle::init(0, 0), build.steps.asSlice()[step.index].name.text(), packages)
@@ -553,7 +553,7 @@ fn targetForRole(
     hostTarget: TargetView,
     artifactTarget: TargetView,
 ) Error!TargetView {
-    switch role {
+    match role {
         TargetRole::Artifact => !artifactTarget,
         TargetRole::Host => !hostTarget,
         _ => invalidPlan(),

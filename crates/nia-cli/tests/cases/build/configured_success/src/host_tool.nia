@@ -2,7 +2,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let argument = switch init.args().get(1) {
+    let argument = match init.args().get(1) {
         ?argument => argument,
         null => return process::exit(1)!,
     };

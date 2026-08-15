@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    ArrayLen, BindingItem, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module,
-    Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg, TypeKind, TypeRef,
+    ArrayLen, BindingItem, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg,
+    MatchArmBody, Module, Pattern, PatternKind, Stmt, StmtKind, TypeArg, TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};

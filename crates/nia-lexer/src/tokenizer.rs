@@ -245,7 +245,7 @@ impl<'a> Tokenizer<'a> {
             "static" => TokenKind::Static,
             "struct" => TokenKind::Struct,
             "super" => TokenKind::Super,
-            "switch" => TokenKind::Switch,
+            "match" => TokenKind::Match,
             "trait" => TokenKind::Trait,
             "true" => TokenKind::True,
             "type" => TokenKind::Type,
@@ -731,6 +731,14 @@ mod tests {
             .into_iter()
             .map(|token| token.kind)
             .collect()
+    }
+
+    #[test]
+    fn reserves_match_without_preserving_the_old_switch_keyword() {
+        assert_eq!(
+            kinds("match switch"),
+            vec![TokenKind::Match, TokenKind::Ident, TokenKind::Eof]
+        );
     }
 
     #[test]

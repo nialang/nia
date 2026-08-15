@@ -94,7 +94,7 @@ const fn total(iter: Counter) usize {
 
 const fn first(iter: Counter) usize {
     let mut values = iter;
-    switch values.next() {
+    match values.next() {
         ?value => value,
         null => 0,
     }
@@ -515,7 +515,7 @@ enum TargetError: i32 {
 
 extend SourceError : IntoError[TargetError] {
     fn into_error(self) TargetError {
-        switch self {
+        match self {
             SourceError::Failed => TargetError::Converted,
             _ => TargetError::Unknown,
         }
@@ -776,7 +776,7 @@ fn checks_optional_and_error_union_if_patterns() {
     let checked = pipeline(
         r#"
 fn unwrap_optional(value: ?i32) i32 {
-    switch value {
+    match value {
         ?x => {
             x
         },
@@ -787,7 +787,7 @@ fn unwrap_optional(value: ?i32) i32 {
 }
 
 fn unwrap_error(value: i32!i32) i32 {
-    switch value {
+    match value {
         !x => {
             x
         },
@@ -823,7 +823,7 @@ fn bad(value: ?i32) i32 {
     let wrong_target = pipeline(
         r#"
 fn bad(value: i32) i32 {
-    switch value {
+    match value {
         ?x => {
             x
         },

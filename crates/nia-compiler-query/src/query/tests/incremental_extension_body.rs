@@ -12,7 +12,7 @@ using entry::writer;
 
 fn main() i32 {
 let mut sink = writer::Sink::init();
-switch sink.write(b"ok") {
+match sink.write(b"ok") {
     !value => {
         value as i32
     },
@@ -298,7 +298,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 fn cast_error(self) Target!T {
-    switch self {
+    match self {
         !ok => {
             !ok
         },

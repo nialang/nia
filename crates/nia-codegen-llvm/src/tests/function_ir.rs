@@ -161,7 +161,7 @@ fn emits_statement_switch_from_function_ir_with_defer_cleanup() {
 extern fn log(x: i32);
 
 fn main() i32 {
-    switch 1 {
+    match 1 {
         1 => {
             defer log(1);
         },

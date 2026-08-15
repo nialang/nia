@@ -190,7 +190,7 @@ fn main() i32 {
     let mut iter = Counter { current: 1, end: 4 };
     let mut sum = 0;
     for result in iter {
-        let value = switch result {
+        let value = match result {
             !item => {
                 item
             },
@@ -398,7 +398,7 @@ fn main() i32 {
 
     let mut optional_iter = iter::OptionalIter { index: 0 };
     for item in optional_iter {
-        switch item {
+        match item {
             ?value => {
                 total += value.value;
             },
@@ -410,7 +410,7 @@ fn main() i32 {
 
     let mut error_iter = iter::ErrorIter { index: 0 };
     for item in error_iter {
-        switch item {
+        match item {
             !value => {
                 total += value.value;
             },
@@ -422,9 +422,9 @@ fn main() i32 {
 
     let mut optional_error_iter = iter::OptionalErrorIter { index: 0 };
     for item in optional_error_iter {
-        switch item {
+        match item {
             ?result => {
-                switch result {
+                match result {
                     !value => {
                         total += value.value;
                     },
@@ -441,9 +441,9 @@ fn main() i32 {
 
     let mut error_optional_iter = iter::ErrorOptionalIter { index: 0 };
     for item in error_optional_iter {
-        switch item {
+        match item {
             !maybe => {
-                switch maybe {
+                match maybe {
                     ?value => {
                         total += value.value;
                     },
@@ -860,7 +860,7 @@ enum Color: u8 {
 }
 
 fn main(c: Color) i32 {
-    switch c {
+    match c {
         Color::Red => return 1,
         Color::Green => {
             return 2;
@@ -894,7 +894,7 @@ fn emits_switch_expressions() {
         &main,
         r#"
 fn pick(x: u32) i32 {
-    switch x {
+    match x {
         0 => 10,
         1 => 20,
         _ => 30,
@@ -902,7 +902,7 @@ fn pick(x: u32) i32 {
 }
 
 fn early(x: u32) i32 {
-    switch x {
+    match x {
         0 => return 1,
         _ => 2,
     }

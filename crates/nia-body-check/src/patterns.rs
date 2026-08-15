@@ -19,7 +19,7 @@ enum PatternConstructor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SwitchInterval {
+struct MatchInterval {
     start: i128,
     end: i128,
     span: Span,
@@ -39,28 +39,28 @@ struct PatternCoverage {
     optional_some: Option<Box<PatternCoverage>>,
     error_ok: Option<Box<PatternCoverage>>,
     error_err: Option<Box<PatternCoverage>>,
-    intervals: Vec<SwitchInterval>,
+    intervals: Vec<MatchInterval>,
     enum_variants: HashMap<DefId, Span>,
     single_field_enum_payloads: HashMap<DefId, (InternedTyId, Box<PatternCoverage>)>,
 }
 
 impl<'a> BodyChecker<'a> {
-    pub(crate) fn check_switch_expr(
+    pub(crate) fn check_match_expr(
         &mut self,
-        switch: &nia_ast::SwitchStmt,
+        matched: &nia_ast::MatchExpr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        let target_ty = self.check_expr(&switch.target);
+        let target_ty = self.check_expr(&matched.target);
         let mut matrix = Vec::new();
         let mut result_ty = expected;
 
-        for arm in &switch.arms {
+        for arm in &matched.arms {
             if arm.patterns.len() > 1 && arm.patterns.iter().any(nia_ast::Pattern::contains_binding)
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     arm.span,
-                    "switch arms with multiple alternative patterns cannot bind values",
+                    "match arms with multiple alternative patterns cannot bind values",
                 ));
             }
             for pattern in &arm.patterns {
@@ -70,7 +70,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         arm.span,
-                        "`_` default must be the only pattern in a switch arm",
+                        "`_` default must be the only pattern in a match arm",
                     ));
                 }
                 // Recursive checking still owns type compatibility, binding types, and
@@ -81,7 +81,7 @@ impl<'a> BodyChecker<'a> {
                     pattern,
                     target_ty,
                     Some(&mut local_coverage),
-                    "switch pattern",
+                    "match pattern",
                 );
                 let normalized = self.analysis_pattern(pattern, target_ty);
                 match useful_witness(
@@ -94,24 +94,24 @@ impl<'a> BodyChecker<'a> {
                     Ok(None) => self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         pattern.span,
-                        "switch pattern is unreachable because previous patterns cover all of its values",
+                        "match pattern is unreachable because previous patterns cover all of its values",
                     )),
                     Err(error) => self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         pattern.span,
-                        format!("cannot analyze switch pattern coverage: {error}"),
+                        format!("cannot analyze match pattern coverage: {error}"),
                     )),
                 }
             }
-            let arm_ty = self.check_switch_arm_body(&arm.body, result_ty);
+            let arm_ty = self.check_match_arm_body(&arm.body, result_ty);
             if let Some(expected) = result_ty {
-                self.expect_switch_arm_type(&arm.body, expected, arm_ty);
+                self.expect_match_arm_type(&arm.body, expected, arm_ty);
             } else if !self.is_never(arm_ty) {
                 result_ty = Some(arm_ty);
             }
         }
 
-        self.check_pattern_matrix_exhaustive(switch.target.span, target_ty, &matrix);
+        self.check_pattern_matrix_exhaustive(matched.target.span, target_ty, &matrix);
         result_ty.unwrap_or_else(|| self.unit())
     }
 
@@ -399,7 +399,7 @@ impl<'a> BodyChecker<'a> {
                     if let Some(previous) = coverage.catch_all {
                         self.report_pattern_overlap(pattern.span, previous);
                     }
-                    self.check_switch_expr_pattern(
+                    self.check_match_expr_pattern(
                         expr,
                         target_ty,
                         self.enum_global_def_id(target_ty),
@@ -427,7 +427,7 @@ impl<'a> BodyChecker<'a> {
                     if let Some(previous) = coverage.catch_all {
                         self.report_pattern_overlap(pattern.span, previous);
                     }
-                    self.check_switch_range_pattern(
+                    self.check_match_range_pattern(
                         range,
                         target_ty,
                         context,
@@ -928,7 +928,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn pattern_intervals_cover_bool(&self, intervals: &[SwitchInterval]) -> bool {
+    fn pattern_intervals_cover_bool(&self, intervals: &[MatchInterval]) -> bool {
         let covers = |tag: i128| {
             intervals
                 .iter()
@@ -937,14 +937,14 @@ impl<'a> BodyChecker<'a> {
         covers(0) && covers(1)
     }
 
-    fn check_switch_expr_pattern(
+    fn check_match_expr_pattern(
         &mut self,
         pattern: &Expr,
         target_ty: InternedTyId,
         enum_id: Option<GlobalDefId>,
         context: &str,
         covered_enum_variants: &mut HashMap<DefId, Span>,
-        covered_intervals: &mut Vec<SwitchInterval>,
+        covered_intervals: &mut Vec<MatchInterval>,
     ) {
         let pattern_ty = self.check_expr_with_expected(pattern, Some(target_ty));
         if self.is_open_enum(target_ty)
@@ -976,8 +976,8 @@ impl<'a> BodyChecker<'a> {
                 ));
                 return;
             };
-            self.check_switch_interval_overlap(
-                SwitchInterval {
+            self.check_match_interval_overlap(
+                MatchInterval {
                     start: value,
                     end: value,
                     span: pattern.span,
@@ -987,12 +987,12 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_switch_range_pattern(
+    fn check_match_range_pattern(
         &mut self,
         pattern: RangePatternCheck<'_>,
         target_ty: InternedTyId,
         context: &str,
-        covered_intervals: &mut Vec<SwitchInterval>,
+        covered_intervals: &mut Vec<MatchInterval>,
     ) {
         if !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1041,8 +1041,8 @@ impl<'a> BodyChecker<'a> {
             ));
             return;
         }
-        self.check_switch_interval_overlap(
-            SwitchInterval {
+        self.check_match_interval_overlap(
+            MatchInterval {
                 start: start_value,
                 end: end_inclusive,
                 span: pattern.span,
@@ -1075,10 +1075,10 @@ impl<'a> BodyChecker<'a> {
         Some(value)
     }
 
-    fn check_switch_interval_overlap(
+    fn check_match_interval_overlap(
         &mut self,
-        interval: SwitchInterval,
-        covered_intervals: &mut Vec<SwitchInterval>,
+        interval: MatchInterval,
+        covered_intervals: &mut Vec<MatchInterval>,
     ) {
         if let Some(previous) = covered_intervals
             .iter()
@@ -1088,7 +1088,7 @@ impl<'a> BodyChecker<'a> {
                 codes::TYPE_CHECK,
                 interval.span,
                 format!(
-                    "switch pattern overlaps previous pattern at {:?}",
+                    "match pattern overlaps previous pattern at {:?}",
                     previous.span
                 ),
             ));
@@ -1103,14 +1103,14 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    fn check_switch_arm_body(
+    fn check_match_arm_body(
         &mut self,
-        body: &nia_ast::SwitchArmBody,
+        body: &nia_ast::MatchArmBody,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         match body {
-            nia_ast::SwitchArmBody::Expr(expr) => self.check_expr_with_expected(expr, expected),
-            nia_ast::SwitchArmBody::Stmt(stmt) => {
+            nia_ast::MatchArmBody::Expr(expr) => self.check_expr_with_expected(expr, expected),
+            nia_ast::MatchArmBody::Stmt(stmt) => {
                 self.check_stmt(stmt);
                 if matches!(
                     stmt.kind,
@@ -1121,13 +1121,13 @@ impl<'a> BodyChecker<'a> {
                     self.unit()
                 }
             }
-            nia_ast::SwitchArmBody::Block(block) => self.check_block_with_expected(block, expected),
+            nia_ast::MatchArmBody::Block(block) => self.check_block_with_expected(block, expected),
         }
     }
 
-    fn expect_switch_arm_type(
+    fn expect_match_arm_type(
         &mut self,
-        body: &nia_ast::SwitchArmBody,
+        body: &nia_ast::MatchArmBody,
         expected: InternedTyId,
         actual: InternedTyId,
     ) {
@@ -1135,14 +1135,14 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         match body {
-            nia_ast::SwitchArmBody::Expr(expr) => {
-                self.expect_expr_type(expr, expected, actual, "switch arms");
+            nia_ast::MatchArmBody::Expr(expr) => {
+                self.expect_expr_type(expr, expected, actual, "match arms");
             }
-            nia_ast::SwitchArmBody::Block(block) => {
-                self.expect_block_tail_type(block, expected, actual, "switch arms");
+            nia_ast::MatchArmBody::Block(block) => {
+                self.expect_block_tail_type(block, expected, actual, "match arms");
             }
-            nia_ast::SwitchArmBody::Stmt(stmt) => {
-                self.expect_type(stmt.span, expected, actual, "switch arms");
+            nia_ast::MatchArmBody::Stmt(stmt) => {
+                self.expect_type(stmt.span, expected, actual, "match arms");
             }
         }
     }

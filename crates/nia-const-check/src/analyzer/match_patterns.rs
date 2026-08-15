@@ -22,23 +22,23 @@ impl Analyzer<'_> {
     // Pattern analysis has three distinct phases. The mismatch probe reports
     // only contradictions it can prove, structural checking decides whether
     // an arm is typeable, and binding runs after that check to populate locals.
-    pub(super) fn resolved_const_switch_arm_binds_pattern_locals(
+    pub(super) fn resolved_const_match_arm_binds_pattern_locals(
         &self,
-        arm: &nia_const_ir::ResolvedConstSwitchArm,
+        arm: &nia_const_ir::ResolvedConstMatchArm,
     ) -> bool {
         arm.patterns()
             .iter()
             .any(|pattern| resolved_pattern_local_id(pattern).is_some())
     }
 
-    pub(super) fn resolved_const_switch_has_definite_pattern_mismatch(
+    pub(super) fn resolved_const_match_has_definite_pattern_mismatch(
         &mut self,
-        switch: &ResolvedConstSwitch,
+        matched: &ResolvedConstMatch,
     ) -> bool {
-        let Some(target_ty) = self.resolved_const_arg_runtime_type(switch.target(), None) else {
+        let Some(target_ty) = self.resolved_const_arg_runtime_type(matched.target(), None) else {
             return false;
         };
-        switch.arms().iter().any(|arm| {
+        matched.arms().iter().any(|arm| {
             self.resolved_const_patterns_have_definite_mismatch(arm.patterns(), target_ty)
         })
     }

@@ -13,7 +13,7 @@ fn main() i32 {
 let init = facade::Init::init();
 let args = init.args();
 let mut iter = args.iter();
-switch iter.next() {
+match iter.next() {
     ?value => {
         value
     },

@@ -15,7 +15,7 @@ fn emit_exe_tuple_values_projections_and_patterns() {
 using std::process;
 
 const fn const_select(value: (usize, (bool, usize))) usize {
-    switch value {
+    match value {
         (left, (true, right)) => left + right,
         (_, (_, fallback)) => fallback,
     }
@@ -25,7 +25,7 @@ fn runtime_select(pair: (i32, (bool, i32))) i32 {
     if pair is (40, (true, value)) {
         value
     } else {
-        switch pair {
+        match pair {
             (left, (false, right)) => left + right,
             (_, (_, fallback)) => fallback,
         }
@@ -103,7 +103,7 @@ fn unbox[T](boxed: Box[T]) T {
 }
 
 fn classify(point: Point) i32 {
-    switch point {
+    match point {
         Point { x: 0, .. } => 7,
         Point { .. } => 9,
     }
@@ -118,7 +118,7 @@ fn readOptional(point: ?Point) i32 {
 }
 
 fn eventScore(event: Event) i32 {
-    switch event {
+    match event {
         Event::Stop => 0,
         Event::Resize { wide: true, .. } => 1,
         Event::Resize { wide: false, .. } => 2,
@@ -174,8 +174,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_switch_destructuring_matches_const_semantics() {
-    let root = temp_dir("emit_exe_switch_destructuring_matches_const_semantics");
+fn emit_exe_match_destructuring_matches_const_semantics() {
+    let root = temp_dir("emit_exe_match_destructuring_matches_const_semantics");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -184,14 +184,14 @@ fn emit_exe_switch_destructuring_matches_const_semantics() {
 using std::process;
 
 fn read_optional(value: ?i32) i32 {
-    switch value {
+    match value {
         ?payload => payload,
         null => 0,
     }
 }
 
 fn read_error(value: i32!i32) i32 {
-    switch value {
+    match value {
         !payload => payload,
         error! => error,
     }
@@ -215,7 +215,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 "#,
     )
-    .expect("write switch destructuring source");
+    .expect("write match destructuring source");
 
     let output = support::nia_command()
         .arg("emit")
@@ -223,14 +223,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("emit switch destructuring executable");
+        .output_timeout_for_build("emit match destructuring executable");
     assert!(
         output.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status_timeout("run switch destructuring executable");
+    let status = Command::new(&exe).status_timeout("run match destructuring executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -265,7 +265,7 @@ static mut sourceCount: i32 = 0;
 extend SourceError : error::IntoError[TargetError] {
     fn into_error(self) TargetError {
         conversionCount += 1;
-        switch self {
+        match self {
             SourceError::Failed => TargetError::Converted,
             _ => TargetError::Unknown,
         }
@@ -315,7 +315,7 @@ where Source: error::IntoError[Target]
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    switch propagate[SourceError, TargetError](source(true)) {
+    match propagate[SourceError, TargetError](source(true)) {
         !value => {
             if value != 42 {
                 return process::exit(1)!;
@@ -332,7 +332,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if sourceCount != 1 {
         return process::exit(12)!;
     }
-    switch propagate[SourceError, TargetError](source(false)) {
+    match propagate[SourceError, TargetError](source(false)) {
         !value => {
             _ = value;
             return process::exit(3)!;
@@ -350,7 +350,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(13)!;
     }
     conversionCount = 0;
-    switch propagateWithDefer() {
+    match propagateWithDefer() {
         !ok => {
             _ = ok;
             return process::exit(7)!;
@@ -365,7 +365,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(9)!;
     }
     conversionCount = 0;
-    switch propagateEmpty() {
+    match propagateEmpty() {
         !ok => {
             _ = ok;
             return process::exit(10)!;

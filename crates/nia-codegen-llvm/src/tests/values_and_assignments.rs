@@ -70,7 +70,7 @@ fn main(flag: bool) i32 {
     let mut values = [
         if flag { 1 } else { 2 },
         { let mut tmp = 3; tmp },
-        switch 1 {
+        match 1 {
             0 => 4,
             _ => 5,
         },
@@ -107,7 +107,7 @@ fn main(flag: bool) i32 {
         if flag {
             log(1);
         } else {
-            switch 2 {
+            match 2 {
                 1 => log(2),
                 _ => log(3),
             };

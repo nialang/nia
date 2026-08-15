@@ -439,16 +439,16 @@ impl ConstModuleLowerer<'_> {
                     self.collect_expr_locals(else_branch, out);
                 }
             }
-            nia_ast::ExprKind::Switch(switch) => {
-                self.collect_expr_locals(&switch.target, out);
-                for arm in &switch.arms {
+            nia_ast::ExprKind::Match(matched) => {
+                self.collect_expr_locals(&matched.target, out);
+                for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         self.collect_pattern_locals(pattern, out);
                     }
                     match &arm.body {
-                        nia_ast::SwitchArmBody::Expr(expr) => self.collect_expr_locals(expr, out),
-                        nia_ast::SwitchArmBody::Stmt(stmt) => self.collect_stmt_locals(stmt, out),
-                        nia_ast::SwitchArmBody::Block(block) => {
+                        nia_ast::MatchArmBody::Expr(expr) => self.collect_expr_locals(expr, out),
+                        nia_ast::MatchArmBody::Stmt(stmt) => self.collect_stmt_locals(stmt, out),
+                        nia_ast::MatchArmBody::Block(block) => {
                             self.collect_block_locals(block, out)
                         }
                     }

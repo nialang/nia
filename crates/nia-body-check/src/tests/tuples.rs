@@ -45,10 +45,10 @@ const OK: i32!i32 = !3;
 const ERR: i32!i32 = 4!;
 
 fn main() i32 {
-    let some = switch SOME { ?value => value, null => 0 };
-    let none = switch NONE { ?value => value, null => 0 };
-    let ok = switch OK { !value => value, error! => error };
-    let err = switch ERR { !value => value, error! => error };
+    let some = match SOME { ?value => value, null => 0 };
+    let none = match NONE { ?value => value, null => 0 };
+    let ok = match OK { !value => value, error! => error };
+    let err = match ERR { !value => value, error! => error };
     PAIR.0 + some + none + ok + err
 }
 "#,
@@ -86,7 +86,7 @@ fn invalid(pair: (i32, bool), scalar: i32) {
 }
 
 #[test]
-fn tuple_patterns_work_in_binding_if_switch_and_for_contexts() {
+fn tuple_patterns_work_in_binding_if_match_and_for_contexts() {
     let checked = pipeline(
         r#"
 struct PairIter {}
@@ -103,7 +103,7 @@ fn classify(pair: (i32, (bool, i32))) i32 {
     if pair is (40, (true, value)) {
         value
     } else {
-        switch pair {
+        match pair {
             (left, (false, right)) => left + right,
             (_, (_, fallback)) => fallback,
         }
@@ -141,7 +141,7 @@ fn main(pair: (i32, bool), scalar: i32) {
     if pair is (value,) {
         _ = value;
     }
-    switch scalar {
+    match scalar {
         (value,) => value,
         _ => 0,
     };
@@ -153,7 +153,7 @@ fn main(pair: (i32, bool), scalar: i32) {
         "binding pattern tuple arity mismatch: expected 2, found 1",
         "binding pattern requires a tuple value",
         "if pattern tuple arity mismatch: expected 2, found 1",
-        "switch pattern tuple pattern requires a tuple target",
+        "match pattern tuple pattern requires a tuple target",
     ] {
         assert!(
             checked

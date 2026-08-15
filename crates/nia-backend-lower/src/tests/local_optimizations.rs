@@ -811,7 +811,7 @@ fn main() i32 {
 fn o2_folds_constant_backend_switches() {
     let source = r#"
 fn main() i32 {
-    switch 2 {
+    match 2 {
         1 => 10,
         2 => 20,
         _ => 30,
@@ -854,7 +854,7 @@ fn main() i32 {
 fn o1_preserves_constant_backend_switches() {
     let source = r#"
 fn main() i32 {
-    switch 2 {
+    match 2 {
         1 => 10,
         2 => 20,
         _ => 30,

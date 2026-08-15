@@ -36,7 +36,7 @@ pub enum Error {
 
 extend os::Error : error::IntoError[SystemError] {
     const fn into_error(self) SystemError {
-        switch self {
+        match self {
             os::Error::PermissionDenied => SystemError::PermissionDenied,
             os::Error::NotFound => SystemError::NotFound,
             os::Error::Interrupted => SystemError::Interrupted,
@@ -71,7 +71,7 @@ extend os::Error {
 
 extend[T] os::Error!T {
     pub(pkg) fn asIoError(self) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => cause.asIoError()!,
         }

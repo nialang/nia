@@ -34,7 +34,7 @@ fn query_loader_resolves_std_qualified_root_reexport_shallowly() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        r#"fn main() () { switch std::CStringView::fromBytes(b"nia\0") {
+        r#"fn main() () { match std::CStringView::fromBytes(b"nia\0") {
     !text => { _ = text; },
     error! => {},
 } }"#,

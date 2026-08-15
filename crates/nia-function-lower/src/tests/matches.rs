@@ -2,11 +2,11 @@
 use super::common::*;
 
 #[test]
-fn lowers_statement_switch_into_switch_terminator() {
+fn lowers_statement_match_into_match_terminator() {
     let ty = test_ty();
-    let body = switch_stmt_body(vec![
-        switch_expr_arm(1, TypedSwitchArmBody::Expr(int_expr(10))),
-        switch_default_arm(TypedSwitchArmBody::Expr(int_expr(20))),
+    let body = match_stmt_body(vec![
+        match_expr_arm(1, TypedMatchArmBody::Expr(int_expr(10))),
+        match_default_arm(TypedMatchArmBody::Expr(int_expr(20))),
     ]);
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");
@@ -17,7 +17,7 @@ fn lowers_statement_switch_into_switch_terminator() {
         ..
     } = &function_body.blocks[0].terminator
     else {
-        panic!("expected switch terminator");
+        panic!("expected match terminator");
     };
 
     assert_eq!(arms.len(), 1);
@@ -50,10 +50,10 @@ fn lowers_statement_switch_into_switch_terminator() {
 }
 
 #[test]
-fn statement_switch_without_default_falls_back_to_merge() {
-    let body = switch_stmt_body(vec![switch_expr_arm(
+fn statement_match_without_default_falls_back_to_merge() {
+    let body = match_stmt_body(vec![match_expr_arm(
         1,
-        TypedSwitchArmBody::Expr(int_expr(10)),
+        TypedMatchArmBody::Expr(int_expr(10)),
     )]);
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");
@@ -61,7 +61,7 @@ fn statement_switch_without_default_falls_back_to_merge() {
         default, fallback, ..
     } = function_body.blocks[0].terminator
     else {
-        panic!("expected switch terminator");
+        panic!("expected match terminator");
     };
 
     assert_eq!(default, None);
@@ -76,11 +76,11 @@ fn statement_switch_without_default_falls_back_to_merge() {
 }
 
 #[test]
-fn statement_switch_with_range_patterns_lowers_to_condition_chain() {
-    let body = switch_stmt_body(vec![
-        switch_range_arm(0, 3, false, TypedSwitchArmBody::Expr(int_expr(10))),
-        switch_expr_arm(7, TypedSwitchArmBody::Expr(int_expr(20))),
-        switch_default_arm(TypedSwitchArmBody::Expr(int_expr(30))),
+fn statement_match_with_range_patterns_lowers_to_condition_chain() {
+    let body = match_stmt_body(vec![
+        match_range_arm(0, 3, false, TypedMatchArmBody::Expr(int_expr(10))),
+        match_expr_arm(7, TypedMatchArmBody::Expr(int_expr(20))),
+        match_default_arm(TypedMatchArmBody::Expr(int_expr(30))),
     ]);
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");
@@ -303,7 +303,7 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 }
 
 #[test]
-fn statement_switch_pattern_binding_stores_tagged_union_payload() {
+fn statement_match_pattern_binding_stores_tagged_union_payload() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = TypeStore::new();
@@ -338,7 +338,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
             kind: TypedStmtKind::Expr(TypedExpr {
                 span,
                 ty: unit_ty,
-                kind: TypedExprKind::Switch(Box::new(TypedSwitch {
+                kind: TypedExprKind::Match(Box::new(TypedMatch {
                     target: TypedExpr {
                         span,
                         ty: optional_ty,
@@ -346,7 +346,7 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
                     },
                     bool_ty,
                     arms: vec![
-                        nia_body_ir::TypedSwitchArm {
+                        nia_body_ir::TypedMatchArm {
                             patterns: vec![TypedPattern {
                                 ty: optional_ty,
                                 span,
@@ -359,16 +359,16 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
                                     },
                                 })),
                             }],
-                            body: TypedSwitchArmBody::Block(Box::new(empty_body(unit_ty))),
+                            body: TypedMatchArmBody::Block(Box::new(empty_body(unit_ty))),
                             span,
                         },
-                        nia_body_ir::TypedSwitchArm {
+                        nia_body_ir::TypedMatchArm {
                             patterns: vec![TypedPattern {
                                 ty: optional_ty,
                                 span,
                                 kind: TypedPatternKind::OptionalNull,
                             }],
-                            body: TypedSwitchArmBody::Block(Box::new(empty_body(unit_ty))),
+                            body: TypedMatchArmBody::Block(Box::new(empty_body(unit_ty))),
                             span,
                         },
                     ],
@@ -724,10 +724,10 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
 }
 
 #[test]
-fn statement_switch_arm_block_exits_arm_scope_to_merge() {
-    let body = switch_stmt_body(vec![switch_expr_arm(
+fn statement_match_arm_block_exits_arm_scope_to_merge() {
+    let body = match_stmt_body(vec![match_expr_arm(
         1,
-        TypedSwitchArmBody::Block(Box::new(TypedBody {
+        TypedMatchArmBody::Block(Box::new(TypedBody {
             span: Span::default(),
             locals: Vec::new(),
             stmts: vec![TypedStmt {
@@ -742,7 +742,7 @@ fn statement_switch_arm_block_exits_arm_scope_to_merge() {
     let function_body = lower_test_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch { arms, fallback, .. } = &function_body.blocks[0].terminator
     else {
-        panic!("expected switch terminator");
+        panic!("expected match terminator");
     };
     let arm = function_body.block(arms[0].target).expect("arm block");
 
@@ -755,10 +755,10 @@ fn statement_switch_arm_block_exits_arm_scope_to_merge() {
 }
 
 #[test]
-fn return_from_statement_switch_arm_exits_arm_and_root_scopes() {
-    let body = switch_stmt_body(vec![switch_expr_arm(
+fn return_from_statement_match_arm_exits_arm_and_root_scopes() {
+    let body = match_stmt_body(vec![match_expr_arm(
         1,
-        TypedSwitchArmBody::Stmt(Box::new(TypedStmt {
+        TypedMatchArmBody::Stmt(Box::new(TypedStmt {
             span: Span::default(),
             kind: TypedStmtKind::Return(Some(int_expr(1))),
         })),
@@ -766,7 +766,7 @@ fn return_from_statement_switch_arm_exits_arm_and_root_scopes() {
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch { arms, .. } = &function_body.blocks[0].terminator else {
-        panic!("expected switch terminator");
+        panic!("expected match terminator");
     };
 
     assert!(matches!(
@@ -783,7 +783,7 @@ fn return_from_statement_switch_arm_exits_arm_and_root_scopes() {
 }
 
 #[test]
-fn collects_unique_locals_from_statement_switch_arms() {
+fn collects_unique_locals_from_statement_match_arms() {
     let span = Span::default();
     let ty = test_ty();
     let arm_local = TypedLocal {
@@ -793,9 +793,9 @@ fn collects_unique_locals_from_statement_switch_arms() {
         ty,
         span,
     };
-    let body = switch_stmt_body(vec![switch_expr_arm(
+    let body = match_stmt_body(vec![match_expr_arm(
         1,
-        TypedSwitchArmBody::Block(Box::new(TypedBody {
+        TypedMatchArmBody::Block(Box::new(TypedBody {
             span,
             locals: vec![arm_local],
             stmts: Vec::new(),

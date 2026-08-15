@@ -52,7 +52,7 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.start;
-            self.start = switch self.start.forwardChecked() {
+            self.start = match self.start.forwardChecked() {
                 ?next => {
                     next
                 },
@@ -72,7 +72,7 @@ where T: Step + StepBack + Ord[T]
         if self.start >= self.end {
             null
         } else {
-            self.end = switch self.end.backwardChecked() {
+            self.end = match self.end.backwardChecked() {
                 ?previous => {
                     previous
                 },
@@ -129,7 +129,7 @@ where T: Step + Ord[T] + Eq[T]
         if value == self.end {
             self.done = true;
         } else {
-            self.current = switch self.current.forwardChecked() {
+            self.current = match self.current.forwardChecked() {
                 ?next => {
                     next
                 },
@@ -154,7 +154,7 @@ where T: Step + StepBack + Ord[T] + Eq[T]
         if value == self.current {
             self.done = true;
         } else {
-            self.end = switch self.end.backwardChecked() {
+            self.end = match self.end.backwardChecked() {
                 ?previous => {
                     previous
                 },
@@ -203,7 +203,7 @@ where T: Step
             return null;
         }
         let value = self.current;
-        self.current = switch self.current.forwardChecked() {
+        self.current = match self.current.forwardChecked() {
             ?next => {
                 next
             },

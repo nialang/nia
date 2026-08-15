@@ -114,7 +114,7 @@ fn add_two(flag: bool) errors::Error!i32 {
 }
 
 fn main() i32 {
-    switch add_two(true) {
+    match add_two(true) {
         !value => {
             value
         },
@@ -359,8 +359,8 @@ pub fn id_pair(pair: Pair) Pair {
 }
 
 #[test]
-fn emits_imported_enum_variant_values_and_switch_patterns() {
-    let root = temp_dir("emits_imported_enum_variant_values_and_switch_patterns");
+fn emits_imported_enum_variant_values_and_match_patterns() {
+    let root = temp_dir("emits_imported_enum_variant_values_and_match_patterns");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -372,7 +372,7 @@ using module_enum_defs::Mode;
 
 fn main() i32 {
     let mut box = module_enum_defs::make_box();
-    switch box.mode {
+    match box.mode {
         module_enum_defs::Mode::A => Mode::A as u8 as i32,
         module_enum_defs::Mode::B => 2,
         _ => 3,
@@ -426,7 +426,7 @@ using entry::module_enum_defs;
 
 fn main() i32 {
     let mut box = module_enum_defs::make_box();
-    switch box.mode {
+    match box.mode {
         module_enum_defs::Mode::A => return 1,
         module_enum_defs::Mode::B => return 2,
         _ => return 3,
@@ -488,7 +488,7 @@ fn mode() Mode {
 }
 
 fn main() i32 {
-    switch mode() {
+    match mode() {
         Mode::A => return 10,
         Mode::B => return 20,
     }

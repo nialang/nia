@@ -32,13 +32,13 @@ pub trait Allocator {
         }
         let newBlock = self.alloc(newLayout).?;
         block.copyPrefixTo(newBlock);
-        switch self.free(block) {
+        match self.free(block) {
             !ok => {
                 _ = ok;
                 !newBlock
             },
             err! => {
-                switch self.free(newBlock) {
+                match self.free(newBlock) {
                     !ok => {
                         _ = ok;
                     },
@@ -63,7 +63,7 @@ extend Allocator {
         if layout.isEmpty() {
             return !danglingSlice[T](len);
         }
-        switch self.alloc(layout) {
+        match self.alloc(layout) {
             !block => {
                 !block.asSlice[T]()
             },

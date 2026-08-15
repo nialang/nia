@@ -656,14 +656,14 @@ impl ResolvedConstForIn {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedConstSwitch {
+pub struct ResolvedConstMatch {
     span: Span,
     target: ResolvedConstExpr,
-    arms: Vec<ResolvedConstSwitchArm>,
+    arms: Vec<ResolvedConstMatchArm>,
 }
 
-impl ResolvedConstSwitch {
-    pub fn new(span: Span, target: ResolvedConstExpr, arms: Vec<ResolvedConstSwitchArm>) -> Self {
+impl ResolvedConstMatch {
+    pub fn new(span: Span, target: ResolvedConstExpr, arms: Vec<ResolvedConstMatchArm>) -> Self {
         Self { span, target, arms }
     }
 
@@ -675,23 +675,23 @@ impl ResolvedConstSwitch {
         &self.target
     }
 
-    pub fn arms(&self) -> &[ResolvedConstSwitchArm] {
+    pub fn arms(&self) -> &[ResolvedConstMatchArm] {
         &self.arms
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedConstSwitchArm {
+pub struct ResolvedConstMatchArm {
     span: Span,
     patterns: Vec<ResolvedConstPattern>,
-    body: ResolvedConstSwitchArmBody,
+    body: ResolvedConstMatchArmBody,
 }
 
-impl ResolvedConstSwitchArm {
+impl ResolvedConstMatchArm {
     pub fn new(
         span: Span,
         patterns: Vec<ResolvedConstPattern>,
-        body: ResolvedConstSwitchArmBody,
+        body: ResolvedConstMatchArmBody,
     ) -> Self {
         Self {
             span,
@@ -708,7 +708,7 @@ impl ResolvedConstSwitchArm {
         &self.patterns
     }
 
-    pub fn body(&self) -> &ResolvedConstSwitchArmBody {
+    pub fn body(&self) -> &ResolvedConstMatchArmBody {
         &self.body
     }
 }
@@ -935,36 +935,36 @@ pub enum ResolvedConstPatternKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedConstSwitchArmBody {
-    kind: ResolvedConstSwitchArmBodyKind,
+pub struct ResolvedConstMatchArmBody {
+    kind: ResolvedConstMatchArmBodyKind,
 }
 
-impl ResolvedConstSwitchArmBody {
+impl ResolvedConstMatchArmBody {
     pub fn expr(expr: ResolvedConstExpr) -> Self {
         Self {
-            kind: ResolvedConstSwitchArmBodyKind::Expr(expr),
+            kind: ResolvedConstMatchArmBodyKind::Expr(expr),
         }
     }
 
     pub fn stmt(stmt: ResolvedConstStmt) -> Self {
         Self {
-            kind: ResolvedConstSwitchArmBodyKind::Stmt(Box::new(stmt)),
+            kind: ResolvedConstMatchArmBodyKind::Stmt(Box::new(stmt)),
         }
     }
 
     pub fn block(block: ResolvedConstBlock) -> Self {
         Self {
-            kind: ResolvedConstSwitchArmBodyKind::Block(block),
+            kind: ResolvedConstMatchArmBodyKind::Block(block),
         }
     }
 
-    pub fn kind(&self) -> &ResolvedConstSwitchArmBodyKind {
+    pub fn kind(&self) -> &ResolvedConstMatchArmBodyKind {
         &self.kind
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedConstSwitchArmBodyKind {
+pub enum ResolvedConstMatchArmBodyKind {
     Expr(ResolvedConstExpr),
     Stmt(Box<ResolvedConstStmt>),
     Block(ResolvedConstBlock),
@@ -1074,7 +1074,7 @@ pub enum ResolvedConstExprKind {
         then_branch: ResolvedConstBlock,
         else_branch: Option<Box<ResolvedConstExpr>>,
     },
-    Switch(Box<ResolvedConstSwitch>),
+    Match(Box<ResolvedConstMatch>),
     Cast {
         expr: Box<ResolvedConstExpr>,
         ty: InternedTyId,
@@ -1360,17 +1360,17 @@ pub struct EarlyConstForIn {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EarlyConstSwitch {
+pub struct EarlyConstMatch {
     pub span: Span,
     pub target: EarlyConstExpr,
-    pub arms: Vec<EarlyConstSwitchArm>,
+    pub arms: Vec<EarlyConstMatchArm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EarlyConstSwitchArm {
+pub struct EarlyConstMatchArm {
     pub span: Span,
     pub patterns: Vec<EarlyConstPattern>,
-    pub body: EarlyConstSwitchArmBody,
+    pub body: EarlyConstMatchArmBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1447,7 +1447,7 @@ pub struct ConstNamedPatternField<P> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum EarlyConstSwitchArmBody {
+pub enum EarlyConstMatchArmBody {
     Expr(EarlyConstExpr),
     Stmt(Box<EarlyConstStmt>),
     Block(EarlyConstBlock),
@@ -1622,7 +1622,7 @@ pub enum EarlyConstExprKind {
         then_branch: EarlyConstBlock,
         else_branch: Option<Box<EarlyConstExpr>>,
     },
-    Switch(Box<EarlyConstSwitch>),
+    Match(Box<EarlyConstMatch>),
     Cast {
         expr: Box<EarlyConstExpr>,
         ty: Option<InternedTyId>,

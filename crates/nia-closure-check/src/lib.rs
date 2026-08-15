@@ -3,8 +3,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nia_body_ir::{
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace,
-    TypedStmtKind, TypedSwitchArmBody,
+    TypedExprKind, TypedMatchArmBody, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
+    TypedPlace, TypedStmtKind,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{ClosureId, GlobalDefId, LocalId};
@@ -614,19 +614,19 @@ impl<'a> Analyzer<'a> {
                 value.extend(else_value);
                 value
             }
-            TypedExprKind::Switch(switch) => {
-                let target = self.analyze_expr(&switch.target, env);
+            TypedExprKind::Match(matched) => {
+                let target = self.analyze_expr(&matched.target, env);
                 let base = env.clone();
                 let mut merged = base.clone();
                 let mut value = ValueProvenance::default();
-                for arm in &switch.arms {
+                for arm in &matched.arms {
                     let mut arm_env = base.clone();
                     for pattern in &arm.patterns {
                         bind_pattern(pattern, &target, &mut arm_env);
                     }
                     let arm_value = match &arm.body {
-                        TypedSwitchArmBody::Expr(expr) => self.analyze_expr(expr, &mut arm_env),
-                        TypedSwitchArmBody::Stmt(stmt) => {
+                        TypedMatchArmBody::Expr(expr) => self.analyze_expr(expr, &mut arm_env),
+                        TypedMatchArmBody::Stmt(stmt) => {
                             let body = TypedBody {
                                 span: stmt.span,
                                 locals: Vec::new(),
@@ -636,7 +636,7 @@ impl<'a> Analyzer<'a> {
                             };
                             self.analyze_nested_body(&body, &mut arm_env)
                         }
-                        TypedSwitchArmBody::Block(body) => {
+                        TypedMatchArmBody::Block(body) => {
                             self.analyze_nested_body(body, &mut arm_env)
                         }
                     };

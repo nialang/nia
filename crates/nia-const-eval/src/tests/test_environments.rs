@@ -108,7 +108,7 @@ fn evaluates_lowered_if_pattern_with_optional_payload_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() usize {
-    switch ?8 {
+    match ?8 {
         ?value => {
             value
         },
@@ -134,7 +134,7 @@ fn evaluates_lowered_if_pattern_with_error_union_payload_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() usize {
-    switch 5! {
+    match 5! {
         !value => {
             value
         },
@@ -316,7 +316,7 @@ impl EarlyConstEnv for PatternEnv {
         let Some(scope) = self.scopes.last_mut() else {
             return Err(ConstError {
                 span,
-                message: "internal const switch pattern scope is missing".to_string(),
+                message: "internal const match pattern scope is missing".to_string(),
             });
         };
         scope.insert(*name, value);

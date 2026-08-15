@@ -68,8 +68,8 @@ backends directly.
   exhaustiveness, scalar-domain partitioning, and witness generation.
 - `crates/nia-body-check/src/patterns/analysis.rs`: runtime typed-pattern and
   type-domain adapter for the shared matrix analysis.
-- `crates/nia-const-check/src/analyzer/switch_patterns/coverage.rs`: static
-  const-switch adapter and missing-witness formatting.
+- `crates/nia-const-check/src/analyzer/match_patterns/coverage.rs`: static
+  const-match adapter and missing-witness formatting.
 - `lib/std/build/core.nia`, `types.nia`, and `plan.nia`: public build-script API,
   owned mutable records, validation, and Nia-side plan encoding.
 - `maintain/`: repository-local structural audits, crate reports, performance

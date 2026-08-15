@@ -96,7 +96,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
                 continue;
             }
         }
-        switch parse_alignment(ch) {
+        match parse_alignment(ch) {
             ?parsed_alignment => {
                 alignment = parsed_alignment;
                 index += 1usize;
@@ -126,7 +126,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         index += 2usize;
     } else {
         while index < template.len() {
-            let digit = switch digit_value(template[index]) {
+            let digit = match digit_value(template[index]) {
                 ?digit => {
                     digit
                 },
@@ -150,7 +150,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
             let mut parsed_precision = 0usize;
             let mut has_digit = false;
             while index < template.len() {
-                let digit = switch digit_value(template[index]) {
+                let digit = match digit_value(template[index]) {
                     ?digit => {
                         digit
                     },
@@ -199,7 +199,7 @@ fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize, checked_args: b
     if arg_index.* >= args.len() {
         return core::Error::InvalidTemplate!;
     }
-    let value = switch args[arg_index.*].format_usize_arg() {
+    let value = match args[arg_index.*].format_usize_arg() {
         ?value => {
             value
         },

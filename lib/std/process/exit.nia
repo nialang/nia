@@ -11,7 +11,7 @@ using types::{Error, ExitCode, SpawnError, SystemError};
 
 extend debug::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             debug::Error::Format(cause) => cause.asExitCode(),
             debug::Error::Flush(cause) => cause.asExitCode(),
         }
@@ -32,7 +32,7 @@ extend[T] debug::Error!T {
 
 extend cstring::CStringBuildError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             cstring::CStringBuildError::ContainsNul => exit(22),
             cstring::CStringBuildError::Allocation(cause) => cause.asExitCode(),
         }
@@ -65,7 +65,7 @@ extend fs::Error {
 
 extend fs::PathError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             fs::PathError::ContainsNul => exit(22),
             fs::PathError::Absolute => exit(22),
             fs::PathError::ParentTraversal => exit(22),
@@ -84,7 +84,7 @@ extend fs::PathError {
 
 extend fs::OperationError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             fs::OperationError::Allocation { operation: _, cause } => {
                 cause.asExitCode()
             },
@@ -134,7 +134,7 @@ extend SystemError {
 
 extend io::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             io::Error::EndOfStream => exit(5),
             io::Error::ShortWrite => exit(5),
             io::Error::Closed => exit(9),
@@ -157,7 +157,7 @@ extend[T] io::Error!T {
 
 extend Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             Error::Allocation(cause) => cause.asExitCode(),
             Error::Path(cause) => cause.asExitCode(),
             Error::ArgumentContainsNul(_) => {
@@ -180,7 +180,7 @@ extend Error : error::IntoError[ExitCode] {
 
 extend SpawnError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             SpawnError::Setup(cause) => cause.asExitCode(),
             SpawnError::Stdio(cause) => cause.asExitCode(),
             SpawnError::Cwd(cause) => cause.asExitCode(),
@@ -227,7 +227,7 @@ extend[T] fs::OperationError!T {
 
 extend fmt::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             fmt::Error::Write => exit(5),
             fmt::Error::InvalidTemplate => exit(22),
             fmt::Error::MissingArgument => exit(22),
@@ -251,7 +251,7 @@ extend[T] fmt::Error!T {
 
 extend io::BufferError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             io::BufferError::NoSpace => exit(2),
             io::BufferError::ShortWrite => exit(5),
             io::BufferError::EndOfStream => exit(5),
@@ -274,7 +274,7 @@ extend[T] io::BufferError!T {
 
 extend mem::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
-        switch self {
+        match self {
             mem::Error::Invalid => exit(22),
             mem::Error::InvalidAlignment => exit(22),
             mem::Error::OutOfMemory => exit(12),

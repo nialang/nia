@@ -197,7 +197,7 @@ pub struct Init {
 
 extend SystemError {
     pub(pkg) fn fromOs(cause: os::Error) SystemError {
-        switch cause {
+        match cause {
             os::Error::PermissionDenied => SystemError::PermissionDenied,
             os::Error::NotFound => SystemError::NotFound,
             os::Error::Interrupted => SystemError::Interrupted,

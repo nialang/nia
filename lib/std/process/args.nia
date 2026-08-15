@@ -130,7 +130,7 @@ extend ArgsIter : Iterator {
     type Item = Arg;
 
     pub fn next(&mut self) ?Arg {
-        let value = switch self.args.get(self.index) {
+        let value = match self.args.get(self.index) {
             ?value => {
                 value
             },

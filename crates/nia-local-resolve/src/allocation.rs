@@ -269,16 +269,16 @@ impl LocalDefinitionAllocator {
                     self.allocate_expr(else_branch);
                 }
             }
-            ExprKind::Switch(switch) => {
-                self.allocate_expr(&switch.target);
-                for arm in &switch.arms {
+            ExprKind::Match(matched) => {
+                self.allocate_expr(&matched.target);
+                for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         self.allocate_pattern(pattern, LocalKind::ImmutableBinding);
                     }
                     match &arm.body {
-                        SwitchArmBody::Expr(expr) => self.allocate_expr(expr),
-                        SwitchArmBody::Stmt(stmt) => self.allocate_stmt(stmt),
-                        SwitchArmBody::Block(block) => self.allocate_block(block),
+                        MatchArmBody::Expr(expr) => self.allocate_expr(expr),
+                        MatchArmBody::Stmt(stmt) => self.allocate_stmt(stmt),
+                        MatchArmBody::Block(block) => self.allocate_block(block),
                     }
                 }
             }

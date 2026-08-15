@@ -57,7 +57,7 @@ extend String {
     }
 
     pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
-        let view = switch unicode::Utf8View::fromBytes(bytes) {
+        let view = match unicode::Utf8View::fromBytes(bytes) {
             !value => value,
             error! => return TextError::InvalidUtf8(error)!,
         };
@@ -73,7 +73,7 @@ extend String {
     }
 
     pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!() {
-        let view = switch unicode::Utf8View::fromBytes(bytes) {
+        let view = match unicode::Utf8View::fromBytes(bytes) {
             !value => value,
             error! => return TextError::InvalidUtf8(error)!,
         };
@@ -82,7 +82,7 @@ extend String {
 
     pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
         let oldLen = self.len();
-        let newLen = switch oldLen.checked_add(view.scalarCount()) {
+        let newLen = match oldLen.checked_add(view.scalarCount()) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
@@ -106,14 +106,14 @@ extend String {
         };
 
         let mut writer = TextFormatWriter::init(allocator);
-        switch fmt::print_checked(&mut writer, template, args) {
+        match fmt::print_checked(&mut writer, template, args) {
             !ok => { _ = ok; },
             error! => {
                 let primary = writer.textError(error);
                 return writer.finish(?primary);
             },
         }
-        switch writer.appendTo(self) {
+        match writer.appendTo(self) {
             !ok => { _ = ok; },
             error! => return writer.finish(?error),
         }
@@ -230,12 +230,12 @@ extend [&[char]] {
         separator: &[char],
     ) mem::Error!String {
         let separatorCount = if self.isEmpty() { 0 } else { self.len() - 1 };
-        let mut outputLen = switch separator.len().checked_mul(separatorCount) {
+        let mut outputLen = match separator.len().checked_mul(separatorCount) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
         for &part in self {
-            outputLen = switch outputLen.checked_add(part.len()) {
+            outputLen = match outputLen.checked_add(part.len()) {
                 ?value => value,
                 null => return mem::Error::OutOfMemory!,
             };
@@ -259,15 +259,15 @@ fn replaceAllText(
     replacement: &[char],
 ) mem::Error!String {
     let matchCount = source.split(needle).count() - 1;
-    let removed = switch needle.len().checked_mul(matchCount) {
+    let removed = match needle.len().checked_mul(matchCount) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let added = switch replacement.len().checked_mul(matchCount) {
+    let added = match replacement.len().checked_mul(matchCount) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let outputLen = switch (source.len() - removed).checked_add(added) {
+    let outputLen = match (source.len() - removed).checked_add(added) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
@@ -309,10 +309,10 @@ extend TextFormatWriter {
     }
 
     fn finish(&mut self, primary: ?TextFormatError) TextFormatError!() {
-        switch self.deinit() {
+        match self.deinit() {
             !ok => {
                 _ = ok;
-                switch primary {
+                match primary {
                     ?error => error!,
                     null => !(),
                 }
@@ -343,7 +343,7 @@ extend TextFormatWriter : io::Writer {
     }
 
     fn write(&mut self, bytes: &[u8]) mem::Error!usize {
-        switch self.bytes.appendSlice(self.allocator, bytes) {
+        match self.bytes.appendSlice(self.allocator, bytes) {
             !ok => {
                 _ = ok;
                 !bytes.len()
@@ -358,7 +358,7 @@ extend TextFormatWriter : io::Writer {
 
 extend[T] mem::Error!T {
     fn asTextError(self) TextError!T {
-        switch self {
+        match self {
             !value => !value,
             error! => TextError::Allocation(error)!,
         }
@@ -367,7 +367,7 @@ extend[T] mem::Error!T {
 
 extend[T] TextError!T {
     fn asTextFormatError(self) TextFormatError!T {
-        switch self {
+        match self {
             !value => !value,
             TextError::InvalidUtf8(error)! => TextFormatError::InvalidUtf8(error)!,
             TextError::Allocation(error)! => TextFormatError::Allocation(error)!,

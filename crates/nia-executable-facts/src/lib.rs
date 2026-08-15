@@ -2,8 +2,8 @@
 
 use nia_body_ir::{
     BodyIr, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee,
-    TypedExpr, TypedExprKind, TypedInlineAsm, TypedMemoryIntrinsicSource, TypedPattern,
-    TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind, TypedSwitchArmBody,
+    TypedExpr, TypedExprKind, TypedInlineAsm, TypedMatchArmBody, TypedMemoryIntrinsicSource,
+    TypedPattern, TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind,
 };
 use nia_defs::{DefCollection, DefKind};
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
@@ -697,16 +697,16 @@ fn collect_typed_expr_refs(
                 collect_typed_expr_refs(module, else_branch, refs);
             }
         }
-        TypedExprKind::Switch(switch) => {
-            collect_typed_expr_refs(module, &switch.target, refs);
-            for arm in &switch.arms {
+        TypedExprKind::Match(matched) => {
+            collect_typed_expr_refs(module, &matched.target, refs);
+            for arm in &matched.arms {
                 for pattern in &arm.patterns {
                     collect_typed_pattern_refs(module, pattern, refs);
                 }
                 match &arm.body {
-                    TypedSwitchArmBody::Expr(expr) => collect_typed_expr_refs(module, expr, refs),
-                    TypedSwitchArmBody::Stmt(stmt) => collect_typed_stmt_refs(module, stmt, refs),
-                    TypedSwitchArmBody::Block(body) => {
+                    TypedMatchArmBody::Expr(expr) => collect_typed_expr_refs(module, expr, refs),
+                    TypedMatchArmBody::Stmt(stmt) => collect_typed_stmt_refs(module, stmt, refs),
+                    TypedMatchArmBody::Block(body) => {
                         collect_typed_executable_refs(module, body, refs)
                     }
                 }

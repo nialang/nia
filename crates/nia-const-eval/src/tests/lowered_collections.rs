@@ -2,11 +2,11 @@ use super::test_environments::PatternEnv;
 use super::*;
 
 #[test]
-fn evaluates_lowered_switch_with_string_patterns() {
+fn evaluates_lowered_match_with_string_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() usize {
-    switch "linux" {
+    match "linux" {
         "linux" => 8,
         "windows" => 4,
         _ => 2,
@@ -25,11 +25,11 @@ fn main() usize {
 }
 
 #[test]
-fn evaluates_lowered_switch_with_destructured_payloads() {
+fn evaluates_lowered_match_with_destructured_payloads() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() usize {
-    switch ?5! {
+    match ?5! {
         ?!value => value,
         ?error! => error,
         null => 0,

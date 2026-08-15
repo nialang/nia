@@ -94,7 +94,7 @@ pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool
     } else {
         let handle = FileDescriptor::init(ret as i32);
         let result = metadata_fd(handle);
-        switch handle.close() {
+        match handle.close() {
             !ok => { _ = ok; },
             error! => { _ = error; },
         }
@@ -133,7 +133,7 @@ extend Statx {
     }
 
     fn kind(&self) FileKind {
-        switch self.mode & s_ifmt {
+        match self.mode & s_ifmt {
             (s_ifdir) => FileKind::Directory,
             (s_ifchr) => FileKind::CharacterDevice,
             (s_ifblk) => FileKind::BlockDevice,

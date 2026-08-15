@@ -156,7 +156,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut tinyStorage: [u8; 4] = [0; 4];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage);
     let growthSource: &[char] = &"aaa";
-    switch growthSource.replaceAll(&mut tiny, &"a", &"zz") {
+    match growthSource.replaceAll(&mut tiny, &"a", &"zz") {
         !result => {
             let mut unexpected = result;
             unexpected.deinit(&mut tiny).exit().?;
@@ -220,7 +220,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut joinTinyStorage: [u8; 4] = [0; 4];
     let mut joinTiny = mem::FixedBufferAllocator::init(&mut joinTinyStorage);
     let largeParts: [&[char]; 2] = [&"aaa", &"bbb"];
-    switch (&largeParts).join(&mut joinTiny, &"--") {
+    match (&largeParts).join(&mut joinTiny, &"--") {
         !result => {
             let mut unexpected = result;
             unexpected.deinit(&mut joinTiny).exit().?;
@@ -516,7 +516,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let page: &mut mem::Allocator = &mut pageAllocator;
 
     let input: [u8; 6] = [0xe4u8, 0xbdu8, 0xa0u8, 0xe5u8, 0xa5u8, 0xbdu8];
-    let utf8 = switch std::unicode::Utf8View::fromBytes(&input) {
+    let utf8 = match std::unicode::Utf8View::fromBytes(&input) {
         !value => value,
         error! => {
             _ = error;
@@ -558,7 +558,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         _ = unexpectedScalar;
         return process::exit(31)!;
     }
-    let emptyUtf8 = switch std::unicode::Utf8View::fromBytes(&b"") {
+    let emptyUtf8 = match std::unicode::Utf8View::fromBytes(&b"") {
         !value => value,
         error! => {
             _ = error;
@@ -570,7 +570,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     let mut content = std::String::fromUtf8View(page, utf8).exit().?;
     defer content.deinit(page).exit().?;
-    let suffixUtf8 = switch std::unicode::Utf8View::fromBytes(&b" / Nia") {
+    let suffixUtf8 = match std::unicode::Utf8View::fromBytes(&b" / Nia") {
         !value => value,
         error! => {
             _ = error;
@@ -580,7 +580,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     content.appendUtf8View(page, suffixUtf8).exit().?;
     let answer = 42;
     let contentArgs: [&fmt::Format; 1] = [&answer];
-    switch content.appendFormat(page, &" #{}", &contentArgs) {
+    match content.appendFormat(page, &" #{}", &contentArgs) {
         !ok => { _ = ok; },
         error! => {
             _ = error;
@@ -589,7 +589,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let truncated: [u8; 2] = [0xe2u8, 0x82u8];
-    switch std::unicode::Utf8View::fromBytes(&truncated) {
+    match std::unicode::Utf8View::fromBytes(&truncated) {
         !value => {
             _ = value;
             return process::exit(24)!;
@@ -600,7 +600,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::exit(25)!;
         },
     }
-    switch std::String::fromUtf8(page, &truncated) {
+    match std::String::fromUtf8(page, &truncated) {
         !value => {
             let mut unexpected = value;
             unexpected.deinit(page).exit().?;
@@ -614,7 +614,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let invalid: [u8; 1] = [0xffu8];
-    switch std::String::fromUtf8(page, &invalid) {
+    match std::String::fromUtf8(page, &invalid) {
         !value => {
             let mut unexpected = value;
             unexpected.deinit(page).exit().?;
@@ -629,7 +629,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut tinyStorage: [u8; 1] = [0];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
-    switch std::String::fromUtf8(&mut tiny, &b"allocation") {
+    match std::String::fromUtf8(&mut tiny, &b"allocation") {
         !value => {
             let mut unexpected = value;
             unexpected.deinit(&mut tiny).exit().?;
@@ -648,7 +648,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         pathText.deinit(page).exit().?;
     };
     let pathArgs: [&fmt::Format; 1] = [&answer];
-    switch pathText.appendFormat(page, &"{}.txt", &pathArgs) {
+    match pathText.appendFormat(page, &"{}.txt", &pathArgs) {
         !ok => { _ = ok; },
         error! => {
             _ = error;
@@ -675,7 +675,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         fs::PathView::init(&"/definitely/missing/nia-text-workflow"),
         init.env(),
     );
-    switch missingCommand.run() {
+    match missingCommand.run() {
         !term => {
             _ = term;
             return process::exit(12)!;
@@ -697,7 +697,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         let term = child.kill().exit().?;
         _ = term;
     };
-    let mut stdout = switch child.takeStdout() {
+    let mut stdout = match child.takeStdout() {
         ?value => value,
         null => return process::exit(14)!,
     };
@@ -719,7 +719,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(15)!;
     }
 
-    let mut roundTrip = switch std::String::fromUtf8(page, &encoded) {
+    let mut roundTrip = match std::String::fromUtf8(page, &encoded) {
         !value => value,
         error! => {
             _ = error;

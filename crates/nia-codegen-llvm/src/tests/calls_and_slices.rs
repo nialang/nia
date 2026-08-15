@@ -182,7 +182,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    switch stdout.writeAll(&b"nia\n") {
+    match stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -230,7 +230,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut raw_buffer: [u8; 0] = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    switch stdout.writeAll(&b"nia\n") {
+    match stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -238,7 +238,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return (1 as process::ExitCode)!;
         },
     }
-    switch stdout.flush() {
+    match stdout.flush() {
         !ok => {
             _ = ok;
         },
@@ -320,7 +320,7 @@ extend Z {
 fn main() i32 {
     let mut z = Z::init();
     let mut layout: Layout;
-    switch Layout::init(7, 1) {
+    match Layout::init(7, 1) {
         !value => {
             layout = value;
         },
@@ -328,9 +328,9 @@ fn main() i32 {
             return 1;
         },
     }
-    switch z.alloc(layout) {
+    match z.alloc(layout) {
         !maybe => {
-            switch maybe {
+            match maybe {
                 ?value => {
                     return value.len() as i32;
                 },

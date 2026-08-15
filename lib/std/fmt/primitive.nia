@@ -8,7 +8,7 @@ fn format_signed_spec(
     if spec.has_precision() {
         return core::Error::InvalidTemplate!;
     }
-    switch spec.presentation() {
+    match spec.presentation() {
         core::FormatPresentation::Display => formatter.write_signed_radix_spec(value, 10u128, false, spec),
         core::FormatPresentation::LowerHex => formatter.write_signed_radix_spec(value, 16u128, false, spec),
         core::FormatPresentation::UpperHex => formatter.write_signed_radix_spec(value, 16u128, true, spec),
@@ -26,7 +26,7 @@ fn format_unsigned_spec(
     if spec.sign_plus() or spec.has_precision() {
         return core::Error::InvalidTemplate!;
     }
-    switch spec.presentation() {
+    match spec.presentation() {
         core::FormatPresentation::Display => formatter.write_unsigned_radix_spec(value, 10u128, false, spec),
         core::FormatPresentation::LowerHex => formatter.write_unsigned_radix_spec(value, 16u128, false, spec),
         core::FormatPresentation::UpperHex => formatter.write_unsigned_radix_spec(value, 16u128, true, spec),

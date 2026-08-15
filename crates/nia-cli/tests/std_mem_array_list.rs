@@ -38,33 +38,33 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
     let mut exact: std::ArrayList[i32];
-    switch std::ArrayList[i32]::initCapacity(page, 3) {
+    match std::ArrayList[i32]::initCapacity(page, 3) {
         !value => { exact = value; },
         error! => { return process::exit(1)!; },
     }
     if exact.len() != 0 or exact.capacity() != 3 {
         return process::exit(2)!;
     }
-    switch exact.deinit(page) {
+    match exact.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(3)!; },
     }
 
     let mut ops = std::ArrayList[i32]::init();
-    switch ops.push(page, 1) {
+    match ops.push(page, 1) {
         !ok => { _ = ok; },
         error! => { return process::exit(26)!; },
     }
-    switch ops.push(page, 3) {
+    match ops.push(page, 3) {
         !ok => { _ = ok; },
         error! => { return process::exit(27)!; },
     }
-    switch ops.insert(page, 1, 2) {
+    match ops.insert(page, 1, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(28)!; },
     }
     let insertedTail: [i32; 2] = [4, 5];
-    switch ops.insertSlice(page, 3, &insertedTail[..]) {
+    match ops.insertSlice(page, 3, &insertedTail[..]) {
         !ok => { _ = ok; },
         error! => { return process::exit(29)!; },
     }
@@ -72,7 +72,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not ops.asSlice().equals(&expectedOps[..]) {
         return process::exit(30)!;
     }
-    switch ops.orderedRemove(1) {
+    match ops.orderedRemove(1) {
         ?value => { if value != 2 {
                     return process::exit(31)!;
                 } },
@@ -82,7 +82,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not ops.asSlice().equals(&expectedOrdered[..]) {
         return process::exit(33)!;
     }
-    switch ops.swapRemove(0) {
+    match ops.swapRemove(0) {
         ?value => { if value != 1 {
                     return process::exit(34)!;
                 } },
@@ -92,25 +92,25 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not ops.asSlice().equals(&expectedSwap[..]) {
         return process::exit(36)!;
     }
-    switch ops.deinit(page) {
+    match ops.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(37)!; },
     }
 
     let mut alias = std::ArrayList[i32]::init();
-    switch alias.reserveExact(page, 2) {
+    match alias.reserveExact(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(38)!; },
     }
-    switch alias.push(page, 1) {
+    match alias.push(page, 1) {
         !ok => { _ = ok; },
         error! => { return process::exit(39)!; },
     }
-    switch alias.push(page, 2) {
+    match alias.push(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(40)!; },
     }
-    switch alias.appendSlice(page, alias.asSlice()) {
+    match alias.appendSlice(page, alias.asSlice()) {
         !ok => { _ = ok; },
         error! => { return process::exit(41)!; },
     }
@@ -118,7 +118,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not alias.asSlice().equals(&expectedAliasAppend[..]) {
         return process::exit(42)!;
     }
-    switch alias.insertSlice(page, 1, alias.asSlice()) {
+    match alias.insertSlice(page, 1, alias.asSlice()) {
         !ok => { _ = ok; },
         error! => { return process::exit(43)!; },
     }
@@ -126,21 +126,21 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not alias.asSlice().equals(&expectedAliasInsert[..]) {
         return process::exit(44)!;
     }
-    switch alias.deinit(page) {
+    match alias.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(45)!; },
     }
 
     let mut iterList = std::ArrayList[i32]::init();
-    switch iterList.push(page, 1) {
+    match iterList.push(page, 1) {
         !ok => { _ = ok; },
         error! => { return process::exit(75)!; },
     }
-    switch iterList.push(page, 2) {
+    match iterList.push(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(76)!; },
     }
-    switch iterList.push(page, 3) {
+    match iterList.push(page, 3) {
         !ok => { _ = ok; },
         error! => { return process::exit(77)!; },
     }
@@ -164,7 +164,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not iterList.asSlice().equals(&expectedIterMut[..]) {
         return process::exit(78)!;
     }
-    switch iterList.deinit(page) {
+    match iterList.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(79)!; },
     }
@@ -173,14 +173,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if list.len() != 0 or not list.isEmpty() {
         return process::exit(4)!;
     }
-    switch list.reserveExact(page, 2) {
+    match list.reserveExact(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(5)!; },
     }
     if list.capacity() != 2 {
         return process::exit(6)!;
     }
-    switch list.reserve(page, 3) {
+    match list.reserve(page, 3) {
         !ok => { _ = ok; },
         error! => { return process::exit(7)!; },
     }
@@ -189,7 +189,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     let mut index = 0;
     while index < 6 {
-        switch list.push(page, index * 10) {
+        match list.push(page, index * 10) {
             !ok => { _ = ok; },
             error! => { return process::exit(9)!; },
         }
@@ -202,34 +202,34 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if items[0] != 0 or items[1] != 10 or items[5] != 50 {
         return process::exit(11)!;
     }
-    switch list.first() {
+    match list.first() {
         ?value => { if value.* != 0 {
                     return process::exit(64)!;
                 } },
         null => { return process::exit(65)!; },
     }
-    switch list.last() {
+    match list.last() {
         ?value => { if value.* != 50 {
                     return process::exit(66)!;
                 } },
         null => { return process::exit(67)!; },
     }
-    switch list.get(3) {
+    match list.get(3) {
         ?value => { if value.* != 30 {
                     return process::exit(68)!;
                 } },
         null => { return process::exit(69)!; },
     }
-    switch list.get(6) {
+    match list.get(6) {
         ?value => { _ = value;
                 return process::exit(70)!; },
         null => { },
     }
-    switch list.getMut(4) {
+    match list.getMut(4) {
         mut ?value => { value.* = 44; },
         null => { return process::exit(71)!; },
     }
-    switch list.lastMut() {
+    match list.lastMut() {
         mut ?value => { value.* = 55; },
         null => { return process::exit(72)!; },
     }
@@ -239,7 +239,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let more: [i32; 3] = [60, 70, 80];
-    switch list.appendSlice(page, &more[..]) {
+    match list.appendSlice(page, &more[..]) {
         !ok => { _ = ok; },
         error! => { return process::exit(12)!; },
     }
@@ -247,7 +247,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(13)!;
     }
 
-    switch list.push(page, 90) {
+    match list.push(page, 90) {
         !ok => { _ = ok; },
         error! => { return process::exit(14)!; },
     }
@@ -256,7 +256,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let added: [i32; 2] = [100, 110];
-    switch list.appendSlice(page, &added[..]) {
+    match list.appendSlice(page, &added[..]) {
         !ok => { _ = ok; },
         error! => { return process::exit(16)!; },
     }
@@ -265,7 +265,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let inserted: [i32; 2] = [21, 22];
-    switch list.insertSlice(page, 2, &inserted[..]) {
+    match list.insertSlice(page, 2, &inserted[..]) {
         !ok => { _ = ok; },
         error! => { return process::exit(46)!; },
     }
@@ -273,7 +273,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(47)!;
     }
 
-    switch list.reserveExact(page, 1) {
+    match list.reserveExact(page, 1) {
         !ok => { _ = ok; },
         error! => { return process::exit(48)!; },
     }
@@ -284,7 +284,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     list.truncate(10);
     let beforeShrinkCapacity = list.capacity();
-    switch list.shrinkToFit(page) {
+    match list.shrinkToFit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(57)!; },
     }
@@ -298,7 +298,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(18)!;
     }
 
-    switch list.reserveExact(page, 2) {
+    match list.reserveExact(page, 2) {
         !ok => { _ = ok; },
         error! => { return process::exit(74)!; },
     }
@@ -308,7 +308,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(19)!;
     }
 
-    switch list.pop() {
+    match list.pop() {
         ?value => { if value != 110 {
                     return process::exit(20)!;
                 } },
@@ -329,7 +329,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not list.isEmpty() {
         return process::exit(25)!;
     }
-    switch list.deinit(page) {
+    match list.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(26)!; },
     }
@@ -374,15 +374,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
     let mut list = std::ArrayList[i32]::init();
-    switch list.push(page, 10) {
+    match list.push(page, 10) {
         !ok => { _ = ok; },
         error! => { return process::exit(1)!; },
     }
-    switch list.push(page, 20) {
+    match list.push(page, 20) {
         !ok => { _ = ok; },
         error! => { return process::exit(2)!; },
     }
-    switch list.shrinkToCapacity(page, 0) {
+    match list.shrinkToCapacity(page, 0) {
         !ok => { _ = ok; },
         error! => { return process::exit(3)!; },
     }
@@ -390,7 +390,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(4)!;
     }
     list.clear();
-    switch list.shrinkToFit(page) {
+    match list.shrinkToFit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }
@@ -398,11 +398,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(4)!;
     }
 
-    switch list.push(page, 30) {
+    match list.push(page, 30) {
         !ok => { _ = ok; },
         error! => { return process::exit(5)!; },
     }
-    switch list.push(page, 40) {
+    match list.push(page, 40) {
         !ok => { _ = ok; },
         error! => { return process::exit(6)!; },
     }
@@ -410,7 +410,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not list.asSlice().equals(&expected[..]) {
         return process::exit(7)!;
     }
-    switch list.deinit(page) {
+    match list.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(8)!; },
     }
@@ -503,7 +503,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(11)!;
     }
 
-    switch cloned.deinit(targetAllocator) {
+    match cloned.deinit(targetAllocator) {
         !ok => {
             _ = ok;
             return process::exit(12)!;
@@ -562,26 +562,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
     let mut list = std::ArrayList[Marker]::init();
-    switch list.reserve(page, 4) {
+    match list.reserve(page, 4) {
         !ok => { _ = ok; },
         error! => { return process::exit(1)!; },
     }
     if list.capacity() != usize::MAX {
         return process::exit(2)!;
     }
-    switch list.push(page, {}) {
+    match list.push(page, {}) {
         !ok => { _ = ok; },
         error! => { return process::exit(3)!; },
     }
-    switch list.push(page, {}) {
+    match list.push(page, {}) {
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }
-    switch list.push(page, {}) {
+    match list.push(page, {}) {
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }
-    switch list.push(page, {}) {
+    match list.push(page, {}) {
         !ok => { _ = ok; },
         error! => { return process::exit(4)!; },
     }
@@ -589,14 +589,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(5)!;
     }
     list.truncate(3);
-    switch list.shrinkToFit(page) {
+    match list.shrinkToFit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(6)!; },
     }
     if list.len() != 3 or list.capacity() != usize::MAX {
         return process::exit(7)!;
     }
-    switch list.deinit(page) {
+    match list.deinit(page) {
         !ok => { _ = ok; },
         error! => { return process::exit(8)!; },
     }
@@ -637,7 +637,7 @@ using std::mem;
 using std::process;
 
 fn expectInvalid(result: mem::Error!()) process::ExitCode!() {
-    switch result {
+    match result {
         !ok => { _ = ok;
                 return process::exit(90)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {

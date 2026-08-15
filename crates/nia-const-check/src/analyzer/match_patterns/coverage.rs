@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Const-switch adapter for the shared constructor-matrix analysis.
+//! Const-match adapter for the shared constructor-matrix analysis.
 //!
 //! Resolved const patterns use the same constructor identities and declaration
 //! field order as runtime checking, but resolve scalar values through the const
@@ -8,13 +8,13 @@
 use super::*;
 
 impl Analyzer<'_> {
-    pub(in crate::analyzer) fn check_resolved_const_switch_coverage(
+    pub(in crate::analyzer) fn check_resolved_const_match_coverage(
         &mut self,
-        switch: &ResolvedConstSwitch,
+        matched: &ResolvedConstMatch,
         target_ty: InternedTyId,
     ) {
         let mut matrix = Vec::new();
-        for arm in switch.arms() {
+        for arm in matched.arms() {
             for pattern in arm.patterns() {
                 let normalized = self.const_analysis_pattern(pattern, target_ty);
                 match useful_witness(
@@ -27,12 +27,12 @@ impl Analyzer<'_> {
                     Ok(None) => self.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
                         pattern.span(),
-                        "const switch pattern is unreachable because previous patterns cover all of its values",
+                        "const match pattern is unreachable because previous patterns cover all of its values",
                     )),
                     Err(error) => self.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
                         pattern.span(),
-                        format!("cannot analyze const switch pattern coverage: {error}"),
+                        format!("cannot analyze const match pattern coverage: {error}"),
                     )),
                 }
             }
@@ -43,14 +43,14 @@ impl Analyzer<'_> {
                 let witness = self.format_const_analysis_witness(&witness, target_ty);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::CONST,
-                    switch.target().span(),
-                    format!("non-exhaustive const switch, missing pattern: `{witness}`"),
+                    matched.target().span(),
+                    format!("non-exhaustive const matched, missing pattern: `{witness}`"),
                 ));
             }
             Err(error) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::CONST,
-                switch.target().span(),
-                format!("cannot analyze const switch exhaustiveness: {error}"),
+                matched.target().span(),
+                format!("cannot analyze const match exhaustiveness: {error}"),
             )),
         }
     }

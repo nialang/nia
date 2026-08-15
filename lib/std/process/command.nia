@@ -138,7 +138,7 @@ extend Command {
     }
 
     pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
-        switch self.environment {
+        match self.environment {
             CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
             CommandEnvironment::Inherit(env) => { _ = env; },
             CommandEnvironment::Empty => {},
@@ -147,7 +147,7 @@ extend Command {
         let mut argumentBytes = collections::ArrayList[u8]::init();
         defer argumentBytes.deinit(allocator).asProcessAllocationError().?;
         appendPath(allocator, &mut argumentBytes, self.path).?;
-        switch self.arguments {
+        match self.arguments {
             ?arguments => {
                 let mut argumentIndex: usize = 0;
                 for &argument in arguments {
@@ -168,7 +168,7 @@ extend Command {
         let mut environmentPointers = collections::ArrayList[&u8]::init();
         defer environmentPointers.deinit(allocator).asProcessAllocationError().?;
         let emptyEnvp: [&u8; 1] = [0usize as &u8];
-        let envp = switch self.environment {
+        let envp = match self.environment {
             CommandEnvironment::Inherit(env) => env.rawEnvp(),
             CommandEnvironment::Exact(entries) => {
                 if entries.isEmpty() {
@@ -194,7 +194,7 @@ extend Command {
         options.setStderr(self.stderr.asOsStdio()).asCommandSpawnSetupError().?;
         let mut cwdBytes = collections::ArrayList[u8]::init();
         defer cwdBytes.deinit(allocator).asProcessAllocationError().?;
-        switch self.cwd {
+        match self.cwd {
             ?cwd => {
                 appendPath(allocator, &mut cwdBytes, cwd).?;
                 options.setCwd(cwdBytes.asSlice().ptr());
@@ -217,7 +217,7 @@ extend Command {
 
 extend StdIo {
     fn asOsStdio(self) os::StdIo {
-        switch self {
+        match self {
             StdIo::Inherit => os::StdIo::Inherit,
             StdIo::Ignore => os::StdIo::Ignore,
             StdIo::Pipe => os::StdIo::Pipe,
@@ -226,7 +226,7 @@ extend StdIo {
 }
 
 pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
-    let pid = switch os::spawnRaw(path, argv, envp) {
+    let pid = match os::spawnRaw(path, argv, envp) {
         !value => value,
         cause! => return commandSpawnError(cause)!,
     };
@@ -234,7 +234,7 @@ pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
 }
 
 fn spawnWithOptions(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
-    let result = switch os::spawn(path, argv, envp, options) {
+    let result = match os::spawn(path, argv, envp, options) {
         !value => value,
         cause! => return commandSpawnError(cause)!,
     };
@@ -247,9 +247,9 @@ fn appendArgument(
     argument: &[char],
     argumentIndex: usize,
 ) Error!() {
-    let mut owned = switch cstring::CString::fromText(allocator, argument) {
+    let mut owned = match cstring::CString::fromText(allocator, argument) {
         !value => value,
-        cause! => switch cause {
+        cause! => match cause {
             cstring::CStringBuildError::ContainsNul => return Error::ArgumentContainsNul(argumentIndex)!,
             cstring::CStringBuildError::Allocation(error) => return Error::Allocation(error)!,
         },
@@ -264,7 +264,7 @@ fn appendPath(
     bytes: &mut collections::ArrayList[u8],
     path: fs::PathView,
 ) Error!() {
-    let mut owned = switch cstring::CString::fromText(allocator, path.text()) {
+    let mut owned = match cstring::CString::fromText(allocator, path.text()) {
         !value => value,
         cstring::CStringBuildError::ContainsNul! => return Error::Path(fs::PathError::ContainsNul)!,
         cstring::CStringBuildError::Allocation(cause)! => return Error::Allocation(cause)!,
@@ -315,18 +315,18 @@ fn appendEnvironmentEntry(
 ) Error!() {
     let mut byteLen: usize = 1;
     for &ch in entry.name() {
-        byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+        byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
     for &ch in entry.value() {
-        byteLen = switch byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+        byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
-    let needed = switch byteLen.checked_add(1) {
+    let needed = match byteLen.checked_add(1) {
         ?value => value,
         null => return Error::Allocation(mem::Error::OutOfMemory)!,
     };
@@ -362,7 +362,7 @@ fn appendCStringPointers(
 }
 
 fn commandSpawnError(cause: os::SpawnError) Error {
-    switch cause {
+    match cause {
         os::SpawnError::Setup(system) => {
             Error::Spawn(SpawnError::Setup(SystemError::fromOs(system)))
         },
@@ -380,7 +380,7 @@ fn commandSpawnError(cause: os::SpawnError) Error {
 
 extend[T] os::Error!T {
     fn asCommandSpawnSetupError(self) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => Error::SpawnSetup(SystemError::fromOs(cause))!,
         }
@@ -389,7 +389,7 @@ extend[T] os::Error!T {
 
 extend[T] mem::Error!T {
     fn asProcessAllocationError(self) Error!T {
-        switch self {
+        match self {
             !value => !value,
             cause! => Error::Allocation(cause)!,
         }

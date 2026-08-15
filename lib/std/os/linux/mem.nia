@@ -39,7 +39,7 @@ pub fn page_size() usize {
 }
 
 pub fn page_aligned_len(len: usize) Errno!usize {
-    switch len.align_forward(page_size()) {
+    match len.align_forward(page_size()) {
         ?value => {
             !value
         },
@@ -62,7 +62,7 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     if align > page_size() {
         extra = align - page_size();
     }
-    let map_len = switch aligned_len.checked_add(extra) {
+    let map_len = match aligned_len.checked_add(extra) {
         ?value => {
             value
         },
@@ -73,12 +73,12 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     let mapped = raw_map_pages(map_len).?;
     let mapped_addr = mapped as usize;
     let mut result_addr: usize;
-    switch mapped_addr.align_forward(align) {
+    match mapped_addr.align_forward(align) {
         ?value => {
             result_addr = value;
         },
         null => {
-                switch raw_unmap_pages(mapped, map_len) {
+                match raw_unmap_pages(mapped, map_len) {
                     !ok => {
                         _ = ok;
                     },

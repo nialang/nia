@@ -3,7 +3,7 @@ using pkg::os;
 using pkg::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
-    switch entry::main(init) {
+    match entry::main(init) {
         !ok => {
             _ = ok;
             process::ExitCode::Success

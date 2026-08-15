@@ -33,7 +33,7 @@ fn into_error(self) Target {
 
 fn main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
-switch value.cast_error() {
+match value.cast_error() {
     !ok => {
         ok
     },
@@ -58,7 +58,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 pub fn cast_error(self) Target!T {
-    switch self {
+    match self {
         !ok => {
             !ok
         },
@@ -119,7 +119,7 @@ using entry::impls;
 
 fn main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
-switch value.cast_error() {
+match value.cast_error() {
     !ok => {
         ok
     },
@@ -144,7 +144,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 pub fn cast_error(self) Target!T {
-    switch self {
+    match self {
         !ok => {
             !ok
         },
@@ -219,7 +219,7 @@ using entry::impls;
 
 fn main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
-switch value.as_target_error() {
+match value.as_target_error() {
     !ok => {
         ok
     },
@@ -244,7 +244,7 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
 pub fn cast_error(self) Target!T {
-    switch self {
+    match self {
         !ok => {
             !ok
         },

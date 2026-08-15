@@ -105,14 +105,14 @@ const fn optionalScore(value: ?Pair) i32 {
 }
 
 const fn resultScore(value: i32!Pair) i32 {
-    switch value {
+    match value {
         !pair => pair.sum(),
         error! => error,
     }
 }
 
 const fn switchScore(mode: Mode) i32 {
-    switch mode {
+    match mode {
         Mode::Plain(value) => value,
         Mode::Scale(value, factor) => value * factor,
     }

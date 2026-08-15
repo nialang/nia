@@ -203,7 +203,7 @@ const fn id[T](value: ?T) ?T {
 }
 
 const fn unwrap(value: ?usize) usize {
-    switch value {
+    match value {
         ?payload => {
             payload
         },
@@ -260,8 +260,8 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_const_function_infers_type_arg_from_switch_expression() {
-    let root = temp_dir("generic_const_function_infers_type_arg_from_switch_expression");
+fn generic_const_function_infers_type_arg_from_match_expression() {
+    let root = temp_dir("generic_const_function_infers_type_arg_from_match_expression");
     write(
         &root.join("main.nia"),
         r#"
@@ -269,7 +269,7 @@ const fn id[T](value: T) T {
     value
 }
 
-const n: usize = id(switch 2usize {
+const n: usize = id(match 2usize {
     1usize => 4usize,
     2usize => 8usize,
     _ => 1usize,
@@ -287,8 +287,8 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_const_function_rejects_mismatched_switch_pattern() {
-    let root = temp_dir("generic_const_function_rejects_mismatched_switch_pattern");
+fn generic_const_function_rejects_mismatched_match_pattern() {
+    let root = temp_dir("generic_const_function_rejects_mismatched_match_pattern");
     write(
         &root.join("main.nia"),
         r#"
@@ -296,7 +296,7 @@ const fn id[T](value: T) T {
     value
 }
 
-const n: usize = id(switch 2usize {
+const n: usize = id(match 2usize {
     true => 4usize,
     _ => 1usize,
 });
@@ -308,15 +308,15 @@ const n: usize = id(switch 2usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("switch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("match")),
         "{:?}",
         program.diagnostics
     );
 }
 
 #[test]
-fn generic_const_function_rejects_non_integer_switch_range_pattern() {
-    let root = temp_dir("generic_const_function_rejects_non_integer_switch_range_pattern");
+fn generic_const_function_rejects_non_integer_match_range_pattern() {
+    let root = temp_dir("generic_const_function_rejects_non_integer_match_range_pattern");
     write(
         &root.join("main.nia"),
         r#"
@@ -324,7 +324,7 @@ const fn id[T](value: T) T {
     value
 }
 
-const n: usize = id(switch true {
+const n: usize = id(match true {
     0usize..2usize => 4usize,
     _ => 1usize,
 });
@@ -336,7 +336,7 @@ const n: usize = id(switch true {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("switch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("match")),
         "{:?}",
         program.diagnostics
     );
@@ -353,7 +353,7 @@ const fn id[T](value: T) T {
 }
 
 const value: ?usize = ?8usize;
-const n: usize = switch value {
+const n: usize = match value {
     ?payload => {
         id(payload)
     },
@@ -384,7 +384,7 @@ const fn id[T](value: T) T {
 }
 
 const value: usize!usize = !8usize;
-const n: usize = switch value {
+const n: usize = match value {
     !payload => {
         id(payload)
     },
@@ -482,12 +482,12 @@ fn generic_const_function_infers_type_arg_from_contextual_array_literal() {
         &root.join("main.nia"),
         r#"
 const fn first_some[T](values: [?T; 2]) T {
-    switch values[0] {
+    match values[0] {
         ?payload => {
             payload
         },
         null => {
-            switch values[1] {
+            match values[1] {
                 ?payload => payload,
                 null => std::builtin::error("missing fallback"),
             }
@@ -548,12 +548,12 @@ struct Slot[T] {
 }
 
 const fn pick[T](slot: Slot[T]) T {
-    switch slot.primary {
+    match slot.primary {
         ?payload => {
             payload
         },
         null => {
-            switch slot.fallback {
+            match slot.fallback {
                 ?payload => payload,
                 null => std::builtin::error("missing fallback"),
             }

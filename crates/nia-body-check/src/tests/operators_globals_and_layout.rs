@@ -353,7 +353,7 @@ fn main() usize {
 }
 
 #[test]
-fn checks_open_enum_integer_casts_and_switch_exhaustiveness() {
+fn checks_open_enum_integer_casts_and_match_exhaustiveness() {
     let checked = pipeline(
         r#"
 enum Flag: u8 {
@@ -380,7 +380,7 @@ fn closed_cast() Closed {
 }
 
 fn missing_open_default(flag: Flag) i32 {
-    switch flag {
+    match flag {
         Flag::A => return 1,
         Flag::B => return 2,
     }
@@ -388,7 +388,7 @@ fn missing_open_default(flag: Flag) i32 {
 }
 
 fn with_open_default(flag: Flag) i32 {
-    switch flag {
+    match flag {
         Flag::A => return 1,
         Flag::B => return 2,
         3 => return 3,
@@ -399,7 +399,7 @@ fn with_open_default(flag: Flag) i32 {
 }
 
 fn closed_integer_pattern(closed: Closed) i32 {
-    switch closed {
+    match closed {
         0 => return 0,
         _ => return 1,
     }
@@ -421,7 +421,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive match"))
             .count(),
         1,
         "{:?}",
@@ -450,7 +450,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("type mismatch in switch pattern")),
+            .contains("type mismatch in match pattern")),
         "{:?}",
         checked.diagnostics
     );

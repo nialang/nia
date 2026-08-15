@@ -494,13 +494,13 @@ fn main(flag: bool) {
         2
     };
     defer {
-        switch value() {
+        match value() {
             0 => cleanup(),
             _ => cleanup(),
         }
     };
     defer {
-        switch value() {
+        match value() {
             0 => value(),
             _ => value(),
         }

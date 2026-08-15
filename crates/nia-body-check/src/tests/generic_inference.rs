@@ -288,7 +288,7 @@ extend i32 : From[&[char]] {
 }
 
 fn main() i32 {
-    switch (&"nia").parse[i32]() {
+    match (&"nia").parse[i32]() {
         !value => value,
         _ => 0,
     }

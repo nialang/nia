@@ -122,7 +122,7 @@ extend Utf8ViewIter : Iterator {
         if self.remaining == 0 {
             return null;
         }
-        let decoded = switch decodeUtf8First(&self.bytes[self.byteIndex..]) {
+        let decoded = match decodeUtf8First(&self.bytes[self.byteIndex..]) {
             !value => value,
             error! => {
                 // Only a caller-side mutation of the validated backing bytes can reach this branch.
@@ -218,7 +218,7 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
     if not isValidScalarValue(code) {
         return Utf8DecodeError::InvalidScalar!;
     }
-    switch fromScalarValue(code) {
+    match fromScalarValue(code) {
         ?ch => {
             !DecodedUtf8Scalar::init(ch, width)
         },
@@ -229,7 +229,7 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
 }
 
 fn isOverlongUtf8(code: u32, width: usize) bool {
-    switch width {
+    match width {
         1 => false,
         2 => code < 0x80,
         3 => code < 0x800,

@@ -261,7 +261,7 @@ pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
     let status = platform::try_wait(pid.platform()).?;
-    switch status {
+    match status {
         ?value => {
             !(?WaitStatus::fromPlatform(value))
         },
@@ -281,7 +281,7 @@ pub(pkg) fn exit(code: i32) () {
 
 extend platform::Errno : error::IntoError[Error] {
     const fn into_error(self) Error {
-        switch self {
+        match self {
             platform::Errno::PermissionDenied => Error::PermissionDenied,
             platform::Errno::NoEntry => Error::NotFound,
             platform::Errno::Interrupted => Error::Interrupted,
@@ -318,7 +318,7 @@ extend platform::Errno {
 
 extend platform::SpawnError : error::IntoError[SpawnError] {
     const fn into_error(self) SpawnError {
-        switch self {
+        match self {
             platform::SpawnError::Setup(cause) => SpawnError::Setup(cause.asOsError()),
             platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.asOsError()),
             platform::SpawnError::Cwd(cause) => SpawnError::Cwd(cause.asOsError()),
@@ -347,7 +347,7 @@ extend[T] platform::Errno!T {
 
 extend OpenMode {
     fn asPlatformOpenMode(self) Error!platform::OpenMode {
-        switch self {
+        match self {
             OpenMode::ReadOnly => !platform::OpenMode::ReadOnly,
             OpenMode::WriteOnly => !platform::OpenMode::WriteOnly,
             OpenMode::ReadWrite => !platform::OpenMode::ReadWrite,
@@ -358,7 +358,7 @@ extend OpenMode {
 
 extend SeekWhence {
     fn asPlatformSeekWhence(self) Error!platform::SeekWhence {
-        switch self {
+        match self {
             SeekWhence::Start => !platform::SeekWhence::Start,
             SeekWhence::Current => !platform::SeekWhence::Current,
             SeekWhence::End => !platform::SeekWhence::End,
@@ -369,7 +369,7 @@ extend SeekWhence {
 
 extend platform::FileKind {
     fn asOsFileKind(self) FileKind {
-        switch self {
+        match self {
             platform::FileKind::BlockDevice => FileKind::BlockDevice,
             platform::FileKind::CharacterDevice => FileKind::CharacterDevice,
             platform::FileKind::Directory => FileKind::Directory,
@@ -391,7 +391,7 @@ extend platform::Timestamp {
 extend platform::FileMetadata {
     fn asOsMetadata(&self) FileMetadata {
         let mut accessed: ?Timestamp = null;
-        switch self.atime() {
+        match self.atime() {
             ?value => {
                 accessed = ?value.asOsTimestamp();
             },
@@ -456,7 +456,7 @@ extend DirectoryReader {
         }
         if self.start >= self.end {
             self.start = 0;
-            switch self.handle.readDirEntries(self.buffer) {
+            match self.handle.readDirEntries(self.buffer) {
                 !value => {
                     self.end = value;
                 },
@@ -470,7 +470,7 @@ extend DirectoryReader {
             }
         }
 
-        let entry = switch platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
+        let entry = match platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
             ?value => {
                 value.asOsDirectoryEntry()
             },
@@ -478,7 +478,7 @@ extend DirectoryReader {
                 return ?(Error::Invalid!);
             },
         };
-        self.start = switch platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
+        self.start = match platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
             ?value => {
                 value
             },
@@ -689,7 +689,7 @@ extend SpawnResult {
     }
 
     pub(pkg) fn stdin(&self) ?FileHandle {
-        switch self.platform().stdin() {
+        match self.platform().stdin() {
             ?handle => {
                 ?FileHandle::fromPlatform(handle)
             },
@@ -700,7 +700,7 @@ extend SpawnResult {
     }
 
     pub(pkg) fn stdout(&self) ?FileHandle {
-        switch self.platform().stdout() {
+        match self.platform().stdout() {
             ?handle => {
                 ?FileHandle::fromPlatform(handle)
             },
@@ -711,7 +711,7 @@ extend SpawnResult {
     }
 
     pub(pkg) fn stderr(&self) ?FileHandle {
-        switch self.platform().stderr() {
+        match self.platform().stderr() {
             ?handle => {
                 ?FileHandle::fromPlatform(handle)
             },
@@ -724,7 +724,7 @@ extend SpawnResult {
 
 extend StdIo {
     fn asPlatformStdio(self) Error!platform::StdIo {
-        switch self {
+        match self {
             StdIo::Inherit => !platform::StdIo::Inherit,
             StdIo::Ignore => !platform::StdIo::Ignore,
             StdIo::Pipe => !platform::StdIo::Pipe,

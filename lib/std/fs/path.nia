@@ -33,7 +33,7 @@ extend PathView {
                 return PathError::ContainsNul!;
             }
             let encoded = ch.encodeUtf8();
-            let next = switch out.checked_add(encoded.byteLen()) {
+            let next = match out.checked_add(encoded.byteLen()) {
                 ?value => value,
                 null => return PathError::TooLong!,
             };
@@ -166,11 +166,11 @@ fn appendComponentToString(
             component
         };
         let separatorLen: usize = if needsSeparator { 1 } else { 0 };
-        let appendLen = switch appended.len().checked_add(separatorLen) {
+        let appendLen = match appended.len().checked_add(separatorLen) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
-        let needed = switch out.len().checked_add(appendLen) {
+        let needed = match out.len().checked_add(appendLen) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };

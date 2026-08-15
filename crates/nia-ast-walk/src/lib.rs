@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, ArrayLen, Attribute, AttributeKind, Block, Expr, ExprKind, FunctionItem,
-    IndexArg, Item, ItemKind, Module, Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg,
+    IndexArg, Item, ItemKind, MatchArmBody, Module, Pattern, PatternKind, Stmt, StmtKind, TypeArg,
     TypeKind, TypeRef, WhereClause,
 };
 
@@ -429,16 +429,16 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(else_branch);
             }
         }
-        ExprKind::Switch(switch) => {
-            visitor.visit_expr(&switch.target);
-            for arm in &switch.arms {
+        ExprKind::Match(matched) => {
+            visitor.visit_expr(&matched.target);
+            for arm in &matched.arms {
                 for pattern in &arm.patterns {
                     visit_pattern(visitor, pattern);
                 }
                 match &arm.body {
-                    SwitchArmBody::Expr(expr) => visitor.visit_expr(expr),
-                    SwitchArmBody::Stmt(stmt) => visitor.visit_stmt(stmt),
-                    SwitchArmBody::Block(block) => visitor.visit_block(block),
+                    MatchArmBody::Expr(expr) => visitor.visit_expr(expr),
+                    MatchArmBody::Stmt(stmt) => visitor.visit_stmt(stmt),
+                    MatchArmBody::Block(block) => visitor.visit_block(block),
                 }
             }
         }

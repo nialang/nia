@@ -41,7 +41,7 @@ where I: Iterator
         if self.remaining == 0 {
             return null;
         }
-        switch self.iter.next() {
+        match self.iter.next() {
             ?value => {
                 self.remaining -= 1;
                 ?value
@@ -91,7 +91,7 @@ where I: Iterator
         let mut total: usize = 0;
         let mut done = false;
         while done == false {
-            switch iter.next() {
+            match iter.next() {
                 ?value => {
                     _ = value;
                     total += 1;
@@ -108,7 +108,7 @@ where I: Iterator
         let mut iter = self;
         let mut done = false;
         while done == false {
-            switch iter.next() {
+            match iter.next() {
                 ?value => {
                     callback(value);
                 },
@@ -128,7 +128,7 @@ where I: Iterator
         let mut accumulator = initial;
         let mut done = false;
         while done == false {
-            switch iter.next() {
+            match iter.next() {
                 ?value => {
                     accumulator = callback(accumulator, value);
                 },
@@ -149,7 +149,7 @@ where I: Iterator
         let mut accumulator = initial;
         let mut done = false;
         while done == false {
-            switch iter.next() {
+            match iter.next() {
                 ?value => {
                     accumulator = callback(accumulator, value).?;
                 },
@@ -166,7 +166,7 @@ where I: Iterator
         let mut index: usize = 0;
         let mut done = false;
         while done == false {
-            switch iter.next() {
+            match iter.next() {
                 ?value => {
                     if predicate(value) {
                         return ?index;

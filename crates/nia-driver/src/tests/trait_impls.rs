@@ -461,7 +461,7 @@ extend File : io::Writer {
 
 fn main() () {
     let mut stdout = File { raw: 1 };
-    switch io::write_fully_with[File](& stdout, &b"nia\n") {
+    match io::write_fully_with[File](& stdout, &b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -569,7 +569,7 @@ using entry::io;
 
 fn main() () {
     let mut stdout = fs::File::standard_output();
-    switch io::write_fully_with[fs::File](& stdout, &b"nia\n") {
+    match io::write_fully_with[fs::File](& stdout, &b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -620,7 +620,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    switch forward[Sink](&mut sink, &b"ok") {
+    match forward[Sink](&mut sink, &b"ok") {
         !ok => {
             _ = ok;
             0
@@ -677,7 +677,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    switch forward[Sink](&mut sink, &b"ok") {
+    match forward[Sink](&mut sink, &b"ok") {
         !ok => {
             _ = ok;
             0
@@ -733,7 +733,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    switch sink.write_fmt_bytes() {
+    match sink.write_fmt_bytes() {
         !ok => {
             _ = ok;
             0

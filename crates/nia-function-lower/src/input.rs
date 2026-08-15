@@ -107,13 +107,13 @@ impl BodyInputValidator {
                 }
                 Ok(())
             }
-            TypedExprKind::Switch(switch) => {
-                self.validate_value_expr(&switch.target)?;
-                for arm in &switch.arms {
+            TypedExprKind::Match(matched) => {
+                self.validate_value_expr(&matched.target)?;
+                for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         self.validate_pattern(pattern)?;
                     }
-                    self.validate_switch_arm_effect_body(&arm.body)?;
+                    self.validate_match_arm_effect_body(&arm.body)?;
                 }
                 Ok(())
             }
@@ -162,13 +162,13 @@ impl BodyInputValidator {
                 }
                 Ok(())
             }
-            TypedExprKind::Switch(switch) => {
-                self.validate_value_expr(&switch.target)?;
-                for arm in &switch.arms {
+            TypedExprKind::Match(matched) => {
+                self.validate_value_expr(&matched.target)?;
+                for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         self.validate_pattern(pattern)?;
                     }
-                    self.validate_switch_arm_value_body(&arm.body)?;
+                    self.validate_match_arm_value_body(&arm.body)?;
                 }
                 Ok(())
             }
@@ -287,25 +287,25 @@ impl BodyInputValidator {
         }
     }
 
-    fn validate_switch_arm_effect_body(
+    fn validate_match_arm_effect_body(
         &self,
-        body: &TypedSwitchArmBody,
+        body: &TypedMatchArmBody,
     ) -> Result<(), FunctionLoweringDiagnostic> {
         match body {
-            TypedSwitchArmBody::Expr(expr) => self.validate_effect_expr(expr),
-            TypedSwitchArmBody::Stmt(stmt) => self.validate_stmt(stmt),
-            TypedSwitchArmBody::Block(body) => self.validate_effect_body(body),
+            TypedMatchArmBody::Expr(expr) => self.validate_effect_expr(expr),
+            TypedMatchArmBody::Stmt(stmt) => self.validate_stmt(stmt),
+            TypedMatchArmBody::Block(body) => self.validate_effect_body(body),
         }
     }
 
-    fn validate_switch_arm_value_body(
+    fn validate_match_arm_value_body(
         &self,
-        body: &TypedSwitchArmBody,
+        body: &TypedMatchArmBody,
     ) -> Result<(), FunctionLoweringDiagnostic> {
         match body {
-            TypedSwitchArmBody::Expr(expr) => self.validate_tail_value_result(expr),
-            TypedSwitchArmBody::Stmt(stmt) => self.validate_stmt(stmt),
-            TypedSwitchArmBody::Block(body) => self.validate_value_body(body),
+            TypedMatchArmBody::Expr(expr) => self.validate_tail_value_result(expr),
+            TypedMatchArmBody::Stmt(stmt) => self.validate_stmt(stmt),
+            TypedMatchArmBody::Block(body) => self.validate_value_body(body),
         }
     }
 

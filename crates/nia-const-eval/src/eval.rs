@@ -18,16 +18,16 @@ use nia_const_ir::{
     ConstAssignOp, ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution, ConstUnaryOp,
     EarlyConstArrayElements, EarlyConstAssign, EarlyConstAssignPathElem, EarlyConstAssignTarget,
     EarlyConstBlock, EarlyConstExpr, EarlyConstExprKind, EarlyConstForIn, EarlyConstFunction,
-    EarlyConstName, EarlyConstParam, EarlyConstPattern, EarlyConstPatternBinding, EarlyConstRange,
-    EarlyConstSliceRange, EarlyConstStmt, EarlyConstStmtKind, EarlyConstSwitch,
-    EarlyConstSwitchArm, EarlyConstSwitchArmBody, ResolvedConstArrayElements,
-    ResolvedConstArrayElementsKind, ResolvedConstAssign, ResolvedConstAssignPathElem,
-    ResolvedConstAssignPathElemKind, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
-    ResolvedConstBlock, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
-    ResolvedConstForIn, ResolvedConstFunction, ResolvedConstParam, ResolvedConstPatternBinding,
+    EarlyConstMatch, EarlyConstMatchArm, EarlyConstMatchArmBody, EarlyConstName, EarlyConstParam,
+    EarlyConstPattern, EarlyConstPatternBinding, EarlyConstRange, EarlyConstSliceRange,
+    EarlyConstStmt, EarlyConstStmtKind, ResolvedConstArrayElements, ResolvedConstArrayElementsKind,
+    ResolvedConstAssign, ResolvedConstAssignPathElem, ResolvedConstAssignPathElemKind,
+    ResolvedConstAssignTarget, ResolvedConstAssignTargetKind, ResolvedConstBlock,
+    ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit, ResolvedConstForIn,
+    ResolvedConstFunction, ResolvedConstMatch, ResolvedConstMatchArm, ResolvedConstMatchArmBody,
+    ResolvedConstMatchArmBodyKind, ResolvedConstParam, ResolvedConstPatternBinding,
     ResolvedConstPatternKind, ResolvedConstRange, ResolvedConstSliceRange, ResolvedConstStmt,
-    ResolvedConstStmtKind, ResolvedConstSwitch, ResolvedConstSwitchArm, ResolvedConstSwitchArmBody,
-    ResolvedConstSwitchArmBodyKind,
+    ResolvedConstStmtKind,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
@@ -80,12 +80,12 @@ macro_rules! eval_value_or_return_flow {
     };
 }
 
-struct ConstSwitchMatch<'a> {
-    arm: &'a EarlyConstSwitchArm,
-    bindings: Vec<ConstSwitchBinding>,
+struct ConstMatchResult<'a> {
+    arm: &'a EarlyConstMatchArm,
+    bindings: Vec<ConstMatchBinding>,
 }
 
-struct ConstSwitchBinding {
+struct ConstMatchBinding {
     span: Span,
     name: SymbolId,
     local_id: Option<nia_ids::LocalId>,
@@ -507,8 +507,8 @@ fn eval_resolved_const_expr_flow(
                 env,
             );
         }
-        ResolvedConstExprKind::Switch(switch) => {
-            return eval_resolved_const_switch_expr_flow(switch, env);
+        ResolvedConstExprKind::Match(matched) => {
+            return eval_resolved_const_match_expr_flow(matched, env);
         }
         ResolvedConstExprKind::Cast { expr: inner, ty } => {
             let value = eval_resolved_value_or_return_flow!(inner, env);
@@ -805,8 +805,8 @@ fn eval_const_expr_flow(
                 env,
             );
         }
-        EarlyConstExprKind::Switch(switch) => {
-            return eval_const_switch_expr_flow(switch, env);
+        EarlyConstExprKind::Match(matched) => {
+            return eval_const_match_expr_flow(matched, env);
         }
         EarlyConstExprKind::Cast {
             expr: inner,
@@ -1040,18 +1040,18 @@ pub fn eval_const_slice_pointer_value(
     }
 }
 
-fn eval_const_switch_expr_flow(
-    switch: &EarlyConstSwitch,
+fn eval_const_match_expr_flow(
+    matched: &EarlyConstMatch,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
-    let target = eval_value_or_return_flow!(&switch.target, env);
-    let Some(matched) = matching_switch_arm(&target, switch, env)? else {
+    let target = eval_value_or_return_flow!(&matched.target, env);
+    let Some(matched) = matching_match_arm(&target, matched, env)? else {
         return Err(ConstError {
-            span: switch.span,
-            message: "const switch expression did not match any arm".to_string(),
+            span: matched.span,
+            message: "const match expression did not match any arm".to_string(),
         });
     };
-    eval_const_switch_match_body(matched, env)
+    eval_const_match_match_body(matched, env)
 }
 
 fn eval_resolved_const_if_expr_flow(
@@ -1082,23 +1082,23 @@ fn eval_resolved_const_if_expr_flow(
     }
 }
 
-struct ResolvedConstSwitchMatch<'a> {
-    arm: &'a ResolvedConstSwitchArm,
-    bindings: Vec<ConstSwitchBinding>,
+struct ResolvedConstMatchResult<'a> {
+    arm: &'a ResolvedConstMatchArm,
+    bindings: Vec<ConstMatchBinding>,
 }
 
-fn eval_resolved_const_switch_expr_flow(
-    switch: &ResolvedConstSwitch,
+fn eval_resolved_const_match_expr_flow(
+    matched: &ResolvedConstMatch,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
-    let target = eval_resolved_value_or_return_flow!(switch.target(), env);
-    let Some(matched) = matching_resolved_switch_arm(&target, switch, env)? else {
+    let target = eval_resolved_value_or_return_flow!(matched.target(), env);
+    let Some(matched) = matching_resolved_match_arm(&target, matched, env)? else {
         return Err(ConstError {
-            span: switch.span(),
-            message: "const switch expression did not match any arm".to_string(),
+            span: matched.span(),
+            message: "const match expression did not match any arm".to_string(),
         });
     };
-    eval_resolved_const_switch_match_body(matched, env)
+    eval_resolved_const_match_match_body(matched, env)
 }
 
 fn eval_try_expr_flow(
@@ -1163,13 +1163,13 @@ fn eval_resolved_try_expr_flow(
     }
 }
 
-fn matching_switch_arm<'a>(
+fn matching_match_arm<'a>(
     target: &ConstValue,
-    switch: &'a EarlyConstSwitch,
+    matched: &'a EarlyConstMatch,
     env: &mut impl EarlyConstEnv,
-) -> Result<Option<ConstSwitchMatch<'a>>, ConstError> {
+) -> Result<Option<ConstMatchResult<'a>>, ConstError> {
     let mut default = None;
-    for arm in &switch.arms {
+    for arm in &matched.arms {
         for pattern in &arm.patterns {
             if matches!(pattern, EarlyConstPattern::Wildcard { .. }) {
                 default = Some(arm);
@@ -1177,23 +1177,23 @@ fn matching_switch_arm<'a>(
             }
             let mut bindings = Vec::new();
             if patterns::early_pattern_matches(target, pattern, env, &mut bindings)? {
-                return Ok(Some(ConstSwitchMatch { arm, bindings }));
+                return Ok(Some(ConstMatchResult { arm, bindings }));
             }
         }
     }
-    Ok(default.map(|arm| ConstSwitchMatch {
+    Ok(default.map(|arm| ConstMatchResult {
         arm,
         bindings: Vec::new(),
     }))
 }
 
-fn matching_resolved_switch_arm<'a>(
+fn matching_resolved_match_arm<'a>(
     target: &ConstValue,
-    switch: &'a ResolvedConstSwitch,
+    matched: &'a ResolvedConstMatch,
     env: &mut impl ResolvedConstEnv,
-) -> Result<Option<ResolvedConstSwitchMatch<'a>>, ConstError> {
+) -> Result<Option<ResolvedConstMatchResult<'a>>, ConstError> {
     let mut default = None;
-    for arm in switch.arms() {
+    for arm in matched.arms() {
         for pattern in arm.patterns() {
             if matches!(pattern.kind(), ResolvedConstPatternKind::Wildcard { .. }) {
                 default = Some(arm);
@@ -1201,61 +1201,61 @@ fn matching_resolved_switch_arm<'a>(
             }
             let mut bindings = Vec::new();
             if patterns::resolved_pattern_matches(target, pattern, env, &mut bindings)? {
-                return Ok(Some(ResolvedConstSwitchMatch { arm, bindings }));
+                return Ok(Some(ResolvedConstMatchResult { arm, bindings }));
             }
         }
     }
-    Ok(default.map(|arm| ResolvedConstSwitchMatch {
+    Ok(default.map(|arm| ResolvedConstMatchResult {
         arm,
         bindings: Vec::new(),
     }))
 }
 
-fn eval_const_switch_arm_body(
-    body: &EarlyConstSwitchArmBody,
+fn eval_const_match_arm_body(
+    body: &EarlyConstMatchArmBody,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     match body {
-        EarlyConstSwitchArmBody::Expr(expr) => eval_function_tail_expr(expr, env),
-        EarlyConstSwitchArmBody::Stmt(stmt) => eval_function_stmt(stmt, env),
-        EarlyConstSwitchArmBody::Block(block) => eval_function_block(block, env),
+        EarlyConstMatchArmBody::Expr(expr) => eval_function_tail_expr(expr, env),
+        EarlyConstMatchArmBody::Stmt(stmt) => eval_function_stmt(stmt, env),
+        EarlyConstMatchArmBody::Block(block) => eval_function_block(block, env),
     }
 }
 
-fn eval_const_switch_match_body(
-    matched: ConstSwitchMatch<'_>,
+fn eval_const_match_match_body(
+    matched: ConstMatchResult<'_>,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     if matched.bindings.is_empty() {
-        return eval_const_switch_arm_body(&matched.arm.body, env);
+        return eval_const_match_arm_body(&matched.arm.body, env);
     }
     env.push_const_scope(matched.arm.span)?;
     let bind_result = matched
         .bindings
         .iter()
         .try_for_each(|binding| patterns::bind_pattern_value(binding, env));
-    let result = bind_result.and_then(|()| eval_const_switch_arm_body(&matched.arm.body, env));
+    let result = bind_result.and_then(|()| eval_const_match_arm_body(&matched.arm.body, env));
     env.pop_const_scope();
     result
 }
 
-fn eval_resolved_const_switch_arm_body(
-    body: &ResolvedConstSwitchArmBody,
+fn eval_resolved_const_match_arm_body(
+    body: &ResolvedConstMatchArmBody,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     match body.kind() {
-        ResolvedConstSwitchArmBodyKind::Expr(expr) => eval_resolved_function_tail_expr(expr, env),
-        ResolvedConstSwitchArmBodyKind::Stmt(stmt) => eval_resolved_function_stmt(stmt, env),
-        ResolvedConstSwitchArmBodyKind::Block(block) => eval_resolved_function_block(block, env),
+        ResolvedConstMatchArmBodyKind::Expr(expr) => eval_resolved_function_tail_expr(expr, env),
+        ResolvedConstMatchArmBodyKind::Stmt(stmt) => eval_resolved_function_stmt(stmt, env),
+        ResolvedConstMatchArmBodyKind::Block(block) => eval_resolved_function_block(block, env),
     }
 }
 
-fn eval_resolved_const_switch_match_body(
-    matched: ResolvedConstSwitchMatch<'_>,
+fn eval_resolved_const_match_match_body(
+    matched: ResolvedConstMatchResult<'_>,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     if matched.bindings.is_empty() {
-        return eval_resolved_const_switch_arm_body(matched.arm.body(), env);
+        return eval_resolved_const_match_arm_body(matched.arm.body(), env);
     }
     env.push_const_scope(matched.arm.span())?;
     let bind_result = matched
@@ -1263,7 +1263,7 @@ fn eval_resolved_const_switch_match_body(
         .iter()
         .try_for_each(|binding| patterns::bind_resolved_pattern_value(binding, env));
     let result =
-        bind_result.and_then(|()| eval_resolved_const_switch_arm_body(matched.arm.body(), env));
+        bind_result.and_then(|()| eval_resolved_const_match_arm_body(matched.arm.body(), env));
     env.pop_const_scope();
     result
 }

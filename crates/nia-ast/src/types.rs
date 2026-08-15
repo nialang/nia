@@ -692,7 +692,7 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             out.push(')');
         }
         ExprKind::Range(range) => write_slice_range_identity(out, "range_expr", range),
-        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::IfPattern(_) | ExprKind::Switch(_) => {
+        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::IfPattern(_) | ExprKind::Match(_) => {
             out.push_str("control_expr")
         }
     }

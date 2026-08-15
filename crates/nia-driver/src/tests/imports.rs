@@ -263,7 +263,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    switch stdout.writeAll(&b"nia\n") {
+    match stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -297,7 +297,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut raw_buffer: [u8; 0] = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    switch stdout.writeAll(&b"nia\n") {
+    match stdout.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -305,7 +305,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return (1 as process::ExitCode)!;
         },
     }
-    switch stdout.flush() {
+    match stdout.flush() {
         !ok => {
             _ = ok;
         },
@@ -335,7 +335,7 @@ using std::fs;
 using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!() {
-    switch file.writeAll(&b"nia\n") {
+    match file.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
         },
@@ -416,7 +416,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 64] = [0; 64];
     let mut reader = io::FileReader::stdin(&mut buffer[..]);
     let mut bytes: [u8; 1] = [0];
-    switch reader.read(&mut bytes[..]) {
+    match reader.read(&mut bytes[..]) {
         !ok => {
             _ = ok;
         },
@@ -1000,7 +1000,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let allocator: &mut mem::Allocator = &mut fixed;
 
     let encodedText: [u8; 6] = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
-    let utf8 = switch unicode::Utf8View::fromBytes(&encodedText) {
+    let utf8 = match unicode::Utf8View::fromBytes(&encodedText) {
         !value => value,
         error! => {
             _ = error;
@@ -1011,7 +1011,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer text.deinit(allocator).exit().?;
     let answer = 42;
     let formatArgs: [&fmt::Format; 1] = [&answer];
-    switch text.appendFormat(allocator, &" {}", &formatArgs) {
+    match text.appendFormat(allocator, &" {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
             _ = error;
@@ -1064,7 +1064,7 @@ pub fn main(init: Init) ExitCode!() {
     let allocator: &mut Allocator = &mut fixed;
 
     let encodedText: [u8; 6] = [b'N', b'i', b'a', b' ', 0xceu8, 0xbbu8];
-    let utf8 = switch Utf8View::fromBytes(&encodedText) {
+    let utf8 = match Utf8View::fromBytes(&encodedText) {
         !value => value,
         error! => {
             _ = error;
@@ -1075,7 +1075,7 @@ pub fn main(init: Init) ExitCode!() {
     defer text.deinit(allocator).exit().?;
     let answer = 42;
     let formatArgs: [&Format; 1] = [&answer];
-    switch text.appendFormat(allocator, &" {}", &formatArgs) {
+    match text.appendFormat(allocator, &" {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
             _ = error;
@@ -1423,7 +1423,7 @@ fn std_facade_type_can_be_imported_directly() {
 using std::CStringView;
 
 fn main() () {
-    switch CStringView::fromBytes(&b"nia\0") {
+    match CStringView::fromBytes(&b"nia\0") {
         !text => {
             _ = text;
         },
@@ -1444,7 +1444,7 @@ fn std_facade_type_can_be_named_by_package_root_path() {
         &root.join("main.nia"),
         r#"
 fn main() () {
-    switch std::CStringView::fromBytes(&b"nia\0") {
+    match std::CStringView::fromBytes(&b"nia\0") {
         !text => {
             _ = text;
         },
@@ -1924,7 +1924,7 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.current;
-            self.current = switch self.current.next() {
+            self.current = match self.current.next() {
                 ?next => {
                     next
                 },

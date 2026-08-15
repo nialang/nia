@@ -42,7 +42,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
         SpawnError::Setup(ret.syscall_error())!
     } else if ret == 0 {
         error_pipe.close_read();
-        switch apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
+        match apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
             !ok => {
                 _ = ok;
             },
@@ -51,7 +51,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
                 exit(127);
             },
         }
-        switch apply_cwd(options) {
+        match apply_cwd(options) {
             !ok => {
                 _ = ok;
             },
@@ -70,7 +70,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
         stderr_pipe.close_write();
         error_pipe.close_write();
         let pid = ProcessId::init(ret as i32);
-        let error_read = switch error_pipe.take_read() {
+        let error_read = match error_pipe.take_read() {
             ?fd => {
                 fd
             },
@@ -79,7 +79,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
                 return SpawnError::Setup(Errno::Io)!;
             },
         };
-        switch read_spawn_error(error_read, pid).? {
+        match read_spawn_error(error_read, pid).? {
             ?spawn_error => {
                 _ = wait(pid);
                 spawn_error!
@@ -97,7 +97,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
 }
 
 fn report_spawn_error(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
-    switch pipe.write() {
+    match pipe.write() {
         !fd => {
             write_spawn_error(fd, stage, errno);
         },
@@ -142,7 +142,7 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
         dup_to(stdin_pipe.read().?, types::FileDescriptor::stdin()).?;
     }
     if options.stdout() == StdIo::Ignore {
-        switch dev_null {
+        match dev_null {
             ?fd => {
                 dup_to(fd, types::FileDescriptor::stdout()).?;
             },
@@ -156,7 +156,7 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
         dup_to(stdout_pipe.write().?, types::FileDescriptor::stdout()).?;
     }
     if options.stderr() == StdIo::Ignore {
-        switch dev_null {
+        match dev_null {
             ?fd => {
                 dup_to(fd, types::FileDescriptor::stderr()).?;
             },
@@ -172,7 +172,7 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
     stdin_pipe.close_all();
     stdout_pipe.close_all();
     stderr_pipe.close_all();
-    switch dev_null {
+    match dev_null {
         ?fd => {
             fd.close().?;
         },
@@ -182,7 +182,7 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
 }
 
 fn apply_cwd(options: SpawnOptions) Errno!() {
-    switch options.cwd() {
+    match options.cwd() {
         ?path => {
             let ret = syscall::syscall1(syscall::chdir, path as usize);
             if ret < 0 {
@@ -310,7 +310,7 @@ extend SpawnPipe {
     }
 
     fn read(&self) Errno!types::FileDescriptor {
-        switch self.read {
+        match self.read {
             ?fd => {
                 !fd
             },
@@ -321,7 +321,7 @@ extend SpawnPipe {
     }
 
     fn write(&self) Errno!types::FileDescriptor {
-        switch self.write {
+        match self.write {
             ?fd => {
                 !fd
             },
@@ -344,7 +344,7 @@ extend SpawnPipe {
     }
 
     fn close_read(&mut self) () {
-        switch self.take_read() {
+        match self.take_read() {
             ?fd => {
                 _ = fd.close();
             },
@@ -353,7 +353,7 @@ extend SpawnPipe {
     }
 
     fn close_write(&mut self) () {
-        switch self.take_write() {
+        match self.take_write() {
             ?fd => {
                 _ = fd.close();
             },
@@ -369,7 +369,7 @@ extend SpawnPipe {
 
 extend[T] Errno!T {
     fn as_spawn_setup_error(self) SpawnError!T {
-        switch self {
+        match self {
             !value => {
                 !value
             },

@@ -81,12 +81,12 @@ fn textIs(actual: &[char], expected: &[char]) bool {
 }
 
 fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Module(0usize),
@@ -97,12 +97,12 @@ fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
 }
 
 fn rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Executable(0usize),
@@ -113,12 +113,12 @@ fn rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
 }
 
 fn rejectsForeignObject(result: build::Error!build::StepHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Object(0usize),
@@ -129,12 +129,12 @@ fn rejectsForeignObject(result: build::Error!build::StepHandle) bool {
 }
 
 fn rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::StaticArchive(0usize),
@@ -145,12 +145,12 @@ fn rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
 }
 
 fn rejectsForeignStaticArchiveTarget(result: build::Error!build::ExecutableHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::StaticArchive(0usize),
@@ -161,12 +161,12 @@ fn rejectsForeignStaticArchiveTarget(result: build::Error!build::ExecutableHandl
 }
 
 fn rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index: usize) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Executable(actual),
@@ -177,12 +177,12 @@ fn rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index:
 }
 
 fn rejectsForeignStep(result: build::Error!()) bool {
-    switch result {
+    match result {
         !ok => {
             _ = ok;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Step(0usize),
@@ -193,12 +193,12 @@ fn rejectsForeignStep(result: build::Error!()) bool {
 }
 
 fn rejectsInvalidPackage(result: build::Error!build::PackageHandle, index: usize) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Package(actual),
@@ -209,12 +209,12 @@ fn rejectsInvalidPackage(result: build::Error!build::PackageHandle, index: usize
 }
 
 fn rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Packages,
@@ -225,12 +225,12 @@ fn rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
 }
 
 fn rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Packages,
@@ -241,12 +241,12 @@ fn rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
 }
 
 fn rejectsInvalidPlanModule(result: build::Error!(), index: usize) bool {
-    switch result {
+    match result {
         !ok => {
             _ = ok;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Module(actual),
@@ -257,12 +257,12 @@ fn rejectsInvalidPlanModule(result: build::Error!(), index: usize) bool {
 }
 
 fn rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Module(actual),
@@ -273,12 +273,12 @@ fn rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) 
 }
 
 fn rejectsInvalidStep(result: build::Error!build::StepHandle, index: usize) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::Step(actual),
@@ -289,12 +289,12 @@ fn rejectsInvalidStep(result: build::Error!build::StepHandle, index: usize) bool
 }
 
 fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
-    switch result {
+    match result {
         !handle => {
             _ = handle;
             false
         },
-        error! => switch error {
+        error! => match error {
             build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::ModuleImport(1usize),
