@@ -72,6 +72,78 @@
 //! a new syntax accepted by the language. Const evaluation remains path-driven;
 //! whole-function control-flow soundness remains owned by `nia-body-check`.
 //!
+//! # Algorithm In The Paper
+//!
+//! Maranget's central question is `useful(P, q)`: does the row `q` contain a
+//! value not already covered by matrix `P`? Nia's `useful_inner` is the direct
+//! recursive implementation of that relation. Its two matrix operations are:
+//!
+//! ```text
+//! specialize(P, C) = rows whose head is `_` or C, with C's fields exposed
+//! default(P)       = rows whose head is `_`, with the first column removed
+//!
+//! useful([], q)                 = q
+//! useful(P, [])                 = no witness
+//! useful(P, C(args) :: q)       =
+//!     rebuild C around useful(specialize(P, C), args :: q)
+//! useful(P, _ :: q)             =
+//!     first useful constructor specialization,
+//!     then default(P) when the constructor universe is incomplete
+//! ```
+//!
+//! A constructor query first specializes on that constructor and recursively
+//! checks its payload fields. A wildcard query tries every known constructor;
+//! for an open or incomplete domain it also checks `default(P)`, representing
+//! values which the adapter cannot enumerate. This is why coverage is checked
+//! over the product of fields rather than independently per field.
+//!
+//! | Paper notation | This crate | Purpose |
+//! | --- | --- | --- |
+//! | pattern vector `q` | `query` | candidate row being tested |
+//! | pattern matrix `P` | `matrix` | earlier useful rows |
+//! | constructor signature | `domain(type)` | constructors and field types |
+//! | specialization `S(c, P)` | `specialize_constructor` | expose payload columns |
+//! | default `D(P)` | `default_matrix` | remove the wildcard head column |
+//! | usefulness `U(P, q)` | `useful_inner` | return an uncovered witness |
+//!
+//! For example, for `Option<Bool>` (booleans are scalar `0..=1` inside the
+//! analysis representation):
+//!
+//! ```text
+//! Nia source rows   matrix                 query
+//! Some(false)       [ Some(0) ]            [_]
+//! Some(_)           [ Some(_) ]
+//! None              [ None ]
+//!
+//! specialize(Some): [ 0 ] [ _ ]
+//! default:          [ None ]
+//! ```
+//!
+//! The `Some` branch is exhaustive because `0` and `_` cover the payload; the
+//! default branch is then checked and finds `None`. Once that row is present,
+//! `missing_witness` returns `None`. With only `Some(_)`, the same recursion
+//! returns the constructor witness `None`, making the diagnostic concrete
+//! rather than merely saying “some constructor is missing”.
+//!
+//! Scalar patterns use the same recursion without enumerating every integer.
+//! Endpoints partition `[min, max]` into disjoint intervals, and each interval
+//! is specialized as a row. A witness is represented by one point from an
+//! uncovered interval. The implementation deliberately emits a singleton
+//! endpoint (`start == end`) so diagnostics remain stable and easy to read.
+//!
+//! | Domain | Known values | Exhaustiveness rule |
+//! | --- | --- | --- |
+//! | `Finite` | all constructors | all constructors and payloads covered |
+//! | `Open` | listed constructors only | known constructors plus `_` |
+//! | `Scalar` (`complete`) | bounded interval | every partition covered |
+//! | `Scalar` (incomplete) | conservative interval | interval coverage plus `_` |
+//! | `Opaque` | no static partition | `_` is required |
+//!
+//! This crate stops at usefulness and witnesses. It intentionally does not
+//! build Maranget decision trees: runtime lowering and const execution have
+//! different ownership and evaluation constraints, so sharing a coverage
+//! proof is safer than sharing generated control flow.
+//!
 //! When changing pattern syntax, type lowering, or switch lowering, audit the
 //! parser representation, both adapters, constructor identity and field order,
 //! finite/open/opaque classification, scalar clipping, witness formatting,
@@ -81,6 +153,12 @@
 use std::fmt;
 
 /// A pattern after names, aliases, field order, and constants have been resolved.
+///
+/// The representation is intentionally smaller than the AST. At this point a
+/// bind and a wildcard are both `Wildcard`, nominal `..` has already become
+/// wildcard children, and a scalar expression is either a checked interval or
+/// `Opaque`. Keeping unresolved syntax out of the matrix prevents the coverage
+/// algorithm from accidentally making a semantic decision about name lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pattern<C> {
     Wildcard,
@@ -101,6 +179,10 @@ pub enum Pattern<C> {
 }
 
 /// One constructor in a type's canonical constructor universe.
+///
+/// `fields` is ordered data, not a set: the index is the ABI/lowering
+/// projection index used by specialization. Adapters must therefore source it
+/// from the same canonical declaration metadata as destructuring code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Constructor<T, C> {
     pub id: C,
@@ -108,6 +190,10 @@ pub struct Constructor<T, C> {
 }
 
 /// The values which can inhabit one pattern column.
+///
+/// The distinction between `Finite`, `Open`, and incomplete `Scalar` is
+/// semantic, not an optimization hint. It determines whether the fallback
+/// (`default`) matrix is explored and therefore whether `_` is required.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Domain<T, C> {
     /// Every constructor is known. An empty universe represents an uninhabited type.
@@ -165,6 +251,12 @@ impl std::error::Error for AnalysisError {}
 
 /// Returns a concrete sub-pattern of `query` not matched by any matrix row.
 ///
+/// This is Maranget's `useful(P, q)` relation with a witness attached. `Some`
+/// means the query is useful and contains the returned counterexample;
+/// `None` means every value described by the query is already covered. The
+/// matrix is assumed to contain only earlier useful rows, which is why callers
+/// append a row only after receiving `Some`.
+///
 /// `domain` must return constructor fields in the same canonical order used by
 /// lowering. That correspondence is the central soundness invariant: matrix
 /// specialization and runtime destructuring must interpret every constructor
@@ -185,6 +277,10 @@ where
 }
 
 /// Returns one value not covered by `matrix`, or `None` when it is exhaustive.
+///
+/// This is the one-column convenience form used after all switch arms have
+/// been normalized. It asks `useful_witness` about `_` and unwraps the only
+/// column, preserving the same validation and conservative domain rules.
 pub fn missing_witness<T, C, F>(
     matrix: &[Vec<Pattern<C>>],
     ty: T,

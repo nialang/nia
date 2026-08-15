@@ -6,6 +6,36 @@
 //! `InternedTyId`s are handed to the ordinary body checker and published in
 //! semantic facts or Body IR. This keeps query, ABI, layout, and persistence
 //! boundaries free of transient inference identities.
+//!
+//! # Solver Shape
+//!
+//! This is HM-style equality constraint solving, not a complete textbook
+//! Hindley-Milner implementation. Nia does not generalize local `let` bindings
+//! here; nominal types, callable views, trait operators, and closure ABI rules
+//! remain owned by their existing semantic subsystems. The local data flow is:
+//!
+//! ```text
+//! AST expressions/locals
+//!         |
+//!         v
+//! fresh inference ids + structural shapes
+//!         |
+//!         v
+//! union-find equality classes --resolve--> canonical InternedTyId
+//!         |                                  |
+//!         +--> partial closure signatures    +--> operator trait obligations
+//! ```
+//!
+//! | Mechanism | Responsibility | Deliberate boundary |
+//! | --- | --- | --- |
+//! | union-find | equality between locals, expressions, and shape children | no subtyping/coercion search |
+//! | structural shapes | tuples, pointers, optionals, error unions, callables | nominal types stay canonical |
+//! | partial closure types | preserve unresolved closure leaves | never enter Body IR directly |
+//! | operator obligations | defer overload output until operands resolve | canonical trait solver decides |
+//!
+//! The solver is monomorphic within one function pass. Generic call matching
+//! and ordinary diagnostic/coercion behavior remain outside this module; this
+//! pass supplies the missing closure constraints they can consume.
 
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
@@ -74,6 +104,15 @@ impl BodyChecker<'_> {
     }
 }
 
+/// A partially known type shape used while collecting function-local
+/// constraints.
+///
+/// These are deliberately separate from `nia_ty::TyKind`: an inference term
+/// can contain unresolved child ids, while canonical types are required at
+/// semantic/ABI boundaries. `Known` nodes are expanded lazily by
+/// [`FunctionInference::expanded_shape`], so a known tuple or callable can
+/// participate in the same equality graph as a closure whose parameters are
+/// still fresh variables.
 #[derive(Clone, Debug)]
 enum InferShape {
     Known(InternedTyId),
@@ -98,6 +137,15 @@ enum InferShape {
     },
 }
 
+/// One union-find node. `shape` belongs to the representative after a merge;
+/// `rank` keeps trees shallow, and `find` additionally performs path
+/// compression.
+///
+/// This solver has no general occurs-check. Current construction sites create
+/// acyclic shapes from the finite AST and canonical type components. Any new
+/// constraint form that can embed an existing term inside itself must either
+/// preserve that DAG invariant or add an occurs-check before recursive
+/// `unify`/`resolve` traversal.
 #[derive(Clone, Debug)]
 struct InferNode {
     parent: InferId,
@@ -120,6 +168,12 @@ struct OperatorObligation {
     output: InferId,
 }
 
+/// Constraint state for one function body.
+///
+/// Locals and expressions are interned into stable inference ids. Closures are
+/// recorded for publication after solving, while operators are retained as
+/// obligations until ordinary equality constraints have made their operands
+/// concrete enough for the authoritative trait solver.
 #[derive(Default)]
 struct FunctionInference {
     nodes: Vec<InferNode>,
@@ -163,6 +217,7 @@ impl BodyChecker<'_> {
 }
 
 impl FunctionInference {
+    /// Allocate an unconstrained equivalence-class representative.
     fn fresh(&mut self) -> InferId {
         let id = self.nodes.len();
         self.nodes.push(InferNode {
@@ -173,12 +228,15 @@ impl FunctionInference {
         id
     }
 
+    /// Allocate a term whose outer constructor is already known.
     fn with_shape(&mut self, shape: InferShape) -> InferId {
         let id = self.fresh();
         self.nodes[id].shape = Some(shape);
         id
     }
 
+    /// Reuse one term per canonical type so repeated concrete types join the
+    /// same equality graph instead of creating needless representatives.
     fn known(&mut self, ty: InternedTyId) -> InferId {
         if let Some(id) = self.concrete_terms.get(&ty).copied() {
             return id;
@@ -188,6 +246,11 @@ impl FunctionInference {
         id
     }
 
+    /// Return the representative of `id`, compressing the parent path.
+    ///
+    /// Union-by-rank in [`unify`](Self::unify) bounds the tree height; path
+    /// compression makes repeated local/closure lookups effectively constant
+    /// amortized time while preserving the equality relation.
     fn find(&mut self, id: InferId) -> InferId {
         let parent = self.nodes[id].parent;
         if parent == id {
@@ -198,6 +261,13 @@ impl FunctionInference {
         root
     }
 
+    /// View a term's outer shape, expanding canonical types only when needed.
+    ///
+    /// Delayed expansion is important for incremental body checking: a known
+    /// nominal/primitive type remains an atomic equality fact, while tuples,
+    /// pointers, optionals, error unions, and callable views expose child
+    /// constraints to `unify`. Unknown or unsupported canonical kinds stay
+    /// `Known` and are therefore handled conservatively.
     fn expanded_shape(&mut self, checker: &BodyChecker<'_>, id: InferId) -> Option<InferShape> {
         let root = self.find(id);
         let shape = self.nodes[root].shape.clone()?;
@@ -245,6 +315,21 @@ impl FunctionInference {
         }
     }
 
+    /// Unify two terms in the function-local equality graph.
+    ///
+    /// The order is intentional:
+    ///
+    /// 1. normalize both ids with `find`;
+    /// 2. reject incompatible outer shapes without mutating the graph;
+    /// 3. merge representatives by rank and retain one known/structural shape;
+    /// 4. recursively unify corresponding tuple, pointer, wrapper, or
+    ///    callable children.
+    ///
+    /// `false` reports a local conflict to the caller. Most collection paths
+    /// continue so diagnostics can be produced by the ordinary type checker;
+    /// this solver never publishes a partially unified term as a canonical
+    /// type. This is HM-style equality solving extended with Nia's nominal
+    /// types and callable/closure shapes, not a standalone generalization pass.
     fn unify(&mut self, checker: &BodyChecker<'_>, left: InferId, right: InferId) -> bool {
         let left = self.find(left);
         let right = self.find(right);
@@ -322,6 +407,12 @@ impl FunctionInference {
         true
     }
 
+    /// Check only outer-shape compatibility before a union is committed.
+    ///
+    /// Unresolved terms are compatible with anything. Structural wrappers must
+    /// have the same arity/mutability, while concrete types must be identical
+    /// except for the checker's designated error type, which is intentionally
+    /// compatible as a recovery mechanism.
     fn shapes_compatible(
         &self,
         checker: &BodyChecker<'_>,
@@ -354,6 +445,12 @@ impl FunctionInference {
         }
     }
 
+    /// Reify a solved term into an interned canonical type.
+    ///
+    /// Every child must resolve recursively. An unresolved leaf, or a callable
+    /// shape whose closure ABI is still represented by inference ids, returns
+    /// `None`; callers then leave the normal body/type checking path in charge
+    /// instead of leaking an incomplete type into semantic facts.
     fn resolve(&mut self, checker: &BodyChecker<'_>, id: InferId) -> Option<InternedTyId> {
         let shape = self.expanded_shape(checker, id)?;
         match shape {
@@ -389,6 +486,10 @@ impl FunctionInference {
         }
     }
 
+    /// Convert a term to the partial type form used for closure publication.
+    ///
+    /// Unlike `resolve`, this preserves `Unknown` leaves so a closure can be
+    /// recorded before all contextual constraints are available.
     fn inferred_type(&mut self, checker: &BodyChecker<'_>, id: InferId) -> InferredType {
         let Some(shape) = self.expanded_shape(checker, id) else {
             return InferredType::Unknown;
@@ -605,6 +706,10 @@ impl FunctionInference {
         }
     }
 
+    /// Give a binding pattern a term and connect a bind pattern to its local.
+    ///
+    /// Explicit annotations seed a known term; unannotated patterns start
+    /// fresh and are constrained by their initializer or surrounding context.
     fn pattern_term(
         &mut self,
         checker: &mut BodyChecker<'_>,
@@ -624,6 +729,14 @@ impl FunctionInference {
         term
     }
 
+    /// Collect equality constraints from one expression and optionally connect
+    /// it to an expected term.
+    ///
+    /// Literals and resolved names contribute known terms; tuples, pointers,
+    /// optionals, error unions, calls, conditionals, and closures contribute
+    /// structural terms. Binary operators are recorded as obligations rather
+    /// than resolved immediately, allowing nested closures and calls to settle
+    /// their operand types first.
     fn constrain_expr(
         &mut self,
         checker: &mut BodyChecker<'_>,
@@ -877,6 +990,13 @@ impl FunctionInference {
         term
     }
 
+    /// Discharge deferred binary-operator obligations through the canonical
+    /// trait solver after equality constraints have settled.
+    ///
+    /// Comparison operators have the built-in `bool` result. Other operators
+    /// require a proven built-in trait and are materialized through its
+    /// `OUTPUT` projection. Failed or still-unknown obligations are left for
+    /// the ordinary checker, avoiding a second, divergent overload algorithm.
     fn solve_operators(&mut self, checker: &mut BodyChecker<'_>) {
         // Operator traits are resolved only after ordinary equality
         // constraints settle. This reuses the authoritative trait solver and
