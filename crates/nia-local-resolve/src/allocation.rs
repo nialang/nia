@@ -338,15 +338,18 @@ impl LocalDefinitionAllocator {
                     self.allocate_pattern_with_span(field, binding_kind, binding_span);
                 }
             }
-            PatternKind::EnumVariant { variant, fields } => {
+            PatternKind::Nominal {
+                constructor: variant,
+                fields,
+            } => {
                 self.allocate_expr(variant);
                 match fields {
-                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                    nia_ast::NominalPatternFields::Tuple(fields) => {
                         for field in fields {
                             self.allocate_pattern_with_span(field, binding_kind, binding_span);
                         }
                     }
-                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named(fields) => {
                         for field in fields {
                             self.allocate_pattern_with_span(
                                 &field.pattern,

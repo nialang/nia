@@ -376,11 +376,16 @@ impl<'a> BodyChecker<'a> {
                 }
                 value_ty
             }
+            nia_ast::PatternKind::Nominal {
+                constructor,
+                fields,
+            } if self.enum_variant_info(constructor).is_none() => self
+                .check_irrefutable_struct_pattern(pattern, constructor, fields, value_ty, context),
             nia_ast::PatternKind::OptionalSome(_)
             | nia_ast::PatternKind::OptionalNull
             | nia_ast::PatternKind::ErrorOk(_)
             | nia_ast::PatternKind::ErrorErr(_)
-            | nia_ast::PatternKind::EnumVariant { .. }
+            | nia_ast::PatternKind::Nominal { .. }
             | nia_ast::PatternKind::Expr(_)
             | nia_ast::PatternKind::Range { .. } => {
                 self.diagnostics.push(Diagnostic::user_error_at(

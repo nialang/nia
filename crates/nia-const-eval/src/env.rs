@@ -2,9 +2,9 @@ use crate::{ConstAllocationOrigin, ConstPointerValue, ConstValue, ResolvedConstP
 
 use nia_const_ir::{
     ConstNameResolution, EarlyConstAssignTarget, EarlyConstBinding, EarlyConstExpr,
-    EarlyConstGenericArg, EarlyConstName, EarlyConstParam, EarlyConstTypeArg,
-    ResolvedConstAssignTarget, ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg,
-    ResolvedConstParam, ResolvedConstTypeArg,
+    EarlyConstGenericArg, EarlyConstName, EarlyConstParam, EarlyConstPatternBinding,
+    EarlyConstTypeArg, ResolvedConstAssignTarget, ResolvedConstBinding, ResolvedConstExpr,
+    ResolvedConstGenericArg, ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstTypeArg,
 };
 use nia_ids::{
     BuiltinConstValue, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin,
@@ -355,6 +355,18 @@ pub trait EarlyConstEnv: ConstCommonEnv {
             message: "const switch pattern locals are not available in this context".to_string(),
         })
     }
+
+    fn bind_function_pattern_local(
+        &mut self,
+        span: Span,
+        binding: &EarlyConstPatternBinding,
+        name: &SymbolId,
+        local_id: Option<nia_ids::LocalId>,
+        value: ConstValue,
+    ) -> Result<(), ConstError> {
+        let _ = binding;
+        self.bind_pattern_local(span, name, local_id, value)
+    }
 }
 
 pub trait ResolvedConstEnv: ConstCommonEnv {
@@ -371,6 +383,13 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
     fn prepare_resolved_binding(
         &mut self,
         _binding: &ResolvedConstBinding,
+    ) -> Result<(), ConstError> {
+        Ok(())
+    }
+
+    fn prepare_resolved_pattern_binding(
+        &mut self,
+        _binding: &ResolvedConstPatternBinding,
     ) -> Result<(), ConstError> {
         Ok(())
     }
@@ -576,6 +595,18 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
             message: "resolved const switch pattern locals are not available in this context"
                 .to_string(),
         })
+    }
+
+    fn bind_resolved_function_pattern_local(
+        &mut self,
+        span: Span,
+        binding: &ResolvedConstPatternBinding,
+        name: &SymbolId,
+        local_id: nia_ids::LocalId,
+        value: ConstValue,
+    ) -> Result<(), ConstError> {
+        let _ = binding;
+        self.bind_resolved_pattern_local(span, name, local_id, value)
     }
 }
 

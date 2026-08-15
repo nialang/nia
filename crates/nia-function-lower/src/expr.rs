@@ -1013,7 +1013,7 @@ impl FunctionLowerer<'_> {
                         pattern: self.checked_int_pattern_expr(*value, pattern.ty, pattern.span),
                         target: arm_target,
                     }),
-                    TypedPatternKind::EnumVariant { .. } => {
+                    TypedPatternKind::Nominal { .. } => {
                         arms.push(FunctionSwitchArm {
                             pattern: self
                                 .direct_enum_switch_pattern(pattern)

@@ -96,3 +96,33 @@ Point::origin()
             .any(|use_kind| matches!(use_kind, LocalUse::TypePrefix))
     );
 }
+
+#[test]
+fn records_nominal_pattern_constructor_identity() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+struct Point { x: i32 }
+
+fn read(point: Point) i32 {
+    let Point { x } = point;
+    x
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let point = GlobalDefId {
+        module_id,
+        def_id: defs
+            .module_scope
+            .types
+            .get(&sym("Point"))
+            .expect("Point definition"),
+    };
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+    assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+    assert!(locals.node_type_prefixes.values().any(|id| *id == point));
+}

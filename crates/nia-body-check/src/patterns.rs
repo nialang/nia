@@ -331,15 +331,29 @@ impl<'a> BodyChecker<'a> {
                     coverage.catch_all = Some(pattern.span);
                 }
             }
-            nia_ast::PatternKind::EnumVariant { variant, fields } => {
-                self.check_enum_variant_pattern(
-                    pattern.span,
-                    variant,
-                    fields,
-                    target_ty,
-                    coverage,
-                    context,
-                );
+            nia_ast::PatternKind::Nominal {
+                constructor,
+                fields,
+            } => {
+                if self.enum_variant_info(constructor).is_some() {
+                    self.check_enum_variant_pattern(
+                        pattern.span,
+                        constructor,
+                        fields,
+                        target_ty,
+                        coverage,
+                        context,
+                    );
+                } else {
+                    self.check_struct_pattern(
+                        pattern.span,
+                        constructor,
+                        fields,
+                        target_ty,
+                        coverage,
+                        context,
+                    );
+                }
             }
             nia_ast::PatternKind::Expr(expr) => {
                 if let Some(coverage) = coverage {
@@ -387,11 +401,169 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(super) fn check_irrefutable_struct_pattern(
+        &mut self,
+        pattern: &nia_ast::Pattern,
+        constructor: &Expr,
+        fields: &nia_ast::NominalPatternFields,
+        target_ty: InternedTyId,
+        context: &str,
+    ) -> InternedTyId {
+        let mut coverage = PatternCoverage::default();
+        self.check_struct_pattern(
+            pattern.span,
+            constructor,
+            fields,
+            target_ty,
+            Some(&mut coverage),
+            context,
+        );
+        if self.pattern_coverage_covers_type(target_ty, &coverage) {
+            target_ty
+        } else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                pattern.span,
+                format!("{context} must be irrefutable"),
+            ));
+            self.error()
+        }
+    }
+
+    fn check_struct_pattern(
+        &mut self,
+        span: Span,
+        constructor: &Expr,
+        fields: &nia_ast::NominalPatternFields,
+        target_ty: InternedTyId,
+        coverage: Option<&mut PatternCoverage>,
+        context: &str,
+    ) {
+        let Some((constructor_def, _, _)) = self.type_prefix_instance(constructor) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                constructor.span,
+                format!("{context} constructor is not a struct or enum variant"),
+            ));
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        };
+        let normalized = self.normalization.normalize(target_ty);
+        let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(normalized).cloned() else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("{context} struct pattern requires a struct target"),
+            ));
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        };
+        if self.is_enum_def(constructor_def)
+            || self.is_union_def(constructor_def)
+            || self.resolved_struct_signature(constructor_def).is_none()
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                constructor.span,
+                format!("{context} constructor is not a struct"),
+            ));
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        }
+        if constructor_def != def_id {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                constructor.span,
+                format!(
+                    "{context} constructor does not match target type `{}`",
+                    self.ty_name(target_ty)
+                ),
+            ));
+        }
+        let nia_ast::NominalPatternFields::Named(actual) = fields else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "struct patterns require named fields",
+            ));
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        };
+        let Some(signature) = self.resolved_struct_signature(constructor_def) else {
+            return;
+        };
+        let expected = signature.signature.fields;
+        let field_set = nia_sema::check_required_field_set(
+            actual
+                .iter()
+                .map(|field| nia_sema::NamedField::new(field.span, field.name)),
+            expected.iter().map(|field| field.name),
+        );
+        let field_set_is_valid = field_set.duplicate_fields.is_empty()
+            && field_set.unknown_fields.is_empty()
+            && field_set.missing_fields.is_empty();
+        let mut fields_are_irrefutable = true;
+
+        // Check in declaration order. Typed lowering relies on this same canonical order so
+        // source field order never changes either runtime projection or coverage semantics.
+        for expected_field in &expected {
+            let Some(field) = actual
+                .iter()
+                .find(|field| field.name == expected_field.name)
+            else {
+                fields_are_irrefutable = false;
+                continue;
+            };
+            let ty = self
+                .field_ty_for_aggregate_ty(target_ty, &expected_field.name)
+                .unwrap_or_else(|| self.error());
+            let mut child = PatternCoverage::default();
+            self.check_pattern(&field.pattern, ty, Some(&mut child), context);
+            fields_are_irrefutable &= self.pattern_coverage_covers_type(ty, &child);
+        }
+        for field in &field_set.duplicate_fields {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                field.span,
+                format!(
+                    "duplicate struct pattern field `{}`",
+                    self.symbol_name(field.name)
+                ),
+            ));
+        }
+        for field in &field_set.unknown_fields {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                field.span,
+                format!(
+                    "unknown struct pattern field `{}`",
+                    self.symbol_name(field.name)
+                ),
+            ));
+        }
+        for name in &field_set.missing_fields {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("missing struct pattern field `{}`", self.symbol_name(*name)),
+            ));
+        }
+        if field_set_is_valid
+            && fields_are_irrefutable
+            && let Some(coverage) = coverage
+        {
+            if let Some(previous) = coverage.catch_all {
+                self.report_pattern_overlap(span, previous);
+            }
+            coverage.catch_all = Some(span);
+        }
+    }
+
     fn check_enum_variant_pattern(
         &mut self,
         span: Span,
         variant_expr: &Expr,
-        fields: &nia_ast::EnumVariantPatternFields,
+        fields: &nia_ast::NominalPatternFields,
         target_ty: InternedTyId,
         coverage: Option<&mut PatternCoverage>,
         context: &str,
@@ -429,7 +601,7 @@ impl<'a> BodyChecker<'a> {
         match (&variant.payload, fields) {
             (
                 nia_item_signatures::EnumVariantPayloadSignature::Tuple(expected),
-                nia_ast::EnumVariantPatternFields::Tuple(actual),
+                nia_ast::NominalPatternFields::Tuple(actual),
             ) => {
                 if expected.len() != actual.len() {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -466,7 +638,7 @@ impl<'a> BodyChecker<'a> {
             }
             (
                 nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
-                nia_ast::EnumVariantPatternFields::Named(actual),
+                nia_ast::NominalPatternFields::Named(actual),
             ) => {
                 let field_set = nia_sema::check_required_field_set(
                     actual
@@ -599,17 +771,17 @@ impl<'a> BodyChecker<'a> {
 
     fn check_invalid_enum_pattern_fields(
         &mut self,
-        fields: &nia_ast::EnumVariantPatternFields,
+        fields: &nia_ast::NominalPatternFields,
         context: &str,
     ) {
         match fields {
-            nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+            nia_ast::NominalPatternFields::Tuple(fields) => {
                 for field in fields {
                     let error = self.error();
                     self.check_pattern(field, error, None, context);
                 }
             }
-            nia_ast::EnumVariantPatternFields::Named(fields) => {
+            nia_ast::NominalPatternFields::Named(fields) => {
                 for field in fields {
                     let error = self.error();
                     self.check_pattern(&field.pattern, error, None, context);

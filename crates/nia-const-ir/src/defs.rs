@@ -400,6 +400,7 @@ impl ResolvedConstStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedConstStmtKind {
     Binding(ResolvedConstBinding),
+    PatternBinding(ResolvedConstPatternBinding),
     Expr(ResolvedConstExpr),
     Return(Option<ResolvedConstExpr>),
     Break,
@@ -417,6 +418,57 @@ pub enum ResolvedConstStmtKind {
     Loop {
         body: ResolvedConstBlock,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// A destructuring local binding in a const function.
+///
+/// The annotation constrains the initializer and therefore the whole pattern. `is_mutable`
+/// applies to every binding leaf, matching the runtime interpretation of `let mut PATTERN`.
+pub struct ResolvedConstPatternBinding {
+    span: Span,
+    pattern: ResolvedConstPattern,
+    explicit_type: Option<InternedTyId>,
+    is_mutable: bool,
+    value: ResolvedConstExpr,
+}
+
+impl ResolvedConstPatternBinding {
+    pub fn new(
+        span: Span,
+        pattern: ResolvedConstPattern,
+        explicit_type: Option<InternedTyId>,
+        is_mutable: bool,
+        value: ResolvedConstExpr,
+    ) -> Self {
+        Self {
+            span,
+            pattern,
+            explicit_type,
+            is_mutable,
+            value,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn pattern(&self) -> &ResolvedConstPattern {
+        &self.pattern
+    }
+
+    pub fn explicit_type(&self) -> Option<InternedTyId> {
+        self.explicit_type
+    }
+
+    pub fn is_mutable(&self) -> bool {
+        self.is_mutable
+    }
+
+    pub fn value(&self) -> &ResolvedConstExpr {
+        &self.value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -754,6 +806,20 @@ impl ResolvedConstPattern {
         }
     }
 
+    pub fn struct_pattern(
+        def_id: GlobalDefId,
+        fields: Vec<ConstNamedPatternField<ResolvedConstPattern>>,
+        span: Span,
+    ) -> Self {
+        Self {
+            kind: ResolvedConstPatternKind::Struct {
+                def_id,
+                fields,
+                span,
+            },
+        }
+    }
+
     pub fn expr(expr: ResolvedConstExpr) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Expr(expr),
@@ -831,6 +897,11 @@ pub enum ResolvedConstPatternKind {
     EnumVariant {
         variant: ResolvedConstExpr,
         fields: ConstEnumPatternFields<ResolvedConstPattern>,
+        span: Span,
+    },
+    Struct {
+        def_id: GlobalDefId,
+        fields: Vec<ConstNamedPatternField<ResolvedConstPattern>>,
         span: Span,
     },
     Expr(ResolvedConstExpr),
@@ -1195,6 +1266,7 @@ pub struct EarlyConstStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EarlyConstStmtKind {
     Binding(EarlyConstBinding),
+    PatternBinding(Box<EarlyConstPatternBinding>),
     Expr(EarlyConstExpr),
     Return(Option<EarlyConstExpr>),
     Break,
@@ -1212,6 +1284,16 @@ pub enum EarlyConstStmtKind {
     Loop {
         body: EarlyConstBlock,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// The early form of a destructuring local binding in a const function.
+pub struct EarlyConstPatternBinding {
+    pub span: Span,
+    pub pattern: EarlyConstPattern,
+    pub explicit_type: Option<EarlyConstTypeArg>,
+    pub is_mutable: bool,
+    pub value: EarlyConstExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1310,6 +1392,11 @@ pub enum EarlyConstPattern {
     EnumVariant {
         variant: EarlyConstExpr,
         fields: ConstEnumPatternFields<EarlyConstPattern>,
+        span: Span,
+    },
+    Struct {
+        def_id: GlobalDefId,
+        fields: Vec<ConstNamedPatternField<EarlyConstPattern>>,
         span: Span,
     },
     Expr(EarlyConstExpr),

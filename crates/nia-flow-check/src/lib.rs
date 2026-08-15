@@ -104,7 +104,7 @@ impl SyntacticPatternCoverage {
             | PatternKind::OptionalNull
             | PatternKind::ErrorOk(_)
             | PatternKind::ErrorErr(_)
-            | PatternKind::EnumVariant { .. }
+            | PatternKind::Nominal { .. }
             | PatternKind::Expr(_)
             | PatternKind::Range { .. } => false,
         }
@@ -132,7 +132,7 @@ impl SyntacticPatternCoverage {
                     self.catch_all = true;
                 }
             }
-            PatternKind::EnumVariant { .. } => {}
+            PatternKind::Nominal { .. } => {}
             PatternKind::Expr(_) | PatternKind::Range { .. } => {}
         }
     }
@@ -643,15 +643,18 @@ impl FlowChecker<'_> {
                     self.check_pattern_flow(field);
                 }
             }
-            PatternKind::EnumVariant { variant, fields } => {
+            PatternKind::Nominal {
+                constructor: variant,
+                fields,
+            } => {
                 self.check_expr_flow(variant);
                 match fields {
-                    nia_ast::EnumVariantPatternFields::Tuple(fields) => {
+                    nia_ast::NominalPatternFields::Tuple(fields) => {
                         for field in fields {
                             self.check_pattern_flow(field);
                         }
                     }
-                    nia_ast::EnumVariantPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named(fields) => {
                         for field in fields {
                             self.check_pattern_flow(&field.pattern);
                         }
@@ -708,7 +711,7 @@ impl FlowChecker<'_> {
             | PatternKind::OptionalNull
             | PatternKind::ErrorOk(_)
             | PatternKind::ErrorErr(_)
-            | PatternKind::EnumVariant { .. }
+            | PatternKind::Nominal { .. }
             | PatternKind::Expr(_)
             | PatternKind::Range { .. } => false,
         }
@@ -739,13 +742,16 @@ impl FlowChecker<'_> {
                     .map(Self::pattern_fingerprint)
                     .collect::<Option<Vec<_>>>()?,
             )),
-            PatternKind::EnumVariant { variant, fields } => {
+            PatternKind::Nominal {
+                constructor: variant,
+                fields,
+            } => {
                 let fields = match fields {
-                    nia_ast::EnumVariantPatternFields::Tuple(fields) => fields
+                    nia_ast::NominalPatternFields::Tuple(fields) => fields
                         .iter()
                         .map(|field| Some((None, Self::pattern_fingerprint(field)?)))
                         .collect::<Option<Vec<_>>>()?,
-                    nia_ast::EnumVariantPatternFields::Named(fields) => fields
+                    nia_ast::NominalPatternFields::Named(fields) => fields
                         .iter()
                         .map(|field| {
                             Some((Some(field.name), Self::pattern_fingerprint(&field.pattern)?))

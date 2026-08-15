@@ -115,7 +115,7 @@ impl Pattern {
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => pattern.contains_binding(),
             PatternKind::Tuple(patterns) => patterns.iter().any(Pattern::contains_binding),
-            PatternKind::EnumVariant { fields, .. } => fields.contains_binding(),
+            PatternKind::Nominal { fields, .. } => fields.contains_binding(),
             PatternKind::Wildcard
             | PatternKind::OptionalNull
             | PatternKind::Expr(_)
@@ -139,9 +139,9 @@ pub enum PatternKind {
     ErrorOk(Box<Pattern>),
     ErrorErr(Box<Pattern>),
     Tuple(Vec<Pattern>),
-    EnumVariant {
-        variant: Box<Expr>,
-        fields: EnumVariantPatternFields,
+    Nominal {
+        constructor: Box<Expr>,
+        fields: NominalPatternFields,
     },
     Expr(Box<Expr>),
     Range {
@@ -152,12 +152,12 @@ pub enum PatternKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum EnumVariantPatternFields {
+pub enum NominalPatternFields {
     Tuple(Vec<Pattern>),
     Named(Vec<NamedPatternField>),
 }
 
-impl EnumVariantPatternFields {
+impl NominalPatternFields {
     fn contains_binding(&self) -> bool {
         match self {
             Self::Tuple(fields) => fields.iter().any(Pattern::contains_binding),

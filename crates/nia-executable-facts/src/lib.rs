@@ -932,7 +932,7 @@ fn collect_typed_pattern_refs(
         | TypedPatternKind::OptionalSome(pattern)
         | TypedPatternKind::ErrorOk(pattern)
         | TypedPatternKind::ErrorErr(pattern) => collect_typed_pattern_refs(module, pattern, refs),
-        TypedPatternKind::EnumVariant { fields, .. } => {
+        TypedPatternKind::Nominal { fields, .. } => {
             for field in fields {
                 collect_typed_pattern_refs(module, field, refs);
             }

@@ -57,6 +57,9 @@ fn resolve_const_stmt(stmt: EarlyConstStmt) -> Result<ResolvedConstStmt, ConstLo
         EarlyConstStmtKind::Binding(binding) => {
             ResolvedConstStmtKind::Binding(resolve_const_binding(binding)?)
         }
+        EarlyConstStmtKind::PatternBinding(binding) => {
+            ResolvedConstStmtKind::PatternBinding(resolve_const_pattern_binding(*binding)?)
+        }
         EarlyConstStmtKind::Expr(expr) => ResolvedConstStmtKind::Expr(resolve_expr(expr)?),
         EarlyConstStmtKind::Return(expr) => {
             ResolvedConstStmtKind::Return(expr.map(resolve_expr).transpose()?)
@@ -84,6 +87,18 @@ fn resolve_const_stmt(stmt: EarlyConstStmt) -> Result<ResolvedConstStmt, ConstLo
         },
     };
     Ok(ResolvedConstStmt::new(stmt.span, kind))
+}
+
+fn resolve_const_pattern_binding(
+    binding: EarlyConstPatternBinding,
+) -> Result<ResolvedConstPatternBinding, ConstLowerError> {
+    Ok(ResolvedConstPatternBinding::new(
+        binding.span,
+        resolve_const_pattern(binding.pattern)?,
+        resolve_optional_explicit_type(binding.explicit_type, "const pattern binding type")?,
+        binding.is_mutable,
+        resolve_expr(binding.value)?,
+    ))
 }
 
 fn resolve_const_binding(
@@ -423,6 +438,24 @@ fn resolve_const_pattern(
                         .collect::<Result<Vec<_>, ConstLowerError>>()?,
                 ),
             },
+            span,
+        )),
+        EarlyConstPattern::Struct {
+            def_id,
+            fields,
+            span,
+        } => Ok(ResolvedConstPattern::struct_pattern(
+            def_id,
+            fields
+                .into_iter()
+                .map(|field| {
+                    Ok(ConstNamedPatternField {
+                        name: field.name,
+                        pattern: resolve_const_pattern(field.pattern)?,
+                        span: field.span,
+                    })
+                })
+                .collect::<Result<Vec<_>, ConstLowerError>>()?,
             span,
         )),
         EarlyConstPattern::Expr(expr) => resolve_expr(expr).map(ResolvedConstPattern::expr),

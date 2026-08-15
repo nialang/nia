@@ -115,6 +115,16 @@ impl Analyzer<'_> {
                     self.resolved_const_pattern_has_definite_mismatch(pattern, ty)
                 })
             }
+            ResolvedConstPatternKind::Struct { def_id, fields, .. } => {
+                let Some(fields) =
+                    self.resolved_const_struct_pattern_fields(*def_id, fields, target_ty)
+                else {
+                    return true;
+                };
+                fields.into_iter().any(|(pattern, ty)| {
+                    self.resolved_const_pattern_has_definite_mismatch(pattern, ty)
+                })
+            }
         }
     }
 
@@ -198,6 +208,13 @@ impl Analyzer<'_> {
                         self.check_resolved_const_patterns(std::slice::from_ref(pattern), ty)?;
                     }
                 }
+                ResolvedConstPatternKind::Struct { def_id, fields, .. } => {
+                    for (pattern, ty) in
+                        self.resolved_const_struct_pattern_fields(*def_id, fields, target_ty)?
+                    {
+                        self.check_resolved_const_patterns(std::slice::from_ref(pattern), ty)?;
+                    }
+                }
             }
         }
         Some(())
@@ -209,7 +226,7 @@ impl Analyzer<'_> {
         target_ty: InternedTyId,
     ) -> Option<()> {
         for pattern in patterns {
-            self.bind_typed_resolved_const_pattern(pattern, target_ty)?;
+            self.bind_typed_resolved_const_pattern(pattern, target_ty, false)?;
         }
         Some(())
     }
@@ -218,35 +235,40 @@ impl Analyzer<'_> {
         &mut self,
         pattern: &ResolvedConstPattern,
         target_ty: InternedTyId,
+        is_mutable: bool,
     ) -> Option<()> {
         match pattern.kind() {
             ResolvedConstPatternKind::Bind { local_id, .. } => {
-                self.bind_const_local_type(*local_id, ConstValueType::Runtime(target_ty), false);
+                self.bind_const_local_type(
+                    *local_id,
+                    ConstValueType::Runtime(target_ty),
+                    is_mutable,
+                );
             }
             ResolvedConstPatternKind::Pointer { pattern, .. }
             | ResolvedConstPatternKind::MutPointer { pattern, .. } => {
                 let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(target_ty) else {
                     return None;
                 };
-                self.bind_typed_resolved_const_pattern(pattern, elem)?;
+                self.bind_typed_resolved_const_pattern(pattern, elem, is_mutable)?;
             }
             ResolvedConstPatternKind::OptionalSome { pattern, .. } => {
                 let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
                     return None;
                 };
-                self.bind_typed_resolved_const_pattern(pattern, elem)?;
+                self.bind_typed_resolved_const_pattern(pattern, elem, is_mutable)?;
             }
             ResolvedConstPatternKind::ErrorOk { pattern, .. } => {
                 let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
                     return None;
                 };
-                self.bind_typed_resolved_const_pattern(pattern, value)?;
+                self.bind_typed_resolved_const_pattern(pattern, value, is_mutable)?;
             }
             ResolvedConstPatternKind::ErrorErr { pattern, .. } => {
                 let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
                     return None;
                 };
-                self.bind_typed_resolved_const_pattern(pattern, error)?;
+                self.bind_typed_resolved_const_pattern(pattern, error, is_mutable)?;
             }
             ResolvedConstPatternKind::Tuple { patterns, .. } => {
                 let Some(TyKind::Tuple(elems)) = self.ty_kind(target_ty) else {
@@ -256,7 +278,7 @@ impl Analyzer<'_> {
                     return None;
                 }
                 for (pattern, elem) in patterns.iter().zip(elems) {
-                    self.bind_typed_resolved_const_pattern(pattern, elem)?;
+                    self.bind_typed_resolved_const_pattern(pattern, elem, is_mutable)?;
                 }
             }
             ResolvedConstPatternKind::EnumVariant {
@@ -265,7 +287,14 @@ impl Analyzer<'_> {
                 for (pattern, ty) in
                     self.resolved_const_enum_pattern_fields(variant, fields, target_ty)?
                 {
-                    self.bind_typed_resolved_const_pattern(pattern, ty)?;
+                    self.bind_typed_resolved_const_pattern(pattern, ty, is_mutable)?;
+                }
+            }
+            ResolvedConstPatternKind::Struct { def_id, fields, .. } => {
+                for (pattern, ty) in
+                    self.resolved_const_struct_pattern_fields(*def_id, fields, target_ty)?
+                {
+                    self.bind_typed_resolved_const_pattern(pattern, ty, is_mutable)?;
                 }
             }
             ResolvedConstPatternKind::Wildcard { .. }

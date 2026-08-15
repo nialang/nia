@@ -1270,8 +1270,10 @@ const call inference: runtime Nia values agree by `TyId`, while structural
 const-only structs agree by their field type surface.
 
 Const `switch` expressions follow the same source-shaped typed surface as
-runtime source `switch`: recursive patterns, value patterns, integer ranges,
-and catch-all cases.
+runtime source `switch`: recursive nominal patterns, value patterns, integer
+ranges, and catch-all cases. Struct pattern fields are checked against the
+instantiated target type, so generic arguments are inherited from the matched
+value rather than repeated on the pattern constructor.
 Value-producing arm bodies are typed and unified to one typed const value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
 do not invent a switch result type. Optional and error-union payload locals are
@@ -1464,11 +1466,13 @@ the checker already rejected the pattern or the pattern is not an integer fact,
 it keeps the original expression-shaped pattern instead of re-running const
 evaluation or producing a second diagnostic.
 Integer and boolean patterns therefore enter `BodyIr` as checked pattern values
-or checked ranges; expression-shaped patterns remain only for
-patterns whose semantics are not represented by the integer-pattern fact, such
-as enum variant references. `switch` and if-pattern expressions share the same
-typed recursive pattern representation; only their source control-flow shape
-differs.
+or checked ranges; expression-shaped patterns remain only for patterns whose
+semantics are not represented by the integer-pattern fact. Structs and enum
+variants enter one typed nominal-pattern representation: its constructor
+selects either a struct field projection or an enum tag/payload projection,
+while fields are normalized to declaration order. `let`, `for`, `switch`, and
+if-pattern expressions therefore consume the same recursive representation;
+only their source control-flow shape and irrefutability requirements differ.
 
 ### 9.4 `nia-function-ir`
 

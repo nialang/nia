@@ -3,8 +3,9 @@ pub(super) use crate::*;
 pub(super) use nia_body_ir::{
     AtomicOrder, GeneratedLocalName, LocalName, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr,
     TypedExprKind, TypedForIn, TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop,
-    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace,
-    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
+    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern,
+    TypedPatternBinding, TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArmBody,
 };
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,

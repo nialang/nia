@@ -1221,7 +1221,7 @@ fn bind_pattern(pattern: &TypedPattern, value: &ValueProvenance, env: &mut Envir
                 bind_pattern(pattern, &ValueProvenance::from_value(value.all()), env);
             }
         }
-        TypedPatternKind::EnumVariant { fields, .. } => {
+        TypedPatternKind::Nominal { fields, .. } => {
             for pattern in fields {
                 bind_pattern(pattern, &ValueProvenance::from_value(value.all()), env);
             }

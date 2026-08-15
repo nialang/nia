@@ -795,6 +795,155 @@ fn nested(value: ?(i32!i32)) i32 {
 }
 
 #[test]
+fn checks_struct_patterns_across_runtime_and_const_contexts() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32, y: i32 }
+struct Box[T] { value: T }
+enum Operation { Read, Write }
+enum Failure { System { operation: Operation, code: i32 } }
+
+fn sum(point: Point) i32 {
+    let Point { y: second, x } = point;
+    x + second
+}
+
+fn unbox[T](value: Box[T]) T {
+    let Box { value } = value;
+    value
+}
+
+fn throughPointer(point: &Point) i32 {
+    let &Point { x, y } = point;
+    x + y
+}
+
+fn nested(value: ?Point) i32 {
+    if value is ?Point { x, y: _ } {
+        x
+    } else {
+        0
+    }
+}
+
+fn classify(point: Point) i32 {
+    switch point {
+        Point { x: 0, y } => y,
+        Point { x: _, y: _ } => 9,
+    }
+}
+
+fn nestedEnum(value: Failure!i32) i32 {
+    switch value {
+        !ok => { _ = ok; 0 },
+        Failure::System { operation: Operation::Read, code: _ }! => 1,
+        error! => { _ = error; 0 },
+    }
+}
+
+const fn constSum(point: Point) i32 {
+    let mut Point { y, x } = point;
+    x += 1;
+    x + y
+}
+
+const TOTAL: i32 = constSum(Point { x: 19, y: 22 });
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let nominal_patterns = checked
+        .ir
+        .function_bodies
+        .values()
+        .flat_map(|body| &body.stmts)
+        .filter_map(|stmt| match &stmt.kind {
+            nia_body_ir::TypedStmtKind::PatternBinding(binding) => Some(&binding.pattern.kind),
+            _ => None,
+        })
+        .filter(|kind| {
+            matches!(
+                kind,
+                nia_body_ir::TypedPatternKind::Nominal {
+                    constructor: nia_body_ir::TypedNominalPatternConstructor::Struct { .. },
+                    ..
+                }
+            )
+        })
+        .count();
+    assert!(nominal_patterns >= 2);
+    assert!(checked.ir.function_bodies.values().any(|body| {
+        let Some(tail) = &body.tail else {
+            return false;
+        };
+        let nia_body_ir::TypedExprKind::Switch(switch) = &tail.kind else {
+            return false;
+        };
+        matches!(
+            &switch.arms[1].patterns[0].kind,
+            nia_body_ir::TypedPatternKind::ErrorErr(outer)
+                if matches!(
+                    &outer.kind,
+                    nia_body_ir::TypedPatternKind::Nominal { fields, .. }
+                        if fields.iter().any(|field| matches!(
+                            &field.kind,
+                            nia_body_ir::TypedPatternKind::Nominal {
+                                constructor:
+                                    nia_body_ir::TypedNominalPatternConstructor::EnumVariant { .. },
+                                fields,
+                            } if fields.is_empty()
+                        ))
+                )
+        )
+    }));
+}
+
+#[test]
+fn rejects_invalid_struct_pattern_field_sets_and_constructors() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32, y: i32 }
+struct Other { x: i32, y: i32 }
+
+fn duplicate(point: Point) i32 {
+    let Point { x, x: again, y } = point;
+    x + again + y
+}
+
+fn missing(point: Point) i32 {
+    let Point { x } = point;
+    x
+}
+
+fn unknown(point: Point) i32 {
+    let Point { x, y, z } = point;
+    x + y + z
+}
+
+fn wrong(point: Point) i32 {
+    let Other { x, y } = point;
+    x + y
+}
+"#,
+    );
+    for expected in [
+        "duplicate struct pattern field `x`",
+        "missing struct pattern field `y`",
+        "unknown struct pattern field `z`",
+        "constructor does not match target type `Point`",
+    ] {
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains(expected)),
+            "missing `{expected}` in {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
 fn rejects_non_exhaustive_and_ambiguous_switch_bindings() {
     let checked = pipeline(
         r#"

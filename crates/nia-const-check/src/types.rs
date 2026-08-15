@@ -112,6 +112,9 @@ pub(crate) fn resolved_pattern_local_id(pattern: &ResolvedConstPattern) -> Optio
                 .iter()
                 .find_map(|field| resolved_pattern_local_id(&field.pattern)),
         },
+        ResolvedConstPatternKind::Struct { fields, .. } => fields
+            .iter()
+            .find_map(|field| resolved_pattern_local_id(&field.pattern)),
         ResolvedConstPatternKind::Wildcard { .. }
         | ResolvedConstPatternKind::OptionalNull { .. }
         | ResolvedConstPatternKind::Expr(_)

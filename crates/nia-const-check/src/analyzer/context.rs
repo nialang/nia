@@ -126,6 +126,17 @@ impl Analyzer<'_> {
                 ResolvedConstStmtKind::Binding(binding) if binding.local_id() == local_id => {
                     return binding.explicit_type();
                 }
+                ResolvedConstStmtKind::PatternBinding(binding) => {
+                    if let Some(target_ty) = binding.explicit_type()
+                        && let Some(ty) = self.resolved_pattern_binding_type(
+                            binding.pattern(),
+                            target_ty,
+                            local_id,
+                        )
+                    {
+                        return Some(ty);
+                    }
+                }
                 ResolvedConstStmtKind::If {
                     then_branch,
                     else_branch,
@@ -207,6 +218,15 @@ impl Analyzer<'_> {
                                 if binding.local_id() == local_id =>
                             {
                                 binding.explicit_type()
+                            }
+                            ResolvedConstStmtKind::PatternBinding(binding) => {
+                                binding.explicit_type().and_then(|target_ty| {
+                                    self.resolved_pattern_binding_type(
+                                        binding.pattern(),
+                                        target_ty,
+                                        local_id,
+                                    )
+                                })
                             }
                             ResolvedConstStmtKind::Expr(expr)
                             | ResolvedConstStmtKind::Return(Some(expr)) => {

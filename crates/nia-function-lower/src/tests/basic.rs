@@ -35,6 +35,88 @@ fn lowers_body_to_entry_block_with_tail() {
 }
 
 #[test]
+fn lowers_struct_pattern_bindings_through_nominal_field_projection() {
+    let span = Span::default();
+    let ty = test_ty();
+    let source = LocalId(0);
+    let field_local = LocalId(1);
+    let mut module_ids = ModuleIdAllocator::new();
+    let field_def = GlobalDefId {
+        module_id: module_ids.allocate(),
+        def_id: DefId(9),
+    };
+    let body = TypedBody {
+        span,
+        locals: vec![
+            TypedLocal {
+                id: source,
+                name: local_name("source"),
+                kind: TypedLocalKind::Param,
+                ty,
+                span,
+            },
+            TypedLocal {
+                id: field_local,
+                name: local_name("field"),
+                kind: TypedLocalKind::ImmutableBinding,
+                ty,
+                span,
+            },
+        ],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::PatternBinding(Box::new(TypedPatternBinding {
+                pattern: TypedPattern {
+                    ty,
+                    span,
+                    kind: TypedPatternKind::Nominal {
+                        constructor: TypedNominalPatternConstructor::Struct {
+                            field_defs: vec![field_def],
+                        },
+                        fields: vec![TypedPattern {
+                            ty,
+                            span,
+                            kind: TypedPatternKind::Bind {
+                                local_id: field_local,
+                                name: local_name("field"),
+                            },
+                        }],
+                    },
+                },
+                value: TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Local(source),
+                },
+            })),
+        }],
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Local(field_local),
+        })),
+        ty,
+    };
+
+    let function_body = lower_test_function_body(&body).expect("valid struct pattern body");
+    assert!(function_body.blocks.iter().any(|block| {
+        block.ops.iter().any(|op| {
+            matches!(
+                op,
+                FunctionOp::StoreLocal {
+                    local_id,
+                    value: FunctionExpr {
+                        kind: FunctionExprKind::Field { field, .. },
+                        ..
+                    },
+                    ..
+                } if *local_id == field_local && *field == field_def
+            )
+        })
+    }));
+}
+
+#[test]
 fn lowers_closure_state_and_direct_call_to_generated_entry() {
     let span = Span::default();
     let mut module_ids = ModuleIdAllocator::new();
