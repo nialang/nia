@@ -404,9 +404,7 @@ fn lower_call_with_context(
         ),
         _ => (callee, Vec::new()),
     };
-    if let Some(def_id) = context.probe_type_prefix(&callee.node_key)
-        && generic_args.is_empty()
-    {
+    if let Some(def_id) = context.probe_type_prefix(&callee.node_key) {
         let fields = args
             .iter()
             .enumerate()
@@ -424,7 +422,11 @@ fn lower_call_with_context(
                 })
             })
             .collect::<Result<Vec<_>, ConstLowerError>>()?;
-        return Ok(EarlyConstExprKind::TupleStructLiteral { def_id, fields });
+        return Ok(EarlyConstExprKind::TupleStructLiteral {
+            def_id,
+            generic_args,
+            fields,
+        });
     }
     if let nia_ast::ExprKind::Field { lhs, name } = &callee.kind {
         return Ok(EarlyConstExprKind::Call {

@@ -1008,6 +1008,31 @@ fn integerGap(value: u8) i32 {
 }
 
 #[test]
+fn formats_tuple_struct_exhaustiveness_witness_positionally() {
+    let checked = pipeline(
+        r#"
+struct Pair(bool, bool)
+
+fn classify(value: Pair) i32 {
+    match value {
+        Pair(true, _) => 1,
+    }
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("non-exhaustive matched, missing pattern: `Pair(false, _)`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_invalid_struct_pattern_field_sets_and_constructors() {
     let checked = pipeline(
         r#"

@@ -49,6 +49,23 @@ fn main() i32 {
 }
 
 #[test]
+fn const_generic_tuple_structs_accept_explicit_constructor_arguments() {
+    let checked = pipeline(
+        r#"
+struct Box[T](T)
+
+const VALUE: Box[i32] = Box[i32](42);
+
+fn main() i32 {
+    VALUE.0
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn tuple_structs_enforce_shape_arity_and_nominal_identity() {
     let checked = pipeline(
         r#"
