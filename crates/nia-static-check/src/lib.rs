@@ -10,7 +10,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_item_signatures::{GlobalSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
-use nia_local_resolve::{LocalResolution, LocalUse};
+use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_text_or_unresolved};
@@ -74,6 +74,11 @@ pub struct StaticCheckPreciseInput<'a> {
     pub target: &'a TargetConfig,
 }
 
+/// Checks the subset of initializers that can be emitted as linker/static data.
+///
+/// This is deliberately narrower than Nia's `const` evaluator: `const` means
+/// comptime evaluation, while `static` must have a concrete backend
+/// representation and cannot run arbitrary code during startup.
 pub fn check_module_static_initializers_with_signatures(
     input: StaticCheckPreciseInput<'_>,
 ) -> StaticCheck {
@@ -249,11 +254,39 @@ impl StaticChecker<'_> {
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
-                    Some(ValueNameResolution::Def(def_id)) if self.is_const(def_id) => None,
+                    Some(ValueNameResolution::Def(def_id)) if self.is_const(def_id) => {
+                        if self.global_const_integer(def_id) {
+                            None
+                        } else {
+                            Some("const value is not representable as static initializer data")
+                        }
+                    }
+                    Some(ValueNameResolution::External(global_id))
+                        if self.global_def_kind(global_id) == Some(DefKind::Const) =>
+                    {
+                        if self.global_const_integer_id(global_id) {
+                            None
+                        } else {
+                            Some("const value is not representable as static initializer data")
+                        }
+                    }
                     _ => Some("bare global value is not static data; take its address explicitly"),
                 },
                 Some(LocalUse::Unresolved) | None => None,
-                Some(LocalUse::Local(_)) => Some("local value is not available in global storage"),
+                Some(LocalUse::Local(local_id)) => {
+                    if self.local_const_integer(local_id) {
+                        None
+                    } else if self
+                        .locals
+                        .locals
+                        .get(local_id)
+                        .is_some_and(|local| local.kind == LocalKind::ConstBinding)
+                    {
+                        Some("const value is not representable as static initializer data")
+                    } else {
+                        Some("local value is not available in global storage")
+                    }
+                }
                 Some(LocalUse::Static(_)) => {
                     Some("bare global value is not static data; take its address explicitly")
                 }
@@ -263,6 +296,15 @@ impl StaticChecker<'_> {
             ExprKind::Qualified { lhs, name: _ } => {
                 if self.is_enum_variant_access(expr, lhs) {
                     None
+                } else if let Some(global_id) = self.qualified_value(expr)
+                    && self.global_def_kind(global_id) == Some(DefKind::Const)
+                {
+                    self.global_const_integer_id(global_id)
+                        .then_some(())
+                        .map_or(
+                            Some("const value is not representable as static initializer data"),
+                            |_| None,
+                        )
                 } else {
                     self.static_address_path_reject_reason(expr)
                 }
@@ -331,6 +373,10 @@ impl StaticChecker<'_> {
     }
 
     fn static_address_path_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
+        // Address initializers are symbolic relocations, not evaluated pointer
+        // expressions. Walk only projections from global storage and require
+        // every index to be a compile-time usize; runtime pointer arithmetic
+        // would make the initializer depend on startup execution.
         if self.qualified_value(expr).is_some() {
             return None;
         }
@@ -512,6 +558,33 @@ impl StaticChecker<'_> {
             self.defs.defs.get(def_id).map(|def| def.kind),
             Some(DefKind::Const)
         )
+    }
+
+    fn local_const_integer(&self, local_id: nia_ids::LocalId) -> bool {
+        matches!(
+            self.const_eval.values.get(&ConstKey::Local(local_id)),
+            Some(ConstValue::Int(_))
+        )
+    }
+
+    fn global_const_integer(&self, def_id: DefId) -> bool {
+        self.global_const_integer_id(GlobalDefId {
+            module_id: self.defs.module_id,
+            def_id,
+        })
+    }
+
+    fn global_const_integer_id(&self, global_id: GlobalDefId) -> bool {
+        matches!(self.const_value(global_id), Some(ConstValue::Int(_)))
+    }
+
+    fn const_value(&self, global_id: GlobalDefId) -> Option<ConstValue> {
+        let key = ConstKey::Global(global_id);
+        if global_id.module_id == self.defs.module_id {
+            return self.const_eval.values.get(&key).cloned();
+        }
+        (self.program_const)(global_id.module_id)
+            .and_then(|const_eval| const_eval.values.get(&key).cloned())
     }
 
     fn is_function(&self, def_id: DefId) -> bool {
@@ -933,6 +1006,39 @@ static mut value: i32 = base + 2;
         );
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn accepts_local_integer_const_in_static_initializer() {
+        let checked = check(
+            r#"
+fn make() i32 {
+    const base = 20;
+    static mut value: i32 = base + 2;
+    value
+}
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn rejects_aggregate_const_in_static_initializer_until_static_ir_supports_it() {
+        let checked = check(
+            r#"
+const values: [i32; 2] = [1, 2];
+static mut copy: [i32; 2] = values;
+"#,
+        );
+
+        assert!(
+            checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .summary
+                .contains("const value is not representable as static initializer data")),
+            "{:?}",
+            checked.diagnostics
+        );
     }
 
     #[test]

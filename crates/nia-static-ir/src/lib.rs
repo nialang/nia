@@ -7,7 +7,9 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StaticInitRefs {
+    /// Runtime functions retained because a static initializer stores their address.
     pub functions: HashSet<GlobalDefId>,
+    /// Globals retained because a static initializer stores their address.
     pub globals: HashSet<GlobalDefId>,
 }
 
@@ -39,12 +41,22 @@ pub enum StaticInit {
 }
 
 impl StaticInit {
+    /// Collect direct relocation targets from an initializer.
+    ///
+    /// A zero-length repeat has no materialized elements, so its value is not
+    /// visited. This keeps reachability precise: an unused function/global
+    /// address inside `[value; 0]` must not keep code or storage alive.
     pub fn refs(&self) -> StaticInitRefs {
         let mut refs = StaticInitRefs::default();
         self.visit_refs(&mut refs);
         refs
     }
 
+    /// Convert relocations into executable reachability edges.
+    ///
+    /// Generic function addresses become typed function-instance references;
+    /// non-generic addresses stay ordinary function edges. `module_id` is the
+    /// owner used when constructing those instance identities.
     pub fn value_refs(&self, module_id: ModuleId) -> FunctionBodyRefs {
         let mut refs = FunctionBodyRefs::default();
         self.visit_refs(&mut FunctionBodyRefSink {
