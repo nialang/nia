@@ -1180,9 +1180,17 @@ impl Analyzer<'_> {
                 }
                 (GenericParamSignatureKind::Const { ty }, ResolvedConstGenericArg::Const(expr)) => {
                     let ty = self.type_for_module_or_none(*ty, signature_module_id)?;
-                    let value = self
-                        .const_generic_arg_from_resolved_expr(expr, ty, signature_module_id)
-                        .ok()?;
+                    let value = match self.const_generic_arg_from_resolved_expr(
+                        expr,
+                        ty,
+                        signature_module_id,
+                    ) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            self.push_const_type_error(error.span, &error.message);
+                            return None;
+                        }
+                    };
                     const_args.push(ConstGenericArg { ty, value });
                 }
                 (GenericParamSignatureKind::Type, _) => {
