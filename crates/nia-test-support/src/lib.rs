@@ -30,6 +30,7 @@ use std::{
 };
 
 const MAX_PARALLEL_COMPILERS: usize = 8;
+const BUILD_SCHEDULING_SLOTS: usize = 2;
 const MAX_PARALLEL_RUNTIMES: usize = 32;
 const UNKNOWN_MEMORY_PARALLEL_COMPILERS: usize = 1;
 const UNKNOWN_MEMORY_PARALLEL_RUNTIMES: usize = 1;
@@ -39,17 +40,24 @@ const AVAILABLE_MEMORY_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
+const RESOURCE_TRACE_ENV: &str = "NIA_TEST_RESOURCE_TRACE";
 
 static COMPILER_POOL: OnceLock<ResourcePool> = OnceLock::new();
 static RUNTIME_POOL: OnceLock<ResourcePool> = OnceLock::new();
 static MEMORY_POOL: OnceLock<ResourcePool> = OnceLock::new();
 static TEST_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "linux")]
+static LINUX_PAGE_SIZE: OnceLock<usize> = OnceLock::new();
 
 thread_local! {
     // Explicit test-wide sessions already reserve the process budget for all
     // commands issued by that test. Command helpers must not acquire a second
     // permit while such a session is active on the same libtest worker.
     static ACTIVE_TEST_RESOURCE_SESSIONS: Cell<usize> = const { Cell::new(0) };
+    // A session reserves compiler scheduling weight. Runtime children are
+    // deliberately tracked by their own pool even while this marker is set;
+    // otherwise a build test could launch an unbounded executable tree.
+    static ACTIVE_COMPILER_SLOTS: Cell<usize> = const { Cell::new(0) };
 }
 
 pub struct TestDir {
@@ -95,6 +103,12 @@ pub fn test_dir(name: &str) -> TestDir {
     TestDir { path }
 }
 
+/// A compiler-side test command and its heavier build variant.
+///
+/// `Build` reserves two compiler scheduling slots because a build may execute
+/// several compiler/linker actions. The memory estimate remains one compiler
+/// working set: scheduling weight and resident-memory accounting are separate
+/// dimensions, so a build does not incorrectly double-charge its estimate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TestWorkload {
     Compiler,
@@ -112,13 +126,20 @@ impl TestWorkload {
     const fn resource_request(self) -> ResourceRequest {
         match self {
             Self::Compiler => ResourceRequest::new(1, COMPILER_MEMORY_BYTES),
-            Self::Build => ResourceRequest::new(2, COMPILER_MEMORY_BYTES),
+            Self::Build => ResourceRequest::new(BUILD_SCHEDULING_SLOTS, COMPILER_MEMORY_BYTES),
         }
     }
 }
 
+/// Reserve a compiler/build session for a test that issues several commands.
+///
+/// The session is registered on the current libtest worker so nested compiler
+/// helpers do not acquire the same permit again. Runtime helpers intentionally
+/// remain independently charged because generated executables can spawn child
+/// processes while the session is alive.
 pub fn acquire_test_resources(workload: TestWorkload) -> TestResourceSession<'static> {
-    acquire_resources(compiler_pool(), workload.resource_request()).register_for_current_thread()
+    acquire_resources(compiler_pool(), workload.resource_request())
+        .register_for_current_thread(workload)
 }
 
 pub trait CommandExt {
@@ -213,9 +234,9 @@ impl CommandStatusExt for Command {
 }
 
 fn acquire_runtime_resources() -> Option<TestResourceSession<'static>> {
-    if ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) != 0 {
-        return None;
-    }
+    // Runtime commands are not covered by compiler/build sessions. A Nia
+    // executable may spawn more executables, so charging this pool remains
+    // necessary even when the surrounding test already owns build capacity.
     Some(acquire_resources(
         runtime_pool(),
         ResourceRequest::runtime(),
@@ -223,10 +244,23 @@ fn acquire_runtime_resources() -> Option<TestResourceSession<'static>> {
 }
 
 fn acquire_command_resources(workload: TestWorkload) -> Option<TestResourceSession<'static>> {
-    if ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) != 0 {
-        return None;
-    }
-    Some(acquire_test_resources(workload))
+    let requested_slots = workload.resource_request().slots;
+    let active_slots = ACTIVE_COMPILER_SLOTS.with(Cell::get);
+    let additional_slots = requested_slots.saturating_sub(active_slots);
+    (additional_slots != 0).then(|| {
+        let request = ResourceRequest::new(
+            additional_slots,
+            // The active session already owns the compiler working-set
+            // estimate. Only the missing scheduling weight is added here;
+            // charging memory again could self-block on a one-token host.
+            if active_slots == 0 {
+                workload.resource_request().minimum_memory_bytes
+            } else {
+                0
+            },
+        );
+        acquire_resources(compiler_pool(), request)
+    })
 }
 
 fn read_pipe<R: Read>(mut pipe: R) -> io::Result<Vec<u8>> {
@@ -259,18 +293,132 @@ fn wait_child_timeout(
     context: &str,
 ) -> Result<ExitStatus, ()> {
     let start = Instant::now();
+    let mut last_sample = start;
+    let mut peak_usage = ProcessUsage::default();
+    if resource_trace_enabled()
+        && let Some(usage) = process_group_usage(child.id())
+    {
+        peak_usage = usage;
+    }
     loop {
+        if resource_trace_enabled() && last_sample.elapsed() >= Duration::from_millis(100) {
+            if let Some(usage) = process_group_usage(child.id()) {
+                peak_usage.processes = peak_usage.processes.max(usage.processes);
+                peak_usage.rss_bytes = peak_usage.rss_bytes.max(usage.rss_bytes);
+            }
+            last_sample = Instant::now();
+        }
         match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
+            Ok(Some(status)) => {
+                if resource_trace_enabled() {
+                    trace_resource(format_args!(
+                        "command context={context:?} pid={} elapsed={:?} peak_processes={} peak_rss_mib={:.1}",
+                        child.id(),
+                        start.elapsed(),
+                        peak_usage.processes,
+                        bytes_to_mib(peak_usage.rss_bytes),
+                    ));
+                }
+                return Ok(status);
+            }
             Ok(None) if start.elapsed() >= timeout => {
                 terminate_child(child);
                 let _ = child.wait();
+                if resource_trace_enabled() {
+                    trace_resource(format_args!(
+                        "command context={context:?} pid={} timed_out=true peak_processes={} peak_rss_mib={:.1}",
+                        child.id(),
+                        peak_usage.processes,
+                        bytes_to_mib(peak_usage.rss_bytes),
+                    ));
+                }
                 return Err(());
             }
             Ok(None) => thread::sleep(Duration::from_millis(10)),
             Err(error) => panic!("{context}: failed to wait for command: {error}"),
         }
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct ProcessUsage {
+    processes: usize,
+    rss_bytes: usize,
+}
+
+fn resource_trace_enabled() -> bool {
+    std::env::var_os(RESOURCE_TRACE_ENV).is_some_and(|value| value != "0")
+}
+
+fn trace_resource(message: std::fmt::Arguments<'_>) {
+    eprintln!("[nia-test-resources] {message}");
+}
+
+fn bytes_to_mib(bytes: usize) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
+
+#[cfg(target_os = "linux")]
+fn process_group_usage(root_pid: u32) -> Option<ProcessUsage> {
+    let process_group = process_group_id(root_pid)?;
+    let mut usage = ProcessUsage::default();
+    for entry in fs::read_dir("/proc").ok()?.flatten() {
+        let Some(_) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        let Some((_, tail)) = stat.rsplit_once(") ") else {
+            continue;
+        };
+        let fields = tail.split_whitespace().collect::<Vec<_>>();
+        let Some(current_group) = fields.get(2).and_then(|field| field.parse::<u32>().ok()) else {
+            continue;
+        };
+        if current_group != process_group {
+            continue;
+        }
+        let Some(rss_pages) = fields.get(21).and_then(|field| field.parse::<u64>().ok()) else {
+            continue;
+        };
+        let rss_bytes = rss_pages.saturating_mul(linux_page_size() as u64) as usize;
+        usage.processes += 1;
+        usage.rss_bytes = usage.rss_bytes.saturating_add(rss_bytes);
+    }
+    Some(usage)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_page_size() -> usize {
+    *LINUX_PAGE_SIZE.get_or_init(|| {
+        // `_SC_PAGESIZE` is a process property and has no mutable aliasing or
+        // lifetime requirements; sysconf returns -1 when the host cannot
+        // report it, in which case Linux's documented 4 KiB default is safe
+        // for diagnostics.
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        usize::try_from(page_size).unwrap_or(4096)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn process_group_id(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(process_stat_path(pid)).ok()?;
+    stat.rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(2)?
+        .parse()
+        .ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_group_usage(_root_pid: u32) -> Option<ProcessUsage> {
+    None
 }
 
 fn output_tail(bytes: &[u8]) -> String {
@@ -327,11 +475,13 @@ fn compiler_pool() -> &'static ResourcePool {
             .map(usize::from)
             .unwrap_or(1);
         let memory_limit = nia_query::effective_memory_limit_bytes();
-        ResourcePool::with_memory_gate(
-            compiler_limit(available_cpus, memory_limit),
-            resource_slot_root().join("compiler"),
-            None,
-        )
+        // The compiler pool counts scheduling weight, not compiler processes:
+        // a build reserves two slots while its memory estimate is charged once
+        // in the shared token pool. Keeping these dimensions separate allows
+        // two memory-fitting builds to overlap on a wide host.
+        let capacity = compiler_scheduler_limit(available_cpus, memory_limit);
+        trace_pool("compiler", capacity, available_cpus, memory_limit);
+        ResourcePool::with_memory_gate(capacity, resource_slot_root().join("compiler"), None)
     })
 }
 
@@ -341,23 +491,28 @@ fn runtime_pool() -> &'static ResourcePool {
             .map(usize::from)
             .unwrap_or(1);
         let memory_limit = nia_query::effective_memory_limit_bytes();
-        ResourcePool::with_memory_gate(
-            runtime_limit(available_cpus, memory_limit),
-            resource_slot_root().join("runtime"),
-            None,
-        )
+        let capacity = runtime_limit(available_cpus, memory_limit);
+        trace_pool("runtime", capacity, available_cpus, memory_limit);
+        ResourcePool::with_memory_gate(capacity, resource_slot_root().join("runtime"), None)
     })
 }
 
 fn memory_pool() -> &'static ResourcePool {
     MEMORY_POOL.get_or_init(|| {
         let memory_limit = nia_query::effective_memory_limit_bytes();
-        ResourcePool::with_memory_gate(
-            memory_token_capacity(memory_limit),
-            resource_slot_root().join("memory"),
-            memory_limit,
-        )
+        let capacity = memory_token_capacity(memory_limit);
+        trace_pool("memory", capacity, 0, memory_limit);
+        ResourcePool::with_memory_gate(capacity, resource_slot_root().join("memory"), memory_limit)
     })
+}
+
+fn trace_pool(name: &str, capacity: usize, available_cpus: usize, memory_limit: Option<usize>) {
+    if resource_trace_enabled() {
+        trace_resource(format_args!(
+            "pool={name} capacity={capacity} cpus={available_cpus} memory_limit_mib={}",
+            memory_limit.map(bytes_to_mib).unwrap_or(0.0),
+        ));
+    }
 }
 
 fn acquire_resources(
@@ -387,6 +542,15 @@ fn compiler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize 
     cpu_limit.min(memory_limit).max(1)
 }
 
+fn compiler_scheduler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize {
+    compiler_limit(available_cpus, system_memory)
+        .saturating_mul(BUILD_SCHEDULING_SLOTS)
+        .clamp(
+            BUILD_SCHEDULING_SLOTS,
+            MAX_PARALLEL_COMPILERS * BUILD_SCHEDULING_SLOTS,
+        )
+}
+
 fn runtime_limit(available_cpus: usize, system_memory: Option<usize>) -> usize {
     let cpu_limit = available_cpus.clamp(1, MAX_PARALLEL_RUNTIMES);
     let memory_limit = system_memory
@@ -408,6 +572,9 @@ fn memory_token_capacity(system_memory: Option<usize>) -> usize {
 }
 
 fn memory_tokens(bytes: usize) -> usize {
+    if bytes == 0 {
+        return 0;
+    }
     bytes
         .saturating_add(RUNTIME_MEMORY_BYTES - 1)
         .checked_div(RUNTIME_MEMORY_BYTES)
@@ -448,6 +615,13 @@ impl ResourcePool {
         requested_slots: usize,
         minimum_memory_bytes: usize,
     ) -> ResourceReservation<'_> {
+        if requested_slots == 0 {
+            return ResourceReservation {
+                pool: self,
+                reserved_slots: 0,
+                slots: Vec::new(),
+            };
+        }
         let reserved_slots = requested_slots.clamp(1, self.capacity);
         let mut available = lock_unpoisoned(&self.available);
         while *available < reserved_slots {
@@ -508,6 +682,7 @@ impl Drop for ResourceReservation<'_> {
 pub struct TestResourceSession<'a> {
     reservations: Vec<ResourceReservation<'a>>,
     registered_with_thread: bool,
+    compiler_slots: usize,
     // The active-session marker is thread-local, so its guard must stay on the
     // libtest worker that acquired it.
     not_send: PhantomData<Rc<()>>,
@@ -518,13 +693,22 @@ impl TestResourceSession<'_> {
         TestResourceSession {
             reservations: Vec::from(reservations),
             registered_with_thread: false,
+            compiler_slots: 0,
             not_send: PhantomData,
         }
     }
 
-    fn register_for_current_thread(mut self) -> Self {
+    fn register_for_current_thread(mut self, workload: TestWorkload) -> Self {
         ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| active.set(active.get() + 1));
+        ACTIVE_COMPILER_SLOTS.with(|active| {
+            let slots = active
+                .get()
+                .checked_add(workload.resource_request().slots)
+                .expect("active compiler scheduling weight overflow");
+            active.set(slots);
+        });
         self.registered_with_thread = true;
+        self.compiler_slots = workload.resource_request().slots;
         self
     }
 }
@@ -536,6 +720,15 @@ impl Drop for TestResourceSession<'_> {
                 let count = active.get();
                 debug_assert!(count != 0, "registered test resource session underflow");
                 active.set(count.saturating_sub(1));
+            });
+            // `register_for_current_thread` only registers compiler/build
+            // reservations, so the corresponding weight is released here.
+            ACTIVE_COMPILER_SLOTS.with(|active| {
+                let slots = active
+                    .get()
+                    .checked_sub(self.compiler_slots)
+                    .expect("registered compiler scheduling weight underflow");
+                active.set(slots);
             });
         }
         self.reservations.clear();
@@ -578,6 +771,16 @@ fn acquire_process_slots(
                     acquired.push(slot);
                     if acquired.len() == requested {
                         if memory_pressure_allows(minimum_available_memory) {
+                            if resource_trace_enabled()
+                                && start.elapsed() >= Duration::from_millis(100)
+                            {
+                                trace_resource(format_args!(
+                                    "permit root={} slots={} waited={:?}",
+                                    root.display(),
+                                    requested,
+                                    start.elapsed(),
+                                ));
+                            }
                             return Ok(acquired);
                         }
                         break;
@@ -721,6 +924,7 @@ mod tests {
     #[test]
     fn shared_memory_tokens_bound_mixed_workloads() {
         assert_eq!(memory_token_capacity(Some(8 * 1024 * 1024 * 1024)), 16);
+        assert_eq!(memory_tokens(0), 0);
         assert_eq!(memory_tokens(COMPILER_MEMORY_BYTES), 6);
         assert_eq!(memory_tokens(RUNTIME_MEMORY_BYTES), 1);
         // Two compilers may overlap with four runtimes inside the 4 GiB test
@@ -745,6 +949,21 @@ mod tests {
     }
 
     #[test]
+    fn compiler_scheduler_capacity_accounts_for_build_weight() {
+        assert_eq!(
+            compiler_scheduler_limit(32, Some(8 * 1024 * 1024 * 1024)),
+            4
+        );
+        assert_eq!(
+            compiler_scheduler_limit(32, Some(3 * 1024 * 1024 * 1024)),
+            2
+        );
+        // Unknown memory still permits one weighted build; the shared memory
+        // pool remains serial because its fallback capacity is one token.
+        assert_eq!(compiler_scheduler_limit(32, None), BUILD_SCHEDULING_SLOTS);
+    }
+
+    #[test]
     fn available_memory_gate_scales_down_on_small_hosts() {
         assert_eq!(
             minimum_available_memory(8 * 1024 * 1024 * 1024, 2 * COMPILER_MEMORY_BYTES),
@@ -764,19 +983,31 @@ mod tests {
     fn explicit_sessions_cover_nested_command_helpers() {
         let root = test_slot_root("explicit-session-nesting");
         let pool = ResourcePool::new(2, root.to_path_buf());
-        let session = TestResourceSession::new([pool.acquire(1, 0)]).register_for_current_thread();
+        let session = TestResourceSession::new([pool.acquire(1, 0)])
+            .register_for_current_thread(TestWorkload::Compiler);
 
-        assert!(acquire_runtime_resources().is_none());
-        assert!(acquire_command_resources(TestWorkload::Build).is_none());
+        // Runtime commands retain an independent permit because generated
+        // programs may spawn children while the compiler session is held.
+        let runtime = acquire_runtime_resources();
+        assert!(runtime.is_some());
+        drop(runtime);
+        assert!(acquire_command_resources(TestWorkload::Compiler).is_none());
+        // A one-slot compiler session does not falsely cover a two-slot build;
+        // the helper acquires the missing scheduling weight.
+        let build = acquire_command_resources(TestWorkload::Build);
+        assert!(build.is_some());
+        drop(build);
         drop(session);
         ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| assert_eq!(active.get(), 0));
+        ACTIVE_COMPILER_SLOTS.with(|active| assert_eq!(active.get(), 0));
     }
 
     #[test]
     fn command_scoped_sessions_do_not_clear_explicit_session_markers() {
         let root = test_slot_root("command-session-markers");
         let pool = ResourcePool::new(2, root.to_path_buf());
-        let explicit = TestResourceSession::new([pool.acquire(1, 0)]).register_for_current_thread();
+        let explicit = TestResourceSession::new([pool.acquire(1, 0)])
+            .register_for_current_thread(TestWorkload::Compiler);
         let command = TestResourceSession::new([pool.acquire(1, 0)]);
 
         drop(command);
@@ -796,8 +1027,18 @@ mod tests {
     }
 
     #[test]
+    fn zero_weight_reservations_do_not_consume_pool_capacity() {
+        let root = test_slot_root("zero-weight-session");
+        let pool = ResourcePool::new(1, root.to_path_buf());
+        let reservation = pool.acquire(0, 0);
+
+        assert_eq!(*lock_unpoisoned(&pool.available), 1);
+        assert!(reservation.slots.is_empty());
+    }
+
+    #[test]
     fn scheduling_weight_does_not_inflate_memory_requirement() {
-        let build = ResourceRequest::new(2, COMPILER_MEMORY_BYTES);
+        let build = ResourceRequest::new(BUILD_SCHEDULING_SLOTS, COMPILER_MEMORY_BYTES);
         assert_eq!(
             minimum_available_memory(8 * 1024 * 1024 * 1024, build.minimum_memory_bytes),
             2 * 1024 * 1024 * 1024
