@@ -272,8 +272,12 @@ pub(crate) fn read_generic_params(
 ) -> Option<Vec<item_signatures::GenericParamSignature>> {
     let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
     let mut params = Vec::with_capacity(len);
+    let mut names = HashSet::new();
     for _ in 0..len {
         let name = read_symbol(cursor, symbols)?;
+        if !names.insert(name) {
+            return None;
+        }
         let kind = match read_u8(cursor)? {
             0 => item_signatures::GenericParamSignatureKind::Type,
             1 => item_signatures::GenericParamSignatureKind::Const {

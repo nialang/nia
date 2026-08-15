@@ -338,3 +338,16 @@ fn item_signature_decoder_rejects_duplicate_field_names() {
 
     assert!(read_fields(&mut Cursor::new(encoded.as_slice()), &[ty], &symbols, 1,).is_none());
 }
+
+#[test]
+fn item_signature_decoder_rejects_duplicate_generic_names() {
+    let symbols = SymbolTable::new();
+    let mut encoded = Vec::new();
+    write_u64(&mut encoded, 2);
+    for _ in 0..2 {
+        write_string(&mut encoded, "T");
+        encoded.push(0);
+    }
+
+    assert!(read_generic_params(&mut Cursor::new(encoded.as_slice()), &[], &symbols,).is_none());
+}
