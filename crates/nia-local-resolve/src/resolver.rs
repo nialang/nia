@@ -706,6 +706,12 @@ impl<'a> LocalResolver<'a> {
             }
             return;
         }
+        // Bare tuple-struct constructors (`Foo(value)`) use a type name as the
+        // callee. Resolve that name as a type prefix before falling back to
+        // ordinary value resolution, just as qualified enum constructors do.
+        if self.try_resolve_type_prefix(callee) {
+            return;
+        }
         self.resolve_expr(callee);
     }
 

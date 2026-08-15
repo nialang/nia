@@ -538,6 +538,9 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::StructLiteral { ty, fields } => {
                 self.resolved_const_aggregate_literal_type(expr.span(), fields, *ty)
             }
+            ResolvedConstExprKind::TupleStructLiteral { def_id, fields } => self
+                .resolved_const_tuple_struct_literal_type(expr.span(), *def_id, fields)
+                .map(ConstValueType::Runtime),
             ResolvedConstExprKind::ArrayLiteral { elems } => {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
             }
@@ -1074,6 +1077,47 @@ impl Analyzer<'_> {
             }
         }
         (fields_are_valid && types_match).then(|| self.enum_ty_in_current_module(enum_id))
+    }
+
+    fn resolved_const_tuple_struct_literal_type(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        fields: &[ResolvedConstFieldInit],
+    ) -> Option<InternedTyId> {
+        let signature = self.struct_signature_for(def_id)?;
+        if !signature.is_tuple {
+            self.push_const_type_error(span, "const tuple constructor targets a named struct");
+            return None;
+        }
+        if signature.fields.len() != fields.len() {
+            self.push_const_type_error(
+                span,
+                &format!(
+                    "const tuple struct expects {} values, found {}",
+                    signature.fields.len(),
+                    fields.len()
+                ),
+            );
+        }
+        let current_module = self.current_execution_module_id();
+        let mut valid = signature.fields.len() == fields.len();
+        for (field, expected) in fields.iter().zip(signature.fields.iter()) {
+            let Some(expected_ty) = self.type_for_module_or_none(expected.ty, current_module)
+            else {
+                let _ = self.resolved_const_expr_type(field.value(), None);
+                valid = false;
+                continue;
+            };
+            let Some(actual_ty) =
+                self.resolved_const_contextual_value_type(field.value(), expected_ty)
+            else {
+                valid = false;
+                continue;
+            };
+            valid &= self.const_function_types_match(expected_ty, actual_ty);
+        }
+        valid.then(|| self.struct_ty_in_current_module(def_id))
     }
 
     pub(super) fn resolved_const_enum_pattern_fields<'a>(

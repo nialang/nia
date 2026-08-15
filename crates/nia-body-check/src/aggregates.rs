@@ -289,6 +289,17 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
+        if resolved.signature.is_tuple {
+            for field in fields {
+                self.check_expr(&field.value);
+            }
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "tuple structs must be constructed with positional arguments",
+            ));
+            return aggregate_ty;
+        }
         let signature_fields = resolved.signature.fields.clone();
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
@@ -827,6 +838,54 @@ impl<'a> BodyChecker<'a> {
             ),
         ));
         Some(self.enum_ty(enum_id))
+    }
+
+    /// Type-checks a positional struct constructor while preserving nominal identity.
+    ///
+    /// Tuple structs share storage and field identities with named structs, but their
+    /// source-level constructor is deliberately call-shaped. Recognizing it before the
+    /// ordinary call checker prevents a type name from being treated as a function value.
+    pub(crate) fn check_tuple_struct_call(
+        &mut self,
+        expr: &Expr,
+        callee: &Expr,
+        args: &[Expr],
+    ) -> Option<InternedTyId> {
+        let (def_id, type_args, const_args) = self.type_prefix_instance(callee)?;
+        let resolved = self.resolved_struct_signature(def_id)?;
+        if !resolved.signature.is_tuple {
+            return None;
+        }
+        let ty = self.interner.intern(TyKind::Nominal {
+            def_id,
+            args: type_args.clone(),
+            const_args: const_args.clone(),
+        });
+        let fields = resolved.signature.fields;
+        if fields.len() != args.len() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                format!(
+                    "tuple struct expects {} constructor arguments, found {}",
+                    fields.len(),
+                    args.len()
+                ),
+            ));
+        }
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &type_args, &const_args);
+        for (index, arg) in args.iter().enumerate() {
+            let Some(field) = fields.get(index) else {
+                self.check_expr(arg);
+                continue;
+            };
+            let expected =
+                self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions);
+            let actual = self.check_expr_with_expected(arg, Some(expected));
+            self.expect_expr_type(arg, expected, actual, "tuple struct constructor argument");
+        }
+        Some(ty)
     }
 
     fn check_enum_tuple_payload(

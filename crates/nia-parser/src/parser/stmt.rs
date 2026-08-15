@@ -604,7 +604,7 @@ impl Parser {
                 let name = self.expect_name(TokenKind::Ident, "expected nominal pattern name")?;
                 (self.make_expr(token.span, ExprKind::Ident(name)), false)
             };
-        if (!is_qualified && !self.at(TokenKind::LBrace))
+        if (!is_qualified && !self.at(TokenKind::LBrace) && !self.at(TokenKind::LParen))
             || (self.at(TokenKind::LBrace)
                 && !self.nominal_brace_is_followed_by_pattern_boundary(stops))
         {

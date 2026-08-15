@@ -519,6 +519,49 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
+        let Some(signature) = self.resolved_struct_signature(constructor_def) else {
+            return;
+        };
+        let expected = signature.signature.fields;
+        if signature.signature.is_tuple {
+            let nia_ast::NominalPatternFields::Tuple(actual) = fields else {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    "tuple struct patterns require positional fields",
+                ));
+                self.check_invalid_enum_pattern_fields(fields, context);
+                return;
+            };
+            if expected.len() != actual.len() {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "tuple struct expects {} pattern fields, found {}",
+                        expected.len(),
+                        actual.len()
+                    ),
+                ));
+            }
+            let mut fields_are_irrefutable = expected.len() == actual.len();
+            for (index, pattern) in actual.iter().enumerate() {
+                let ty = expected
+                    .get(index)
+                    .and_then(|field| self.field_ty_for_aggregate_ty(target_ty, &field.name))
+                    .unwrap_or_else(|| self.error());
+                let mut child = PatternCoverage::default();
+                self.check_pattern(pattern, ty, Some(&mut child), context);
+                fields_are_irrefutable &= self.pattern_coverage_covers_type(ty, &child);
+            }
+            if fields_are_irrefutable && let Some(coverage) = coverage {
+                if let Some(previous) = coverage.catch_all {
+                    self.report_pattern_overlap(span, previous);
+                }
+                coverage.catch_all = Some(span);
+            }
+            return;
+        }
         let nia_ast::NominalPatternFields::Named {
             fields: actual,
             rest,
@@ -527,15 +570,11 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                "struct patterns require named fields",
+                "named struct patterns require named fields",
             ));
             self.check_invalid_enum_pattern_fields(fields, context);
             return;
         };
-        let Some(signature) = self.resolved_struct_signature(constructor_def) else {
-            return;
-        };
-        let expected = signature.signature.fields;
         let field_set = nia_sema::check_required_field_set(
             actual
                 .iter()

@@ -217,6 +217,7 @@ fn item_tree_node_kind_definition_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeK
         (ItemTreeNodeKind::Using(lhs), ItemTreeNodeKind::Using(rhs)) => using_decl_eq(lhs, rhs),
         (ItemTreeNodeKind::Struct(lhs), ItemTreeNodeKind::Struct(rhs)) => {
             lhs.name == rhs.name
+                && lhs.is_tuple == rhs.is_tuple
                 && lhs.fields.len() == rhs.fields.len()
                 && lhs
                     .fields
@@ -484,6 +485,7 @@ fn struct_decl_eq(lhs: &StructItem, rhs: &StructItem) -> bool {
         && lhs.generics == rhs.generics
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && fields_decl_eq(&lhs.fields, &rhs.fields)
+        && lhs.is_tuple == rhs.is_tuple
         && lhs.is_extern == rhs.is_extern
 }
 

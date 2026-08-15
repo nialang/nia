@@ -2,6 +2,68 @@
 use super::common::*;
 
 #[test]
+fn parses_tuple_structs_without_semicolons() {
+    let (module, errors) = parse_module(
+        r#"
+struct FooId(u64)
+struct RGB(u8, u8, u8)
+struct Pair[T, U](T, U)
+struct Bounded[T](T) where T: Copy[T]
+struct Point { x: i32, y: i32 }
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Struct(foo_id) = &module.items[0].kind else {
+        panic!("expected tuple struct");
+    };
+    assert!(foo_id.is_tuple);
+    assert_eq!(foo_id.fields.len(), 1);
+    assert_eq!(foo_id.fields[0].name, sym("0"));
+    let ItemKind::Struct(rgb) = &module.items[1].kind else {
+        panic!("expected tuple struct");
+    };
+    assert!(rgb.is_tuple);
+    assert_eq!(rgb.fields.len(), 3);
+    let ItemKind::Struct(pair) = &module.items[2].kind else {
+        panic!("expected generic tuple struct");
+    };
+    assert!(pair.is_tuple);
+    assert_eq!(
+        nia_ast::generic_param_names(&pair.generics),
+        vec![sym("T"), sym("U")]
+    );
+    let ItemKind::Struct(bounded) = &module.items[3].kind else {
+        panic!("expected bounded tuple struct");
+    };
+    assert!(bounded.is_tuple);
+    assert_eq!(bounded.where_clause.predicates.len(), 1);
+    assert!(matches!(&module.items[4].kind, ItemKind::Struct(item) if !item.is_tuple));
+}
+
+#[test]
+fn rejects_non_canonical_tuple_struct_forms() {
+    let (_, empty_errors) = parse_module("struct Marker()");
+    assert!(
+        empty_errors
+            .iter()
+            .any(|error| error.message.contains("requires at least one field"))
+    );
+
+    let (_, semicolon_errors) = parse_module("struct FooId(u64);");
+    assert!(
+        !semicolon_errors.is_empty(),
+        "trailing semicolon must not be accepted"
+    );
+
+    let (_, extern_errors) = parse_module("extern struct Handle(u64)");
+    assert!(
+        extern_errors
+            .iter()
+            .any(|error| error.message.contains("extern tuple structs"))
+    );
+}
+
+#[test]
 fn rejects_non_terminal_open_enum_marker() {
     let (_, errors) = parse_module(
         r#"

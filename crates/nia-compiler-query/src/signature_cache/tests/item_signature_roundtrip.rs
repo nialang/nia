@@ -103,6 +103,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
                 }],
                 where_predicates: where_predicates.clone(),
                 fields: vec![field.clone()],
+                is_tuple: false,
                 is_extern: false,
                 span,
             },

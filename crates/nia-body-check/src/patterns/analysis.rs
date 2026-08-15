@@ -262,14 +262,33 @@ impl BodyChecker<'_> {
         if def_id != constructor_def {
             return AnalysisPattern::Opaque;
         }
+        let Some(signature) = self.resolved_struct_signature(def_id) else {
+            return AnalysisPattern::Opaque;
+        };
+        if signature.signature.is_tuple {
+            let nia_ast::NominalPatternFields::Tuple(actual) = fields else {
+                return AnalysisPattern::Opaque;
+            };
+            if actual.len() != signature.signature.fields.len() {
+                return AnalysisPattern::Opaque;
+            }
+            let mut normalized_fields = Vec::with_capacity(actual.len());
+            for (actual, expected) in actual.iter().zip(signature.signature.fields) {
+                let Some(ty) = self.field_ty_for_aggregate_ty(target_ty, &expected.name) else {
+                    return AnalysisPattern::Opaque;
+                };
+                normalized_fields.push(self.analysis_pattern(actual, ty));
+            }
+            return AnalysisPattern::Constructor {
+                id: PatternConstructor::Struct(def_id),
+                fields: normalized_fields,
+            };
+        }
         let nia_ast::NominalPatternFields::Named {
             fields: actual,
             rest,
         } = fields
         else {
-            return AnalysisPattern::Opaque;
-        };
-        let Some(signature) = self.resolved_struct_signature(def_id) else {
             return AnalysisPattern::Opaque;
         };
         if !actual.iter().all(|actual| {

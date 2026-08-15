@@ -51,6 +51,43 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }),
+            Some(TyKind::Nominal { def_id, .. }) => {
+                let Some(resolved) = self.resolved_struct_signature(def_id) else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!(
+                            "cannot project tuple field .{index} from {}",
+                            self.ty_name(lhs_ty)
+                        ),
+                    ));
+                    return self.error();
+                };
+                if !resolved.signature.is_tuple {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!(
+                            "cannot project tuple field .{index} from {}",
+                            self.ty_name(lhs_ty)
+                        ),
+                    ));
+                    return self.error();
+                }
+                let arity = resolved.signature.fields.len();
+                let Some(field) = resolved.signature.fields.get(index) else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!(
+                            "tuple field index {index} is out of bounds for tuple struct of arity {arity}"
+                        ),
+                    ));
+                    return self.error();
+                };
+                self.field_ty_for_aggregate_ty(lhs_ty, &field.name)
+                    .unwrap_or_else(|| self.error())
+            }
             Some(TyKind::Error) => self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
