@@ -17,7 +17,6 @@ use nia_item_signatures::{
     UnionSignature,
 };
 use nia_local_resolve::LocalKind;
-use nia_mangle::mangle_symbol_id;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
@@ -1031,50 +1030,6 @@ impl<'a> BodyChecker<'a> {
             .find(|(variant_name, _)| variant_name == name)
             .map(|(_, def_id)| *def_id)?;
         Some((enum_id, variant_id))
-    }
-
-    pub(crate) fn check_enum_switch_exhaustive(
-        &mut self,
-        span: Span,
-        enum_id: GlobalDefId,
-        has_default: bool,
-        covered_variants: &HashSet<DefId>,
-    ) {
-        if has_default {
-            return;
-        }
-        let Some(resolved) = self.resolved_enum_signature(enum_id) else {
-            return;
-        };
-        if resolved.signature.is_open {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                "non-exhaustive open enum switch, missing `_`",
-            ));
-            return;
-        }
-        let names_and_defs: Vec<(SymbolId, DefId)> = resolved
-            .signature
-            .variants
-            .iter()
-            .map(|variant| (variant.name, variant.def_id))
-            .collect();
-        let missing: Vec<String> = names_and_defs
-            .iter()
-            .filter(|(_, def_id)| !covered_variants.contains(def_id))
-            .map(|(name, _)| mangle_symbol_id(*name))
-            .collect();
-        if !missing.is_empty() {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
-                    "non-exhaustive enum switch, missing: {}",
-                    missing.join(", ")
-                ),
-            ));
-        }
     }
 
     fn field_base_type(

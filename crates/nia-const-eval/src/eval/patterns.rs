@@ -312,7 +312,12 @@ fn enum_pattern_matches<P>(
             }
             Ok(true)
         }
-        (ConstEnumPatternFields::Named(patterns), ConstEnumPayload::Named(values)) => {
+        (
+            ConstEnumPatternFields::Named {
+                fields: patterns, ..
+            },
+            ConstEnumPayload::Named(values),
+        ) => {
             for field in patterns {
                 let Some(value) = values.get(&field.name) else {
                     return Err(ConstError {

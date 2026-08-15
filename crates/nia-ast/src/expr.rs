@@ -154,14 +154,20 @@ pub enum PatternKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum NominalPatternFields {
     Tuple(Vec<Pattern>),
-    Named(Vec<NamedPatternField>),
+    Named {
+        fields: Vec<NamedPatternField>,
+        /// Explicit permission to ignore declaration fields omitted by the pattern.
+        rest: Option<Span>,
+    },
 }
 
 impl NominalPatternFields {
     fn contains_binding(&self) -> bool {
         match self {
             Self::Tuple(fields) => fields.iter().any(Pattern::contains_binding),
-            Self::Named(fields) => fields.iter().any(|field| field.pattern.contains_binding()),
+            Self::Named { fields, .. } => {
+                fields.iter().any(|field| field.pattern.contains_binding())
+            }
         }
     }
 }

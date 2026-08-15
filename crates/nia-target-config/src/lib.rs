@@ -568,16 +568,17 @@ impl Pruner<'_> {
                                     .collect(),
                             )
                         }
-                        nia_ast::NominalPatternFields::Named(fields) => {
-                            nia_ast::NominalPatternFields::Named(
-                                fields
+                        nia_ast::NominalPatternFields::Named { fields, rest } => {
+                            nia_ast::NominalPatternFields::Named {
+                                fields: fields
                                     .into_iter()
                                     .map(|mut field| {
                                         field.pattern = self.prune_pattern(field.pattern);
                                         field
                                     })
                                     .collect(),
-                            )
+                                rest,
+                            }
                         }
                     },
                 },

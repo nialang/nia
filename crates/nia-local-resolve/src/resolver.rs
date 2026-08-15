@@ -674,7 +674,7 @@ impl<'a> LocalResolver<'a> {
                             );
                         }
                     }
-                    nia_ast::NominalPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named { fields, .. } => {
                         for field in fields {
                             self.resolve_pattern_with_span(
                                 &field.pattern,

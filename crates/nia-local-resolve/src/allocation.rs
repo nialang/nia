@@ -349,7 +349,7 @@ impl LocalDefinitionAllocator {
                             self.allocate_pattern_with_span(field, binding_kind, binding_span);
                         }
                     }
-                    nia_ast::NominalPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named { fields, .. } => {
                         for field in fields {
                             self.allocate_pattern_with_span(
                                 &field.pattern,

@@ -809,12 +809,14 @@ impl ResolvedConstPattern {
     pub fn struct_pattern(
         def_id: GlobalDefId,
         fields: Vec<ConstNamedPatternField<ResolvedConstPattern>>,
+        rest: Option<Span>,
         span: Span,
     ) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Struct {
                 def_id,
                 fields,
+                rest,
                 span,
             },
         }
@@ -844,6 +846,24 @@ impl ResolvedConstPattern {
 
     pub fn kind(&self) -> &ResolvedConstPatternKind {
         &self.kind
+    }
+
+    pub fn span(&self) -> Span {
+        match &self.kind {
+            ResolvedConstPatternKind::Wildcard { span }
+            | ResolvedConstPatternKind::Bind { span, .. }
+            | ResolvedConstPatternKind::Pointer { span, .. }
+            | ResolvedConstPatternKind::MutPointer { span, .. }
+            | ResolvedConstPatternKind::OptionalSome { span, .. }
+            | ResolvedConstPatternKind::OptionalNull { span }
+            | ResolvedConstPatternKind::ErrorOk { span, .. }
+            | ResolvedConstPatternKind::ErrorErr { span, .. }
+            | ResolvedConstPatternKind::Tuple { span, .. }
+            | ResolvedConstPatternKind::EnumVariant { span, .. }
+            | ResolvedConstPatternKind::Struct { span, .. }
+            | ResolvedConstPatternKind::Range { span, .. } => *span,
+            ResolvedConstPatternKind::Expr(expr) => expr.span(),
+        }
     }
 }
 
@@ -902,6 +922,7 @@ pub enum ResolvedConstPatternKind {
     Struct {
         def_id: GlobalDefId,
         fields: Vec<ConstNamedPatternField<ResolvedConstPattern>>,
+        rest: Option<Span>,
         span: Span,
     },
     Expr(ResolvedConstExpr),
@@ -1397,6 +1418,7 @@ pub enum EarlyConstPattern {
     Struct {
         def_id: GlobalDefId,
         fields: Vec<ConstNamedPatternField<EarlyConstPattern>>,
+        rest: Option<Span>,
         span: Span,
     },
     Expr(EarlyConstExpr),
@@ -1411,7 +1433,10 @@ pub enum EarlyConstPattern {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstEnumPatternFields<P> {
     Tuple(Vec<P>),
-    Named(Vec<ConstNamedPatternField<P>>),
+    Named {
+        fields: Vec<ConstNamedPatternField<P>>,
+        rest: Option<Span>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

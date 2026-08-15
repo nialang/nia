@@ -728,7 +728,6 @@ extend StdIo {
             StdIo::Inherit => !platform::StdIo::Inherit,
             StdIo::Ignore => !platform::StdIo::Ignore,
             StdIo::Pipe => !platform::StdIo::Pipe,
-            _ => Error::Invalid!,
         }
     }
 }

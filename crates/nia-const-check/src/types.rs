@@ -108,7 +108,7 @@ pub(crate) fn resolved_pattern_local_id(pattern: &ResolvedConstPattern) -> Optio
             nia_const_ir::ConstEnumPatternFields::Tuple(fields) => {
                 fields.iter().find_map(resolved_pattern_local_id)
             }
-            nia_const_ir::ConstEnumPatternFields::Named(fields) => fields
+            nia_const_ir::ConstEnumPatternFields::Named { fields, .. } => fields
                 .iter()
                 .find_map(|field| resolved_pattern_local_id(&field.pattern)),
         },

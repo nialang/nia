@@ -421,9 +421,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic
-                .summary
-                .contains("non-exhaustive open enum switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive switch"))
             .count(),
         1,
         "{:?}",

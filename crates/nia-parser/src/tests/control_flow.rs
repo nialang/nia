@@ -570,7 +570,7 @@ fn inspect(point: Point, event: Event) i32 {
     };
     let PatternKind::Nominal {
         constructor,
-        fields: nia_ast::NominalPatternFields::Named(fields),
+        fields: nia_ast::NominalPatternFields::Named { fields, rest: None },
     } = &binding.pattern.kind
     else {
         panic!("expected struct pattern");
@@ -587,6 +587,70 @@ fn inspect(point: Point, event: Event) i32 {
         fields[1].pattern.kind,
         PatternKind::Bind { name, .. } if name == sym("x")
     ));
+}
+
+#[test]
+fn parses_terminal_nominal_pattern_rest() {
+    let (module, errors) = parse_module(
+        r#"
+struct Point { x: i32, y: i32 }
+enum Event { Resize { width: i32, height: i32 } }
+
+fn inspect(point: Point, event: Event) i32 {
+    let Point { x, .. } = point;
+    switch event {
+        Event::Resize { .. } => x,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        &binding.pattern.kind,
+        PatternKind::Nominal {
+            fields: nia_ast::NominalPatternFields::Named {
+                fields,
+                rest: Some(_),
+            },
+            ..
+        } if fields.len() == 1 && fields[0].name == sym("x")
+    ));
+}
+
+#[test]
+fn diagnoses_duplicate_and_non_terminal_nominal_pattern_rest() {
+    let (_, errors) = parse_module(
+        r#"
+struct Point { x: i32, y: i32 }
+
+fn duplicate(point: Point) {
+    let Point { .., .. } = point;
+}
+
+fn non_terminal(point: Point) {
+    let Point { .., x } = point;
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("may contain `..` only once")),
+        "{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("must be the final nominal pattern field")),
+        "{errors:?}"
+    );
 }
 
 #[test]
@@ -618,7 +682,7 @@ fn inspect(value: Failure!i32) i32 {
             if matches!(
                 &inner.kind,
                 PatternKind::Nominal {
-                    fields: nia_ast::NominalPatternFields::Named(fields),
+                    fields: nia_ast::NominalPatternFields::Named { fields, rest: None },
                     ..
                 } if matches!(
                     &fields[0].pattern.kind,

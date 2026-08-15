@@ -4,8 +4,9 @@ using pkg::mem;
 using pkg::string;
 using pkg::build::error;
 
-// Protocol-visible kinds have explicit tags. Unknown values remain invalid
-// rather than falling back to an older or less constrained action contract.
+// Protocol-visible kinds have explicit tags. The final `_` keeps unknown
+// persisted tags representable so the encoder can reject them explicitly;
+// they must never fall back to an older or less constrained action contract.
 pub enum StepKind: i32 {
     Aggregate = 1,
     CheckExecutable = 2,
@@ -19,6 +20,7 @@ pub enum StepKind: i32 {
     InstallStaticArchive = 12,
     Uncacheable = 6,
     ExternalCommand = 7,
+    _
 }
 
 pub enum OptimizationMode: i32 {
@@ -165,6 +167,7 @@ pub enum CommandArgumentKind: i32 {
     ArtifactInput = 5,
     ObjectInput = 6,
     StaticArchiveInput = 7,
+    _
 }
 
 pub(pkg) union CommandArgumentPayload {

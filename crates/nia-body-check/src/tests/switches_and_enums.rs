@@ -198,7 +198,7 @@ fn binding_covers_product(event: PairEvent) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive switch"))
             .count(),
         2,
         "{:?}",
@@ -281,7 +281,7 @@ fn bad(c: Color) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive switch"))
             .count(),
         1
     );
@@ -606,7 +606,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("switch pattern overlaps")),
+            .any(|diagnostic| diagnostic.summary.contains("switch pattern is unreachable")),
         "{:?}",
         checked.diagnostics
     );
@@ -899,6 +899,115 @@ const TOTAL: i32 = constSum(Point { x: 19, y: 22 });
 }
 
 #[test]
+fn checks_nominal_rest_and_matrix_pattern_soundness() {
+    let accepted = pipeline(
+        r#"
+struct Point { x: bool, y: i32 }
+struct Box[T] { value: T, tag: i32 }
+enum Event { Stop, Resize { wide: bool, height: i32 } }
+
+fn bind(point: Point) bool {
+    let Point { x, .. } = point;
+    x
+}
+
+fn generic[T](boxed: Box[T]) T {
+    let Box { value, .. } = boxed;
+    value
+}
+
+fn classify(event: Event) i32 {
+    switch event {
+        Event::Stop => 0,
+        Event::Resize { wide: true, .. } => 1,
+        Event::Resize { wide: false, .. } => 2,
+    }
+}
+
+fn byte(value: u8) i32 {
+    switch value {
+        0..=127 => 0,
+        128..=255 => 1,
+    }
+}
+
+const fn constBind(point: Point) bool {
+    let Point { x, .. } = point;
+    x
+}
+
+const FLAG: bool = constBind(Point { x: true, y: 9 });
+"#,
+    );
+    assert!(
+        accepted.diagnostics.is_empty(),
+        "{:?}",
+        accepted.diagnostics
+    );
+
+    let rejected = pipeline(
+        r#"
+struct Flags { left: bool, right: bool }
+
+fn boolean(value: bool) i32 {
+    switch value {
+        true => 1,
+    }
+}
+
+fn tupleProduct(value: (bool, bool)) i32 {
+    switch value {
+        (true, _) => 1,
+        (_, false) => 2,
+    }
+}
+
+fn structProduct(value: Flags) i32 {
+    switch value {
+        Flags { left: true, .. } => 1,
+        Flags { right: false, .. } => 2,
+    }
+}
+
+fn unreachable(value: Flags) i32 {
+    switch value {
+        Flags { .. } => 1,
+        Flags { left: true, .. } => 2,
+    }
+}
+
+fn integerGap(value: u8) i32 {
+    switch value {
+        0..10 => 0,
+        11..=255 => 1,
+    }
+}
+"#,
+    );
+    for witness in [
+        "false",
+        "(false, true)",
+        "Flags { left: false, right: true }",
+        "10",
+    ] {
+        assert!(
+            rejected
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains(witness)),
+            "missing witness `{witness}` in {:?}",
+            rejected.diagnostics
+        );
+    }
+    assert!(
+        rejected
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("switch pattern is unreachable"))
+    );
+}
+
+#[test]
 fn rejects_invalid_struct_pattern_field_sets_and_constructors() {
     let checked = pipeline(
         r#"
@@ -965,7 +1074,7 @@ fn alternatives(value: ?i32) i32 {
         checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .summary
-                .contains("non-exhaustive switch over destructured value")
+                .contains("non-exhaustive switch, missing pattern")
         }),
         "{:?}",
         checked.diagnostics

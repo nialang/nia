@@ -387,6 +387,7 @@ fn main() i32 {
 pub enum Mode: u8 {
     A,
     B,
+    _,
 }
 
 pub struct Box {
@@ -440,6 +441,7 @@ fn main() i32 {
 pub enum Mode: u8 {
     A,
     B,
+    _,
 }
 
 pub struct Box {

@@ -40,6 +40,7 @@ backends directly.
 | Type/signature | `nia-ty`, `nia-type-resolve`, `nia-type-lower`, `nia-item-signatures`, `nia-program-signatures`, `nia-type-normalize`, `nia-trait-solve` | Type identity, declaration signatures, normalization, and trait selection |
 | Name resolution | `nia-value-resolve`, `nia-local-resolve` | Global value paths and function-local bindings |
 | Const/static/ABI | `nia-sema`, `nia-sema-ir`, `nia-const-ir`, `nia-const-eval`, `nia-const-check`, `nia-static-check`, `nia-static-ir`, `nia-layout`, `nia-abi-check` | Shared semantic checks, compile-time values, static storage, layout, and ABI validation |
+| Pattern analysis | `nia-pattern-analysis` | Pure typed-pattern usefulness, exhaustiveness, scalar partitioning, and missing witnesses shared by const and runtime checks |
 | Bodies and function IR | `nia-flow-check`, `nia-body-check`, `nia-body-ir`, `nia-closure-check`, `nia-function-ir`, `nia-function-lower`, `nia-function-opt`, `nia-ir-names` | Typed bodies, places/control flow, closure escape validation, lowering, and function-local optimization |
 | Executable closure | `nia-executable-facts`, `nia-executable-reachability`, `nia-monomorphize`, `nia-mangle` | Reachable program facts, generic instances, and stable symbols |
 | Backend | `nia-backend-ir`, `nia-backend-lower`, `nia-llvm`, `nia-codegen-llvm` | Backend ownership boundary, lowering, LLVM facade, objects and work products |
@@ -63,6 +64,12 @@ backends directly.
 - `crates/nia-build/src/action_cache.rs`: generated-file cache and shared cache
   vocabulary; its submodules own compiler and external-command records.
 - `crates/nia-build/src/output_recovery.rs`: journaled multi-output recovery.
+- `crates/nia-pattern-analysis/src/lib.rs`: constructor-matrix usefulness,
+  exhaustiveness, scalar-domain partitioning, and witness generation.
+- `crates/nia-body-check/src/patterns/analysis.rs`: runtime typed-pattern and
+  type-domain adapter for the shared matrix analysis.
+- `crates/nia-const-check/src/analyzer/switch_patterns/coverage.rs`: static
+  const-switch adapter and missing-witness formatting.
 - `lib/std/build/core.nia`, `types.nia`, and `plan.nia`: public build-script API,
   owned mutable records, validation, and Nia-side plan encoding.
 - `maintain/`: repository-local structural audits, crate reports, performance

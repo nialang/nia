@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+use nia_pattern_analysis::{Constructor as AnalysisConstructor, Domain as AnalysisDomain};
+use nia_pattern_analysis::{Pattern as AnalysisPattern, missing_witness, useful_witness};
+
+mod analysis;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PatternConstructor {
+    Tuple,
+    Pointer { is_readonly: bool },
+    OptionalSome,
+    OptionalNull,
+    ErrorOk,
+    ErrorErr,
+    Struct(GlobalDefId),
+    EnumVariant(GlobalDefId),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SwitchInterval {
     start: i128,
@@ -34,16 +51,10 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let target_ty = self.check_expr(&switch.target);
-        let mut coverage = PatternCoverage::default();
+        let mut matrix = Vec::new();
         let mut result_ty = expected;
 
         for arm in &switch.arms {
-            if coverage.catch_all.is_some() {
-                self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                    arm.span,
-                    "switch arm is unreachable because a previous pattern matches all remaining values",
-                ));
-            }
             if arm.patterns.len() > 1 && arm.patterns.iter().any(nia_ast::Pattern::contains_binding)
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -62,7 +73,35 @@ impl<'a> BodyChecker<'a> {
                         "`_` default must be the only pattern in a switch arm",
                     ));
                 }
-                self.check_pattern(pattern, target_ty, Some(&mut coverage), "switch pattern");
+                // Recursive checking still owns type compatibility, binding types, and
+                // constant evaluation. A fresh local coverage value prevents the legacy
+                // per-constructor accumulator from making cross-arm decisions.
+                let mut local_coverage = PatternCoverage::default();
+                self.check_pattern(
+                    pattern,
+                    target_ty,
+                    Some(&mut local_coverage),
+                    "switch pattern",
+                );
+                let normalized = self.analysis_pattern(pattern, target_ty);
+                match useful_witness(
+                    &matrix,
+                    std::slice::from_ref(&normalized),
+                    &[target_ty],
+                    |ty| self.analysis_domain(*ty),
+                ) {
+                    Ok(Some(_)) => matrix.push(vec![normalized]),
+                    Ok(None) => self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        pattern.span,
+                        "switch pattern is unreachable because previous patterns cover all of its values",
+                    )),
+                    Err(error) => self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        pattern.span,
+                        format!("cannot analyze switch pattern coverage: {error}"),
+                    )),
+                }
             }
             let arm_ty = self.check_switch_arm_body(&arm.body, result_ty);
             if let Some(expected) = result_ty {
@@ -72,7 +111,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        self.check_pattern_switch_exhaustive(switch.target.span, target_ty, &coverage);
+        self.check_pattern_matrix_exhaustive(switch.target.span, target_ty, &matrix);
         result_ty.unwrap_or_else(|| self.unit())
     }
 
@@ -480,7 +519,11 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
-        let nia_ast::NominalPatternFields::Named(actual) = fields else {
+        let nia_ast::NominalPatternFields::Named {
+            fields: actual,
+            rest,
+        } = fields
+        else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -501,7 +544,7 @@ impl<'a> BodyChecker<'a> {
         );
         let field_set_is_valid = field_set.duplicate_fields.is_empty()
             && field_set.unknown_fields.is_empty()
-            && field_set.missing_fields.is_empty();
+            && (rest.is_some() || field_set.missing_fields.is_empty());
         let mut fields_are_irrefutable = true;
 
         // Check in declaration order. Typed lowering relies on this same canonical order so
@@ -511,7 +554,8 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .find(|field| field.name == expected_field.name)
             else {
-                fields_are_irrefutable = false;
+                // Omission is a wildcard only when the source explicitly wrote `..`.
+                fields_are_irrefutable &= rest.is_some();
                 continue;
             };
             let ty = self
@@ -541,12 +585,14 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
-        for name in &field_set.missing_fields {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("missing struct pattern field `{}`", self.symbol_name(*name)),
-            ));
+        if rest.is_none() {
+            for name in &field_set.missing_fields {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!("missing struct pattern field `{}`", self.symbol_name(*name)),
+                ));
+            }
         }
         if field_set_is_valid
             && fields_are_irrefutable
@@ -638,7 +684,10 @@ impl<'a> BodyChecker<'a> {
             }
             (
                 nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
-                nia_ast::NominalPatternFields::Named(actual),
+                nia_ast::NominalPatternFields::Named {
+                    fields: actual,
+                    rest,
+                },
             ) => {
                 let field_set = nia_sema::check_required_field_set(
                     actual
@@ -671,6 +720,20 @@ impl<'a> BodyChecker<'a> {
                     self.check_pattern(&field.pattern, ty, Some(&mut child), context);
                     field_coverages.push((ty, child));
                 }
+                if rest.is_some() {
+                    for missing in &field_set.missing_fields {
+                        let ty = expected
+                            .iter()
+                            .find(|expected| expected.name == *missing)
+                            .map(|expected| expected.ty)
+                            .unwrap_or_else(|| self.error());
+                        let child = PatternCoverage {
+                            catch_all: *rest,
+                            ..PatternCoverage::default()
+                        };
+                        field_coverages.push((ty, child));
+                    }
+                }
                 for field in field_set.duplicate_fields {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
@@ -691,12 +754,14 @@ impl<'a> BodyChecker<'a> {
                         ),
                     ));
                 }
-                for name in field_set.missing_fields {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        format!("missing payload pattern field `{}`", self.symbol_name(name)),
-                    ));
+                if rest.is_none() {
+                    for name in field_set.missing_fields {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            span,
+                            format!("missing payload pattern field `{}`", self.symbol_name(name)),
+                        ));
+                    }
                 }
             }
             (nia_item_signatures::EnumVariantPayloadSignature::Unit, _) => {
@@ -781,7 +846,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_pattern(field, error, None, context);
                 }
             }
-            nia_ast::NominalPatternFields::Named(fields) => {
+            nia_ast::NominalPatternFields::Named { fields, .. } => {
                 for field in fields {
                     let error = self.error();
                     self.check_pattern(&field.pattern, error, None, context);
@@ -815,32 +880,6 @@ impl<'a> BodyChecker<'a> {
             span,
             format!("pattern overlaps previous pattern at {previous:?}"),
         ));
-    }
-
-    fn check_pattern_switch_exhaustive(
-        &mut self,
-        span: Span,
-        target_ty: InternedTyId,
-        coverage: &PatternCoverage,
-    ) {
-        if self.pattern_coverage_covers_type(target_ty, coverage) {
-            return;
-        }
-        if let Some(enum_id) = self.enum_global_def_id(target_ty) {
-            let covered = coverage.enum_variants.keys().copied().collect();
-            self.check_enum_switch_exhaustive(span, enum_id, false, &covered);
-            return;
-        }
-        if matches!(
-            self.interner.get(self.normalization.normalize(target_ty)),
-            Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. })
-        ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                "non-exhaustive switch over destructured value",
-            ));
-        }
     }
 
     fn pattern_coverage_covers_type(

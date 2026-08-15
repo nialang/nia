@@ -1274,6 +1274,13 @@ runtime source `switch`: recursive nominal patterns, value patterns, integer
 ranges, and catch-all cases. Struct pattern fields are checked against the
 instantiated target type, so generic arguments are inherited from the matched
 value rather than repeated on the pattern constructor.
+Successful static const-switch typing delegates usefulness and exhaustiveness
+to `nia-pattern-analysis`, using the same constructor identity and field-order
+contract as runtime body checking. Const evaluation remains path-driven: when
+executing a `const fn`, it evaluates the selected arm rather than pretending to
+be a whole-function static analysis. `nia-body-check` therefore remains the
+owner of whole-function soundness, while const-check applies the shared matrix
+whenever a source-shaped const switch passes through static const typing.
 Value-producing arm bodies are typed and unified to one typed const value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
 do not invent a switch result type. Optional and error-union payload locals are
@@ -1295,13 +1302,35 @@ locally, but does not participate in program-level const module queries. Full
 imported const function execution belongs to the semantic query path after
 imports, definitions, values, locals, and const modules are available.
 
-### 8.4 `nia-static-check`
+### 8.4 `nia-pattern-analysis`
+
+Owns the pure pattern-matrix algorithm shared by runtime body checking and
+static const-switch typing. It accepts only canonical type-column identities,
+constructor identities, constructor field types, scalar bounds, and normalized
+patterns. It has no dependency on AST, name resolution, type storage,
+diagnostics, or lowering.
+
+The algorithm follows the specialization/default structure of Maranget-style
+usefulness analysis. Finite constructors model enums, optional/error unions,
+tuples, pointers, and nominal structs. Scalar endpoints partition finite integer
+domains into disjoint intervals without enumerating the domain. Open domains
+retain an unknown remainder that only a wildcard can cover. Opaque expression
+patterns remain useful unless shadowed by a wildcard but never prove
+exhaustiveness.
+
+Adapters must use the same canonical constructor identity and declaration field
+order as lowering. Named fields omitted under an explicit `..` become wildcard
+children before analysis; omission without `..` is a type error. A witness
+returned by the crate is a subpattern of the usefulness query and therefore a
+valid concrete explanation of missing coverage.
+
+### 8.5 `nia-static-check`
 
 Validates static initializers for `static` storage. It distinguishes static data
 from compile-time value bindings. Address initializers are allowed only when they
 can be represented as target static relocations.
 
-### 8.5 `nia-static-ir`
+### 8.6 `nia-static-ir`
 
 Defines the static/global initialization IR. It represents compile-time data,
 not executable runtime control flow. It supports zero values, scalars,
@@ -1311,7 +1340,7 @@ function addresses.
 Static address paths use static-only elements such as field ids and constant
 indices. They must not carry source-shaped body expressions or runtime places.
 
-### 8.6 `nia-layout`
+### 8.7 `nia-layout`
 
 Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
 instantiated nominal types. Every compiler layout provider derives its
@@ -1362,7 +1391,7 @@ size/alignment. They therefore resolve the requested program struct or union
 signature and compute its detailed instance directly. A hit in the ordinary
 program layout cache cannot short-circuit detail materialization.
 
-### 8.7 `nia-abi-check`
+### 8.8 `nia-abi-check`
 
 Checks C ABI boundaries for `extern` functions, globals, and structs. It rejects
 Nia-only types that cannot be passed directly through the C ABI, such as slices,
@@ -1396,7 +1425,8 @@ Type-checks function bodies and expression semantics. It owns:
 - literal and pointer array-to-slice coercions;
 - indexing, slicing, field access, and method calls;
 - function calls and generic argument inference;
-- enum casts, switch exhaustiveness, and switch range-pattern validation;
+- enum casts, switch usefulness/exhaustiveness, missing witnesses, and switch
+  range-pattern validation;
 - builtin expression typing;
 - inline assembly configuration validation.
 
@@ -1470,7 +1500,9 @@ or checked ranges; expression-shaped patterns remain only for patterns whose
 semantics are not represented by the integer-pattern fact. Structs and enum
 variants enter one typed nominal-pattern representation: its constructor
 selects either a struct field projection or an enum tag/payload projection,
-while fields are normalized to declaration order. `let`, `for`, `switch`, and
+while fields are normalized to declaration order. A terminal source `..` is
+not encoded as a fake field: omitted fields are materialized as typed wildcard
+children so `field_defs[index]` and `fields[index]` remain aligned. `let`, `for`, `switch`, and
 if-pattern expressions therefore consume the same recursive representation;
 only their source control-flow shape and irrefutability requirements differ.
 
