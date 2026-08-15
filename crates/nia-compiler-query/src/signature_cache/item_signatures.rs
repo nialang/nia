@@ -768,6 +768,7 @@ pub(crate) fn read_fields(
     let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
     let mut fields = Vec::with_capacity(len);
     let mut ids = HashSet::new();
+    let mut names = HashSet::new();
     for _ in 0..len {
         let field = item_signatures::FieldSignature {
             def_id: DefId(read_u64(cursor)?),
@@ -775,7 +776,7 @@ pub(crate) fn read_fields(
             ty: read_type_index(cursor, types)?,
             span: read_span(cursor, source_len)?,
         };
-        if !ids.insert(field.def_id) {
+        if !ids.insert(field.def_id) || !names.insert(field.name) {
             return None;
         }
         fields.push(field);

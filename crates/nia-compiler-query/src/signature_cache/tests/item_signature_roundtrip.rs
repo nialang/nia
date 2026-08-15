@@ -103,7 +103,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
                 }],
                 where_predicates: where_predicates.clone(),
                 fields: vec![field.clone()],
-                is_tuple: false,
+                is_tuple: true,
                 is_extern: false,
                 span,
             },
@@ -275,6 +275,12 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
     };
     assert!(
         loaded
+            .structs
+            .get(&DefId(2))
+            .is_some_and(|signature| signature.is_tuple)
+    );
+    assert!(
+        loaded
             .type_roots()
             .iter()
             .all(|ty| ty.store_id == new_store.id())
@@ -311,4 +317,24 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
     );
     assert!(!path.exists());
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn item_signature_decoder_rejects_duplicate_field_names() {
+    let symbols = SymbolTable::new();
+    let store = TypeStore::new();
+    let module = ModuleIdAllocator::new().allocate();
+    let ty = store
+        .append_for_module(module)
+        .intern(TyKind::Primitive(PrimitiveTy::I32));
+    let mut encoded = Vec::new();
+    write_u64(&mut encoded, 2);
+    for def_id in [1_u64, 2] {
+        write_u64(&mut encoded, def_id);
+        write_string(&mut encoded, "value");
+        write_type_index(&mut encoded, 0);
+        write_span(&mut encoded, nia_span::Span::new(0, 1));
+    }
+
+    assert!(read_fields(&mut Cursor::new(encoded.as_slice()), &[ty], &symbols, 1,).is_none());
 }
