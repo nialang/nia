@@ -487,14 +487,26 @@ impl<'a> BodyChecker<'a> {
                                 .collect(),
                             (
                                 nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
-                                nia_ast::NominalPatternFields::Named(patterns),
+                                nia_ast::NominalPatternFields::Named {
+                                    fields: patterns,
+                                    rest,
+                                },
                             ) => expected
                                 .into_iter()
-                                .filter_map(|expected| {
-                                    let pattern = patterns
+                                .map(|expected| {
+                                    patterns
                                         .iter()
-                                        .find(|pattern| pattern.name == expected.name)?;
-                                    Some(self.lower_pattern(&pattern.pattern, expected.ty))
+                                        .find(|pattern| pattern.name == expected.name)
+                                        .map_or(
+                                            TypedPattern {
+                                                ty: expected.ty,
+                                                span: rest.unwrap_or(pattern.span),
+                                                kind: TypedPatternKind::Wildcard,
+                                            },
+                                            |pattern| {
+                                                self.lower_pattern(&pattern.pattern, expected.ty)
+                                            },
+                                        )
                                 })
                                 .collect(),
                             _ => Vec::new(),
@@ -518,10 +530,11 @@ impl<'a> BodyChecker<'a> {
                                 .fields
                                 .into_iter()
                                 .filter_map(|expected| {
-                                    let field = match fields {
-                                        nia_ast::NominalPatternFields::Named(fields) => fields
-                                            .iter()
-                                            .find(|field| field.name == expected.name)?,
+                                    let (field, rest) = match fields {
+                                        nia_ast::NominalPatternFields::Named { fields, rest } => (
+                                            fields.iter().find(|field| field.name == expected.name),
+                                            *rest,
+                                        ),
                                         nia_ast::NominalPatternFields::Tuple(_) => return None,
                                     };
                                     let field_def =
@@ -529,7 +542,15 @@ impl<'a> BodyChecker<'a> {
                                     let field_ty = self
                                         .field_ty_for_aggregate_ty(target_ty, &expected.name)
                                         .unwrap_or_else(|| self.error());
-                                    Some((field_def, self.lower_pattern(&field.pattern, field_ty)))
+                                    let pattern = field.map_or(
+                                        TypedPattern {
+                                            ty: field_ty,
+                                            span: rest.unwrap_or(pattern.span),
+                                            kind: TypedPatternKind::Wildcard,
+                                        },
+                                        |field| self.lower_pattern(&field.pattern, field_ty),
+                                    );
+                                    Some((field_def, pattern))
                                 })
                                 .unzip()
                         })

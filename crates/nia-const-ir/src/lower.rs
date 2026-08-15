@@ -1103,7 +1103,7 @@ fn lower_pattern_with_context(
             fields,
         } => {
             if let Some(def_id) = context.probe_type_prefix(&constructor.node_key) {
-                let nia_ast::NominalPatternFields::Named(fields) = fields else {
+                let nia_ast::NominalPatternFields::Named { fields, rest } = fields else {
                     return Err(ConstLowerError {
                         span: pattern.span,
                         message: "const struct patterns require named fields".to_string(),
@@ -1121,6 +1121,7 @@ fn lower_pattern_with_context(
                             })
                         })
                         .collect::<Result<Vec<_>, ConstLowerError>>()?,
+                    rest: *rest,
                     span: pattern.span,
                 });
             }
@@ -1133,18 +1134,24 @@ fn lower_pattern_with_context(
                             .map(|field| lower_pattern_with_context(field, context))
                             .collect::<Result<Vec<_>, _>>()?,
                     ),
-                    nia_ast::NominalPatternFields::Named(fields) => ConstEnumPatternFields::Named(
-                        fields
-                            .iter()
-                            .map(|field| {
-                                Ok(ConstNamedPatternField {
-                                    name: field.name,
-                                    pattern: lower_pattern_with_context(&field.pattern, context)?,
-                                    span: field.span,
+                    nia_ast::NominalPatternFields::Named { fields, rest } => {
+                        ConstEnumPatternFields::Named {
+                            fields: fields
+                                .iter()
+                                .map(|field| {
+                                    Ok(ConstNamedPatternField {
+                                        name: field.name,
+                                        pattern: lower_pattern_with_context(
+                                            &field.pattern,
+                                            context,
+                                        )?,
+                                        span: field.span,
+                                    })
                                 })
-                            })
-                            .collect::<Result<Vec<_>, ConstLowerError>>()?,
-                    ),
+                                .collect::<Result<Vec<_>, ConstLowerError>>()?,
+                            rest: *rest,
+                        }
+                    }
                 },
                 span: pattern.span,
             })

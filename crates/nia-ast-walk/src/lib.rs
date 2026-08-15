@@ -469,7 +469,7 @@ fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'as
                         visit_pattern(visitor, field);
                     }
                 }
-                nia_ast::NominalPatternFields::Named(fields) => {
+                nia_ast::NominalPatternFields::Named { fields, .. } => {
                     for field in fields {
                         visit_pattern(visitor, &field.pattern);
                     }

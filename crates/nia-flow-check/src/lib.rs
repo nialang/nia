@@ -654,7 +654,7 @@ impl FlowChecker<'_> {
                             self.check_pattern_flow(field);
                         }
                     }
-                    nia_ast::NominalPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named { fields, .. } => {
                         for field in fields {
                             self.check_pattern_flow(&field.pattern);
                         }
@@ -751,7 +751,7 @@ impl FlowChecker<'_> {
                         .iter()
                         .map(|field| Some((None, Self::pattern_fingerprint(field)?)))
                         .collect::<Option<Vec<_>>>()?,
-                    nia_ast::NominalPatternFields::Named(fields) => fields
+                    nia_ast::NominalPatternFields::Named { fields, .. } => fields
                         .iter()
                         .map(|field| {
                             Some((Some(field.name), Self::pattern_fingerprint(&field.pattern)?))

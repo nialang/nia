@@ -505,7 +505,7 @@ impl FunctionInference {
                         self.collect_pattern_locals(checker, field);
                     }
                 }
-                nia_ast::NominalPatternFields::Named(fields) => {
+                nia_ast::NominalPatternFields::Named { fields, .. } => {
                     for field in fields {
                         self.collect_pattern_locals(checker, &field.pattern);
                     }

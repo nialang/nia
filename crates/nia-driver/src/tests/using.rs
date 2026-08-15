@@ -791,7 +791,7 @@ fn main() i32 { pick(palette::Color::Red) }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("non-exhaustive enum switch")),
+            .contains("non-exhaustive switch, missing pattern: `Black`")),
         "{:?}",
         program.diagnostics
     );

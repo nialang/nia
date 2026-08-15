@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+use nia_pattern_analysis::{Constructor as AnalysisConstructor, Domain as AnalysisDomain};
+use nia_pattern_analysis::{Pattern as AnalysisPattern, missing_witness, useful_witness};
+
+mod coverage;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConstPatternConstructor {
+    Tuple,
+    Pointer { is_readonly: bool },
+    OptionalSome,
+    OptionalNull,
+    ErrorOk,
+    ErrorErr,
+    Struct(GlobalDefId),
+    EnumVariant(GlobalDefId),
+}
+
 impl Analyzer<'_> {
     // Pattern analysis has three distinct phases. The mismatch probe reports
     // only contradictions it can prove, structural checking decides whether
@@ -115,9 +132,14 @@ impl Analyzer<'_> {
                     self.resolved_const_pattern_has_definite_mismatch(pattern, ty)
                 })
             }
-            ResolvedConstPatternKind::Struct { def_id, fields, .. } => {
+            ResolvedConstPatternKind::Struct {
+                def_id,
+                fields,
+                rest,
+                ..
+            } => {
                 let Some(fields) =
-                    self.resolved_const_struct_pattern_fields(*def_id, fields, target_ty)
+                    self.resolved_const_struct_pattern_fields(*def_id, fields, *rest, target_ty)
                 else {
                     return true;
                 };
@@ -208,9 +230,14 @@ impl Analyzer<'_> {
                         self.check_resolved_const_patterns(std::slice::from_ref(pattern), ty)?;
                     }
                 }
-                ResolvedConstPatternKind::Struct { def_id, fields, .. } => {
-                    for (pattern, ty) in
-                        self.resolved_const_struct_pattern_fields(*def_id, fields, target_ty)?
+                ResolvedConstPatternKind::Struct {
+                    def_id,
+                    fields,
+                    rest,
+                    ..
+                } => {
+                    for (pattern, ty) in self
+                        .resolved_const_struct_pattern_fields(*def_id, fields, *rest, target_ty)?
                     {
                         self.check_resolved_const_patterns(std::slice::from_ref(pattern), ty)?;
                     }
@@ -290,9 +317,14 @@ impl Analyzer<'_> {
                     self.bind_typed_resolved_const_pattern(pattern, ty, is_mutable)?;
                 }
             }
-            ResolvedConstPatternKind::Struct { def_id, fields, .. } => {
+            ResolvedConstPatternKind::Struct {
+                def_id,
+                fields,
+                rest,
+                ..
+            } => {
                 for (pattern, ty) in
-                    self.resolved_const_struct_pattern_fields(*def_id, fields, target_ty)?
+                    self.resolved_const_struct_pattern_fields(*def_id, fields, *rest, target_ty)?
                 {
                     self.bind_typed_resolved_const_pattern(pattern, ty, is_mutable)?;
                 }

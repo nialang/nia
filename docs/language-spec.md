@@ -1021,9 +1021,21 @@ switch event {
 ```
 
 A field written as `x` is shorthand for `x: x`; `field: _` discards that
-field. Fields may appear in any source order, but every declared field is
-required. Nia does not currently have a `..` rest pattern. Struct patterns use
-the nominal constructor (`Point { ... }`), not an anonymous `{ ... }` pattern.
+field. Fields may appear in any source order. Every declared field is required
+unless the pattern ends with `..`, which explicitly ignores all omitted fields:
+
+```nia
+let Point { x, .. } = point;
+
+switch event {
+    Event::Resize { width, .. } => width,
+}
+```
+
+`..` may appear at most once and must be the final named field. It is available
+only in nominal struct and named enum-payload patterns; tuple and slice rest
+patterns are not part of the language. Struct patterns use the nominal
+constructor (`Point { ... }`), not an anonymous `{ ... }` pattern.
 
 ### 4.6 Structs
 
@@ -1626,7 +1638,8 @@ switch value {
 
 Open-ended switch range patterns are not supported; use `_` for the fallback
 case. Range pattern endpoints must be compile-time integer constants. Empty
-ranges and overlapping integer patterns are rejected.
+ranges are rejected. Partially overlapping ranges are allowed when they still
+match new values; a pattern wholly covered by earlier arms is unreachable.
 
 Optional and error-union patterns use the same recursive matcher:
 
@@ -1662,12 +1675,14 @@ discard, or recursively match the field:
 ```nia
 switch point {
     Point { x: 0, y } => y,
-    Point { x: _, y: _ } => 0,
+    Point { .. } => 0,
 }
 ```
 
-All fields are required and duplicate or unknown fields are rejected. A fully
-irrefutable struct pattern acts as a catch-all for exhaustiveness purposes.
+Without a terminal `..`, all fields are required. Duplicate or unknown fields
+are always rejected. Omitted fields under `..` are wildcards, so `Point { .. }`
+is irrefutable for `Point`; `Event::Resize { .. }` covers every payload of that
+variant but no other variant.
 
 A bare identifier in a pattern always introduces a binding. Named constant and
 enum value patterns must be syntactically explicit: use a qualified path such as
@@ -1677,9 +1692,12 @@ list multiple alternatives only when none of them binds a value, because every
 entry edge to an arm body must define the same locals.
 
 Switch expression arms must produce compatible value types unless an arm exits
-through `return`, `break`, or `continue`. Switches over closed enums must cover
-all variants or provide `_`. Switches over open enums must provide `_`, even if
-every named variant is covered.
+through `return`, `break`, or `continue`. Every `switch`, including one used
+only for effects, must be exhaustive; write `_ => {}` when intentionally doing
+nothing for remaining values. Exhaustiveness is computed across recursive
+product patterns rather than independently per field, and diagnostics include
+one missing-pattern witness. Open enums require `_`, even if every currently
+named variant is covered.
 
 ### 5.6 Let And Const Bindings
 
@@ -2060,10 +2078,10 @@ whole pattern. It therefore constrains both `value` and the recursive pattern;
 mismatch. This single rule also applies to tuple and nested pointer patterns.
 Pointer-destructuring local bindings require an initializer. Local and loop
 bindings accept only the irrefutable subset of the pattern language. This
-includes exhaustive struct patterns whose recursive field patterns are all
-irrefutable, such as `let Point { x, y } = point;`; enum-variant patterns and
-struct patterns containing value/range/optional cases remain refutable and are
-rejected in a binding.
+includes exhaustive struct patterns whose recursive explicit fields are all
+irrefutable, such as `let Point { x, y } = point;` and `let Point { x, .. } =
+point;`; enum-variant patterns and struct patterns containing
+value/range/optional cases remain refutable and are rejected in a binding.
 
 ## 7. Statements And Semicolons
 

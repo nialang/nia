@@ -509,7 +509,7 @@ impl ConstModuleLowerer<'_> {
                             self.collect_pattern_locals(field, out);
                         }
                     }
-                    nia_ast::NominalPatternFields::Named(fields) => {
+                    nia_ast::NominalPatternFields::Named { fields, .. } => {
                         for field in fields {
                             self.collect_pattern_locals(&field.pattern, out);
                         }

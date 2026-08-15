@@ -22,6 +22,7 @@ nia-literals.workspace = true
 nia-local-resolve.workspace = true
 nia-mangle.workspace = true
 nia-node-id.workspace = true
+nia-pattern-analysis.workspace = true
 nia-program-signatures.workspace = true
 nia-sema.workspace = true
 nia-sema-ir.workspace = true

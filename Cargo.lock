@@ -233,6 +233,7 @@ dependencies = [
  "nia-mangle",
  "nia-node-id",
  "nia-parser",
+ "nia-pattern-analysis",
  "nia-program-signatures",
  "nia-sema",
  "nia-sema-ir",
@@ -423,6 +424,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-node-id",
  "nia-parser",
+ "nia-pattern-analysis",
  "nia-sema",
  "nia-sema-ir",
  "nia-source",
@@ -858,6 +860,10 @@ dependencies = [
  "nia-symbol-table",
  "nia-syntax",
 ]
+
+[[package]]
+name = "nia-pattern-analysis"
+version = "0.4.3"
 
 [[package]]
 name = "nia-program-signatures"

@@ -1106,7 +1106,10 @@ impl Analyzer<'_> {
                     .collect()
             }
             (
-                ConstEnumPatternFields::Named(patterns),
+                ConstEnumPatternFields::Named {
+                    fields: patterns,
+                    rest,
+                },
                 nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
             ) => {
                 let field_set = check_required_field_set(
@@ -1115,7 +1118,10 @@ impl Analyzer<'_> {
                         .map(|field| NamedField::new(field.span, field.name)),
                     expected.iter().map(|field| field.name),
                 );
-                if !field_set.is_valid() {
+                if !field_set.duplicate_fields.is_empty()
+                    || !field_set.unknown_fields.is_empty()
+                    || (rest.is_none() && !field_set.missing_fields.is_empty())
+                {
                     return None;
                 }
                 patterns
@@ -1140,6 +1146,7 @@ impl Analyzer<'_> {
         &mut self,
         def_id: GlobalDefId,
         fields: &'a [ConstNamedPatternField<ResolvedConstPattern>],
+        rest: Option<nia_span::Span>,
         target_ty: InternedTyId,
     ) -> Option<Vec<(&'a ResolvedConstPattern, InternedTyId)>> {
         let (target_def, _, _) = self.expected_nominal_parts(target_ty)?;
@@ -1153,20 +1160,24 @@ impl Analyzer<'_> {
                 .map(|field| NamedField::new(field.span, field.name)),
             expected.iter().map(|field| field.name),
         );
-        if !field_set.is_valid() {
+        if !field_set.duplicate_fields.is_empty()
+            || !field_set.unknown_fields.is_empty()
+            || (rest.is_none() && !field_set.missing_fields.is_empty())
+        {
             return None;
         }
 
         // Resolve against the instantiated target, not the constructor spelling: patterns omit
         // generic arguments and inherit them from the value being destructured.
-        expected
-            .iter()
-            .map(|expected| {
-                let field = fields.iter().find(|field| field.name == expected.name)?;
-                let ty = self.const_nominal_aggregate_field_type(target_ty, &expected.name)?;
-                Some((&field.pattern, ty))
-            })
-            .collect()
+        let mut resolved = Vec::with_capacity(fields.len());
+        for expected in &expected {
+            let Some(field) = fields.iter().find(|field| field.name == expected.name) else {
+                continue;
+            };
+            let ty = self.const_nominal_aggregate_field_type(target_ty, &expected.name)?;
+            resolved.push((&field.pattern, ty));
+        }
+        Some(resolved)
     }
 
     pub(super) fn resolved_pattern_binding_type(
@@ -1222,8 +1233,13 @@ impl Analyzer<'_> {
                 .find_map(|(pattern, ty)| {
                     self.resolved_pattern_binding_type(pattern, ty, local_id)
                 }),
-            ResolvedConstPatternKind::Struct { def_id, fields, .. } => self
-                .resolved_const_struct_pattern_fields(*def_id, fields, target_ty)?
+            ResolvedConstPatternKind::Struct {
+                def_id,
+                fields,
+                rest,
+                ..
+            } => self
+                .resolved_const_struct_pattern_fields(*def_id, fields, *rest, target_ty)?
                 .into_iter()
                 .find_map(|(pattern, ty)| {
                     self.resolved_pattern_binding_type(pattern, ty, local_id)
@@ -1485,6 +1501,9 @@ impl Analyzer<'_> {
         }
         if !all_arms_typed {
             return None;
+        }
+        if let Some(target_ty) = target_ty {
+            self.check_resolved_const_switch_coverage(switch, target_ty);
         }
         saw_value_arm.then_some(result_ty).flatten()
     }

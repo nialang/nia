@@ -409,7 +409,7 @@ impl Parser {
                         Self::mark_pattern_bindings_mutable(field);
                     }
                 }
-                NominalPatternFields::Named(fields) => {
+                NominalPatternFields::Named { fields, .. } => {
                     for field in fields {
                         Self::mark_pattern_bindings_mutable(&mut field.pattern);
                     }
@@ -627,7 +627,27 @@ impl Parser {
             NominalPatternFields::Tuple(fields)
         } else if self.eat(TokenKind::LBrace).is_some() {
             let mut fields = Vec::new();
+            let mut rest = None;
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                if let Some(token) = self.eat(TokenKind::DotDot) {
+                    if rest.replace(token.span).is_some() {
+                        self.error_at(token.span, "nominal pattern may contain `..` only once");
+                    }
+                    if self.eat(TokenKind::Comma).is_some() {
+                        if !self.at(TokenKind::RBrace) {
+                            self.error_at(
+                                self.peek().span,
+                                "`..` must be the final nominal pattern field",
+                            );
+                        }
+                    } else if !self.at(TokenKind::RBrace) {
+                        self.error_at(
+                            self.peek().span,
+                            "expected `,` or `}` after nominal pattern `..`",
+                        );
+                    }
+                    continue;
+                }
                 let start = self.peek().span.start;
                 let name_span = self.peek().span;
                 let name = self.expect_name(TokenKind::Ident, "expected payload field name")?;
@@ -653,7 +673,7 @@ impl Parser {
                 }
             }
             self.expect(TokenKind::RBrace, "expected `}` after enum variant pattern")?;
-            NominalPatternFields::Named(fields)
+            NominalPatternFields::Named { fields, rest }
         } else {
             self.tokens.rewind(checkpoint);
             self.errors.truncate(errors_len);

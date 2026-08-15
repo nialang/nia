@@ -425,8 +425,8 @@ fn resolve_const_pattern(
                         .map(resolve_const_pattern)
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
-                ConstEnumPatternFields::Named(fields) => ConstEnumPatternFields::Named(
-                    fields
+                ConstEnumPatternFields::Named { fields, rest } => ConstEnumPatternFields::Named {
+                    fields: fields
                         .into_iter()
                         .map(|field| {
                             Ok(ConstNamedPatternField {
@@ -436,13 +436,15 @@ fn resolve_const_pattern(
                             })
                         })
                         .collect::<Result<Vec<_>, ConstLowerError>>()?,
-                ),
+                    rest,
+                },
             },
             span,
         )),
         EarlyConstPattern::Struct {
             def_id,
             fields,
+            rest,
             span,
         } => Ok(ResolvedConstPattern::struct_pattern(
             def_id,
@@ -456,6 +458,7 @@ fn resolve_const_pattern(
                     })
                 })
                 .collect::<Result<Vec<_>, ConstLowerError>>()?,
+            rest,
             span,
         )),
         EarlyConstPattern::Expr(expr) => resolve_expr(expr).map(ResolvedConstPattern::expr),

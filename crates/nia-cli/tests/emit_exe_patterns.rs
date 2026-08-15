@@ -83,7 +83,8 @@ fn emit_exe_nominal_struct_patterns_match_runtime_and_const_values() {
 using std::process;
 
 struct Point { x: i32, y: i32 }
-struct Box[T] { value: T }
+struct Box[T] { value: T, tag: i32 }
+enum Event { Stop, Resize { wide: bool, height: i32 } }
 
 const fn constSum(point: Point) i32 {
     let mut Point { y, x } = point;
@@ -97,22 +98,30 @@ fn runtimeSum(point: Point) i32 {
 }
 
 fn unbox[T](boxed: Box[T]) T {
-    let Box { value } = boxed;
+    let Box { value, .. } = boxed;
     value
 }
 
 fn classify(point: Point) i32 {
     switch point {
-        Point { x: 0, y } => y,
-        Point { x: _, y: _ } => 9,
+        Point { x: 0, .. } => 7,
+        Point { .. } => 9,
     }
 }
 
 fn readOptional(point: ?Point) i32 {
-    if point is ?Point { x, y: _ } {
+    if point is ?Point { x, .. } {
         x
     } else {
         0
+    }
+}
+
+fn eventScore(event: Event) i32 {
+    switch event {
+        Event::Stop => 0,
+        Event::Resize { wide: true, .. } => 1,
+        Event::Resize { wide: false, .. } => 2,
     }
 }
 
@@ -126,7 +135,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if runtimeSum(Point { x: 20, y: 22 }) != 42 {
         return process::exit(2)!;
     }
-    if unbox[i32](Box[i32] { value: 42 }) != 42 {
+    if unbox[i32](Box[i32] { value: 42, tag: 7 }) != 42 {
         return process::exit(3)!;
     }
     if classify(Point { x: 0, y: 7 }) != 7 {
@@ -137,6 +146,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if readOptional(?Point { x: 42, y: 0 }) != 42 {
         return process::exit(6)!;
+    }
+    if eventScore(Event::Resize { wide: false, height: 99 }) != 2 {
+        return process::exit(7)!;
     }
     !()
 }

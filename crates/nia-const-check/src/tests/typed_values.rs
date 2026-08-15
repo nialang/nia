@@ -3,6 +3,59 @@ use nia_const_eval::ConstValue;
 use nia_ty::IntConst;
 
 #[test]
+fn const_switches_share_matrix_exhaustiveness_and_usefulness_rules() {
+    let accepted = check_source(
+        r#"
+const RESULT: i32 = switch true {
+        true => 1,
+        false => 0,
+};
+"#,
+    );
+    assert!(
+        accepted.const_module.diagnostics.is_empty(),
+        "{:?}",
+        accepted.const_module.diagnostics
+    );
+    assert!(
+        accepted.checked.diagnostics.is_empty(),
+        "{:?}",
+        accepted.checked.diagnostics
+    );
+
+    let rejected = check_source(
+        r#"
+const A: i32 = switch true {
+        true => 1,
+};
+
+const B: i32 = switch false {
+        _ => 0,
+        false => 1,
+};
+"#,
+    );
+    assert!(
+        rejected.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("non-exhaustive const switch, missing pattern: `false`")
+        }),
+        "{:?}",
+        rejected.checked.diagnostics
+    );
+    assert!(
+        rejected.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const switch pattern is unreachable")
+        }),
+        "{:?}",
+        rejected.checked.diagnostics
+    );
+}
+
+#[test]
 fn records_explicit_types_for_const_bindings() {
     let fixture = check_source(
         r#"
