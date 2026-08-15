@@ -1322,9 +1322,10 @@ Adapters must use the same canonical constructor identity and declaration field
 order as lowering. Named fields omitted under an explicit `..` become wildcard
 children before analysis; omission without `..` is a type error. A witness
 returned by the crate is a subpattern of the usefulness query and therefore a
-valid concrete explanation of missing coverage. See `docs/pattern-matching.md`
-for the paper references, proof obligations, conservative boundaries, and
-maintenance checklist behind this split.
+valid concrete explanation of missing coverage. The crate-level rustdoc in
+`nia-pattern-analysis/src/lib.rs` records the paper references, proof
+obligations, conservative boundaries, and maintenance checklist behind this
+split.
 
 ### 8.5 `nia-static-check`
 
