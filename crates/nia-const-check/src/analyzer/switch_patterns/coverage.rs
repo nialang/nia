@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Const-switch adapter for the shared constructor-matrix analysis.
+//!
+//! Resolved const patterns use the same constructor identities and declaration
+//! field order as runtime checking, but resolve scalar values through the const
+//! evaluator and preserve const-specific module/type substitutions. This module
+//! only performs coverage analysis; const execution remains path-driven.
 use super::*;
 
 impl Analyzer<'_> {

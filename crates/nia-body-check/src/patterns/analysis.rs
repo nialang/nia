@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Runtime adapter from checked AST patterns and canonical body-check types to
+//! the pure constructor-matrix analysis in `nia-pattern-analysis`.
+//!
+//! The adapter deliberately expands omitted nominal `..` fields into typed
+//! wildcards in declaration order. Keeping this conversion beside the runtime
+//! type/domain lookup makes the constructor-field-order contract visible at the
+//! lowering boundary.
 use super::*;
 
 impl BodyChecker<'_> {

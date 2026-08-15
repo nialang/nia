@@ -3,6 +3,80 @@
 //!
 //! Frontends keep ownership of type resolution and diagnostics. This crate only
 //! operates on canonical constructor identities, field types, and scalar bounds.
+//!
+//! # Design References
+//!
+//! The algorithm follows Luc Maranget, "Warnings for pattern matching",
+//! *Journal of Functional Programming* 17(3), 2007, pp. 387-421,
+//! <https://doi.org/10.1017/S0956796806006223>. In particular, the
+//! usefulness relation over constructor matrices is used for both unreachable
+//! arm detection and exhaustiveness witnesses. The constructor matrix is also
+//! compatible with the representation described in Luc Maranget, "Compiling
+//! Pattern Matching to Good Decision Trees", ML 2008,
+//! <https://doi.org/10.1145/1411304.1411314>, although this crate does not
+//! compile decision trees: runtime lowering owns tag tests and projections.
+//!
+//! Rust's pattern reference (<https://doc.rust-lang.org/reference/patterns.html>)
+//! and OCaml's pattern manual (<https://ocaml.org/manual/patterns.html>) are
+//! useful language-design comparisons, but are not normative for Nia.
+//!
+//! # Matrix Contract
+//!
+//! A matrix row contains one pattern per matched value column. Constructor
+//! specialization replaces a constructor with its fields; wildcard rows are
+//! expanded to one wildcard per field. The default matrix retains rows that
+//! may match values outside the currently known constructor set. A wildcard
+//! query is useful when one of those specialized/default queries is useful.
+//!
+//! The `domain` callback must return constructor fields in exactly the canonical
+//! declaration order consumed by runtime and const lowering. This is the main
+//! soundness invariant:
+//!
+//! ```text
+//! analysis constructor fields[i] == lowered constructor field_defs[i]
+//! ```
+//!
+//! Constructor ids and arities are validated rather than treated as display
+//! names. An adapter failure must become a diagnostic; it must never silently
+//! turn an unknown pattern into coverage. The early all-wildcard-row shortcut
+//! is intentional: it gives recursive types a finite stopping point while
+//! preserving the matrix semantics.
+//!
+//! # Domain Semantics
+//!
+//! `Finite` means every constructor is known. `Open` means the listed
+//! constructors are known but unnamed values may exist, so an open enum still
+//! requires a wildcard. `Scalar` partitions an integer or boolean interval at
+//! pattern endpoints without enumerating all values. `complete = false` means
+//! the adapter cannot represent the complete backing domain, so the analysis
+//! must not prove exhaustiveness from intervals alone. `Opaque` patterns remain
+//! useful unless shadowed, but never prove exhaustiveness.
+//!
+//! Scalar endpoints are validated against the target domain before they reach
+//! the matrix. The current deliberate conservative boundary is `u128` and
+//! target-dependent wide `usize` representations that cannot be losslessly
+//! represented by the analysis integer; those switches require `_`.
+//!
+//! # Frontend Boundary
+//!
+//! Runtime and const adapters resolve names, types, fields, constants, and the
+//! terminal nominal `..` marker before calling this crate. Omitted nominal
+//! fields become wildcard children in declaration order; no synthetic field is
+//! introduced. Thus `Point { .. }` is irrefutable for `Point`, while
+//! `Event::Resize { .. }` covers only that variant's payload.
+//!
+//! For each arm, frontends query `useful_witness` against the matrix of prior
+//! useful arms. A `None` result is an unreachable-pattern diagnostic; a witness
+//! is appended to the matrix. After all arms, `missing_witness` is queried with
+//! a wildcard. A returned pattern is a concrete missing-case explanation, not
+//! a new syntax accepted by the language. Const evaluation remains path-driven;
+//! whole-function control-flow soundness remains owned by `nia-body-check`.
+//!
+//! When changing pattern syntax, type lowering, or switch lowering, audit the
+//! parser representation, both adapters, constructor identity and field order,
+//! finite/open/opaque classification, scalar clipping, witness formatting,
+//! irrefutable `let`/`for` checks, runtime lowering, const evaluation, and the
+//! parser/body-check/const-check/lowering/executable test layers together.
 
 use std::fmt;
 
