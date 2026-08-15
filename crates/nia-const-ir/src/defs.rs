@@ -1021,8 +1021,11 @@ pub enum ResolvedConstExprKind {
         fields: Vec<ResolvedConstFieldInit>,
     },
     /// Positional nominal construction lowered from `Type(value, ...)`.
+    /// Generic arguments remain attached to the constructor so const checking
+    /// can instantiate field types before validating the positional values.
     TupleStructLiteral {
         def_id: GlobalDefId,
+        generic_args: Vec<ResolvedConstGenericArg>,
         fields: Vec<ResolvedConstFieldInit>,
     },
     EnumStructLiteral {
@@ -1574,8 +1577,11 @@ pub enum EarlyConstExprKind {
         fields: Vec<EarlyConstFieldInit>,
     },
     /// Positional nominal construction lowered from `Type(value, ...)`.
+    /// Keep the early generic arguments until the semantic resolution pass;
+    /// type-vs-const interpretation is still supplied by semantic facts.
     TupleStructLiteral {
         def_id: GlobalDefId,
+        generic_args: Vec<EarlyConstGenericArg>,
         fields: Vec<EarlyConstFieldInit>,
     },
     EnumStructLiteral {

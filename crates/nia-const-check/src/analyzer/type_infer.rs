@@ -538,8 +538,17 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::StructLiteral { ty, fields } => {
                 self.resolved_const_aggregate_literal_type(expr.span(), fields, *ty)
             }
-            ResolvedConstExprKind::TupleStructLiteral { def_id, fields } => self
-                .resolved_const_tuple_struct_literal_type(expr.span(), *def_id, fields)
+            ResolvedConstExprKind::TupleStructLiteral {
+                def_id,
+                generic_args,
+                fields,
+            } => self
+                .resolved_const_tuple_struct_literal_type(
+                    expr.span(),
+                    *def_id,
+                    generic_args,
+                    fields,
+                )
                 .map(ConstValueType::Runtime),
             ResolvedConstExprKind::ArrayLiteral { elems } => {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
@@ -1083,6 +1092,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         def_id: GlobalDefId,
+        generic_args: &[ResolvedConstGenericArg],
         fields: &[ResolvedConstFieldInit],
     ) -> Option<InternedTyId> {
         let signature = self.struct_signature_for(def_id)?;
@@ -1100,11 +1110,17 @@ impl Analyzer<'_> {
                 ),
             );
         }
+        let (args, const_args) = self.resolve_const_aggregate_generic_args(
+            span,
+            def_id.module_id,
+            &signature.generic_params,
+            generic_args,
+        )?;
+        let field_tys = self.const_struct_field_types(&signature, &args, &const_args)?;
         let current_module = self.current_execution_module_id();
         let mut valid = signature.fields.len() == fields.len();
         for (field, expected) in fields.iter().zip(signature.fields.iter()) {
-            let Some(expected_ty) = self.type_for_module_or_none(expected.ty, current_module)
-            else {
+            let Some(expected_ty) = field_tys.get(&expected.name).copied() else {
                 let _ = self.resolved_const_expr_type(field.value(), None);
                 valid = false;
                 continue;
@@ -1117,7 +1133,75 @@ impl Analyzer<'_> {
             };
             valid &= self.const_function_types_match(expected_ty, actual_ty);
         }
-        valid.then(|| self.struct_ty_in_current_module(def_id))
+        valid.then(|| {
+            self.type_contexts
+                .get(&current_module)
+                .expect("current execution module must have a type context")
+                .intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                })
+        })
+    }
+
+    fn resolve_const_aggregate_generic_args(
+        &mut self,
+        span: Span,
+        signature_module_id: ModuleId,
+        generic_params: &[nia_item_signatures::GenericParamSignature],
+        generic_args: &[ResolvedConstGenericArg],
+    ) -> Option<(Vec<InternedTyId>, Vec<ConstGenericArg>)> {
+        // Generic parameters are declared in one source-order list but the
+        // nominal type stores type and const arguments in separate vectors.
+        // Validate the paired kinds here, then split them while evaluating
+        // const arguments in the defining module's type context. This keeps
+        // tuple-struct construction aligned with named aggregate literals and
+        // prevents a generic field from being checked against its raw symbol.
+        if let ArityCheck::Mismatch { actual, .. } =
+            check_exact_arity(generic_params.len(), generic_args.len())
+        {
+            self.push_const_type_error(
+                span,
+                &format!(
+                    "tuple struct generic argument count mismatch: expected {}, got {}",
+                    generic_params.len(),
+                    actual
+                ),
+            );
+            return None;
+        }
+        let mut args = Vec::new();
+        let mut const_args = Vec::new();
+        for (param, arg) in generic_params.iter().zip(generic_args) {
+            match (&param.kind, arg) {
+                (GenericParamSignatureKind::Type, ResolvedConstGenericArg::Type(arg)) => {
+                    args.push(self.type_for_module_or_none(arg.ty(), signature_module_id)?);
+                }
+                (GenericParamSignatureKind::Const { ty }, ResolvedConstGenericArg::Const(expr)) => {
+                    let ty = self.type_for_module_or_none(*ty, signature_module_id)?;
+                    let value = self
+                        .const_generic_arg_from_resolved_expr(expr, ty, signature_module_id)
+                        .ok()?;
+                    const_args.push(ConstGenericArg { ty, value });
+                }
+                (GenericParamSignatureKind::Type, _) => {
+                    self.push_const_type_error(
+                        span,
+                        "tuple struct generic argument must be a type",
+                    );
+                    return None;
+                }
+                (GenericParamSignatureKind::Const { .. }, _) => {
+                    self.push_const_type_error(
+                        span,
+                        "tuple struct generic argument must be a const value",
+                    );
+                    return None;
+                }
+            }
+        }
+        Some((args, const_args))
     }
 
     pub(super) fn resolved_const_enum_pattern_fields<'a>(

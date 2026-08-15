@@ -196,15 +196,28 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                 .map(resolve_const_field_init)
                 .collect::<Result<Vec<_>, _>>()?,
         },
-        EarlyConstExprKind::TupleStructLiteral { def_id, fields } => {
-            ResolvedConstExprKind::TupleStructLiteral {
-                def_id,
-                fields: fields
-                    .into_iter()
-                    .map(resolve_const_field_init)
-                    .collect::<Result<Vec<_>, _>>()?,
-            }
-        }
+        EarlyConstExprKind::TupleStructLiteral {
+            def_id,
+            generic_args,
+            fields,
+        } => ResolvedConstExprKind::TupleStructLiteral {
+            def_id,
+            generic_args: generic_args
+                .into_iter()
+                .map(|arg| match arg {
+                    EarlyConstGenericArg::Type(arg) => {
+                        resolve_type_arg(arg).map(ResolvedConstGenericArg::Type)
+                    }
+                    EarlyConstGenericArg::Const(expr) => {
+                        resolve_expr(expr).map(ResolvedConstGenericArg::Const)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            fields: fields
+                .into_iter()
+                .map(resolve_const_field_init)
+                .collect::<Result<Vec<_>, _>>()?,
+        },
         EarlyConstExprKind::EnumStructLiteral { variant, fields } => {
             ResolvedConstExprKind::EnumStructLiteral {
                 variant: Box::new(resolve_expr(*variant)?),

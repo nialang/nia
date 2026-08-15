@@ -321,9 +321,9 @@ impl FunctionInference {
     ///
     /// 1. normalize both ids with `find`;
     /// 2. reject incompatible outer shapes without mutating the graph;
-    /// 3. merge representatives by rank and retain one known/structural shape;
-    /// 4. recursively unify corresponding tuple, pointer, wrapper, or
-    ///    callable children.
+    /// 3. recursively unify corresponding tuple, pointer, wrapper, or
+    ///    callable children;
+    /// 4. merge representatives by rank and retain one known/structural shape.
     ///
     /// `false` reports a local conflict to the caller. Most collection paths
     /// continue so diagnostics can be produced by the ordinary type checker;
@@ -342,38 +342,24 @@ impl FunctionInference {
             return false;
         }
 
-        // Union by rank bounds lookup depth. Structural children are unified
-        // after the roots merge so tuples, pointers, and callables share the
-        // same equivalence relation as their outer terms.
-        let (root, child) = if self.nodes[left].rank < self.nodes[right].rank {
-            (right, left)
-        } else {
-            (left, right)
-        };
-        self.nodes[child].parent = root;
-        if self.nodes[left].rank == self.nodes[right].rank {
-            self.nodes[root].rank = self.nodes[root].rank.saturating_add(1);
-        }
-        self.nodes[root].shape = left_shape.clone().or(right_shape.clone());
-
-        match (left_shape, right_shape) {
-            (Some(InferShape::Tuple(left)), Some(InferShape::Tuple(right))) => {
-                for (left, right) in left.into_iter().zip(right) {
-                    self.unify(checker, left, right);
-                }
-            }
+        // Check children before merging the outer roots. A structural outer
+        // shape can have compatible arity while still containing an
+        // incompatible child (for example `(i32, bool)` vs `(i32, i64)`).
+        // Committing the outer equality first would erase that conflict and
+        // let resolution publish a misleading composite type.
+        let children_compatible = match (&left_shape, &right_shape) {
+            (Some(InferShape::Tuple(left)), Some(InferShape::Tuple(right))) => left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| self.unify(checker, *left, *right)),
             (
                 Some(InferShape::Pointer { elem: left, .. }),
                 Some(InferShape::Pointer { elem: right, .. }),
-            ) => {
-                self.unify(checker, left, right);
-            }
+            ) => self.unify(checker, *left, *right),
             (
                 Some(InferShape::Optional { elem: left }),
                 Some(InferShape::Optional { elem: right }),
-            ) => {
-                self.unify(checker, left, right);
-            }
+            ) => self.unify(checker, *left, *right),
             (
                 Some(InferShape::ErrorUnion {
                     error: left_error,
@@ -384,8 +370,8 @@ impl FunctionInference {
                     value: right_value,
                 }),
             ) => {
-                self.unify(checker, left_error, right_error);
-                self.unify(checker, left_value, right_value);
+                self.unify(checker, *left_error, *right_error)
+                    && self.unify(checker, *left_value, *right_value)
             }
             (
                 Some(InferShape::Callable {
@@ -397,13 +383,36 @@ impl FunctionInference {
                     return_type: right_return,
                 }),
             ) => {
-                for (left, right) in left_params.into_iter().zip(right_params) {
-                    self.unify(checker, left, right);
-                }
-                self.unify(checker, left_return, right_return);
+                left_params
+                    .iter()
+                    .zip(right_params)
+                    .all(|(left, right)| self.unify(checker, *left, *right))
+                    && self.unify(checker, *left_return, *right_return)
             }
-            _ => {}
+            _ => true,
+        };
+        if !children_compatible {
+            return false;
         }
+
+        // Union by rank bounds lookup depth. Child constraints are already
+        // valid, so the outer merge cannot hide a structural mismatch.
+        let left = self.find(left);
+        let right = self.find(right);
+        if left == right {
+            return true;
+        }
+        let (root, child) = if self.nodes[left].rank < self.nodes[right].rank {
+            (right, left)
+        } else {
+            (left, right)
+        };
+        self.nodes[child].parent = root;
+        if self.nodes[left].rank == self.nodes[right].rank {
+            self.nodes[root].rank = self.nodes[root].rank.saturating_add(1);
+        }
+        self.nodes[root].shape = left_shape.clone().or(right_shape.clone());
+
         true
     }
 

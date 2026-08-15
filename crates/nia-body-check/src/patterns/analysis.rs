@@ -481,22 +481,28 @@ impl BodyChecker<'_> {
                     PatternConstructor::ErrorOk => format!("!{}", formatted.join("")),
                     PatternConstructor::ErrorErr => format!("{}!", formatted.join("")),
                     PatternConstructor::Struct(def_id) => {
-                        let fields = self
-                            .resolved_struct_signature(*def_id)
-                            .map(|signature| {
-                                signature
-                                    .signature
-                                    .fields
-                                    .into_iter()
-                                    .zip(&formatted)
-                                    .map(|(field, value)| {
-                                        format!("{}: {value}", self.symbol_name(field.name))
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            })
-                            .unwrap_or_else(|| formatted.join(", "));
-                        format!("{} {{ {fields} }}", self.ty_name(target_ty))
+                        let Some(signature) = self.resolved_struct_signature(*def_id) else {
+                            return format!(
+                                "{}({})",
+                                self.ty_name(target_ty),
+                                formatted.join(", ")
+                            );
+                        };
+                        if signature.signature.is_tuple {
+                            format!("{}({})", self.ty_name(target_ty), formatted.join(", "))
+                        } else {
+                            let fields = signature
+                                .signature
+                                .fields
+                                .into_iter()
+                                .zip(&formatted)
+                                .map(|(field, value)| {
+                                    format!("{}: {value}", self.symbol_name(field.name))
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            format!("{} {{ {fields} }}", self.ty_name(target_ty))
+                        }
                     }
                     PatternConstructor::EnumVariant(variant_id) => {
                         let variant = self.resolved_enum_variant(*variant_id);
