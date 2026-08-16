@@ -323,6 +323,9 @@ commit as the corresponding implementation batch.
 - [x] Phase E node maps and origin tables compare and merge by stable locator
       across retired/reacquired handle generations, restoring `Eq`
       transitivity and preventing duplicate logical keys in one product.
+- [x] Phase E symbol-table construction now has one initialization contract:
+      `Default` and `new` both install the verified collision-free well-known
+      symbol registry used by parsing, diagnostics, and persistence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
