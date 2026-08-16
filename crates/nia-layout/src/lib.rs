@@ -38,8 +38,8 @@ mod aggregate;
 
 use abi::{align_to, tagged_union_layout_with_tag};
 pub use abi::{
-    array_layout, primitive_layout, range_layout, sequential_layout, tagged_union_layout,
-    union_layout_from_fields, vector_layout,
+    array_layout, fat_pointer_layout, primitive_layout, range_layout, sequential_layout,
+    tagged_union_layout, union_layout_from_fields, vector_layout,
 };
 use aggregate::{
     PendingEnumFieldLayout, PendingFieldLayout, place_enum_fields, place_struct_fields,
@@ -658,10 +658,8 @@ impl<'a> LayoutComputer<'a> {
                 align: self.target.pointer_align,
             }),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. }) => {
-                Some(TypeLayout {
-                    size: self.target.pointer_size * 2,
-                    align: self.target.pointer_align,
-                })
+                fat_pointer_layout(self.target)
+                    .or_else(|| self.layout_overflow(span, "fat pointer"))
             }
             Some(
                 TyKind::Opaque

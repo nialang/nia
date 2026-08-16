@@ -17,6 +17,16 @@ pub fn primitive_layout(primitive: PrimitiveTy, target: TargetDataLayout) -> Typ
     TypeLayout { size, align }
 }
 
+/// Computes the two-word representation used by fat pointers and callable
+/// views. A malformed target description must not wrap `pointer_size * 2` or
+/// produce a layout with zero alignment.
+pub fn fat_pointer_layout(target: TargetDataLayout) -> Option<TypeLayout> {
+    (target.pointer_align != 0).then_some(TypeLayout {
+        size: target.pointer_size.checked_mul(2)?,
+        align: target.pointer_align,
+    })
+}
+
 pub fn array_layout(element: &TypeLayout, len: u64) -> Option<TypeLayout> {
     Some(TypeLayout {
         size: element.size.checked_mul(len)?,
@@ -186,6 +196,28 @@ mod tests {
                     align: 1,
                 }],
             ),
+            None
+        );
+    }
+
+    #[test]
+    fn fat_pointer_layout_rejects_malformed_target_arithmetic() {
+        assert_eq!(
+            fat_pointer_layout(TargetDataLayout::LP64),
+            Some(TypeLayout { size: 16, align: 8 })
+        );
+        assert_eq!(
+            fat_pointer_layout(TargetDataLayout {
+                pointer_size: u64::MAX,
+                pointer_align: 8,
+            }),
+            None
+        );
+        assert_eq!(
+            fat_pointer_layout(TargetDataLayout {
+                pointer_size: 8,
+                pointer_align: 0,
+            }),
             None
         );
     }
