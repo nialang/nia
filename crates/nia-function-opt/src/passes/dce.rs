@@ -172,15 +172,26 @@ pub(crate) fn remove_unused_local_binding_ops(
     changed
 }
 
-pub(crate) fn remove_overwritten_local_stores(blocks: &mut [FunctionBlock]) -> bool {
+pub(crate) fn remove_overwritten_local_stores(body: &mut FunctionBody) -> bool {
+    let addressed_locals = collect_addressed_locals(body);
+    remove_overwritten_local_stores_in_blocks(&mut body.blocks, &addressed_locals)
+}
+
+pub(crate) fn remove_overwritten_local_stores_in_blocks(
+    blocks: &mut [FunctionBlock],
+    addressed_locals: &HashSet<LocalId>,
+) -> bool {
     let mut changed = false;
     for block in blocks {
-        changed |= remove_overwritten_local_stores_in_block(block);
+        changed |= remove_overwritten_local_stores_in_block(block, addressed_locals);
     }
     changed
 }
 
-pub(crate) fn remove_overwritten_local_stores_in_block(block: &mut FunctionBlock) -> bool {
+pub(crate) fn remove_overwritten_local_stores_in_block(
+    block: &mut FunctionBlock,
+    addressed_locals: &HashSet<LocalId>,
+) -> bool {
     let mut changed = false;
     let mut replacement_ops = Vec::with_capacity(block.ops.len());
     let mut pending_stores = HashMap::<LocalId, usize>::new();
@@ -196,6 +207,14 @@ pub(crate) fn remove_overwritten_local_stores_in_block(block: &mut FunctionBlock
                 value,
                 span,
             } => {
+                if addressed_locals.contains(&local_id) {
+                    replacement_ops.push(Some(FunctionOp::StoreLocal {
+                        local_id,
+                        value,
+                        span,
+                    }));
+                    continue;
+                }
                 if let Some(previous_index) = pending_stores.insert(local_id, replacement_ops.len())
                 {
                     changed = true;
@@ -208,7 +227,8 @@ pub(crate) fn remove_overwritten_local_stores_in_block(block: &mut FunctionBlock
                 }));
             }
             FunctionOp::Defer(mut body) => {
-                changed |= remove_overwritten_local_stores(&mut body.blocks);
+                changed |=
+                    remove_overwritten_local_stores_in_blocks(&mut body.blocks, addressed_locals);
                 pending_stores.clear();
                 replacement_ops.push(Some(FunctionOp::Defer(body)));
             }

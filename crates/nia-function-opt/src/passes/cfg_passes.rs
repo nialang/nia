@@ -377,7 +377,7 @@ pub(crate) fn reachable_blocks(body: &FunctionBody) -> HashSet<FunctionBlockId> 
 }
 
 pub(crate) fn reachable_defer_blocks(body: &FunctionDeferBody) -> HashSet<FunctionBlockId> {
-    DeferCfg::new(&body.blocks).reachable_from(&body.blocks, body.entry)
+    FunctionCfg::new(&body.blocks).reachable_from(&body.blocks, body.entry)
 }
 
 pub(crate) fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) -> bool {

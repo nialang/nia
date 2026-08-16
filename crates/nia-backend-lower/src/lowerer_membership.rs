@@ -16,6 +16,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut module.function_instances,
             &mut module.closure_entries,
             &module.globals,
+            &module.global_instances,
             &module.trait_object_vtables,
         );
         let mut layouts =

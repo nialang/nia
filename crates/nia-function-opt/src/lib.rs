@@ -100,7 +100,7 @@ impl FunctionOptPass {
             Self::PropagateLocalCopies => propagate_local_copies(body),
             Self::PropagateLocalConstants => propagate_local_constants(body),
             Self::SimplifyConstantLogicalExprs => simplify_constant_logical_exprs(body),
-            Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(&mut body.blocks),
+            Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(body),
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
             Self::RemoveUnusedTempBindings => remove_unused_temp_bindings(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
