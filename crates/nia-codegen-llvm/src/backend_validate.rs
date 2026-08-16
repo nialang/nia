@@ -310,7 +310,9 @@ impl BackendValidator<'_> {
         for param in &entry.abi.params {
             self.validate_runtime_type(*param, entry.span);
         }
-        self.validate_type(entry.abi.return_type, entry.span);
+        self.current_subject = Some("closure return type");
+        self.validate_runtime_type(entry.abi.return_type, entry.span);
+        self.current_subject = None;
 
         let state_pointer_matches = matches!(
             self.index.type_store().get(entry.abi.state_pointer_type),
@@ -353,7 +355,12 @@ impl BackendValidator<'_> {
         return_type: InternedTyId,
         span: nia_span::Span,
     ) {
-        self.validate_type(return_type, span);
+        // Returns cross the same LLVM ABI boundary as parameters. Keep the
+        // runtime-layout check symmetric so opaque/compile-time-only return
+        // types are rejected before LLVM type classification.
+        self.current_subject = Some("return type");
+        self.validate_runtime_type(return_type, span);
+        self.current_subject = None;
         for param in params {
             self.current_subject = Some("param passing_ty");
             self.validate_runtime_type(param.passing_ty, param.span);
