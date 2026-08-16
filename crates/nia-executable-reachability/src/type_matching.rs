@@ -74,6 +74,10 @@ pub(super) struct ReachableExtensionMatchInput<'a> {
     pub(super) trait_id: TraitId,
     pub(super) self_ty: InternedTyId,
     pub(super) trait_args: &'a [InternedTyId],
+    /// Const arguments must remain paired with the trait instance: two impls
+    /// that differ only in `Trait[true]` versus `Trait[false]` are distinct
+    /// executable witnesses and must not share reachability results.
+    pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
     pub(super) use_module_id: ModuleId,
     pub(super) type_store: &'a TypeStore,
     pub(super) extension_index: &'a dyn ExecutableExtensionLookup,
@@ -89,17 +93,22 @@ pub(super) fn with_reachable_extension_method_match(
         trait_id,
         self_ty,
         trait_args,
+        trait_const_args,
         use_module_id,
         type_store,
         extension_index,
         modules_by_id,
     } = input;
-    if method.trait_args.len() != trait_args.len() {
+    if method.trait_args.len() != trait_args.len()
+        || method.trait_const_args.len() != trait_const_args.len()
+    {
         return false;
     }
     let mut matched = false;
     extension_index.with_trait_impl_for_method(method, trait_id, &mut |impl_signature| {
-        if impl_signature.trait_args.len() != trait_args.len() {
+        if impl_signature.trait_args.len() != trait_args.len()
+            || impl_signature.trait_const_args.len() != trait_const_args.len()
+        {
             return;
         }
         if !modules_by_id.contains_key(&use_module_id) {
@@ -125,6 +134,8 @@ pub(super) fn with_reachable_extension_method_match(
                 store: type_store,
                 ty: *ty,
             }),
+            &impl_signature.trait_const_args,
+            trait_const_args,
         );
         let pointee = direct.is_none().then(|| {
             match_reachable_extension_impl(
@@ -142,6 +153,8 @@ pub(super) fn with_reachable_extension_method_match(
                     store: type_store,
                     ty: *ty,
                 }),
+                &impl_signature.trait_const_args,
+                trait_const_args,
             )
         });
         let Some(substitutions) = direct.or_else(|| pointee.flatten()) else {
@@ -162,6 +175,8 @@ fn match_reachable_extension_impl<'a>(
     impl_generic_params: &[nia_item_signatures::GenericParamSignature],
     self_ty: TypedTyRef<'a>,
     trait_args: impl IntoIterator<Item = TypedTyRef<'a>>,
+    impl_trait_const_args: &[nia_ty::ConstGenericArg],
+    trait_const_args: &[nia_ty::ConstGenericArg],
 ) -> Option<PatternSubstitutions> {
     let mut substitutions = PatternSubstitutions::for_impl(impl_generic_params);
     if !match_type_pattern(impl_target, self_ty, &mut substitutions) {
@@ -171,7 +186,18 @@ fn match_reachable_extension_impl<'a>(
         .into_iter()
         .zip(trait_args)
         .all(|(pattern, actual)| match_type_pattern(pattern, actual, &mut substitutions));
-    matches_trait_args.then_some(substitutions)
+    if !matches_trait_args
+        || !match_const_generic_arg_patterns(
+            impl_target.store,
+            impl_trait_const_args,
+            self_ty.store,
+            trait_const_args,
+            &mut substitutions,
+        )
+    {
+        return None;
+    }
+    Some(substitutions)
 }
 
 pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
@@ -199,13 +225,15 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
             let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions) else {
                 continue;
             };
-            let Some((trait_id, trait_args)) = trait_id_and_args(type_store, trait_ty) else {
+            let Some((trait_id, trait_args, trait_const_args)) =
+                trait_id_and_args(type_store, trait_ty)
+            else {
                 continue;
             };
             if let TraitId::Source(trait_def) = trait_id
                 && let Some(trait_signature) = (program_signatures.trait_)(trait_def)
             {
-                traits.insert_methods(
+                traits.insert_methods_with_const_args(
                     module_id,
                     trait_id,
                     trait_signature
@@ -215,15 +243,17 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
                         .map(|method| ReachableTraitMethodName { name: method.name }),
                     self_ty,
                     &trait_args,
+                    &trait_const_args,
                 );
                 continue;
             }
-            traits.insert_method(
+            traits.insert_method_with_const_args(
                 module_id,
                 trait_id,
                 *fallback_method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
             );
         }
     }
@@ -1330,11 +1360,15 @@ fn associated_type_binding_keys_equivalent(
 pub(super) fn trait_id_and_args(
     store: &TypeStore,
     ty: InternedTyId,
-) -> Option<(TraitId, Vec<InternedTyId>)> {
+) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
     match store.get(ty)? {
-        TyKind::Nominal { def_id, args, .. } => Some((TraitId::Source(*def_id), args.clone())),
+        TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } => Some((TraitId::Source(*def_id), args.clone(), const_args.clone())),
         TyKind::BuiltinTrait { trait_id, args } => {
-            Some((TraitId::Builtin(*trait_id), args.clone()))
+            Some((TraitId::Builtin(*trait_id), args.clone(), Vec::new()))
         }
         _ => None,
     }
@@ -1355,17 +1389,6 @@ enum TypeSubstitutionGenerics<'a> {
 }
 
 impl<'a> TypeSubstitutions<'a> {
-    pub(super) fn local(
-        self_ty: Option<InternedTyId>,
-        generics: &'a SymbolMap<InternedTyId>,
-    ) -> Self {
-        Self {
-            self_ty,
-            generics: TypeSubstitutionGenerics::Local(generics),
-            consts: None,
-        }
-    }
-
     pub(super) fn local_with_consts(
         self_ty: Option<InternedTyId>,
         generics: &'a SymbolMap<InternedTyId>,
@@ -1529,6 +1552,8 @@ mod tests {
                 ty: actual,
             },
             std::iter::empty(),
+            &[],
+            &[],
         )
         .expect("generic nominal target should match its concrete instance");
 
@@ -1586,6 +1611,8 @@ mod tests {
                     ty: actual,
                 },
                 std::iter::empty(),
+                &[],
+                &[],
             )
             .is_none()
         );
@@ -1628,6 +1655,8 @@ mod tests {
                 ty: actual,
             },
             std::iter::empty(),
+            &[],
+            &[],
         )
         .expect("layout builtin is a valid concrete array length");
 
