@@ -320,6 +320,9 @@ commit as the corresponding implementation batch.
 - [x] Phase E syntax trees normalize caller-supplied token streams to one
       terminal EOF, discard unreachable post-EOF tokens, and make arbitrary
       cursor lookahead overflow-safe; syntax and parser owner suites pass.
+- [x] Phase E node maps and origin tables compare and merge by stable locator
+      across retired/reacquired handle generations, restoring `Eq`
+      transitivity and preventing duplicate logical keys in one product.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
