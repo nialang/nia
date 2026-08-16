@@ -18,20 +18,12 @@ use nia_backend_ir::{
     CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::{FunctionBody, FunctionLocalKind};
+use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::TypeLayout;
 use nia_mangle::mangle_symbol_id;
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
-
-type FunctionInstanceKey = (
-    GlobalDefId,
-    ModuleId,
-    Option<InternedTyId>,
-    Vec<InternedTyId>,
-    Vec<ConstGenericArg>,
-);
 
 #[derive(Clone, Copy)]
 struct FunctionInstanceRef<'a> {

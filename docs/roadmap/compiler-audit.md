@@ -418,6 +418,9 @@ commit as the corresponding implementation batch.
       the flat local table's nested-closure parameters; source and generic
       closure ABI materialization now share one owner helper and consumer
       coverage.
+- [x] Phase B LLVM function-instance reference validation now uses the canonical
+      `nia-function-ir::FunctionInstanceKey` for its cache, avoiding a second
+      backend-only identity representation.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
