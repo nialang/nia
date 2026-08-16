@@ -6,12 +6,12 @@ use crate::{
     backend_function_instance_key,
 };
 use nia_backend_ir::{
-    BackendClosureEntry, BackendClosureEntryAbi, BackendClosureEntryKey, BackendClosureEntryOwner,
-    BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
+    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionAttribute,
+    BackendFunctionInstance, BackendParam,
 };
 use nia_function_ir::{
-    FunctionBody, FunctionClosureEntry, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal,
-    FunctionLocalKind, GlobalInstanceRef,
+    FunctionBody, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal, FunctionLocalKind,
+    GlobalInstanceRef,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
@@ -476,9 +476,9 @@ impl<'a> ModuleLowerer<'a> {
                 });
             let state_type = self.instantiate_ty_with_id(entry.state_ty, substitution_id);
             let return_type = self.instantiate_ty_with_id(entry.return_type, substitution_id);
-            closure_entries.push(self.materialize_instance_closure_entry(
-                entry,
-                owner_key.clone(),
+            closure_entries.push(self.materialize_closure_entry(
+                &entry,
+                BackendClosureEntryOwner::FunctionInstance(owner_key.clone()),
                 &symbol,
                 state_type,
                 return_type,
@@ -506,62 +506,6 @@ impl<'a> ModuleLowerer<'a> {
             span: base.span,
         });
         has_body
-    }
-
-    fn materialize_instance_closure_entry(
-        &self,
-        entry: FunctionClosureEntry,
-        owner: FunctionInstanceKey,
-        owner_symbol: &str,
-        state_type: InternedTyId,
-        return_type: InternedTyId,
-        body: FunctionBody,
-    ) -> BackendClosureEntry {
-        let state_pointer_type = body
-            .locals
-            .iter()
-            .find(|local| local.id == entry.state_param)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: closure entry {:?} is missing state parameter {:?}",
-                    entry.closure_id, entry.state_param
-                )
-            })
-            .ty;
-        let params = entry
-            .params
-            .iter()
-            .map(|param| {
-                body.locals
-                    .iter()
-                    .find(|local| local.id == *param)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Nia ICE: closure entry {:?} is missing parameter {:?}",
-                            entry.closure_id, param
-                        )
-                    })
-                    .ty
-            })
-            .collect();
-        BackendClosureEntry {
-            key: BackendClosureEntryKey {
-                closure_id: entry.closure_id,
-                owner: BackendClosureEntryOwner::FunctionInstance(owner),
-            },
-            symbol: nia_mangle::mangle_closure_entry_symbol(owner_symbol, entry.closure_id),
-            abi: BackendClosureEntryAbi {
-                state_type,
-                state_pointer_type,
-                params,
-                return_type,
-            },
-            state_param: entry.state_param,
-            params: entry.params,
-            local_names: self.function_local_names(&body),
-            span: body.span,
-            function_body: body,
-        }
     }
 
     pub(crate) fn backend_function_template_for_program_def(

@@ -283,53 +283,14 @@ impl<'a> ModuleLowerer<'a> {
             let owner_symbol =
                 self.mangle_instance_symbol(function.def_id, function.name, None, &[], &[]);
             for entry in self.input.program.closure_entries(function.def_id) {
-                let state_local = entry
-                    .body
-                    .locals
-                    .iter()
-                    .find(|local| local.id == entry.state_param)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Nia ICE: closure entry {:?} is missing state parameter {:?}",
-                            entry.closure_id, entry.state_param
-                        )
-                    });
-                let params = entry
-                    .params
-                    .iter()
-                    .map(|param| {
-                        entry
-                            .body
-                            .locals
-                            .iter()
-                            .find(|local| local.id == *param)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Nia ICE: closure entry {:?} is missing parameter {:?}",
-                                    entry.closure_id, param
-                                )
-                            })
-                            .ty
-                    })
-                    .collect();
-                lowered.push(BackendClosureEntry {
-                    key: BackendClosureEntryKey {
-                        closure_id: entry.closure_id,
-                        owner: BackendClosureEntryOwner::Source(function.def_id),
-                    },
-                    symbol: mangle_closure_entry_symbol(&owner_symbol, entry.closure_id),
-                    abi: BackendClosureEntryAbi {
-                        state_type: entry.state_ty,
-                        state_pointer_type: state_local.ty,
-                        params,
-                        return_type: entry.return_type,
-                    },
-                    state_param: entry.state_param,
-                    params: entry.params.clone(),
-                    local_names: self.function_local_names(&entry.body),
-                    function_body: entry.body.clone(),
-                    span: entry.body.span,
-                });
+                lowered.push(self.materialize_closure_entry(
+                    entry,
+                    BackendClosureEntryOwner::Source(function.def_id),
+                    &owner_symbol,
+                    entry.state_ty,
+                    entry.return_type,
+                    entry.body.clone(),
+                ));
             }
         }
         lowered

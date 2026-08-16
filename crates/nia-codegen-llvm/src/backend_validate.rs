@@ -481,6 +481,7 @@ impl BackendValidator<'_> {
             .filter(|local| local.kind == FunctionLocalKind::Param)
             .map(|local| (local.id, local.ty))
             .collect::<HashMap<_, _>>();
+        let mut mapped_locals = HashSet::with_capacity(params.len());
         for param in params {
             let Some(local_id) = param.local_id else {
                 self.diagnostics.push(Diagnostic::internal_error_at(
@@ -490,6 +491,15 @@ impl BackendValidator<'_> {
                 ));
                 continue;
             };
+            if !mapped_locals.insert(local_id) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    param.span,
+                    format!(
+                        "backend IR function parameters reference duplicate body local {local_id:?}"
+                    ),
+                ));
+            }
             let Some(local_ty) = param_locals.get(&local_id).copied() else {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -506,26 +516,41 @@ impl BackendValidator<'_> {
                 ));
             }
         }
+        // FunctionBody.locals is intentionally flat and includes locals from
+        // nested closure bodies. We therefore cannot reject every unmapped
+        // `Param` local here without mistaking a nested ABI parameter for an
+        // outer function parameter; each nested closure is validated separately.
     }
 
     fn validate_closure_entry_param_locals(&mut self, entry: &BackendClosureEntry) {
-        let locals = entry
+        let param_locals = entry
             .function_body
             .locals
             .iter()
+            .filter(|local| local.kind == FunctionLocalKind::Param)
             .map(|local| (local.id, local.ty))
             .collect::<HashMap<_, _>>();
-        let mut expected = Vec::with_capacity(entry.params.len() + 1);
-        expected.push((entry.state_param, entry.abi.state_pointer_type));
-        expected.extend(
-            entry
-                .params
-                .iter()
-                .copied()
-                .zip(entry.abi.params.iter().copied()),
-        );
+        let mut mapped_locals = HashSet::with_capacity(entry.params.len() + 1);
+        let expected = std::iter::once((entry.state_param, Some(entry.abi.state_pointer_type)))
+            .chain(
+                entry
+                    .params
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(index, local_id)| (local_id, entry.abi.params.get(index).copied())),
+            );
         for (local_id, expected_ty) in expected {
-            let Some(local_ty) = locals.get(&local_id).copied() else {
+            if !mapped_locals.insert(local_id) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    entry.span,
+                    format!(
+                        "closure entry ABI parameters reference duplicate body local {local_id:?}"
+                    ),
+                ));
+            }
+            let Some(local_ty) = param_locals.get(&local_id).copied() else {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     entry.span,
@@ -535,7 +560,7 @@ impl BackendValidator<'_> {
                 ));
                 continue;
             };
-            if !self.same_type(expected_ty, local_ty) {
+            if expected_ty.is_some_and(|expected_ty| !self.same_type(expected_ty, local_ty)) {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     entry.span,
