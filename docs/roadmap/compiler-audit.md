@@ -384,6 +384,10 @@ commit as the corresponding implementation batch.
       values against the enclosing function signature, and `Never`-terminating
       bodies without rejecting valid defer-tail or trap lowering; malformed
       terminator contracts have a pre-LLVM regression test.
+- [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
+      rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
+      a malformed target description; helper-level boundary tests cover both
+      failure modes.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
