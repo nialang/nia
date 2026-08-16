@@ -12,6 +12,12 @@ use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 use super::{BackendValidator, primitive_layout};
 
 impl BackendValidator<'_> {
+    /// Validates a type that must have a concrete runtime representation.
+    ///
+    /// [`Self::validate_type`] intentionally accepts descriptor-only types in
+    /// positions such as an opaque pointer's pointee. Runtime slots (locals,
+    /// expressions, by-value returns, and aggregate fields) must additionally
+    /// resolve to a target layout before LLVM sees them.
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
         if self.layout_of(ty).is_none() {
@@ -55,6 +61,7 @@ impl BackendValidator<'_> {
         }
     }
 
+    /// Validates structural type identity without requiring a by-value layout.
     pub(super) fn validate_type(&mut self, ty: InternedTyId, span: Span) {
         if !self.seen_types.insert(ty) {
             return;
@@ -111,7 +118,7 @@ impl BackendValidator<'_> {
                 for param in params {
                     self.validate_runtime_type(param, span);
                 }
-                self.validate_type(return_type, span);
+                self.validate_runtime_type(return_type, span);
             }
             TyKind::Nominal { def_id, args, .. } => {
                 if self.index.module(def_id.module_id).is_none() {
@@ -175,7 +182,7 @@ impl BackendValidator<'_> {
                 for param in params {
                     self.validate_runtime_type(param, span);
                 }
-                self.validate_type(return_type, span);
+                self.validate_runtime_type(return_type, span);
             }
             TyKind::ConstOnly => self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,

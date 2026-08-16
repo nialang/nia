@@ -425,6 +425,10 @@ commit as the corresponding implementation batch.
       `FunctionInstanceKey` for function-instance deduplication and negative
       lookup caching; tuple aliases remain only where the identity has a
       deliberately different shape (aggregate layout or LLVM value context).
+- [x] Phase B backend validation now distinguishes structural type descriptors
+      from runtime slots and requires layouts for function/closure returns,
+      expression and place values, body results, and callable signatures before
+      LLVM classification; an opaque-return regression covers the boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

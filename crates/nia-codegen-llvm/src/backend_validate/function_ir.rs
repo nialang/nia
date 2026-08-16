@@ -25,7 +25,9 @@ impl BackendValidator<'_> {
             ));
             return;
         }
-        self.validate_type(body.ty, body.span);
+        self.current_subject = Some("body result");
+        self.validate_runtime_type(body.ty, body.span);
+        self.current_subject = None;
         self.local_tys.push(
             body.locals
                 .iter()
@@ -362,7 +364,7 @@ impl BackendValidator<'_> {
             return;
         }
         self.current_subject = Some("expr");
-        self.validate_type(expr.ty, expr.span);
+        self.validate_runtime_type(expr.ty, expr.span);
         self.current_subject = None;
         match &expr.kind {
             FunctionExprKind::Global(def_id) => {
@@ -802,7 +804,7 @@ impl BackendValidator<'_> {
                 ..
             } => {
                 self.validate_type(*object_ty, span);
-                self.validate_type(*return_type, span);
+                self.validate_runtime_type(*return_type, span);
                 for param in params {
                     self.validate_runtime_type(*param, span);
                 }
@@ -889,7 +891,9 @@ impl BackendValidator<'_> {
     }
 
     fn validate_place(&mut self, place: &FunctionPlace) {
-        self.validate_type(place.ty, place.span);
+        self.current_subject = Some("place");
+        self.validate_runtime_type(place.ty, place.span);
+        self.current_subject = None;
         match &place.base {
             FunctionPlaceBase::Local(local_id) => {
                 if !self
