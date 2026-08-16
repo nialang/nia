@@ -1,4 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Computes the executable subset of a semantically valid Nia program.
+//!
+//! Reachability is a least fixed point over direct function/global references,
+//! generic instantiations, trait method witnesses, impl where predicates, and
+//! modules that own newly discovered bodies. The incremental entry points keep
+//! the same closure but resume from previously scanned facts; callers must feed
+//! newly checked module facts back through the incremental extension APIs until
+//! no pending body items remain.
+//!
+//! This crate deliberately consumes semantic facts rather than syntax. A
+//! reachable call must name the same concrete generic and const-generic
+//! instance that body checking selected, or backend lowering can either omit a
+//! required body or retain an unrelated implementation.
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -40,8 +54,8 @@ use trait_closure::{
 };
 use type_matching::{
     ReachabilityTypeCx, ReachableExtensionMatchInput, TypeSubstitutions,
-    extend_reachable_trait_methods_from_impl_where_predicates, substitute_ty, trait_id_and_args,
-    with_reachable_extension_method_match,
+    extend_reachable_trait_methods_from_impl_where_predicates, substitute_const_arg, substitute_ty,
+    trait_id_and_args, with_reachable_extension_method_match,
 };
 
 pub use extension_index::{ExecutableExtensionIndex, ExecutableExtensionLookup};
@@ -55,6 +69,7 @@ pub use model::{
 };
 pub use signatures::ExecutableSignatureIndex;
 
+/// Persistent state for the incremental reachability fixed point.
 #[derive(Debug, Clone, Default)]
 pub struct IncrementalExecutableReachability {
     reachability: ExecutableReachability,

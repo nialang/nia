@@ -221,6 +221,17 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         f(predicates);
     }
 
+    fn with_const_generics_for_def(&self, def_id: GlobalDefId, f: &mut dyn FnMut(&[SymbolId])) {
+        let method =
+            capture_query_failure(&self.failure, self.db.get(ExtensionMethodByIdQuery(def_id)));
+        let generics = method
+            .as_ref()
+            .and_then(|method| method.method.as_ref())
+            .map(|method| method.effective_const_generics.as_slice())
+            .unwrap_or(&[]);
+        f(generics);
+    }
+
     fn with_trait_impl_for_method(
         &self,
         method: &nia_defs::ExtensionMethod,

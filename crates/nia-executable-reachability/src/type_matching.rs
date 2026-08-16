@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Type-pattern recovery for executable trait witnesses.
+//!
+//! Body checking has already selected a valid extension implementation before
+//! this module runs. Reachability must nevertheless replay the implementation
+//! target match to recover the concrete type and const arguments used by its
+//! where predicates. Losing one of those substitutions can silently omit a
+//! method body that the backend will call.
+//!
+//! Types normally share the compilation session's `TypeStore`. The explicit
+//! [`TypedTyRef`] pairing is retained for structural comparisons because query
+//! inputs and cached signatures may originate from different stores; raw
+//! `InternedTyId` equality is not a cross-store type-equivalence operation.
+
 use super::*;
 
 #[derive(Debug)]
 pub(super) struct ReachableExtensionMethodMatch<'a> {
     impl_signature: &'a ProgramTraitImplSignature,
-    substitutions: SymbolMap<SubstitutionTy>,
+    substitutions: PatternSubstitutions,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -22,6 +35,38 @@ impl<'a> TypedTyRef<'a> {
 #[derive(Debug, Clone, Copy)]
 enum SubstitutionTy {
     Canonical(InternedTyId),
+}
+
+/// Evidence recovered while matching a generic impl target to a concrete use.
+///
+/// `const_param_types` preserves the declared type of an impl const parameter.
+/// Array lengths carry only a value-level representation, so this table lets a
+/// successful array pattern produce a complete `ConstGenericArg` without
+/// interning an unrelated type during matching.
+#[derive(Debug, Default)]
+struct PatternSubstitutions {
+    types: SymbolMap<SubstitutionTy>,
+    consts: SymbolMap<nia_ty::ConstGenericArg>,
+    array_lens: SymbolMap<nia_ty::ArrayLenTy>,
+    const_param_types: SymbolMap<InternedTyId>,
+}
+
+impl PatternSubstitutions {
+    fn for_impl(generic_params: &[nia_item_signatures::GenericParamSignature]) -> Self {
+        let const_param_types = generic_params
+            .iter()
+            .filter_map(|param| match param.kind {
+                nia_item_signatures::GenericParamSignatureKind::Const { ty } => {
+                    Some((param.name, ty))
+                }
+                nia_item_signatures::GenericParamSignatureKind::Type => None,
+            })
+            .collect();
+        Self {
+            const_param_types,
+            ..Self::default()
+        }
+    }
 }
 
 pub(super) struct ReachableExtensionMatchInput<'a> {
@@ -74,6 +119,7 @@ pub(super) fn with_reachable_extension_method_match(
                 store: type_store,
                 ty: *ty,
             }),
+            &impl_signature.generic_params,
             self_ref,
             trait_args.iter().map(|ty| TypedTyRef {
                 store: type_store,
@@ -90,6 +136,7 @@ pub(super) fn with_reachable_extension_method_match(
                     store: type_store,
                     ty: *ty,
                 }),
+                &impl_signature.generic_params,
                 pointee_ref?,
                 trait_args.iter().map(|ty| TypedTyRef {
                     store: type_store,
@@ -112,10 +159,11 @@ pub(super) fn with_reachable_extension_method_match(
 fn match_reachable_extension_impl<'a>(
     impl_target: TypedTyRef<'a>,
     impl_trait_args: impl IntoIterator<Item = TypedTyRef<'a>>,
+    impl_generic_params: &[nia_item_signatures::GenericParamSignature],
     self_ty: TypedTyRef<'a>,
     trait_args: impl IntoIterator<Item = TypedTyRef<'a>>,
-) -> Option<SymbolMap<SubstitutionTy>> {
-    let mut substitutions = SymbolMap::default();
+) -> Option<PatternSubstitutions> {
+    let mut substitutions = PatternSubstitutions::for_impl(impl_generic_params);
     if !match_type_pattern(impl_target, self_ty, &mut substitutions) {
         return None;
     }
@@ -140,7 +188,10 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
         append: &append,
     };
     for predicate in &matched.impl_signature.where_predicates {
-        let substitutions = TypeSubstitutions::typed_generics(&matched.substitutions);
+        let substitutions = TypeSubstitutions::typed_generics(
+            &matched.substitutions.types,
+            &matched.substitutions.consts,
+        );
         let Some(self_ty) = substitute_ty(types, predicate.ty, &substitutions) else {
             continue;
         };
@@ -181,17 +232,19 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
 fn match_type_pattern<'a>(
     pattern: TypedTyRef<'a>,
     actual: TypedTyRef<'a>,
-    substitutions: &mut SymbolMap<SubstitutionTy>,
+    substitutions: &mut PatternSubstitutions,
 ) -> bool {
     let Some(pattern_ty) = pattern.kind() else {
         return false;
     };
     match pattern_ty {
         TyKind::GenericParam(name) => {
-            if let Some(existing) = substitutions.get(name).copied() {
+            if let Some(existing) = substitutions.types.get(name).copied() {
                 substitution_ty_equivalent(existing, actual)
             } else {
-                substitutions.insert(*name, SubstitutionTy::Canonical(actual.ty));
+                substitutions
+                    .types
+                    .insert(*name, SubstitutionTy::Canonical(actual.ty));
                 true
             }
         }
@@ -360,19 +413,17 @@ fn match_type_pattern<'a>(
             Some(TyKind::Array {
                 len: actual_len,
                 elem: actual_elem,
-            }) if matches!(len, nia_ty::ArrayLenTy::GenericParam(_)) || len == actual_len => {
-                match_type_pattern(
-                    TypedTyRef {
-                        store: pattern.store,
-                        ty: *elem,
-                    },
-                    TypedTyRef {
-                        store: actual.store,
-                        ty: *actual_elem,
-                    },
-                    substitutions,
-                )
-            }
+            }) if match_array_len_pattern(len, actual_len, substitutions) => match_type_pattern(
+                TypedTyRef {
+                    store: pattern.store,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    store: actual.store,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
         TyKind::Range { kind, bound } => match actual.kind() {
@@ -568,7 +619,7 @@ fn match_type_pattern<'a>(
                 const_args: actual_const_args,
             }) if def_id == actual_def_id
                 && args.len() == actual_args.len()
-                && const_args == actual_const_args =>
+                && const_args.len() == actual_const_args.len() =>
             {
                 args.iter().zip(actual_args).all(|(arg, actual_arg)| {
                     match_type_pattern(
@@ -582,7 +633,13 @@ fn match_type_pattern<'a>(
                         },
                         substitutions,
                     )
-                })
+                }) && match_const_generic_arg_patterns(
+                    pattern.store,
+                    const_args,
+                    actual.store,
+                    actual_const_args,
+                    substitutions,
+                )
             }
             _ => false,
         },
@@ -610,7 +667,104 @@ fn match_type_pattern<'a>(
         TyKind::TraitObject { .. }
         | TyKind::TraitObjectPointee { .. }
         | TyKind::Projection { .. } => typed_refs_equivalent(pattern, actual),
-        TyKind::Error | TyKind::ConstOnly => true,
+        TyKind::Error => matches!(actual.kind(), Some(TyKind::Error)),
+        TyKind::ConstOnly => matches!(actual.kind(), Some(TyKind::ConstOnly)),
+    }
+}
+
+fn match_array_len_pattern(
+    pattern: &nia_ty::ArrayLenTy,
+    actual: &nia_ty::ArrayLenTy,
+    substitutions: &mut PatternSubstitutions,
+) -> bool {
+    if pattern == actual {
+        return true;
+    }
+    let nia_ty::ArrayLenTy::GenericParam(name) = pattern else {
+        return false;
+    };
+    if let Some(existing) = substitutions.array_lens.get(name) {
+        return existing == actual;
+    }
+    substitutions.array_lens.insert(*name, actual.clone());
+
+    let Some(value) = const_value_from_array_len(actual) else {
+        // Layout builtins are valid concrete lengths, but this phase has no
+        // evaluator with which to encode their result as a const-generic
+        // value. Retaining the length still enforces repeated-N consistency
+        // and keeps the matching implementation executable-reachable.
+        return matches!(actual, nia_ty::ArrayLenTy::Builtin { .. });
+    };
+    let Some(ty) = substitutions.const_param_types.get(name).copied() else {
+        return false;
+    };
+    record_const_substitution(*name, nia_ty::ConstGenericArg { ty, value }, substitutions)
+}
+
+fn match_const_generic_arg_patterns(
+    pattern_store: &TypeStore,
+    patterns: &[nia_ty::ConstGenericArg],
+    actual_store: &TypeStore,
+    actuals: &[nia_ty::ConstGenericArg],
+    substitutions: &mut PatternSubstitutions,
+) -> bool {
+    patterns.iter().zip(actuals).all(|(pattern, actual)| {
+        if let nia_ty::ConstGenericValue::GenericParam(name) = pattern.value {
+            return typed_refs_equivalent(
+                TypedTyRef {
+                    store: pattern_store,
+                    ty: pattern.ty,
+                },
+                TypedTyRef {
+                    store: actual_store,
+                    ty: actual.ty,
+                },
+            ) && record_const_substitution(
+                name,
+                nia_ty::ConstGenericArg {
+                    ty: pattern.ty,
+                    value: actual.value.clone(),
+                },
+                substitutions,
+            );
+        }
+        pattern.value == actual.value
+            && typed_refs_equivalent(
+                TypedTyRef {
+                    store: pattern_store,
+                    ty: pattern.ty,
+                },
+                TypedTyRef {
+                    store: actual_store,
+                    ty: actual.ty,
+                },
+            )
+    })
+}
+
+fn record_const_substitution(
+    name: SymbolId,
+    arg: nia_ty::ConstGenericArg,
+    substitutions: &mut PatternSubstitutions,
+) -> bool {
+    if let Some(existing) = substitutions.consts.get(&name) {
+        existing == &arg
+    } else {
+        substitutions.consts.insert(name, arg);
+        true
+    }
+}
+
+fn const_value_from_array_len(len: &nia_ty::ArrayLenTy) -> Option<nia_ty::ConstGenericValue> {
+    match len {
+        nia_ty::ArrayLenTy::GenericParam(name) => {
+            Some(nia_ty::ConstGenericValue::GenericParam(*name))
+        }
+        nia_ty::ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
+            nia_ty::IntConst::unsigned((*value).into()),
+        )),
+        nia_ty::ArrayLenTy::ConstExpr(id) => Some(nia_ty::ConstGenericValue::ConstExpr(*id)),
+        nia_ty::ArrayLenTy::Infer | nia_ty::ArrayLenTy::Builtin { .. } => None,
     }
 }
 
@@ -1186,10 +1340,12 @@ pub(super) fn trait_id_and_args(
     }
 }
 
+/// Type and const arguments applied while following reachability facts.
 #[derive(Clone, Copy)]
 pub(super) struct TypeSubstitutions<'a> {
     self_ty: Option<InternedTyId>,
     generics: TypeSubstitutionGenerics<'a>,
+    consts: Option<&'a SymbolMap<nia_ty::ConstGenericArg>>,
 }
 
 #[derive(Clone, Copy)]
@@ -1206,17 +1362,50 @@ impl<'a> TypeSubstitutions<'a> {
         Self {
             self_ty,
             generics: TypeSubstitutionGenerics::Local(generics),
+            consts: None,
         }
     }
 
-    fn typed_generics(generics: &'a SymbolMap<SubstitutionTy>) -> Self {
+    pub(super) fn local_with_consts(
+        self_ty: Option<InternedTyId>,
+        generics: &'a SymbolMap<InternedTyId>,
+        consts: &'a SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> Self {
+        Self {
+            self_ty,
+            generics: TypeSubstitutionGenerics::Local(generics),
+            consts: Some(consts),
+        }
+    }
+
+    fn typed_generics(
+        generics: &'a SymbolMap<SubstitutionTy>,
+        consts: &'a SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> Self {
         Self {
             self_ty: None,
             generics: TypeSubstitutionGenerics::Typed(generics),
+            consts: Some(consts),
         }
+    }
+
+    fn type_arg(&self, name: &SymbolId) -> Option<InternedTyId> {
+        match self.generics {
+            TypeSubstitutionGenerics::Local(generics) => generics.get(name).copied(),
+            TypeSubstitutionGenerics::Typed(generics) => {
+                generics.get(name).copied().map(|ty| match ty {
+                    SubstitutionTy::Canonical(ty) => ty,
+                })
+            }
+        }
+    }
+
+    fn const_arg(&self, name: &SymbolId) -> Option<nia_ty::ConstGenericArg> {
+        self.consts.and_then(|consts| consts.get(name)).cloned()
     }
 }
 
+/// Session type-store access used by reachability substitution.
 #[derive(Clone, Copy)]
 pub(super) struct ReachabilityTypeCx<'a> {
     pub(super) store: &'a TypeStore,
@@ -1227,282 +1416,324 @@ impl ReachabilityTypeCx<'_> {
     fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.store.get(ty)
     }
-
-    fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
-    }
 }
 
+/// Applies reachability substitutions with the canonical `nia-ty` walker.
+///
+/// Keeping the traversal in `nia-ty` is important: closure signatures, array
+/// lengths, const-generic arguments, projections, and associated bindings must
+/// all evolve together when `TyKind` gains a new nested type position.
 pub(super) fn substitute_ty(
     types: ReachabilityTypeCx<'_>,
     ty: InternedTyId,
     substitutions: &TypeSubstitutions<'_>,
 ) -> Option<InternedTyId> {
-    let kind = types.get(ty)?.clone();
-    match kind {
-        TyKind::GenericParam(name) => substitute_generic_ty(&name, substitutions, ty),
-        TyKind::SelfParam => substitutions.self_ty.or(Some(ty)),
-        TyKind::Opaque => Some(ty),
-        TyKind::Tuple(elems) => {
-            let elems = elems
-                .into_iter()
-                .map(|elem| substitute_ty(types, elem, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            Some(types.intern(TyKind::Tuple(elems)))
-        }
-        TyKind::Pointer { is_readonly, elem } => {
-            let elem = substitute_ty(types, elem, substitutions)?;
-            Some(types.intern(TyKind::Pointer { is_readonly, elem }))
-        }
-        TyKind::VolatilePointer { is_readonly, elem } => {
-            let elem = substitute_ty(types, elem, substitutions)?;
-            Some(types.intern(TyKind::VolatilePointer { is_readonly, elem }))
-        }
-        TyKind::Slice { is_readonly, elem } => {
-            let elem = substitute_ty(types, elem, substitutions)?;
-            Some(types.intern(TyKind::Slice { is_readonly, elem }))
-        }
-        TyKind::SlicePointee { elem } => {
-            let elem = substitute_ty(types, elem, substitutions)?;
-            Some(types.intern(TyKind::SlicePointee { elem }))
-        }
-        TyKind::Array { len, elem } => {
-            let elem = substitute_ty(types, elem, substitutions)?;
-            Some(types.intern(TyKind::Array { len, elem }))
-        }
-        TyKind::Range { kind, bound } => {
-            let bound = match bound {
-                Some(bound) => Some(substitute_ty(types, bound, substitutions)?),
-                None => None,
-            };
-            Some(types.intern(TyKind::Range { kind, bound }))
-        }
-        TyKind::FunctionPointer {
-            params,
-            return_type,
-            is_variadic,
-        } => {
-            let params = params
-                .into_iter()
-                .map(|param| substitute_ty(types, param, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let return_type = substitute_ty(types, return_type, substitutions)?;
-            Some(types.intern(TyKind::FunctionPointer {
-                params,
-                return_type,
-                is_variadic,
-            }))
-        }
-        TyKind::Callable {
-            is_readonly,
-            params,
-            return_type,
-        } => {
-            let params = params
-                .into_iter()
-                .map(|param| substitute_ty(types, param, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let return_type = substitute_ty(types, return_type, substitutions)?;
-            Some(types.intern(TyKind::Callable {
-                is_readonly,
-                params,
-                return_type,
-            }))
-        }
-        TyKind::CallablePointee {
-            params,
-            return_type,
-        } => {
-            let params = params
-                .into_iter()
-                .map(|param| substitute_ty(types, param, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let return_type = substitute_ty(types, return_type, substitutions)?;
-            Some(types.intern(TyKind::CallablePointee {
-                params,
-                return_type,
-            }))
-        }
-        TyKind::Optional { elem } => {
-            let elem = substitute_ty(types, elem, substitutions)?;
-            Some(types.intern(TyKind::Optional { elem }))
-        }
-        TyKind::ErrorUnion { error, value } => {
-            let error = substitute_ty(types, error, substitutions)?;
-            let value = substitute_ty(types, value, substitutions)?;
-            Some(types.intern(TyKind::ErrorUnion { error, value }))
-        }
-        TyKind::Nominal {
-            def_id,
-            args,
-            const_args,
-        } => {
-            let args = args
-                .into_iter()
-                .map(|arg| substitute_ty(types, arg, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let const_args = const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_ty(types, arg.ty, substitutions)?;
-                    Some(arg)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            Some(types.intern(TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            }))
-        }
-        TyKind::BuiltinTrait { trait_id, args } => {
-            let args = args
-                .into_iter()
-                .map(|arg| substitute_ty(types, arg, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            Some(types.intern(TyKind::BuiltinTrait { trait_id, args }))
-        }
-        TyKind::TraitObject {
-            is_readonly,
-            trait_id,
-            trait_args,
-            trait_const_args,
-            associated_type_bindings,
-        } => {
-            let trait_args = trait_args
-                .into_iter()
-                .map(|arg| substitute_ty(types, arg, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let trait_const_args = trait_const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_ty(types, arg.ty, substitutions)?;
-                    Some(arg)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let associated_type_bindings = substitute_associated_type_bindings(
-                types,
-                associated_type_bindings,
-                substitutions,
-            )?;
-            Some(types.intern(TyKind::TraitObject {
-                is_readonly,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-            }))
-        }
-        TyKind::TraitObjectPointee {
-            trait_id,
-            trait_args,
-            trait_const_args,
-            associated_type_bindings,
-        } => {
-            let trait_args = trait_args
-                .into_iter()
-                .map(|arg| substitute_ty(types, arg, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let trait_const_args = trait_const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_ty(types, arg.ty, substitutions)?;
-                    Some(arg)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let associated_type_bindings = substitute_associated_type_bindings(
-                types,
-                associated_type_bindings,
-                substitutions,
-            )?;
-            Some(types.intern(TyKind::TraitObjectPointee {
-                trait_id,
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-            }))
-        }
-        TyKind::Projection {
-            self_ty,
-            trait_id,
-            trait_args,
-            trait_const_args,
-            name,
-        } => {
-            let self_ty = substitute_ty(types, self_ty, substitutions)?;
-            let trait_args = trait_args
-                .into_iter()
-                .map(|arg| substitute_ty(types, arg, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let trait_const_args = trait_const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_ty(types, arg.ty, substitutions)?;
-                    Some(arg)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            Some(types.intern(TyKind::Projection {
-                self_ty,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                name,
-            }))
-        }
-        TyKind::Error
-        | TyKind::ConstOnly
-        | TyKind::Primitive(_)
-        | TyKind::BuiltinType(_)
-        | TyKind::Vector { .. }
-        | TyKind::ClosureState { .. } => Some(ty),
-    }
+    types.get(ty)?;
+    Some(nia_ty::substitute_ty(
+        types.store,
+        types.append,
+        ty,
+        &|name| substitutions.type_arg(name),
+        &|name| substitutions.const_arg(name),
+        substitutions.self_ty,
+    ))
 }
 
-fn substitute_associated_type_bindings(
+/// Substitutes a standalone const argument carried by a generic-instantiation
+/// fact. These arguments live outside a `TyKind`, so the canonical type walker
+/// cannot reach them through [`substitute_ty`].
+pub(super) fn substitute_const_arg(
     types: ReachabilityTypeCx<'_>,
-    bindings: Vec<AssociatedTypeBindingTy>,
+    arg: &nia_ty::ConstGenericArg,
     substitutions: &TypeSubstitutions<'_>,
-) -> Option<Vec<AssociatedTypeBindingTy>> {
-    bindings
-        .into_iter()
-        .map(|binding| {
-            let trait_args = binding
-                .trait_args
-                .into_iter()
-                .map(|arg| substitute_ty(types, arg, substitutions))
-                .collect::<Option<Vec<_>>>()?;
-            let trait_const_args = binding
-                .trait_const_args
-                .into_iter()
-                .map(|mut arg| {
-                    arg.ty = substitute_ty(types, arg.ty, substitutions)?;
-                    Some(arg)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let ty = substitute_ty(types, binding.ty, substitutions)?;
-            Some(AssociatedTypeBindingTy {
-                trait_id: binding.trait_id,
-                trait_args,
-                trait_const_args,
-                name: binding.name,
-                ty,
-            })
-        })
-        .collect()
+) -> Option<nia_ty::ConstGenericArg> {
+    let mut substituted = match &arg.value {
+        nia_ty::ConstGenericValue::GenericParam(name) => {
+            substitutions.const_arg(name).unwrap_or_else(|| arg.clone())
+        }
+        nia_ty::ConstGenericValue::ConstExpr(_)
+        | nia_ty::ConstGenericValue::Int(_)
+        | nia_ty::ConstGenericValue::Bool(_)
+        | nia_ty::ConstGenericValue::Char(_) => arg.clone(),
+    };
+    substituted.ty = substitute_ty(types, substituted.ty, substitutions)?;
+    Some(substituted)
 }
 
-fn substitute_generic_ty(
-    name: &SymbolId,
-    substitutions: &TypeSubstitutions<'_>,
-    fallback: InternedTyId,
-) -> Option<InternedTyId> {
-    match substitutions.generics {
-        TypeSubstitutionGenerics::Local(generics) => generics.get(name).copied().or(Some(fallback)),
-        TypeSubstitutionGenerics::Typed(generics) => generics
-            .get(name)
-            .copied()
-            .map(|ty| match ty {
-                SubstitutionTy::Canonical(ty) => ty,
-            })
-            .or(Some(fallback)),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ClosureId, DefId, ModuleIdAllocator};
+    use nia_symbol::stable_hash;
+    use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy};
+
+    fn symbol(name: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(name))
+    }
+
+    fn module() -> ModuleId {
+        ModuleIdAllocator::new().allocate()
+    }
+
+    #[test]
+    fn nominal_pattern_recovers_type_and_const_arguments() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let type_name = symbol("T");
+        let const_name = symbol("N");
+        let type_param = append.intern(TyKind::GenericParam(type_name));
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let pattern = append.intern(TyKind::Nominal {
+            def_id,
+            args: vec![type_param],
+            const_args: vec![ConstGenericArg {
+                ty: usize_ty,
+                value: ConstGenericValue::GenericParam(const_name),
+            }],
+        });
+        let actual_const = ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)),
+        };
+        let actual = append.intern(TyKind::Nominal {
+            def_id,
+            args: vec![i32_ty],
+            const_args: vec![actual_const.clone()],
+        });
+        let generic_params = vec![
+            nia_item_signatures::GenericParamSignature {
+                name: type_name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Type,
+            },
+            nia_item_signatures::GenericParamSignature {
+                name: const_name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
+            },
+        ];
+
+        let matched = match_reachable_extension_impl(
+            TypedTyRef {
+                store: &store,
+                ty: pattern,
+            },
+            std::iter::empty(),
+            &generic_params,
+            TypedTyRef {
+                store: &store,
+                ty: actual,
+            },
+            std::iter::empty(),
+        )
+        .expect("generic nominal target should match its concrete instance");
+
+        assert!(matches!(
+            matched.types.get(&type_name),
+            Some(SubstitutionTy::Canonical(ty)) if *ty == i32_ty
+        ));
+        assert_eq!(matched.consts.get(&const_name), Some(&actual_const));
+    }
+
+    #[test]
+    fn repeated_const_pattern_rejects_conflicting_values() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let const_name = symbol("N");
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(2),
+        };
+        let param = || ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::GenericParam(const_name),
+        };
+        let value = |bits| ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(bits)),
+        };
+        let pattern = append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![param(), param()],
+        });
+        let actual = append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![value(2), value(3)],
+        });
+        let generic_params = [nia_item_signatures::GenericParamSignature {
+            name: const_name,
+            kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
+        }];
+
+        assert!(
+            match_reachable_extension_impl(
+                TypedTyRef {
+                    store: &store,
+                    ty: pattern,
+                },
+                std::iter::empty(),
+                &generic_params,
+                TypedTyRef {
+                    store: &store,
+                    ty: actual,
+                },
+                std::iter::empty(),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn array_pattern_accepts_builtin_length_without_fabricating_const_value() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let const_name = symbol("N");
+        let pattern = append.intern(TyKind::Array {
+            len: ArrayLenTy::GenericParam(const_name),
+            elem: i32_ty,
+        });
+        let builtin_len = ArrayLenTy::Builtin {
+            builtin: nia_ids::LayoutBuiltin::Size,
+            ty: i32_ty,
+        };
+        let actual = append.intern(TyKind::Array {
+            len: builtin_len.clone(),
+            elem: i32_ty,
+        });
+        let generic_params = [nia_item_signatures::GenericParamSignature {
+            name: const_name,
+            kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
+        }];
+
+        let matched = match_reachable_extension_impl(
+            TypedTyRef {
+                store: &store,
+                ty: pattern,
+            },
+            std::iter::empty(),
+            &generic_params,
+            TypedTyRef {
+                store: &store,
+                ty: actual,
+            },
+            std::iter::empty(),
+        )
+        .expect("layout builtin is a valid concrete array length");
+
+        assert_eq!(matched.array_lens.get(&const_name), Some(&builtin_len));
+        assert!(!matched.consts.contains_key(&const_name));
+    }
+
+    #[test]
+    fn recovery_types_only_match_the_same_recovery_kind() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let error = append.error();
+        let const_only = append.intern(TyKind::ConstOnly);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+
+        for recovery in [error, const_only] {
+            let mut substitutions = PatternSubstitutions::default();
+            assert!(!match_type_pattern(
+                TypedTyRef {
+                    store: &store,
+                    ty: recovery,
+                },
+                TypedTyRef {
+                    store: &store,
+                    ty: i32_ty,
+                },
+                &mut substitutions,
+            ));
+            assert!(match_type_pattern(
+                TypedTyRef {
+                    store: &store,
+                    ty: recovery,
+                },
+                TypedTyRef {
+                    store: &store,
+                    ty: recovery,
+                },
+                &mut substitutions,
+            ));
+        }
+    }
+
+    #[test]
+    fn substitution_descends_into_closures_and_array_lengths() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let type_name = symbol("T");
+        let const_name = symbol("N");
+        let type_param = append.intern(TyKind::GenericParam(type_name));
+        let array = append.intern(TyKind::Array {
+            len: ArrayLenTy::GenericParam(const_name),
+            elem: type_param,
+        });
+        let closure = append.intern(TyKind::ClosureState {
+            closure_id: ClosureId {
+                owner: GlobalDefId {
+                    module_id,
+                    def_id: DefId(3),
+                },
+                ordinal: 0,
+            },
+            captures: vec![array],
+            params: vec![array],
+            return_type: array,
+        });
+        let type_substitutions = SymbolMap::from_iter([(type_name, i32_ty)]);
+        let const_substitutions = SymbolMap::from_iter([(
+            const_name,
+            ConstGenericArg {
+                ty: usize_ty,
+                value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+            },
+        )]);
+        let substitutions =
+            TypeSubstitutions::local_with_consts(None, &type_substitutions, &const_substitutions);
+        let substituted = substitute_ty(
+            ReachabilityTypeCx {
+                store: &store,
+                append: &append,
+            },
+            closure,
+            &substitutions,
+        )
+        .expect("closure type belongs to the reachability store");
+
+        let Some(TyKind::ClosureState {
+            captures,
+            params,
+            return_type,
+            ..
+        }) = store.get(substituted)
+        else {
+            panic!("substitution should preserve the closure constructor");
+        };
+        for array in captures.iter().chain(params).chain([return_type]) {
+            assert!(matches!(
+                store.get(*array),
+                Some(TyKind::Array {
+                    len: ArrayLenTy::ConstValue(4),
+                    elem,
+                }) if *elem == i32_ty
+            ));
+        }
     }
 }
