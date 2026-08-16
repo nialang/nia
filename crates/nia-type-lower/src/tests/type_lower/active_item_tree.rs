@@ -97,6 +97,47 @@ pair.left
     }
 }
 
+#[test]
+fn versioned_type_uses_include_const_generic_parameter_types() {
+    let (module, errors) = parse_module(
+        r#"
+struct Buffer[N: usize] {
+    values: [u8; N],
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let tree = ModuleItemTree::from_module(&module);
+    let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let resolved = resolve_module_types_from_active_item_tree(
+        &active,
+        &defs,
+        TypeResolveProgramDefsContext::empty(),
+        &nia_defs::PublicSurfaces::default(),
+        &nia_defs::ModuleUsingScope::default(),
+    );
+    let type_store = nia_ty::TypeStore::new();
+    let lowered = lower_module_types_from_active_item_tree_with_context(
+        module_id,
+        &active,
+        &resolved,
+        TypeLoweringContext::empty(&type_store),
+    );
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+
+    let ItemTreeNodeKind::Struct(item_struct) = &active.items[0].kind else {
+        panic!("expected struct");
+    };
+    let GenericParamKind::Const { ty } = &item_struct.generics[0].kind else {
+        panic!("expected const generic parameter");
+    };
+    let uses = lowered.versioned_type_uses_from_active_item_tree(&active);
+    assert!(uses.iter().any(|(key, _)| key == &ty.node_key));
+}
+
 struct BoolResolver(bool);
 
 impl nia_item_tree::ConditionResolver for BoolResolver {

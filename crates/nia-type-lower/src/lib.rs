@@ -100,18 +100,21 @@ impl VersionedTypeUseCollector<'_> {
         match &item.kind {
             ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
             ItemTreeNodeKind::Struct(item_struct) => {
+                nia_ast_walk::walk_generic_params(self, &item_struct.generics);
                 self.visit_where_clause(&item_struct.where_clause);
                 for field in &item_struct.fields {
                     self.visit_type(&field.ty);
                 }
             }
             ItemTreeNodeKind::Union(item_union) => {
+                nia_ast_walk::walk_generic_params(self, &item_union.generics);
                 self.visit_where_clause(&item_union.where_clause);
                 for field in &item_union.fields {
                     self.visit_type(&field.ty);
                 }
             }
             ItemTreeNodeKind::Trait(item_trait) => {
+                nia_ast_walk::walk_generic_params(self, &item_trait.generics);
                 for supertrait in &item_trait.supertraits {
                     self.visit_type(supertrait);
                 }
@@ -124,6 +127,7 @@ impl VersionedTypeUseCollector<'_> {
                 }
             }
             ItemTreeNodeKind::Extend(extend) => {
+                nia_ast_walk::walk_generic_params(self, &extend.generics);
                 self.visit_type(&extend.target);
                 if let Some(trait_ref) = &extend.trait_ref {
                     self.visit_type(trait_ref);
@@ -168,6 +172,7 @@ impl VersionedTypeUseCollector<'_> {
                 }
             }
             ItemTreeNodeKind::TypeAlias(alias) => {
+                nia_ast_walk::walk_generic_params(self, &alias.generics);
                 self.visit_where_clause(&alias.where_clause);
                 if let Some(ty) = &alias.ty {
                     self.visit_type(ty);
@@ -195,6 +200,7 @@ impl VersionedTypeUseCollector<'_> {
     }
 
     fn visit_function(&mut self, function: &FunctionItem) {
+        nia_ast_walk::walk_generic_params(self, &function.generics);
         self.visit_where_clause(&function.where_clause);
         for param in &function.params {
             if let Some(ty) = &param.ty {

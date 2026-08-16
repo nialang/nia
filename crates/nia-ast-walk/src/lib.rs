@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Canonical structural traversal for the source AST.
+//!
+//! A default [`Visitor`] reaches every nested type, expression, statement, and
+//! pattern that is structurally owned by the node it receives. Semantic passes
+//! may override callbacks to establish scopes or intentionally exclude a class
+//! of nodes, but should delegate back to the corresponding `walk_*` function
+//! when child traversal remains part of their contract.
+
 use nia_ast::{
     ArrayElements, ArrayLen, Attribute, AttributeKind, Block, Expr, ExprKind, FunctionItem,
-    IndexArg, Item, ItemKind, MatchArmBody, Module, Pattern, PatternKind, Stmt, StmtKind, TypeArg,
-    TypeKind, TypeRef, WhereClause,
+    GenericParam, GenericParamKind, IndexArg, Item, ItemKind, MatchArmBody, Module, Pattern,
+    PatternKind, Stmt, StmtKind, TypeArg, TypeKind, TypeRef, WhereClause,
 };
 
+/// Callback surface for recursively walking a source AST.
+///
+/// Overriding a callback replaces traversal for that node. Call the matching
+/// `walk_*` function from the override unless omitting its children is an
+/// intentional semantic boundary.
 pub trait Visitor<'ast> {
     fn visit_item(&mut self, item: &'ast Item) {
         walk_item(self, item);
@@ -28,6 +41,14 @@ pub trait Visitor<'ast> {
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
         walk_expr(self, expr);
+    }
+
+    fn visit_pattern(&mut self, pattern: &'ast Pattern) {
+        walk_pattern(self, pattern);
+    }
+
+    fn visit_generic_param(&mut self, generic: &'ast GenericParam) {
+        walk_generic_param(self, generic);
     }
 }
 
@@ -77,18 +98,21 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             }
         }
         ItemKind::Struct(item_struct) => {
+            walk_generic_params(visitor, &item_struct.generics);
             walk_where_clause(visitor, &item_struct.where_clause);
             for field in &item_struct.fields {
                 visitor.visit_type(&field.ty);
             }
         }
         ItemKind::Union(item_union) => {
+            walk_generic_params(visitor, &item_union.generics);
             walk_where_clause(visitor, &item_union.where_clause);
             for field in &item_union.fields {
                 visitor.visit_type(&field.ty);
             }
         }
         ItemKind::Trait(item_trait) => {
+            walk_generic_params(visitor, &item_trait.generics);
             for supertrait in &item_trait.supertraits {
                 visitor.visit_type(supertrait);
             }
@@ -101,6 +125,7 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             }
         }
         ItemKind::Extend(extend) => {
+            walk_generic_params(visitor, &extend.generics);
             visitor.visit_type(&extend.target);
             if let Some(trait_ref) = &extend.trait_ref {
                 visitor.visit_type(trait_ref);
@@ -145,12 +170,38 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             }
         }
         ItemKind::TypeAlias(alias) => {
+            walk_generic_params(visitor, &alias.generics);
             walk_where_clause(visitor, &alias.where_clause);
             if let Some(ty) = &alias.ty {
                 visitor.visit_type(ty);
             }
         }
         ItemKind::Function(function) => visitor.visit_function(function),
+    }
+}
+
+/// Visits the types carried by const generic parameters in declaration order.
+///
+/// This function performs structural traversal only. Consumers that resolve or
+/// lower generic names still own the lexical scope in which these callbacks
+/// execute.
+pub fn walk_generic_params<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    generics: &'ast [GenericParam],
+) {
+    for generic in generics {
+        visitor.visit_generic_param(generic);
+    }
+}
+
+/// Visits the type of one const generic parameter; type parameters have no
+/// structurally owned child nodes.
+pub fn walk_generic_param<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    generic: &'ast GenericParam,
+) {
+    if let GenericParamKind::Const { ty } = &generic.kind {
+        visitor.visit_type(ty);
     }
 }
 
@@ -181,6 +232,7 @@ pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     function: &'ast FunctionItem,
 ) {
+    walk_generic_params(visitor, &function.generics);
     walk_where_clause(visitor, &function.where_clause);
     for param in &function.params {
         if let Some(ty) = &param.ty {
@@ -280,6 +332,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
     }
     match &stmt.kind {
         StmtKind::Binding(binding) => {
+            visitor.visit_pattern(&binding.pattern);
             if let Some(ty) = &binding.ty {
                 visitor.visit_type(ty);
             }
@@ -304,6 +357,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         StmtKind::Break | StmtKind::Continue => {}
         StmtKind::ForIn(for_stmt) => {
+            visitor.visit_pattern(&for_stmt.pattern);
             visitor.visit_expr(&for_stmt.iter);
             visitor.visit_block(&for_stmt.body);
         }
@@ -448,7 +502,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         }
         ExprKind::IfPattern(if_pattern) => {
             visitor.visit_expr(&if_pattern.target);
-            visit_pattern(visitor, &if_pattern.pattern);
+            visitor.visit_pattern(&if_pattern.pattern);
             visitor.visit_block(&if_pattern.then_branch);
             if let Some(else_branch) = &if_pattern.else_branch {
                 visitor.visit_expr(else_branch);
@@ -458,7 +512,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             visitor.visit_expr(&matched.target);
             for arm in &matched.arms {
                 for pattern in &arm.patterns {
-                    visit_pattern(visitor, pattern);
+                    visitor.visit_pattern(pattern);
                 }
                 match &arm.body {
                     MatchArmBody::Expr(expr) => visitor.visit_expr(expr),
@@ -470,17 +524,24 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
     }
 }
 
-fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'ast Pattern) {
+/// Walks expressions embedded in a pattern and recursively dispatches every
+/// nested pattern through [`Visitor::visit_pattern`].
+///
+/// Constructor paths, expression patterns, and range endpoints participate in
+/// name resolution and dependency/reachability collection just like ordinary
+/// expressions. Keeping them on the visitor surface prevents those passes from
+/// silently losing semantic inputs when a new pattern owner is added.
+pub fn walk_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'ast Pattern) {
     match &pattern.kind {
         PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
         PatternKind::Pointer(pattern)
         | PatternKind::MutPointer(pattern)
         | PatternKind::OptionalSome(pattern)
         | PatternKind::ErrorOk(pattern)
-        | PatternKind::ErrorErr(pattern) => visit_pattern(visitor, pattern),
+        | PatternKind::ErrorErr(pattern) => visitor.visit_pattern(pattern),
         PatternKind::Tuple(patterns) => {
             for pattern in patterns {
-                visit_pattern(visitor, pattern);
+                visitor.visit_pattern(pattern);
             }
         }
         PatternKind::Nominal {
@@ -491,12 +552,12 @@ fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'as
             match fields {
                 nia_ast::NominalPatternFields::Tuple(fields) => {
                     for field in fields {
-                        visit_pattern(visitor, field);
+                        visitor.visit_pattern(field);
                     }
                 }
                 nia_ast::NominalPatternFields::Named { fields, .. } => {
                     for field in fields {
-                        visit_pattern(visitor, &field.pattern);
+                        visitor.visit_pattern(&field.pattern);
                     }
                 }
             }
@@ -508,3 +569,6 @@ fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'as
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

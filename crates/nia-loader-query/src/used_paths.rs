@@ -2,7 +2,9 @@ use nia_ast::{
     Expr, ExprKind, Item, ItemKind, PathSegmentKind, Stmt, StmtKind, TypeKind, TypePathSegment,
     TypeRef, UsingGroupItem, UsingHostSegment, UsingItem, UsingSelector,
 };
-use nia_ast_walk::{Visitor, walk_expr, walk_item, walk_module, walk_stmt, walk_type};
+use nia_ast_walk::{
+    Visitor, walk_expr, walk_generic_params, walk_item, walk_module, walk_stmt, walk_type,
+};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -223,6 +225,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
             walk_item(self, item);
             return;
         };
+        walk_generic_params(self, &extend.generics);
         self.visit_type(&extend.target);
         if let Some(trait_ref) = &extend.trait_ref {
             self.visit_type(trait_ref);
@@ -334,6 +337,7 @@ impl QualifiedPathModuleCollector<'_> {
     }
 
     fn visit_function_signature(&mut self, function: &nia_ast::FunctionItem) {
+        walk_generic_params(self, &function.generics);
         nia_ast_walk::walk_where_clause(self, &function.where_clause);
         for param in &function.params {
             if let Some(ty) = &param.ty {

@@ -2,7 +2,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};
-use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
+use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_where_clause};
 use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
@@ -762,18 +762,21 @@ impl<'a> ValueResolver<'a> {
     fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
         match &item.kind {
             ItemTreeNodeKind::Struct(item_struct) => {
+                walk_generic_params(self, &item_struct.generics);
                 walk_where_clause(self, &item_struct.where_clause);
                 for field in &item_struct.fields {
                     self.visit_type(&field.ty);
                 }
             }
             ItemTreeNodeKind::Union(item_union) => {
+                walk_generic_params(self, &item_union.generics);
                 walk_where_clause(self, &item_union.where_clause);
                 for field in &item_union.fields {
                     self.visit_type(&field.ty);
                 }
             }
             ItemTreeNodeKind::Trait(item_trait) => {
+                walk_generic_params(self, &item_trait.generics);
                 for supertrait in &item_trait.supertraits {
                     self.visit_type(supertrait);
                 }
@@ -783,6 +786,7 @@ impl<'a> ValueResolver<'a> {
                 }
             }
             ItemTreeNodeKind::Extend(extend) => {
+                walk_generic_params(self, &extend.generics);
                 self.visit_type(&extend.target);
                 if let Some(trait_ref) = &extend.trait_ref {
                     self.visit_type(trait_ref);
@@ -837,6 +841,7 @@ impl<'a> ValueResolver<'a> {
             ItemTreeNodeKind::Function(function) => self.visit_function(function),
             ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
             ItemTreeNodeKind::TypeAlias(alias) => {
+                walk_generic_params(self, &alias.generics);
                 walk_where_clause(self, &alias.where_clause);
                 if let Some(ty) = &alias.ty {
                     self.visit_type(ty);

@@ -105,6 +105,52 @@ std::builtin::size[usize]()
     );
 }
 
+#[test]
+fn resolves_value_names_embedded_in_patterns() {
+    let (module, errors) = parse_module(
+        r#"
+const EXPECTED: i32 = 1;
+
+fn isExpected(value: i32) bool {
+    match value {
+        (EXPECTED) => true,
+        _ => false,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_values(&module, &defs);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+
+    let nia_ast::ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let nia_ast::ExprKind::Match(matched) = &function
+        .body
+        .as_ref()
+        .and_then(|body| body.tail.as_deref())
+        .expect("expected match tail")
+        .kind
+    else {
+        panic!("expected match expression");
+    };
+    let nia_ast::PatternKind::Expr(pattern_value) = &matched.arms[0].patterns[0].kind else {
+        panic!("expected expression pattern");
+    };
+    assert!(matches!(
+        resolved.node_names.get(&pattern_value.node_key),
+        Some(ValueNameResolution::Def(_))
+    ));
+}
+
 struct BoolResolver(bool);
 
 impl nia_item_tree::ConditionResolver for BoolResolver {
