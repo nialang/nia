@@ -1141,13 +1141,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<FunctionValue<'ctx>> {
-        let key = (
+        let key = nia_function_ir::FunctionInstanceKey {
             def_id,
             arg_module_id,
             self_arg,
-            args.to_vec(),
-            const_args.to_vec(),
-        );
+            args: args.to_vec(),
+            const_args: const_args.to_vec(),
+        };
         if let Some(cached) = self.function_instance_value_lookups.borrow().get(&key) {
             return *cached;
         }

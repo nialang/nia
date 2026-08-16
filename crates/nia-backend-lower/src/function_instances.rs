@@ -18,14 +18,6 @@ use nia_item_signatures::FunctionAttribute;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ConstGenericArg, TyKind};
 
-pub(crate) type InstanceKey = (
-    GlobalDefId,
-    ModuleId,
-    Option<InternedTyId>,
-    Vec<InternedTyId>,
-    Vec<ConstGenericArg>,
-);
-
 struct PlannedFunctionInstance {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
@@ -75,7 +67,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut instances = Vec::new();
         let mut closure_entries = Vec::new();
         let mut materialized_discovery = BackendItemDiscovery::default();
-        let mut seen = HashSet::<InstanceKey>::new();
+        let mut seen = HashSet::<FunctionInstanceKey>::new();
         let mut queued = HashSet::<FunctionInstanceKey>::new();
         let mut functions_by_def = functions
             .iter()
@@ -85,13 +77,13 @@ impl<'a> ModuleLowerer<'a> {
         for instance in existing {
             let self_arg = self.canonicalize_instance_self_arg(instance.self_arg);
             let args = self.canonicalize_instance_args(&instance.args);
-            seen.insert((
-                instance.def_id,
-                instance.arg_module_id,
+            seen.insert(FunctionInstanceKey {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
                 self_arg,
                 args,
-                instance.const_args.clone(),
-            ));
+                const_args: instance.const_args.clone(),
+            });
         }
         for instance in initial_instances {
             enqueue_function_instance_ref(&mut pending, &mut queued, instance);
@@ -105,13 +97,13 @@ impl<'a> ModuleLowerer<'a> {
             let self_arg = self.canonicalize_instance_ref_self_arg(&instance);
             let args = self.canonicalize_instance_ref_args(&instance);
             let const_args = instance.const_args.clone();
-            let key = (
-                instance.def_id,
-                instance.arg_module_id,
+            let key = FunctionInstanceKey {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
                 self_arg,
-                args.clone(),
-                const_args.clone(),
-            );
+                args: args.clone(),
+                const_args: const_args.clone(),
+            };
             if seen.contains(&key) {
                 continue;
             }
@@ -188,13 +180,13 @@ impl<'a> ModuleLowerer<'a> {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
                 let discovered_self_arg = self.canonicalize_instance_ref_self_arg(discovered);
                 let discovered_const_args = discovered.const_args.clone();
-                if !seen.contains(&(
-                    discovered.def_id,
-                    discovered.arg_module_id,
-                    discovered_self_arg,
-                    discovered_args.clone(),
-                    discovered_const_args.clone(),
-                )) {
+                if !seen.contains(&FunctionInstanceKey {
+                    def_id: discovered.def_id,
+                    arg_module_id: discovered.arg_module_id,
+                    self_arg: discovered_self_arg,
+                    args: discovered_args.clone(),
+                    const_args: discovered_const_args.clone(),
+                }) {
                     enqueue_function_instance_ref(
                         &mut pending,
                         &mut queued,
@@ -400,7 +392,7 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_planned_function_instance(
         &mut self,
         functions_by_def: &mut HashMap<GlobalDefId, BackendFunction>,
-        seen: &mut HashSet<InstanceKey>,
+        seen: &mut HashSet<FunctionInstanceKey>,
         instances: &mut Vec<BackendFunctionInstance>,
         closure_entries: &mut Vec<BackendClosureEntry>,
         plan: PlannedFunctionInstance,
@@ -413,13 +405,13 @@ impl<'a> ModuleLowerer<'a> {
             const_args,
             symbol,
         } = plan;
-        if !seen.insert((
+        if !seen.insert(FunctionInstanceKey {
             def_id,
             arg_module_id,
             self_arg,
-            args.clone(),
-            const_args.clone(),
-        )) {
+            args: args.clone(),
+            const_args: const_args.clone(),
+        }) {
             return false;
         }
         if !functions_by_def.contains_key(&def_id)
