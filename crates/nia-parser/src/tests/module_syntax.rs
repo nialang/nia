@@ -121,6 +121,67 @@ fn main(a: i32) i32 {
 }
 
 #[test]
+fn speculative_expression_parsing_does_not_publish_discarded_origins() {
+    let source = "fn main() i32 { value[index]; 0 }";
+    let version = SourceVersion {
+        id: SourceId(11),
+        revision: SourceRevision(1),
+    };
+    let syntax = nia_syntax::parse_source(source, Some(version));
+    let store = NodeStore::new();
+    let (_, errors, origins) = parse_module_syntax_with_node_store_and_symbols(
+        &syntax,
+        &store,
+        nia_symbol_table::SymbolTable::new(),
+    );
+
+    assert!(errors.is_empty(), "{errors:?}");
+    for name in ["value", "index"] {
+        let start = source.find(name).expect("fixture expression name");
+        assert!(
+            origins
+                .locator(
+                    SyntaxKind::Type,
+                    nia_span::Span::new(start, start + name.len())
+                )
+                .is_none(),
+            "index expression leaked the speculative `{name}` type origin"
+        );
+    }
+}
+
+#[test]
+fn failed_item_recovery_does_not_publish_partial_ast_origins() {
+    let source = "fn broken(value: Input) Output {";
+    let version = SourceVersion {
+        id: SourceId(12),
+        revision: SourceRevision(1),
+    };
+    let syntax = nia_syntax::parse_source(source, Some(version));
+    let store = NodeStore::new();
+    let (module, errors, origins) = parse_module_syntax_with_node_store_and_symbols(
+        &syntax,
+        &store,
+        nia_symbol_table::SymbolTable::new(),
+    );
+
+    assert!(module.items.is_empty());
+    assert!(!errors.is_empty());
+    for name in ["Input", "Output"] {
+        let start = source.find(name).expect("fixture type name");
+        assert!(
+            origins
+                .locator(
+                    SyntaxKind::Type,
+                    nia_span::Span::new(start, start + name.len())
+                )
+                .is_none(),
+            "failed item leaked the partial `{name}` type origin"
+        );
+    }
+}
+
+#[test]
 fn reports_parameter_without_explicit_type() {
     let (_, errors) = parse_module(
         r#"

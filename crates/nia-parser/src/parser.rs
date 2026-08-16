@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! AST parsing over the lossless syntax token stream.
+//!
+//! The syntax layer owns trivia and stable red-tree paths; this layer resolves
+//! grammar ambiguity, interns names, constructs the semantic AST, and records a
+//! [`NodeOriginTable`] for every accepted AST node. Speculative parses must use
+//! [`ParserCheckpoint`] so token position and origin-map mutations roll back as
+//! one transaction.
+
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
     BindingItem, BindingStmt, Block, BracketArg, ClosureCapture, ConditionBinaryOp, ConditionExpr,
@@ -34,22 +42,26 @@ fn synthetic_source_version() -> SourceVersion {
     }
 }
 
+/// Parses an in-memory source string with a fresh symbol and node store.
 pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
     let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
     parse_module_syntax(&syntax)
 }
 
+/// Parses an in-memory source string using the supplied symbol table.
 pub fn parse_module_with_symbols(source: &str, symbols: SymbolTable) -> (Module, Vec<ParseError>) {
     let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
     let (module, errors, _) = parse_module_syntax_with_origins_and_symbols(&syntax, symbols);
     (module, errors)
 }
 
+/// Parses a lossless syntax tree and discards its AST origin table.
 pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
     let (module, errors, _) = parse_module_syntax_with_origins(syntax);
     (module, errors)
 }
 
+/// Parses a syntax tree and returns the accepted AST-to-syntax origins.
 pub fn parse_module_syntax_with_origins(
     syntax: &SyntaxTree,
 ) -> (Module, Vec<ParseError>, NodeOriginTable) {
@@ -57,6 +69,7 @@ pub fn parse_module_syntax_with_origins(
     parse_module_syntax_with_origins_and_symbols(syntax, symbols)
 }
 
+/// Parses a syntax tree with caller-provided symbol identity.
 pub fn parse_module_syntax_with_origins_and_symbols(
     syntax: &SyntaxTree,
     symbols: SymbolTable,
@@ -64,6 +77,7 @@ pub fn parse_module_syntax_with_origins_and_symbols(
     parse_module_syntax_with_node_store_and_symbols(syntax, &NodeStore::new(), symbols)
 }
 
+/// Parses into a shared node identity store used by incremental compiler sessions.
 pub fn parse_module_syntax_with_node_store_and_symbols(
     syntax: &SyntaxTree,
     node_store: &NodeStore,
@@ -73,18 +87,31 @@ pub fn parse_module_syntax_with_node_store_and_symbols(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A lexical or grammatical error associated with its lossless syntax origin.
 pub struct ParseError {
     pub span: Span,
     pub message: String,
     pub node_key: Option<VersionedNodeKey>,
 }
 
+/// Stateful parser for one lossless source tree.
 pub struct Parser {
     source: String,
     tokens: SyntaxTokenCursor,
     symbols: SymbolTable,
     errors: Vec<ParseError>,
     origins: NodeOriginTableBuilder,
+}
+
+/// A parser checkpoint covers both token position and origin-map mutations.
+///
+/// Ambiguous syntax is parsed speculatively in several places (for example,
+/// `value[index]` can be an index or a generic suffix). Rewinding only tokens
+/// leaves the discarded branch's node origins visible to incremental clients.
+#[derive(Clone, Copy)]
+struct ParserCheckpoint {
+    token: usize,
+    origin: usize,
 }
 
 struct FunctionParts {
@@ -109,6 +136,7 @@ struct BindingParts {
 }
 
 impl Parser {
+    /// Creates a standalone parser with fresh symbol and node stores.
     pub fn new(source: &str) -> Self {
         let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
         Self::from_syntax(&syntax, SymbolTable::new(), &NodeStore::new())
@@ -137,13 +165,15 @@ impl Parser {
         }
     }
 
+    /// Parses all top-level items and returns diagnostics plus accepted origins.
     pub fn parse_module(mut self) -> (Module, Vec<ParseError>, NodeOriginTable) {
         let mut items = Vec::new();
         while !self.at(TokenKind::Eof) {
+            let checkpoint = self.checkpoint();
             if let Some(item) = self.parse_item() {
                 items.push(item);
             } else {
-                let checkpoint = self.checkpoint();
+                self.origins.rollback(checkpoint.origin);
                 self.recover_to_item_boundary();
                 self.ensure_recovery_progress(checkpoint);
             }
@@ -452,22 +482,30 @@ impl Parser {
         self.tokens.bump()
     }
 
-    fn checkpoint(&self) -> usize {
-        self.tokens.checkpoint()
+    fn checkpoint(&self) -> ParserCheckpoint {
+        ParserCheckpoint {
+            token: self.tokens.checkpoint(),
+            origin: self.origins.checkpoint(),
+        }
     }
 
-    fn ensure_recovery_progress(&mut self, checkpoint: usize) {
-        if self.checkpoint() == checkpoint && !self.at(TokenKind::Eof) {
+    fn rewind(&mut self, checkpoint: ParserCheckpoint) {
+        self.tokens.rewind(checkpoint.token);
+        self.origins.rollback(checkpoint.origin);
+    }
+
+    fn ensure_recovery_progress(&mut self, checkpoint: ParserCheckpoint) {
+        if self.checkpoint().token == checkpoint.token && !self.at(TokenKind::Eof) {
             self.bump();
         }
     }
 
-    pub(super) fn recover_to_stmt_boundary_with_progress(&mut self, checkpoint: usize) {
+    fn recover_to_stmt_boundary_with_progress(&mut self, checkpoint: ParserCheckpoint) {
         self.recover_to_stmt_boundary();
         self.ensure_recovery_progress(checkpoint);
     }
 
-    pub(super) fn recover_to_member_boundary_with_progress(&mut self, checkpoint: usize) {
+    fn recover_to_member_boundary_with_progress(&mut self, checkpoint: ParserCheckpoint) {
         self.recover_to_member_boundary();
         self.ensure_recovery_progress(checkpoint);
     }
