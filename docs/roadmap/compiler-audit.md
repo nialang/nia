@@ -290,6 +290,8 @@ commit as the corresponding implementation batch.
       boundary, and trait/projection cycle guards reviewed.
 - [x] Canonicalized const-to-array-length substitution and rejected negative
       signed lengths at the type boundary.
+- [x] Preserved const arguments and associated-type bindings during body-check
+      trait-obligation deduplication; supertrait audit remains open.
 - [x] Phase B LLVM target-layout and object-buffer null/empty boundaries
       hardened; broader backend audit remains open.
 - [ ] Phase A: type, trait, and body soundness.
