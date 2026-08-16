@@ -366,6 +366,10 @@ commit as the corresponding implementation batch.
       transactional union rollback, preventing self-referential structural
       terms and late tuple/callable conflicts from poisoning later constraints;
       the self-reference diagnostic path has a no-recursion regression test.
+- [x] Phase A associated-type projection cycle guards release their active key
+      on missing source items as well as successful/recursive paths; the trait
+      solver regression suite now checks this cleanup before resolving a valid
+      sibling projection.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
