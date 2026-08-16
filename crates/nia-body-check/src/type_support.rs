@@ -1532,14 +1532,21 @@ impl<'a> BodyChecker<'a> {
 
     fn nominal_layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
         let kind = self.interner.get(ty)?;
-        let TyKind::Nominal { def_id, args, .. } = kind else {
+        let TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } = kind
+        else {
             return None;
         };
         if def_id.module_id == self.defs.module_id {
-            return self.layouts.nominal_type_layout(*def_id, args);
+            return self
+                .layouts
+                .nominal_type_layout_with_const_args(*def_id, args, const_args);
         }
         let layouts = (self.program.layouts?)(def_id.module_id)?;
-        layouts.nominal_type_layout(*def_id, args)
+        layouts.nominal_type_layout_with_const_args(*def_id, args, const_args)
     }
 
     pub(crate) fn array_len_value(&self, span: Span, len: &ArrayLenTy) -> Result<u64, String> {

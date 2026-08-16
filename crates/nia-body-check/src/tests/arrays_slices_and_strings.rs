@@ -103,6 +103,34 @@ fn main() usize {
 }
 
 #[test]
+fn records_layout_builtins_for_const_generic_nominal_instances() {
+    let checked = pipeline(
+        r#"
+struct Packet[N: usize] {
+    marker: u8,
+    values: [u32; N],
+}
+
+fn main() usize
+where Packet[3]: Sized {
+    std::builtin::size[Packet[3]]()
+        + std::builtin::align[Packet[3]]()
+        + std::builtin::offset[Packet[3]]("marker")
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let values = checked
+        .facts
+        .iter_node_builtin_values()
+        .map(|(_, value)| value.clone())
+        .collect::<Vec<_>>();
+    assert!(values.contains(&BuiltinValue::Usize(16)), "{values:?}");
+    assert!(values.contains(&BuiltinValue::Usize(4)), "{values:?}");
+    assert!(values.contains(&BuiltinValue::Usize(12)), "{values:?}");
+}
+
+#[test]
 fn rejects_invalid_field_offset_builtins() {
     let checked = pipeline(
         r#"

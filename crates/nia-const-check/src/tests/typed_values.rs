@@ -179,6 +179,38 @@ const OFF: usize = std::builtin::offset[Pair]("b");
 }
 
 #[test]
+fn evaluates_const_generic_field_offset_after_instantiation() {
+    let fixture = check_source(
+        r#"
+struct Packet[N: usize] {
+    marker: u8,
+    values: [u32; N],
+}
+
+const fn marker_offset[N: usize]() usize {
+    std::builtin::offset[Packet[N]]("marker")
+}
+
+const OFF: usize = marker_offset[3]();
+"#,
+    );
+    assert!(
+        fixture.const_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.const_module.diagnostics
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "OFF"),
+        ConstValue::Int(IntConst::unsigned(12))
+    );
+}
+
+#[test]
 fn records_enum_backing_types_for_const_variant_values() {
     let fixture = check_source(
         r#"

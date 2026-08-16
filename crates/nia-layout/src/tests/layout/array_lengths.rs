@@ -112,6 +112,82 @@ fn main(buf: Buffer[u8, 4]) {}
 }
 
 #[test]
+fn public_nominal_queries_keep_const_arguments_in_the_cache_key() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, symbols) = parse_test_module(
+        r#"
+struct Packet[N: usize] {
+    marker: u8,
+    values: [u32; N],
+}
+
+fn main(packet: Packet[3]) {}
+"#,
+    );
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
+    let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
+    let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
+    let const_eval = compute_test_const(
+        module_id,
+        &type_store,
+        &module,
+        &symbols,
+        &defs,
+        &signatures,
+        &lowered,
+    );
+    let roots = signatures.type_roots();
+    let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+        type_store: &type_store,
+        defs: &defs,
+        signatures: &signatures,
+        root_types: &roots,
+        normalized: &HashMap::new(),
+        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        target: TargetDataLayout::LP64,
+        program: ProgramLayoutContext::default(),
+    });
+    let packet_id = defs
+        .module_scope
+        .types
+        .get(&sym("Packet"))
+        .expect("Packet def");
+    let key = layouts
+        .struct_instances
+        .keys()
+        .find(|key| key.def_id == packet_id)
+        .expect("Packet instance key");
+    let marker = signatures
+        .structs
+        .get(&packet_id)
+        .expect("Packet signature")
+        .fields[0]
+        .def_id;
+    let global_id = GlobalDefId {
+        module_id,
+        def_id: packet_id,
+    };
+    assert_eq!(
+        layouts.nominal_type_layout_with_const_args(global_id, &key.args, &key.const_args),
+        Some(TypeLayout { size: 16, align: 4 })
+    );
+    assert_eq!(
+        layouts.field_offset_with_const_args(
+            global_id,
+            &key.args,
+            &key.const_args,
+            GlobalDefId {
+                module_id,
+                def_id: marker,
+            },
+        ),
+        Some(12)
+    );
+}
+
+#[test]
 fn binds_mixed_type_and_const_aggregate_parameters_in_declaration_order() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

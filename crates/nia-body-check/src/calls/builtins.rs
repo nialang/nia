@@ -597,14 +597,19 @@ impl<'a> BodyChecker<'a> {
         field: GlobalDefId,
     ) -> Option<u64> {
         let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Nominal { args, .. }) = self.interner.get(ty) else {
+        let Some(TyKind::Nominal {
+            args, const_args, ..
+        }) = self.interner.get(ty)
+        else {
             return None;
         };
         if nominal.module_id == self.defs.module_id {
-            return self.layouts.field_offset(nominal, args, field);
+            return self
+                .layouts
+                .field_offset_with_const_args(nominal, args, const_args, field);
         }
         let layouts = (self.program.layouts?)(nominal.module_id)?;
-        layouts.field_offset(nominal, args, field)
+        layouts.field_offset_with_const_args(nominal, args, const_args, field)
     }
 
     fn check_splat_builtin_call(

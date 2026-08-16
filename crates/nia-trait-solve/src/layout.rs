@@ -19,9 +19,13 @@ impl TraitSolver<'_> {
             return true;
         }
         match self.kind(ty) {
-            Some(TyKind::Nominal { def_id, args, .. }) => {
-                layouts.nominal_type_layout(*def_id, args).is_some()
-            }
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => layouts
+                .nominal_type_layout_with_const_args(*def_id, args, const_args)
+                .is_some(),
             _ => false,
         }
     }

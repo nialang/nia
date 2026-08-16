@@ -19,7 +19,7 @@ pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_symbol_table::SymbolTable;
 pub(super) use nia_ty::{TraitId, TyKind, TypeStore};
 pub(super) use nia_type_lower::{
-    TypeLoweringContext, lower_module_types_from_item_tree_with_context,
+    ProgramDefsContext, TypeLoweringContext, lower_module_types_from_item_tree_with_context,
 };
 pub(super) use nia_type_resolve::resolve_module_types_with_symbols;
 pub(super) use std::collections::HashMap;
@@ -252,11 +252,18 @@ fn pipeline_with_options(
     );
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
+    let program_defs = HashMap::from([(module_id, std::sync::Arc::new(defs.clone()))]);
+    let defs_by_module = |module_id| program_defs.get(&module_id).cloned();
     let lowered = lower_module_types_from_item_tree_with_context(
         module_id,
         &item_tree,
         &type_resolved,
-        TypeLoweringContext::empty(&type_store),
+        TypeLoweringContext::from_program_defs(
+            &type_store,
+            ProgramDefsContext {
+                defs: Some(&defs_by_module),
+            },
+        ),
     );
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
