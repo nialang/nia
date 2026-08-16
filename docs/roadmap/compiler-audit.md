@@ -332,6 +332,9 @@ commit as the corresponding implementation batch.
 - [x] Diagnostic reports now deduplicate by the complete structured diagnostic
       in linear expected time, preserving distinct secondary labels, notes,
       help, related locations, and internal debug evidence.
+- [x] Phase E lexer error recovery consumes unsupported Unicode by scalar, so
+      every byte span remains a UTF-8 boundary and lossless syntax trees retain
+      the exact source even though language identifiers remain ASCII.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
