@@ -137,3 +137,20 @@ fn main(base: i32) i32 {
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn rejects_self_referential_inference_without_recursing() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    let recursive = &recursive;
+    _ = recursive + recursive;
+}
+"#,
+    );
+
+    assert!(
+        !checked.diagnostics.is_empty(),
+        "a self-referential inferred type must be rejected"
+    );
+}

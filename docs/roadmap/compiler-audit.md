@@ -362,6 +362,10 @@ commit as the corresponding implementation batch.
       domains using an inductive type-path guard; cycle-only constructors remain
       uninhabited while finite-base recursive domains remain accepted, with
       independent-column regression coverage.
+- [x] Phase A local HM inference now performs a symmetric occurs-check and
+      transactional union rollback, preventing self-referential structural
+      terms and late tuple/callable conflicts from poisoning later constraints;
+      the self-reference diagnostic path has a no-recursion regression test.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
