@@ -205,10 +205,16 @@ impl TraitSolver<'_> {
         let resolved = match resolution {
             TraitResolution::User(user_impl) => {
                 let impl_signature = &self.trait_impls[user_impl.impl_index];
-                let associated_type = impl_signature
+                let Some(associated_type) = impl_signature
                     .associated_types
                     .iter()
-                    .find(|associated_type| &associated_type.name == name)?;
+                    .find(|associated_type| &associated_type.name == name)
+                else {
+                    // Keep the projection guard balanced even when a source
+                    // impl matches the trait but omits the requested item.
+                    active.remove(&key);
+                    return None;
+                };
                 Some(self.substitute_ty_with_consts(
                     associated_type.ty,
                     &user_impl.substitutions,

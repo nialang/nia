@@ -325,6 +325,24 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
     };
     let mut solver = context.solver(&[]);
 
+    let missing_item = SymbolId::from_stable_hash(12);
+    let mut active = HashSet::new();
+    assert_eq!(
+        solver.resolve_associated_type_inner(
+            actual_ty,
+            trait_id,
+            &[],
+            &[],
+            &missing_item,
+            &mut active,
+        ),
+        None
+    );
+    assert!(
+        active.is_empty(),
+        "missing associated items must release the projection cycle guard"
+    );
+
     let resolved = solver
         .resolve_associated_type(actual_ty, trait_id, &[], &[], &item)
         .expect("associated type should resolve");
