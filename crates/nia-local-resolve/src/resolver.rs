@@ -260,6 +260,10 @@ impl<'a> LocalResolver<'a> {
         binding: &BindingStmt,
         fallback_key: VersionedNodeKey,
     ) {
+        // Resolve the initializer before publishing the pattern's locals. This
+        // is an intentional non-recursive binding rule: inference may collect
+        // every local id up front, but an initializer must not resolve its own
+        // name (or manufacture a recursive closure type) through that table.
         if let Some(ty) = &binding.ty {
             self.resolve_type(ty);
         }
