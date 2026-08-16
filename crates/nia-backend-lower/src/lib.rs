@@ -5,6 +5,7 @@
 //! finalization. Cross-module references are routed back to a unique owner;
 //! finalization may run per module, but collection restores source-module order.
 
+mod closure_entries;
 mod function_instances;
 mod indexes;
 mod input;
@@ -35,12 +36,11 @@ use std::sync::Arc;
 
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
-    BackendClosureEntry, BackendClosureEntryAbi, BackendClosureEntryKey, BackendClosureEntryOwner,
-    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
-    BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendModuleReadiness,
-    BackendModuleStore, BackendProgram, BackendStruct, BackendStructInstanceKey,
-    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
-    BackendUnion,
+    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
+    BackendGlobal, BackendGlobalInstance, BackendGlobalInstanceKey, BackendLayouts, BackendModule,
+    BackendModuleReadiness, BackendModuleStore, BackendProgram, BackendStruct,
+    BackendStructInstanceKey, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
+    BackendTraitObjectVtableKey, BackendUnion,
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -57,10 +57,7 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
-use nia_mangle::{
-    MangleModuleId, MangleResolvers, mangle_closure_entry_symbol, mangle_instance_symbol_id,
-    mangle_symbol_id,
-};
+use nia_mangle::{MangleModuleId, MangleResolvers, mangle_instance_symbol_id, mangle_symbol_id};
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;

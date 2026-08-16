@@ -413,6 +413,11 @@ commit as the corresponding implementation batch.
 - [x] Phase B generic function materialization now enforces its 4096-instance
       limit across the complete module fixed point, including instances from
       earlier discovery rounds, with saturating boundary coverage.
+- [x] Phase B backend validation now rejects duplicate or invalid ABI parameter
+      mappings for functions and closure entries before LLVM, while respecting
+      the flat local table's nested-closure parameters; source and generic
+      closure ABI materialization now share one owner helper and consumer
+      coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
