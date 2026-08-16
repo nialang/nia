@@ -343,6 +343,10 @@ commit as the corresponding implementation batch.
       makes embedded pattern expressions available to semantic/reachability
       visitors while preserving const generic types in loader dependency
       discovery and versioned type-use products.
+- [x] Phase C static lowering now treats newly emitted diagnostics as a failed
+      product transaction: recovery `StaticInit::Zero` values are discarded
+      from Full, FactsOnly, and StaticInitOnly Body IR paths, with a reachable
+      rejected-initializer regression test and an explicit IR invariant.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

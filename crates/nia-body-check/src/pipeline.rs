@@ -123,8 +123,9 @@ impl<'a> BodyChecker<'a> {
         if global_ty == self.error() {
             return;
         }
-        let init = self.lower_global_static_init(value, global_ty);
-        self.global_inits.insert(global_def_id, Arc::new(init));
+        if let Some(init) = self.lower_global_static_init_checked(value, global_ty) {
+            self.global_inits.insert(global_def_id, Arc::new(init));
+        }
     }
 
     pub(super) fn lower_checked_function_by_id<'ast>(
@@ -585,12 +586,14 @@ impl<'a> BodyChecker<'a> {
             let global_def_id = self.global_def_id(def_id);
             match self.product {
                 BodyCheckProduct::FactsOnly => {
-                    let init = self.lower_global_static_init(value, global_ty);
-                    self.static_init_refs.insert(global_def_id, init.refs());
+                    if let Some(init) = self.lower_global_static_init_checked(value, global_ty) {
+                        self.static_init_refs.insert(global_def_id, init.refs());
+                    }
                 }
                 BodyCheckProduct::Full => {
-                    let init = self.lower_global_static_init(value, global_ty);
-                    self.global_inits.insert(global_def_id, Arc::new(init));
+                    if let Some(init) = self.lower_global_static_init_checked(value, global_ty) {
+                        self.global_inits.insert(global_def_id, Arc::new(init));
+                    }
                 }
                 BodyCheckProduct::BodyOnly | BodyCheckProduct::StaticInitOnly => {}
             }

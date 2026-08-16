@@ -15,6 +15,24 @@ use nia_ty::{IntConst, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
+    /// Lower a static initializer only when this lowering pass accepts it.
+    ///
+    /// The low-level lowering routines deliberately return `StaticInit::Zero`
+    /// after recording a diagnostic so that aggregate traversal can recover
+    /// and continue reporting independent errors. That recovery value is not
+    /// a valid product, however: publishing it would leak a fake initializer
+    /// into reachability or executable Body IR. Treat diagnostics emitted by
+    /// this call as a transaction boundary and discard the value on failure.
+    pub(crate) fn lower_global_static_init_checked(
+        &mut self,
+        expr: &Expr,
+        ty: InternedTyId,
+    ) -> Option<StaticInit> {
+        let diagnostics_before = self.diagnostics.len();
+        let init = self.lower_global_static_init(expr, ty);
+        (self.diagnostics.len() == diagnostics_before).then_some(init)
+    }
+
     pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
         match &expr.kind {
             ExprKind::String(literal) if self.static_init_target_is_array(ty) => {
