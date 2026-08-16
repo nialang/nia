@@ -298,7 +298,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     return Err(self.error(expr.span, "missing callee function metadata"));
                 };
                 let llvm_args = if function_item.is_extern {
-                    self.emit_c_call_args(args)?
+                    self.emit_c_call_args(
+                        expr.span,
+                        args,
+                        function_item.params.len(),
+                        function_item.is_variadic,
+                    )?
                 } else {
                     let param_tys = function_item.params.iter().map(|param| param.passing_ty);
                     self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
@@ -324,7 +329,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     return Err(self.error(expr.span, "missing callee function instance"));
                 };
                 let llvm_args = if instance.is_extern {
-                    self.emit_c_call_args(args)?
+                    self.emit_c_call_args(
+                        expr.span,
+                        args,
+                        instance.params.len(),
+                        instance.is_variadic,
+                    )?
                 } else {
                     let param_tys = instance.params.iter().map(|param| param.passing_ty);
                     self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
@@ -356,12 +366,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 receiver_kind,
                 receiver,
             } => {
-                let (function, is_extern, param_tys) =
+                let (function, is_extern, is_variadic, param_tys) =
                     if self_arg.is_none() && type_args.is_empty() && const_args.is_empty() {
                         let item = self.module.function_item(*def_id);
                         (
                             self.module.function(*def_id),
                             item.is_some_and(|item| item.is_extern),
+                            item.is_some_and(|item| item.is_variadic),
                             item.map(|item| {
                                 item.params
                                     .iter()
@@ -387,6 +398,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                                     &instance.const_args,
                                 )
                             }),
+                            instance.is_some_and(|instance| instance.is_variadic),
                             instance.is_some_and(|instance| instance.is_extern),
                             instance.map(|instance| {
                                 instance
@@ -413,7 +425,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let mut call_args = Vec::with_capacity(args.len() + 1);
                     call_args.push(receiver.as_ref());
                     call_args.extend(args.iter());
-                    self.emit_c_call_args_refs(&call_args)?
+                    self.emit_c_call_args_refs(expr.span, &call_args, param_tys.len(), is_variadic)?
                 } else {
                     let mut llvm_args = Vec::new();
                     if let Some(out_ptr) = out_ptr {
@@ -813,15 +825,51 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_c_call_args(
         &mut self,
+        span: Span,
         args: &[FunctionExpr],
+        fixed_arg_count: usize,
+        is_variadic: bool,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
+        if !call_arity_is_valid(args.len(), fixed_arg_count, is_variadic) {
+            return Err(self.error(
+                span,
+                format!(
+                    "C call has {} arguments but its ABI requires {}{}",
+                    args.len(),
+                    fixed_arg_count,
+                    if is_variadic {
+                        " fixed arguments"
+                    } else {
+                        " arguments"
+                    }
+                ),
+            ));
+        }
         args.iter().map(|arg| self.emit_expr(arg)).collect()
     }
 
     fn emit_c_call_args_refs(
         &mut self,
+        span: Span,
         args: &[&FunctionExpr],
+        fixed_arg_count: usize,
+        is_variadic: bool,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
+        if !call_arity_is_valid(args.len(), fixed_arg_count, is_variadic) {
+            return Err(self.error(
+                span,
+                format!(
+                    "C call has {} arguments but its ABI requires {}{}",
+                    args.len(),
+                    fixed_arg_count,
+                    if is_variadic {
+                        " fixed arguments"
+                    } else {
+                        " arguments"
+                    }
+                ),
+            ));
+        }
         args.iter().map(|arg| self.emit_expr(arg)).collect()
     }
 
