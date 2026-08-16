@@ -9,7 +9,7 @@ use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 
-use super::{BackendValidator, primitive_layout};
+use super::BackendValidator;
 
 impl BackendValidator<'_> {
     /// Validates a type that must have a concrete runtime representation.
@@ -354,7 +354,9 @@ impl BackendValidator<'_> {
                 }
                 sequential_layout(&layouts)
             }
-            TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
+            TyKind::Primitive(primitive) => {
+                Some(nia_layout::primitive_layout(*primitive, self.target))
+            }
             TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
             TyKind::Pointer { .. }
             | TyKind::VolatilePointer { .. }

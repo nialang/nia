@@ -23,7 +23,7 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_mangle::mangle_symbol_id;
 use nia_symbol::SymbolId;
-use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
+use nia_ty::{ConstGenericArg, TyKind};
 
 #[derive(Clone, Copy)]
 struct FunctionInstanceRef<'a> {
@@ -571,20 +571,4 @@ impl BackendValidator<'_> {
             }
         }
     }
-}
-
-pub(super) fn primitive_layout(primitive: PrimitiveTy) -> TypeLayout {
-    let (size, align) = match primitive {
-        PrimitiveTy::I8 | PrimitiveTy::U8 | PrimitiveTy::Bool => (1, 1),
-        PrimitiveTy::I16 | PrimitiveTy::U16 => (2, 2),
-        PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::F32 | PrimitiveTy::Char => (4, 4),
-        PrimitiveTy::I64
-        | PrimitiveTy::U64
-        | PrimitiveTy::F64
-        | PrimitiveTy::Isize
-        | PrimitiveTy::Usize => (8, 8),
-        PrimitiveTy::I128 | PrimitiveTy::U128 => (16, 16),
-        PrimitiveTy::Never => (0, 1),
-    };
-    TypeLayout { size, align }
 }
