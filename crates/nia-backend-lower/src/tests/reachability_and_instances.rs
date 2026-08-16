@@ -277,6 +277,69 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_preserves_function_refs_inside_generic_local_static_instances() {
+    let source = r#"
+fn kept() i32 {
+    1
+}
+
+fn slot[T](value: T) T {
+    static item: T;
+    _ = value;
+    item
+}
+
+fn main() i32 {
+    _ = slot[usize](0usize);
+    0
+}
+"#;
+    let policy = nia_opt::OptimizationPolicy {
+        level: nia_opt::NiaOptimizationLevel::O2,
+        simplify_cfg: nia_opt::OptimizationDepth::Disabled,
+        const_fold: nia_opt::OptimizationDepth::Disabled,
+        dead_code_elim: nia_opt::OptimizationDepth::Full,
+        local_copy_prop: nia_opt::OptimizationDepth::Disabled,
+        inline_threshold: nia_opt::InlineThreshold::Never,
+        specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+        dedup_monomorphized_instances: true,
+        prefer_size: false,
+    };
+    let lowering = lower_source_with_body_check_mutation_and_optimization(
+        source,
+        |_| {},
+        |_, _, _, _, _| {},
+        |_, _| {},
+        |body_check, _, defs, _, _| {
+            let item = global_def_id_by_name(defs, "item");
+            let kept = global_def_id_by_name(defs, "kept");
+            Arc::make_mut(&mut body_check.ir).global_inits.insert(
+                item,
+                Arc::new(StaticInit::AddrOfFunction {
+                    function: kept,
+                    args: Vec::new(),
+                }),
+            );
+        },
+        policy,
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .global_instances
+            .iter()
+            .any(|global| global.name == sym("item"))
+    );
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == sym("kept"))
+    );
+}
+
+#[test]
 fn o2_preserves_transitively_used_private_functions() {
     let source = r#"
 fn leaf(value: i32) i32 {

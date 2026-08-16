@@ -104,6 +104,75 @@ fn removes_blocks_unreachable_from_entry() {
 }
 
 #[test]
+fn preserves_outer_blocks_referenced_only_by_defer_control_flow() {
+    let span = Span::default();
+    let mut body = test_body(vec![
+        FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Next {
+                target: FunctionBlockId(1),
+                span,
+            },
+        },
+        FunctionBlock {
+            id: FunctionBlockId(1),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Defer(FunctionDeferBody {
+                span,
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(1),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![FunctionBlock {
+                    id: FunctionBlockId(10),
+                    scope: FunctionScopeId(1),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Branch {
+                        target: FunctionBlockId(3),
+                        span,
+                    },
+                }],
+                entry: FunctionBlockId(10),
+            })],
+            terminator: FunctionTerminator::Next {
+                target: FunctionBlockId(2),
+                span,
+            },
+        },
+        FunctionBlock {
+            id: FunctionBlockId(2),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Return { value: None, span },
+        },
+        FunctionBlock {
+            id: FunctionBlockId(3),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Return { value: None, span },
+        },
+    ]);
+
+    validate_function_body(&body).expect("defer outer target should be valid before cleanup");
+    remove_unreachable_blocks(&mut body);
+
+    assert!(
+        body.blocks
+            .iter()
+            .any(|block| block.id == FunctionBlockId(3))
+    );
+    validate_function_body(&body).expect("defer outer target must remain valid after cleanup");
+}
+
+#[test]
 fn preserves_blocks_referenced_by_reachable_loop_terminators() {
     let span = Span::default();
     let mut body = test_body(vec![

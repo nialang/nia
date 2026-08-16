@@ -5,6 +5,7 @@ enum LocalUseKind {
     Place,
     Read,
     Referenced,
+    Addressed,
 }
 
 struct LocalUseCollector<'a> {
@@ -139,7 +140,13 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::Field { lhs: expr, .. }
             | FunctionExprKind::TupleField { value: expr, .. } => self.collect_expr(expr),
             FunctionExprKind::CallableCoercion { state, .. } => self.collect_expr(state),
-            FunctionExprKind::AddrOf(place) => self.collect_place(place),
+            FunctionExprKind::AddrOf(place) => {
+                if matches!(self.kind, LocalUseKind::Addressed) {
+                    self.collect_addressed_place(place);
+                } else {
+                    self.collect_place(place);
+                }
+            }
             FunctionExprKind::Binary { lhs, rhs, .. }
             | FunctionExprKind::Index { lhs, index: rhs } => {
                 self.collect_expr(lhs);
@@ -286,6 +293,20 @@ impl<'a> LocalUseCollector<'a> {
         }
     }
 
+    fn collect_addressed_place(&mut self, place: &FunctionPlace) {
+        if let FunctionPlaceBase::Local(local_id) = &place.base {
+            self.locals.insert(*local_id);
+        }
+        if let FunctionPlaceBase::Deref(expr) = &place.base {
+            self.collect_expr(expr);
+        }
+        for elem in &place.elems {
+            if let FunctionPlaceElem::Index(index) = elem {
+                self.collect_expr(index);
+            }
+        }
+    }
+
     fn collect_slice_range(&mut self, range: &FunctionSliceRange) {
         if let Some(start) = &range.start {
             self.collect_expr(start);
@@ -331,6 +352,16 @@ pub(crate) fn collect_referenced_locals(body: &FunctionBody) -> HashSet<LocalId>
     let mut refs = HashSet::new();
     LocalUseCollector::new(LocalUseKind::Referenced, &mut refs).collect_body(body);
     refs
+}
+
+/// Returns locals whose storage address is observable outside direct local
+/// reads and writes. Overwrite elimination must leave every store to these
+/// locals intact because a later expression may access the storage through an
+/// alias whose originating `LocalId` is no longer present in the expression.
+pub(crate) fn collect_addressed_locals(body: &FunctionBody) -> HashSet<LocalId> {
+    let mut locals = HashSet::new();
+    LocalUseCollector::new(LocalUseKind::Addressed, &mut locals).collect_body(body);
+    locals
 }
 
 pub(crate) fn is_noop_local_store(op: &FunctionOp) -> bool {

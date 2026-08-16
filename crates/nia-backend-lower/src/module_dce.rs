@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::{BackendOptimizationChange, ModuleLowerer, backend_function_instance_key};
 use nia_backend_ir::{
     BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
-    BackendGlobal, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
+    BackendGlobal, BackendGlobalInstance, BackendTraitObjectVtable,
+    BackendTraitObjectVtableFunction,
 };
 use nia_defs::DefKind;
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, FunctionInstanceRef};
@@ -22,6 +23,7 @@ impl<'a> ModuleLowerer<'a> {
         function_instances: &mut Vec<BackendFunctionInstance>,
         closure_entries: &mut Vec<BackendClosureEntry>,
         globals: &[BackendGlobal],
+        global_instances: &[BackendGlobalInstance],
         trait_object_vtables: &[BackendTraitObjectVtable],
     ) {
         if !self
@@ -78,6 +80,15 @@ impl<'a> ModuleLowerer<'a> {
         for global in globals {
             if let Some(init) = &global.init {
                 refs.extend(init.value_refs(self.input.module_id));
+            }
+        }
+        // Generic function-local statics are materialized separately from
+        // ordinary globals. Their relocations are equally strong executable
+        // roots: dropping a referenced private function would leave the
+        // initializer with an unresolved symbol at codegen/link time.
+        for global in global_instances {
+            if let Some(init) = &global.init {
+                refs.extend(init.value_refs(global.arg_module_id));
             }
         }
         for vtable in trait_object_vtables {

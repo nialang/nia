@@ -396,6 +396,11 @@ commit as the corresponding implementation batch.
       use checked `usize` to `u32` conversions for tuple/field indices and
       extracted outputs, returning diagnostics instead of truncating malformed
       backend metadata.
+- [x] Phase B function optimization now treats nested defer exits as structural
+      edges of their enclosing CFG, protects address-observable local stores
+      from alias-unsound overwrite elimination, and retains function
+      relocations rooted by generic local-static instances; owner regressions
+      and an optimized defer LLVM consumer test cover these boundaries.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

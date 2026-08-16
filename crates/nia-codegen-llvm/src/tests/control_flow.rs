@@ -669,7 +669,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    let codegen = codegen_program_with_options(
+        main.to_string_lossy().into_owned(),
+        NiaOptimizationLevel::O1,
+    );
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);

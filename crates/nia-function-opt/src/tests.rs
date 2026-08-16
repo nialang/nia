@@ -1,9 +1,10 @@
 use super::passes::*;
 use super::*;
 use nia_function_ir::{
-    FunctionArrayElements, FunctionBlock, FunctionBlockId, FunctionCallee, FunctionExpr,
-    FunctionExprKind, FunctionLocalKind, FunctionOp, FunctionScope, FunctionScopeId,
-    FunctionTerminator, FunctionTryKind, LocalName, validate_function_body,
+    FunctionArrayElements, FunctionBlock, FunctionBlockId, FunctionCallee, FunctionDeferBody,
+    FunctionExpr, FunctionExprKind, FunctionLocalKind, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
+    LocalName, validate_function_body,
 };
 use nia_ids::{LocalId, ModuleId, ModuleIdAllocator};
 use nia_opt::NiaOptimizationLevel;

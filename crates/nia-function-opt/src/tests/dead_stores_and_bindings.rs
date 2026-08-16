@@ -342,7 +342,7 @@ fn removes_local_store_overwritten_before_read() {
         span,
     }];
 
-    assert!(remove_overwritten_local_stores(&mut body.blocks));
+    assert!(remove_overwritten_local_stores(&mut body));
 
     assert!(matches!(
         body.blocks[0].ops.as_slice(),
@@ -409,7 +409,7 @@ fn preserves_effects_from_overwritten_local_store_value() {
         span,
     }];
 
-    assert!(remove_overwritten_local_stores(&mut body.blocks));
+    assert!(remove_overwritten_local_stores(&mut body));
 
     assert!(matches!(
         body.blocks[0].ops.as_slice(),
@@ -478,7 +478,7 @@ fn preserves_local_store_read_before_overwrite() {
         span,
     }];
 
-    assert!(!remove_overwritten_local_stores(&mut body.blocks));
+    assert!(!remove_overwritten_local_stores(&mut body));
 
     assert_eq!(
         body.blocks[0]
@@ -489,4 +489,101 @@ fn preserves_local_store_read_before_overwrite() {
         2
     );
     validate_function_body(&body).expect("read-before-overwrite body should remain valid");
+}
+
+#[test]
+fn preserves_overwritten_stores_when_local_address_escapes() {
+    let span = Span::default();
+    let ty = test_ty();
+    let pointer_ty = test_other_ty();
+    let mut body = test_body(vec![FunctionBlock {
+        id: FunctionBlockId(0),
+        scope: FunctionScopeId(0),
+        span,
+        ops: vec![
+            FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                local_id: LocalId(1),
+                name: local_name("pointer"),
+                ty: pointer_ty,
+                value: Some(FunctionExpr {
+                    span,
+                    ty: pointer_ty,
+                    kind: FunctionExprKind::AddrOf(FunctionPlace {
+                        span,
+                        ty,
+                        base: FunctionPlaceBase::Local(LocalId(0)),
+                        elems: Vec::new(),
+                    }),
+                }),
+                is_let: true,
+            }),
+            FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("1".to_string()),
+                },
+                span,
+            },
+            FunctionOp::Expr(FunctionExpr {
+                span,
+                ty,
+                kind: FunctionExprKind::Call {
+                    callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                        module_id: test_module_id(),
+                        def_id: nia_ids::DefId(0),
+                    }),
+                    args: vec![FunctionExpr {
+                        span,
+                        ty: pointer_ty,
+                        kind: FunctionExprKind::Local(LocalId(1)),
+                    }],
+                },
+            }),
+            FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("2".to_string()),
+                },
+                span,
+            },
+        ],
+        terminator: FunctionTerminator::Return { value: None, span },
+    }]);
+    body.locals = vec![
+        nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: local_name("target"),
+            kind: FunctionLocalKind::MutableBinding,
+            ty,
+            span,
+        },
+        nia_function_ir::FunctionLocal {
+            id: LocalId(1),
+            name: local_name("pointer"),
+            kind: FunctionLocalKind::ImmutableBinding,
+            ty: pointer_ty,
+            span,
+        },
+    ];
+
+    assert!(!remove_overwritten_local_stores(&mut body));
+    assert_eq!(
+        body.blocks[0]
+            .ops
+            .iter()
+            .filter(|op| matches!(
+                op,
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+    validate_function_body(&body).expect("address-observable stores should remain valid");
 }
