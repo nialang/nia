@@ -158,6 +158,12 @@ pub struct NodeId {
 }
 
 #[derive(Debug, Clone)]
+/// Session-local allocator for compact node handles.
+///
+/// Indices are monotonic and never reused, so retiring a source revision makes
+/// store-level lookups stale without allowing an old [`NodeId`] to alias a
+/// node allocated later in the same store. Products such as [`NodeMap`] retain
+/// their revision owner and can therefore outlive store-level retirement.
 pub struct NodeStore {
     id: NodeStoreId,
     core: Arc<Mutex<NodeStoreCore>>,
@@ -401,10 +407,13 @@ impl NodeRevisionSet {
     }
 
     fn insert(&mut self, revision: Arc<NodeRevision>) {
+        // A product chooses one generation for each source revision. A store
+        // may reacquire the same SourceVersion after retirement, but mixing
+        // both generations would give one VersionedNodeKey two NodeIds.
         if !self
             .revisions
             .iter()
-            .any(|existing| Arc::ptr_eq(existing, &revision))
+            .any(|existing| existing.version == revision.version)
         {
             self.revisions.push(revision);
         }
@@ -431,6 +440,12 @@ impl NodeRevisionSet {
 }
 
 #[derive(Debug, Clone)]
+/// A locator-keyed semantic table backed by compact session-local handles.
+///
+/// Equality and merge behavior are defined by [`VersionedNodeKey`], not by the
+/// backing [`NodeId`]. This distinction matters after a revision is retired:
+/// an already-published map retains the old generation while later products
+/// may intern the same locator under a new generation.
 pub struct NodeMap<V> {
     store: NodeStore,
     revisions: NodeRevisionSet,
@@ -456,9 +471,6 @@ impl<V> Default for NodeMap<V> {
 
 impl<V: PartialEq> PartialEq for NodeMap<V> {
     fn eq(&self, other: &Self) -> bool {
-        if self.store.id == other.store.id {
-            return self.nodes == other.nodes;
-        }
         self.nodes.len() == other.nodes.len()
             && self.nodes.iter().all(|(node_id, value)| {
                 self.revisions
@@ -604,8 +616,19 @@ impl<V> NodeMapBuilder<V> {
 
     pub fn extend_map(&mut self, nodes: NodeMap<V>) {
         if self.append.store.id == nodes.store.id {
-            self.append.revisions.extend(nodes.revisions);
-            self.nodes.extend(nodes.nodes);
+            let NodeMap {
+                revisions, nodes, ..
+            } = nodes;
+            // Retained and reacquired generations can coexist in the store.
+            // Select the target's generation before interning source entries,
+            // so a logical locator occurs once and source values still win.
+            self.append.revisions.extend(revisions.clone());
+            for (node_id, value) in nodes {
+                let locator = revisions
+                    .locator(node_id.index)
+                    .expect("node map id belongs to its node store");
+                self.nodes.insert(self.append.intern(locator), value);
+            }
         } else {
             self.extend(nodes.into_entries());
         }
@@ -681,9 +704,6 @@ impl Default for NodeOriginTable {
 
 impl PartialEq for NodeOriginTable {
     fn eq(&self, other: &Self) -> bool {
-        if self.store.id == other.store.id {
-            return self.nodes == other.nodes;
-        }
         self.nodes.len() == other.nodes.len()
             && self.nodes.iter().all(|(origin, node_id)| {
                 other.nodes.get(origin).is_some_and(|other_id| {
@@ -1091,6 +1111,62 @@ mod tests {
 
         assert_ne!(first_store.id(), second_store.id());
         assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn retained_and_reacquired_generations_compare_by_locator() {
+        let version = SourceVersion {
+            id: SourceId(9),
+            revision: SourceRevision(3),
+        };
+        let span = Span::new(1, 4);
+        let locator = VersionedNodeKey::span(version, SyntaxKind::Expr, span);
+        let store = NodeStore::new();
+
+        let mut old_map = NodeMap::builder(&store);
+        old_map.insert(locator.clone(), 7);
+        let old_map = old_map.finish();
+        let mut old_origins = NodeOriginTable::builder(&store);
+        let old_id = old_origins.insert(SyntaxKind::Expr, span, locator.clone());
+        let old_origins = old_origins.finish();
+
+        assert_eq!(store.retire_revision(version), 1);
+
+        let mut new_map = NodeMap::builder(&store);
+        new_map.insert(locator.clone(), 7);
+        let new_map = new_map.finish();
+        let mut new_origins = NodeOriginTable::builder(&store);
+        let new_id = new_origins.insert(SyntaxKind::Expr, span, locator);
+        let new_origins = new_origins.finish();
+
+        assert_ne!(old_id, new_id);
+        assert_eq!(old_map, new_map);
+        assert_eq!(old_origins, new_origins);
+    }
+
+    #[test]
+    fn same_store_merge_coalesces_reacquired_locator_generations() {
+        let version = SourceVersion {
+            id: SourceId(10),
+            revision: SourceRevision(4),
+        };
+        let locator = VersionedNodeKey::span(version, SyntaxKind::Type, Span::new(2, 6));
+        let store = NodeStore::new();
+        let mut old = NodeMap::builder(&store);
+        old.insert(locator.clone(), 1);
+        let old = old.finish();
+
+        assert_eq!(store.retire_revision(version), 1);
+        let mut reacquired = NodeMap::builder(&store);
+        reacquired.insert(locator.clone(), 2);
+
+        let mut merged = old.into_builder();
+        merged.extend_map(reacquired.finish());
+        let merged = merged.finish();
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged.get(&locator), Some(&2));
+        assert_eq!(merged.keys().collect::<Vec<_>>(), vec![locator]);
     }
 
     #[test]
