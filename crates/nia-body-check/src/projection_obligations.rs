@@ -1740,8 +1740,14 @@ impl<'a> BodyChecker<'a> {
         left: &TraitObligation,
         right: &TraitObligation,
     ) -> bool {
+        // Obligation deduplication is semantic, not merely a trait-id cache:
+        // const arguments and associated-type bindings are part of the goal.
+        // Dropping either here can make a later projection appear proven under
+        // a weaker, unrelated bound.
         left.trait_id == right.trait_id
             && left.trait_args.len() == right.trait_args.len()
+            && self.const_generic_arg_slices_match(&left.trait_const_args, &right.trait_const_args)
+            && left.associated_type_bindings.len() == right.associated_type_bindings.len()
             && self.types_equivalent_without_projection_resolution(left.self_ty, right.self_ty)
             && left
                 .trait_args
@@ -1749,6 +1755,14 @@ impl<'a> BodyChecker<'a> {
                 .zip(&right.trait_args)
                 .all(|(left, right)| {
                     self.types_equivalent_without_projection_resolution(*left, *right)
+                })
+            && left
+                .associated_type_bindings
+                .iter()
+                .zip(&right.associated_type_bindings)
+                .all(|(left, right)| {
+                    left.name == right.name
+                        && self.types_equivalent_without_projection_resolution(left.ty, right.ty)
                 })
     }
 
