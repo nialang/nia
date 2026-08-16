@@ -347,6 +347,9 @@ commit as the corresponding implementation batch.
       product transaction: recovery `StaticInit::Zero` values are discarded
       from Full, FactsOnly, and StaticInitOnly Body IR paths, with a reachable
       rejected-initializer regression test and an explicit IR invariant.
+- [x] Phase E caller-supplied syntax token streams normalize a terminal EOF's
+      span to the actual source boundary, preserving root/cursor offsets even
+      when external lexers provide a stale EOF location.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
