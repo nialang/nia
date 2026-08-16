@@ -15,6 +15,7 @@ nia-ty.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true
+nia-symbol.workspace = true
 nia-type-lower.workspace = true
 nia-type-resolve.workspace = true
 

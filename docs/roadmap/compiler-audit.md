@@ -388,6 +388,10 @@ commit as the corresponding implementation batch.
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both
       failure modes.
+- [x] Phase B extern ABI checking recursively validates fields of imported
+      extern structs, closing the cross-module path that previously accepted a
+      nominally extern aggregate without checking nested bool/Nia-only types;
+      an imported-struct regression test covers the boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
