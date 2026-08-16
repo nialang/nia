@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 mod substitution;
 
-pub use substitution::substitute_ty;
+pub use substitution::{array_len_from_const_arg, substitute_ty};
 
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
 
@@ -1190,6 +1190,38 @@ mod tests {
                 params: vec![i32_ty],
                 return_type: i32_ty,
             })
+        );
+    }
+
+    #[test]
+    fn array_length_substitution_rejects_negative_signed_values() {
+        let store = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let usize_ty = store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Usize);
+        let argument = |value| ConstGenericArg {
+            ty: usize_ty,
+            value,
+        };
+
+        assert_eq!(
+            array_len_from_const_arg(&argument(ConstGenericValue::Int(IntConst::signed(-1)))),
+            None
+        );
+        assert_eq!(
+            array_len_from_const_arg(&argument(ConstGenericValue::Int(IntConst::signed(3)))),
+            Some(ArrayLenTy::ConstValue(3))
+        );
+        assert_eq!(
+            array_len_from_const_arg(&argument(ConstGenericValue::Int(IntConst::unsigned(3)))),
+            Some(ArrayLenTy::ConstValue(3))
+        );
+        assert_eq!(
+            array_len_from_const_arg(&argument(ConstGenericValue::Int(IntConst::unsigned(
+                u128::from(u64::MAX) + 1,
+            )))),
+            None
         );
     }
 

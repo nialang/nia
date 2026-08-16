@@ -193,9 +193,24 @@ pub fn substitute_ty(
     }
 }
 
-fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
+/// Convert a checked const argument into the array-length representation.
+///
+/// Array lengths are non-negative `u64` values. In particular, a signed
+/// `IntConst` must be checked as a signed value before reading its raw bits;
+/// otherwise `-1` would become a huge positive length through two's-complement
+/// reinterpretation. Type checking normally rejects that argument earlier,
+/// but substitution is a persistence/codegen boundary and must remain safe on
+/// malformed or stale inputs too.
+pub fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
     match &arg.value {
-        ConstGenericValue::Int(value) => value.bits().try_into().ok().map(ArrayLenTy::ConstValue),
+        ConstGenericValue::Int(value) => {
+            let value = if value.is_signed() {
+                u128::try_from(value.as_i128()?).ok()?
+            } else {
+                value.bits()
+            };
+            value.try_into().ok().map(ArrayLenTy::ConstValue)
+        }
         ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
         ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
         ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,

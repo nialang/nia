@@ -40,21 +40,6 @@ pub(crate) struct FunctionBodyInstantiation<'a> {
     pub(crate) const_substitutions: &'a SymbolMap<nia_ty::ConstGenericArg>,
 }
 
-fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::ArrayLenTy> {
-    match &arg.value {
-        nia_ty::ConstGenericValue::Int(value) => value
-            .bits()
-            .try_into()
-            .ok()
-            .map(nia_ty::ArrayLenTy::ConstValue),
-        nia_ty::ConstGenericValue::GenericParam(name) => {
-            Some(nia_ty::ArrayLenTy::GenericParam(*name))
-        }
-        nia_ty::ConstGenericValue::ConstExpr(id) => Some(nia_ty::ArrayLenTy::ConstExpr(*id)),
-        nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,
-    }
-}
-
 impl<'a> ModuleLowerer<'a> {
     fn normalized_program_type_for_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
         if matches!(self.ty_kind(ty), Some(TyKind::Error)) {
@@ -1313,7 +1298,7 @@ impl<'a> ModuleLowerer<'a> {
         match len {
             nia_ty::ArrayLenTy::GenericParam(name) => self
                 .const_substitution(substitutions, &name)
-                .and_then(|arg| array_len_from_const_arg(&arg))
+                .and_then(|arg| nia_ty::array_len_from_const_arg(&arg))
                 .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
             len => len,
         }
