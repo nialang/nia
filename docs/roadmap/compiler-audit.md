@@ -317,6 +317,9 @@ commit as the corresponding implementation batch.
 - [x] Loader frontend-cache publication now enforces its read-side size bound
       and only treats `AlreadyExists` as a benign concurrent-writer outcome;
       permission, I/O, and other rename failures remain visible to callers.
+- [x] Phase E syntax trees normalize caller-supplied token streams to one
+      terminal EOF, discard unreachable post-EOF tokens, and make arbitrary
+      cursor lookahead overflow-safe; syntax and parser owner suites pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

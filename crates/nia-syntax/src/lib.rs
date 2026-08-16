@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Lossless token trees and revision-aware incremental reparsing.
+//!
+//! Every tree owns a terminal EOF token, including trees reconstructed from a
+//! caller-provided token stream. This keeps cursors total at end-of-input while
+//! delimiter nodes preserve trivia and malformed source for parser recovery.
+
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_node_id::{NodeChildPath, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
 use nia_source::SourceVersion;
@@ -141,7 +147,9 @@ impl SyntaxTokenCursor {
     }
 
     pub fn nth(&self, offset: usize) -> Option<&SyntaxToken> {
-        self.tokens.get(self.pos + offset)
+        self.pos
+            .checked_add(offset)
+            .and_then(|index| self.tokens.get(index))
     }
 
     pub fn nth_kind(&self, offset: usize) -> Option<&TokenKind> {
@@ -204,8 +212,23 @@ impl SyntaxTree {
     pub fn from_lossless_tokens(
         source: &str,
         version: Option<SourceVersion>,
-        tokens: Vec<LosslessToken>,
+        mut tokens: Vec<LosslessToken>,
     ) -> Self {
+        // This constructor is public for clients that already lexed a source.
+        // Normalize the stream boundary so malformed/custom input cannot make
+        // `SyntaxTokenCursor::peek` index an empty vector or expose tokens after
+        // the first EOF marker.
+        if let Some(eof) = tokens
+            .iter()
+            .position(|token| matches!(token.kind, LosslessTokenKind::Token(TokenKind::Eof)))
+        {
+            tokens.truncate(eof + 1);
+        } else {
+            tokens.push(LosslessToken {
+                kind: LosslessTokenKind::Token(TokenKind::Eof),
+                span: Span::new(source.len(), source.len()),
+            });
+        }
         let root = build_green_root(source, tokens);
         Self {
             source: source.to_string(),
@@ -789,6 +812,28 @@ mod tests {
             Some(TokenKind::Ident)
         );
         assert!(cursor.token_at_or_after(tree.full_text().len()).is_none());
+        assert!(cursor.nth(usize::MAX).is_none());
+    }
+
+    #[test]
+    fn caller_supplied_token_stream_is_normalized_to_one_terminal_eof() {
+        let tree = SyntaxTree::from_lossless_tokens("", None, Vec::new());
+        let cursor = SyntaxTokenCursor::new(&tree);
+        assert_eq!(cursor.tokens().len(), 1);
+        assert_eq!(cursor.peek().kind, TokenKind::Eof);
+
+        let tokens = vec![
+            LosslessToken {
+                kind: LosslessTokenKind::Token(TokenKind::Eof),
+                span: Span::new(0, 0),
+            },
+            LosslessToken {
+                kind: LosslessTokenKind::Token(TokenKind::Ident),
+                span: Span::new(0, 0),
+            },
+        ];
+        let tree = SyntaxTree::from_lossless_tokens("", None, tokens);
+        assert_eq!(SyntaxTokenCursor::new(&tree).tokens().len(), 1);
     }
 
     #[test]
