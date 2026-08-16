@@ -358,6 +358,10 @@ commit as the corresponding implementation batch.
       the empty-matrix witness shortcut, so uninhabited domains and invalid
       scalar/constructor combinations cannot be silently accepted; stable
       witness shape is preserved and matrix boundary tests cover the contract.
+- [x] Phase C empty-matrix pattern validation now terminates on recursive type
+      domains using an inductive type-path guard; cycle-only constructors remain
+      uninhabited while finite-base recursive domains remain accepted, with
+      independent-column regression coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

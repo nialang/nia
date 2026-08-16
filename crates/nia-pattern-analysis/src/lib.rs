@@ -268,7 +268,7 @@ pub fn useful_witness<T, C, F>(
     mut domain: F,
 ) -> Result<Option<Vec<Pattern<C>>>, AnalysisError>
 where
-    T: Clone,
+    T: Clone + Eq,
     C: Clone + Eq,
     F: FnMut(&T) -> Domain<T, C>,
 {
@@ -287,7 +287,7 @@ pub fn missing_witness<T, C, F>(
     domain: F,
 ) -> Result<Option<Pattern<C>>, AnalysisError>
 where
-    T: Clone,
+    T: Clone + Eq,
     C: Clone + Eq,
     F: FnMut(&T) -> Domain<T, C>,
 {
@@ -322,7 +322,7 @@ fn useful_inner<T, C, F>(
     domain: &mut F,
 ) -> Result<Option<Vec<Pattern<C>>>, AnalysisError>
 where
-    T: Clone,
+    T: Clone + Eq,
     C: Clone + Eq,
     F: FnMut(&T) -> Domain<T, C>,
 {
@@ -411,61 +411,95 @@ where
 /// which is useful for stable diagnostics, but it also skipped constructor and
 /// scalar-domain validation. This pass preserves the witness shape while
 /// checking that the queried product has at least one inhabitant.
+//
+// The recursive helper uses a type-path guard. Inhabitation is an inductive
+// property: a recursive constructor with no finite base case (for example
+// `Loop(Loop)`) has no value. Treating an active type as false both terminates
+// recursive domains and avoids manufacturing a witness for such a type. A
+// sibling constructor can still establish inhabitation, as in `List::Nil`.
 fn validate_empty_query<T, C, F>(
     query: &[Pattern<C>],
     types: &[T],
     domain: &mut F,
 ) -> Result<bool, AnalysisError>
 where
-    T: Clone,
+    T: Clone + Eq,
+    C: Clone + Eq,
+    F: FnMut(&T) -> Domain<T, C>,
+{
+    validate_empty_query_inner(query, types, domain, &mut Vec::new())
+}
+
+fn validate_empty_query_inner<T, C, F>(
+    query: &[Pattern<C>],
+    types: &[T],
+    domain: &mut F,
+    active_types: &mut Vec<T>,
+) -> Result<bool, AnalysisError>
+where
+    T: Clone + Eq,
     C: Clone + Eq,
     F: FnMut(&T) -> Domain<T, C>,
 {
     if query.is_empty() {
         return Ok(true);
     }
-    let head_domain = domain(&types[0]);
-    let tail = &query[1..];
-    let tail_types = &types[1..];
-    match &query[0] {
-        Pattern::Wildcard => match head_domain {
-            Domain::Finite(constructors) => {
-                for constructor in constructors {
-                    let mut next = vec![Pattern::Wildcard; constructor.fields.len()];
-                    next.extend_from_slice(tail);
-                    if validate_empty_query(&next, &constructor.fields, domain)? {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-            Domain::Open(_) | Domain::Opaque => validate_empty_query(tail, tail_types, domain),
-            Domain::Scalar { min, max, .. } if min <= max => {
-                validate_empty_query(tail, tail_types, domain)
-            }
-            Domain::Scalar { .. } => Ok(false),
-        },
+    let current_ty = &types[0];
+    if active_types.iter().any(|ty| ty == current_ty) {
+        return Ok(false);
+    }
+    active_types.push(current_ty.clone());
+    let head_domain = domain(current_ty);
+    let head_result = match &query[0] {
+        Pattern::Wildcard | Pattern::Opaque => {
+            validate_wildcard_head(&head_domain, domain, active_types)?
+        }
         Pattern::Constructor { id, fields } => {
             let constructor = find_constructor(&head_domain, id)?;
             check_arity(fields.len(), constructor.fields.len())?;
-            let mut next = fields.clone();
-            next.extend_from_slice(tail);
-            let mut next_types = constructor.fields.clone();
-            next_types.extend_from_slice(tail_types);
-            validate_empty_query(&next, &next_types, domain)
+            validate_empty_query_inner(fields, &constructor.fields, domain, active_types)?
         }
         Pattern::ScalarRange { start, end } => {
             let Domain::Scalar { min, max, .. } = head_domain else {
                 return Err(AnalysisError::ScalarPatternOutsideScalarDomain);
             };
-            Ok(clip_range(*start, *end, min, max).is_some()
-                && validate_empty_query(tail, tail_types, domain)?)
+            clip_range(*start, *end, min, max).is_some()
         }
-        Pattern::Opaque => {
-            let mut wildcard = vec![Pattern::Wildcard];
-            wildcard.extend_from_slice(tail);
-            validate_empty_query(&wildcard, types, domain)
+    };
+    active_types.pop();
+    if !head_result {
+        return Ok(false);
+    }
+    validate_empty_query_inner(&query[1..], &types[1..], domain, active_types)
+}
+
+fn validate_wildcard_head<T, C, F>(
+    head_domain: &Domain<T, C>,
+    domain: &mut F,
+    active_types: &mut Vec<T>,
+) -> Result<bool, AnalysisError>
+where
+    T: Clone + Eq,
+    C: Clone + Eq,
+    F: FnMut(&T) -> Domain<T, C>,
+{
+    match head_domain {
+        Domain::Finite(constructors) => {
+            for constructor in constructors {
+                let wildcard_fields = vec![Pattern::Wildcard; constructor.fields.len()];
+                if validate_empty_query_inner(
+                    &wildcard_fields,
+                    &constructor.fields,
+                    domain,
+                    active_types,
+                )? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
         }
+        Domain::Open(_) | Domain::Opaque => Ok(true),
+        Domain::Scalar { min, max, .. } => Ok(min <= max),
     }
 }
 
@@ -477,7 +511,7 @@ fn useful_wildcard<T, C, F>(
     domain: &mut F,
 ) -> Result<Option<Vec<Pattern<C>>>, AnalysisError>
 where
-    T: Clone,
+    T: Clone + Eq,
     C: Clone + Eq,
     F: FnMut(&T) -> Domain<T, C>,
 {
@@ -674,6 +708,8 @@ mod tests {
         OptionBool,
         Open,
         Opaque,
+        RecursiveLoop,
+        RecursiveList,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -682,6 +718,9 @@ mod tests {
         None,
         Some,
         A,
+        Loop,
+        Nil,
+        Cons,
     }
 
     fn domain(ty: &Ty) -> Domain<Ty, Ctor> {
@@ -715,6 +754,20 @@ mod tests {
                 fields: Vec::new(),
             }]),
             Ty::Opaque => Domain::Opaque,
+            Ty::RecursiveLoop => Domain::Finite(vec![Constructor {
+                id: Ctor::Loop,
+                fields: vec![Ty::RecursiveLoop],
+            }]),
+            Ty::RecursiveList => Domain::Finite(vec![
+                Constructor {
+                    id: Ctor::Nil,
+                    fields: Vec::new(),
+                },
+                Constructor {
+                    id: Ctor::Cons,
+                    fields: vec![Ty::RecursiveList],
+                },
+            ]),
         }
     }
 
@@ -879,6 +932,32 @@ mod tests {
                 domain,
             ),
             Err(AnalysisError::ScalarPatternOutsideScalarDomain)
+        );
+    }
+
+    #[test]
+    fn validates_recursive_domains_with_a_finite_type_path() {
+        assert_eq!(
+            missing_witness(&[], Ty::RecursiveLoop, domain),
+            Ok(None),
+            "a recursive constructor without a base case is uninhabited"
+        );
+        assert_eq!(
+            missing_witness(&[], Ty::RecursiveList, domain),
+            Ok(Some(Pattern::Wildcard))
+        );
+    }
+
+    #[test]
+    fn validation_does_not_confuse_independent_columns_with_recursion() {
+        assert_eq!(
+            useful_witness(
+                &[],
+                &[Pattern::Wildcard, Pattern::Wildcard],
+                &[Ty::Bool, Ty::Bool],
+                domain,
+            ),
+            Ok(Some(vec![Pattern::Wildcard, Pattern::Wildcard]))
         );
     }
 }
