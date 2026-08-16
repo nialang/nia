@@ -699,6 +699,7 @@ fn staged_path(path: &Path) -> PathBuf {
 }
 
 fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> {
+    validate_cache_entry_size(encoded.len())?;
     let result = (|| {
         let mut file = OpenOptions::new()
             .write(true)
@@ -709,7 +710,10 @@ fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> 
         drop(file);
         match fs::rename(staged, path) {
             Ok(()) => Ok(()),
-            Err(_) if path.is_file() => Ok(()),
+            // A concurrent publisher may have won the race on platforms where
+            // rename refuses to replace an existing file. Any other error is
+            // real publication failure and must remain observable.
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_file() => Ok(()),
             Err(error) => Err(error),
         }
     })();
@@ -717,6 +721,16 @@ fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> 
         let _ = fs::remove_file(staged);
     }
     result
+}
+
+fn validate_cache_entry_size(len: usize) -> io::Result<()> {
+    if len > MAX_CACHE_ENTRY_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "frontend cache entry exceeds its size limit",
+        ));
+    }
+    Ok(())
 }
 
 fn encode_dependency_manifest(
@@ -1743,4 +1757,17 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
     let mut bytes = [0; 8];
     cursor.read_exact(&mut bytes).ok()?;
     Some(u64::from_le_bytes(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_entry_size_limit_is_shared_by_all_publishers() {
+        validate_cache_entry_size(MAX_CACHE_ENTRY_BYTES).expect("limit itself is valid");
+        let error =
+            validate_cache_entry_size(MAX_CACHE_ENTRY_BYTES + 1).expect_err("oversized entry");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 }
