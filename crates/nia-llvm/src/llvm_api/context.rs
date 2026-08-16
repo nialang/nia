@@ -10,10 +10,11 @@ use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMConstStringInContext2, LLVMContextCreate,
     LLVMContextDispose, LLVMCreateBuilderInContext, LLVMCreateEnumAttribute,
     LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMCreateStringAttribute, LLVMDisposeMemoryBuffer,
-    LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm, LLVMInt1TypeInContext,
-    LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
-    LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext,
-    LLVMStructCreateNamed, LLVMStructTypeInContext, LLVMVoidTypeInContext,
+    LLVMDisposeModule, LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm,
+    LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext,
+    LLVMInt64TypeInContext, LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext,
+    LLVMPointerTypeInContext, LLVMStructCreateNamed, LLVMStructTypeInContext,
+    LLVMVoidTypeInContext,
 };
 use llvm_sys::prelude::LLVMContextRef;
 
@@ -79,6 +80,12 @@ impl Context {
         let failed = unsafe { LLVMParseBitcodeInContext2(self.raw, buffer, &mut raw_module) } != 0;
         unsafe { LLVMDisposeMemoryBuffer(buffer) };
         if failed || raw_module.is_null() {
+            // LLVM normally leaves `raw_module` null on failure. Dispose a
+            // partially produced module as well so a backend/FFI change cannot
+            // turn a parse error into a leaked LLVM context allocation.
+            if !raw_module.is_null() {
+                unsafe { LLVMDisposeModule(raw_module) };
+            }
             return Err(LlvmError::error(
                 "LLVM failed to parse a serialized bitcode module",
             ));

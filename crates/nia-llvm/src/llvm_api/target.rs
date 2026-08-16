@@ -126,9 +126,8 @@ impl TargetMachine {
             LLVMDisposeTargetData(target_data);
         }
         let triple = unsafe { llvm_sys::target_machine::LLVMGetTargetMachineTriple(self.raw) };
-        if let Ok(triple) = llvm_owned_string(triple) {
-            module.set_triple(&triple)?;
-        }
+        let triple = llvm_owned_string(triple)?;
+        module.set_triple(&triple)?;
         Ok(())
     }
 
@@ -145,6 +144,9 @@ impl TargetMachine {
             )
         } != 0;
         if failed {
+            if !buffer.is_null() {
+                unsafe { LLVMDisposeMemoryBuffer(buffer) };
+            }
             return Err(LlvmError::error(take_llvm_message(
                 message,
                 "LLVM failed to emit object file",
