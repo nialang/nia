@@ -249,7 +249,7 @@ impl AbiChecker<'_> {
         span: Span,
         ty: nia_ids::InternedTyId,
         context: ExternTyContext,
-        alias_stack: &mut Vec<GlobalDefId>,
+        nominal_stack: &mut Vec<GlobalDefId>,
     ) {
         if matches!(
             context,
@@ -350,7 +350,7 @@ impl AbiChecker<'_> {
                         span,
                         *param,
                         ExternTyContext::FunctionPointerParameter,
-                        alias_stack,
+                        nominal_stack,
                     );
                 }
                 if !self.is_unit(*return_type) {
@@ -358,7 +358,7 @@ impl AbiChecker<'_> {
                         span,
                         *return_type,
                         ExternTyContext::FunctionPointerReturn,
-                        alias_stack,
+                        nominal_stack,
                     );
                 }
             }
@@ -375,7 +375,7 @@ impl AbiChecker<'_> {
                         span,
                         *elem,
                         ExternTyContext::StructField,
-                        alias_stack,
+                        nominal_stack,
                     );
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -411,7 +411,7 @@ impl AbiChecker<'_> {
                 const_args,
             }) => {
                 if let Some(alias) = self.type_alias_signature(*def_id).cloned() {
-                    if alias_stack.contains(def_id) {
+                    if nominal_stack.contains(def_id) {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::STATIC_CHECK,
                             span,
@@ -445,9 +445,9 @@ impl AbiChecker<'_> {
                         &|_| None,
                         None,
                     );
-                    alias_stack.push(*def_id);
-                    self.check_extern_ty_inner(span, target, context, alias_stack);
-                    alias_stack.pop();
+                    nominal_stack.push(*def_id);
+                    self.check_extern_ty_inner(span, target, context, nominal_stack);
+                    nominal_stack.pop();
                     return;
                 }
                 if self.is_enum_def(*def_id) {
@@ -480,6 +480,29 @@ impl AbiChecker<'_> {
                             span,
                             format!("{context_desc} cannot use normal Nia struct by value"),
                         ));
+                    } else if def_id.module_id != self.defs.module_id
+                        && !nominal_stack.contains(def_id)
+                    {
+                        // Local extern structs are checked by `check`, but an
+                        // imported signature has no local declaration pass.
+                        // Walk its fields here so a foreign `extern struct`
+                        // cannot smuggle bools, Nia aggregates, or other
+                        // forbidden representations through one nominal value.
+                        nominal_stack.push(*def_id);
+                        let fields = signature
+                            .fields
+                            .iter()
+                            .map(|field| (field.span, field.ty))
+                            .collect::<Vec<_>>();
+                        for (field_span, field_ty) in fields {
+                            self.check_extern_ty_inner(
+                                field_span,
+                                field_ty,
+                                ExternTyContext::StructField,
+                                nominal_stack,
+                            );
+                        }
+                        nominal_stack.pop();
                     }
                 } else if !self.is_union_def(*def_id) && !self.is_enum_def(*def_id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
@@ -577,8 +600,12 @@ mod tests {
     use super::*;
     use nia_defs::collect_module_defs;
     use nia_ids::ModuleIdAllocator;
-    use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
+    use nia_item_signatures::{
+        FieldSignature, ItemSignatureInput, ItemSignatureSource, ParamSignature,
+        collect_item_signatures,
+    };
     use nia_parser::parse_module;
+    use nia_symbol::{SymbolId, stable_hash};
     use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types;
 
@@ -681,6 +708,110 @@ extern fn consume(header: Header);
         });
         let checked = check_module_abi(&defs, &type_store, &signatures);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn checks_fields_of_imported_extern_structs() {
+        let (module, errors) = parse_module("extern fn consume(value: Imported);");
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let foreign_module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let imported_ty = append.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: foreign_module_id,
+                def_id: DefId(0),
+            },
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let mut signatures = ItemSignatures {
+            functions: HashMap::new(),
+            structs: HashMap::new(),
+            unions: HashMap::new(),
+            traits: HashMap::new(),
+            trait_impls: Vec::new(),
+            enums: HashMap::new(),
+            type_aliases: HashMap::new(),
+            globals: HashMap::new(),
+            consts: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        signatures.functions.insert(
+            DefId(0),
+            FunctionSignature {
+                name: SymbolId::from_stable_hash(stable_hash("consume")),
+                generics: Vec::new(),
+                generic_params: Vec::new(),
+                where_predicates: Vec::new(),
+                params: vec![ParamSignature {
+                    name: None,
+                    receiver: None,
+                    ty: imported_ty,
+                    span: Span::default(),
+                }],
+                return_type: append.intern(TyKind::Tuple(Vec::new())),
+                is_extern: true,
+                is_const: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                has_body: false,
+                span: Span::default(),
+            },
+        );
+        let mut foreign_structs = HashMap::new();
+        foreign_structs.insert(
+            GlobalDefId {
+                module_id: foreign_module_id,
+                def_id: DefId(0),
+            },
+            StructSignature {
+                generics: Vec::new(),
+                generic_params: Vec::new(),
+                where_predicates: Vec::new(),
+                fields: vec![FieldSignature {
+                    def_id: DefId(0),
+                    name: SymbolId::from_stable_hash(stable_hash("flag")),
+                    ty: append.primitive(PrimitiveTy::Bool),
+                    span: Span::default(),
+                }],
+                is_tuple: false,
+                is_extern: true,
+                span: Span::default(),
+            },
+        );
+        let empty_unions = HashMap::new();
+        let empty_enums = HashMap::new();
+        let empty_aliases = HashMap::new();
+        let checked = check_module_abi_families_with_program_signatures(
+            &defs,
+            &type_store,
+            ModuleAbiSignatures {
+                functions: &signatures.functions,
+                structs: &signatures.structs,
+                unions: &signatures.unions,
+                enums: &signatures.enums,
+                type_aliases: &signatures.type_aliases,
+                globals: &signatures.globals,
+            },
+            ProgramAbiSignatures {
+                structs: &foreign_structs,
+                unions: &empty_unions,
+                enums: &empty_enums,
+                type_aliases: &empty_aliases,
+            },
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("`bool`")),
+            "{:?}",
+            checked.diagnostics
+        );
     }
 
     #[test]

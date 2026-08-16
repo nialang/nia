@@ -130,6 +130,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
