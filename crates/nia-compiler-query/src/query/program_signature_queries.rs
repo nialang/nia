@@ -93,6 +93,7 @@ pub(super) struct ModuleAbiSignatureFactsQueryValue {
     pub(super) structs: HashMap<GlobalDefId, StructSignature>,
     pub(super) unions: HashMap<GlobalDefId, UnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+    pub(super) type_aliases: HashMap<GlobalDefId, nia_item_signatures::TypeAliasSignature>,
 }
 
 impl QueryKey<CompilerContext> for ModuleAbiSignatureFactsQuery {
@@ -130,6 +131,7 @@ pub(super) struct ProgramAbiSignaturesValue {
     pub(super) structs: HashMap<GlobalDefId, StructSignature>,
     pub(super) unions: HashMap<GlobalDefId, UnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+    pub(super) type_aliases: HashMap<GlobalDefId, nia_item_signatures::TypeAliasSignature>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
